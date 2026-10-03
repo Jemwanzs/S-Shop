@@ -578,8 +578,8 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
     let mut approved_by = None;
     if let Some(sup) = &b.supervisor {
         let approver = verify_supervisor(&mut tx, &ctx, sup).await?;
-        let allowed = if workflow::needs_approval(&mut tx, ctx.tenant_id, "sale.discount", None).await? {
-            workflow::can_decide(&mut tx, ctx.tenant_id, "sale.discount", Some(branch), Some(ctx.user_id), approver).await?
+        let allowed = if workflow::needs_approval(&mut tx, &ctx, "sale.discount", workflow::Gate::branch(branch)).await? {
+            workflow::can_decide(&mut tx, ctx.tenant_id, "sale.discount", Some(branch), Some(ctx.user_id), workflow::Decider { approver, level: 1, decided_by: &[] }).await?
         } else {
             let perms: Vec<String> = sqlx::query_scalar("SELECT r.permissions FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1")
                 .bind(approver)
@@ -591,7 +591,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             return Err(rule("That supervisor cannot approve discounts"));
         }
         approved_by = Some(approver);
-    } else if workflow::needs_approval(&mut tx, ctx.tenant_id, "sale.discount", None).await? {
+    } else if workflow::needs_approval(&mut tx, &ctx, "sale.discount", workflow::Gate::branch(branch)).await? {
         // With the workflow on, even override holders need a second person for excessive discounts.
         let input = SaleInput {
             branch_id: branch,
@@ -946,7 +946,7 @@ async fn return_items(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
         return Err(rule("This sale has already been fully reversed"));
     }
     let amount = return_amount(&mut tx, &head, id, &b.items).await?;
-    if workflow::needs_approval(&mut tx, ctx.tenant_id, "sale.return", Some(amount)).await? {
+    if workflow::needs_approval(&mut tx, &ctx, "sale.return", workflow::Gate::branch(head.branch_id).amount(amount)).await? {
         let approval = workflow::submit(
             &mut tx,
             &ctx,
@@ -962,7 +962,7 @@ async fn return_items(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
         )
         .await?;
         tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, "sale.return", Some(head.branch_id), approval).await;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
         return Ok(Json(Outcome::pending(approval)));
     }
     let r = execute_return(&mut tx, &ctx, id, &b, "return", None).await?;
@@ -1164,7 +1164,7 @@ async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
     if head.status != "completed" {
         return Err(rule("Only sales without returns can be cancelled — use a return instead"));
     }
-    if workflow::needs_approval(&mut tx, ctx.tenant_id, "sale.cancel", Some(head.total)).await? {
+    if workflow::needs_approval(&mut tx, &ctx, "sale.cancel", workflow::Gate::branch(head.branch_id).amount(head.total)).await? {
         let approval = workflow::submit(
             &mut tx,
             &ctx,
@@ -1180,7 +1180,7 @@ async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
         )
         .await?;
         tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, "sale.cancel", Some(head.branch_id), approval).await;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
         return Ok(Json(Outcome::pending(approval)));
     }
     let lines = all_lines(&mut tx, id).await?;

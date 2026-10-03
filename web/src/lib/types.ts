@@ -331,6 +331,9 @@ export interface Approval {
   comments: string;
   created_at: string;
   can_decide: boolean;
+  level: number;
+  levels: number;
+  decisions: { level: number; user_name: string; decision: "approved" | "rejected"; comments: string; at: string }[];
 }
 
 export interface Notification {

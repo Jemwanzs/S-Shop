@@ -172,7 +172,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
     if !active {
         return Err(bad("That category is no longer in use"));
     }
-    let gated = workflow::needs_approval(&mut tx, ctx.tenant_id, "expense", Some(b.amount)).await?;
+    let gated = workflow::needs_approval(&mut tx, &ctx, "expense", workflow::Gate::branch(branch).amount(b.amount).category(b.category_id)).await?;
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO expenses (tenant_id, branch_id, category_id, amount, expense_date, description, payee, payment_method,
                                attachment, attachment_mime, status, user_id)
@@ -216,7 +216,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
         )
         .await?;
         tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, "expense", Some(branch), approval).await;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
         return Ok(Json(Outcome::pending(approval)));
     }
     tx.commit().await?;

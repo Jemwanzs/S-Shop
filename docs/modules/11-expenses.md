@@ -18,7 +18,8 @@ Expenses are **voided with a reason**, never deleted; only the recorder or an ap
 ## Settings
 Settings → Expenses: categories (add, rename, deactivate; defaults Rent, Utilities, Salaries & Wages, Transport,
 Supplies, Marketing, Repairs, Other), require description, require attachment. Approval rule: Settings → Workflow
-engine → Expense.
+engine → Expense — gate by minimum amount, expense category, branch and/or the requester's role, with one or more
+approval levels (module 15).
 
 ## Permissions
 `expenses.view`, `expenses.create`. Approved expenses feed the dashboard (Expenses, Net performance) and the Expenses

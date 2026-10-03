@@ -291,7 +291,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Produ
     ctx.require("products.create")?;
     let mut tx = state.db.begin().await?;
     validate(&mut tx, &ctx, &mut b, None).await?;
-    let gated = workflow::needs_approval(&mut tx, ctx.tenant_id, "product.create", None).await?;
+    let gated = workflow::needs_approval(&mut tx, &ctx, "product.create", workflow::Gate::default()).await?;
     let desired_active = b.is_active;
 
     let id: Uuid = sqlx::query_scalar(
@@ -343,7 +343,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Produ
         )
         .await?;
         tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, "product.create", None, approval).await;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
         return Ok(Json(Outcome::pending_with(approval, json!({ "id": id, "code": b.code }))));
     }
     tx.commit().await?;
@@ -366,7 +366,7 @@ async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
     // Activation changes go through /status (their own permission and workflow).
     b.is_active = current_active;
 
-    if workflow::needs_approval(&mut tx, ctx.tenant_id, "product.edit", None).await? {
+    if workflow::needs_approval(&mut tx, &ctx, "product.edit", workflow::Gate::default()).await? {
         let approval = workflow::submit(
             &mut tx,
             &ctx,
@@ -382,7 +382,7 @@ async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
         )
         .await?;
         tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, "product.edit", None, approval).await;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
         return Ok(Json(Outcome::pending(approval)));
     }
     apply_update(&mut tx, &ctx, id, &b, None).await?;
@@ -443,7 +443,7 @@ async fn set_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(AppError::NotFound("Product"))?;
-    if !b.is_active && workflow::needs_approval(&mut tx, ctx.tenant_id, "product.deactivate", None).await? {
+    if !b.is_active && workflow::needs_approval(&mut tx, &ctx, "product.deactivate", workflow::Gate::default()).await? {
         let approval = workflow::submit(
             &mut tx,
             &ctx,
@@ -459,7 +459,7 @@ async fn set_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
         )
         .await?;
         tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, "product.deactivate", None, approval).await;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
         return Ok(Json(Outcome::pending(approval)));
     }
     apply_status(&mut tx, &ctx, id, b.is_active, None).await?;

@@ -7,14 +7,20 @@ import type { Money, Settings } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/Page";
 
+export interface WorkflowLevel {
+  approver_type: "admin" | "role" | "user" | "branch_manager";
+  approver_role_id?: string | null;
+  approver_user_id?: string | null;
+}
+
 export interface WorkflowRow {
   action: string;
   label: string;
   uses_amount: boolean;
+  uses_category: boolean;
   enabled: boolean;
-  approver_type: "admin" | "role" | "user" | "branch_manager";
-  approver_role_id: string | null;
-  approver_user_id: string | null;
+  levels: WorkflowLevel[];
+  conditions: { branch_ids?: string[]; role_ids?: string[]; category_ids?: string[] };
   min_amount: Money | null;
 }
 

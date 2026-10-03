@@ -267,13 +267,13 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
     }
     tx.commit().await?;
     if let Some(a) = approval {
-        super::approvals::notify_approvers(&state, &ctx, "stock.transfer", Some(from), a).await;
+        super::approvals::notify_approvers(&state, &ctx, a).await;
     }
     Ok(Json(json!({ "id": id, "transfer_no": transfer_no, "status": status, "approval_id": approval })))
 }
 
 async fn submit_inner(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, from: Uuid, no: &str) -> AppResult<(&'static str, Option<Uuid>)> {
-    if workflow::needs_approval(conn, ctx.tenant_id, "stock.transfer", None).await? {
+    if workflow::needs_approval(conn, ctx, "stock.transfer", workflow::Gate::branch(from)).await? {
         sqlx::query("UPDATE transfers SET status = 'pending_approval' WHERE id = $1").bind(id).execute(&mut *conn).await?;
         let approval = workflow::submit(
             conn,
@@ -312,7 +312,7 @@ async fn submit(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     audit::record(&mut tx, &ctx, Entry::new("transfers", "submit", "transfer", id).branch(t.from_branch_id)).await?;
     tx.commit().await?;
     if let Some(a) = approval {
-        super::approvals::notify_approvers(&state, &ctx, "stock.transfer", Some(t.from_branch_id), a).await;
+        super::approvals::notify_approvers(&state, &ctx, a).await;
     }
     Ok(Json(json!({ "status": status, "approval_id": approval })))
 }

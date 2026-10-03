@@ -29,12 +29,12 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 | 19 | Order management statuses, events, reserved vs sold stock, completion → sale | ✅ | [04-orders](modules/04-orders.md). Configurable stage (Delivered or Completed) at which the order becomes a sale. Status names are configurable and optional steps can be switched off (roadmap 1b). |
 | 20 | My Orders: latest 3, total count, visual progress | ✅ | |
 | 21 | Loyalty points (and value) on the portal | ✅ | Toggles in Settings → Loyalty. |
-| 22 | Expenses with categories, attachments, approvals | ✅ / ◐ | [11-expenses](modules/11-expenses.md). Approval rules are by amount threshold + approver; rules by category/branch/role are ⏳. |
+| 22 | Expenses with categories, attachments, approvals | ✅ | [11-expenses](modules/11-expenses.md). Approval rules by amount threshold, category, branch and requester role (roadmap 2). |
 | 23 | Dashboard: periods, filters, KPIs, product performance, charts | ✅ | [01-dashboard](modules/01-dashboard.md). |
 | 24 | Gold/Silver/Bronze recognition without hard-coded thresholds | ◐ | Customer tiers are fully configurable (name + spend). Award-period winners and dashboard leaderboards (products, staff, customers) use rank-based medals; configurable thresholds for product/staff medals are ⏳. Underlying figures are always shown. |
 | 25 | User / employee performance | ✅ | Dashboard staff panel + User Performance report. |
 | 26 | Reports (23 templates), consistent filters, PDF & Excel | ✅ | [12-reports](modules/12-reports.md). Excel built server-side, PDF in the browser. |
-| 27 | Approval / maker-checker engine, two-stage default, audit | ✅ | [15-approvals](modules/15-approvals.md). Excessive discounts are approved at the counter by supervisor email + PIN. ◐ Multi-level approval chains are ⏳ (single approver stage per action). |
+| 27 | Approval / maker-checker engine, two-stage default, audit | ✅ | [15-approvals](modules/15-approvals.md). Excessive discounts are approved at the counter by supervisor email + PIN. Multi-level chains (up to 5 levels) with a decision trail (roadmap 2). |
 | 28 | Granular roles & permissions, branch restriction | ✅ | [14-users-roles](modules/14-users-roles.md). 9 default roles, 40 permissions. |
 | 29 | Audit trail, no hard deletes of financial/operational records | ✅ | [17-audit-notifications-search](modules/17-audit-notifications-search.md). Reversals, cancellations, voids and deactivation instead of deletes. |
 | 30 | Settings architecture (business, product, sales, stock, order, customer, expense, reports, workflow) | ✅ | [16-settings](modules/16-settings.md). Product fields and order statuses added in roadmap 1. |
@@ -65,7 +65,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 ## Backlog (⏳)
 
 - ~~Custom product fields; configurable order statuses.~~ ✅ done (roadmap 1, 2026-10-03).
-- Multi-level approval chains; expense approval rules by category/branch/role.
+- ~~Multi-level approval chains; expense approval rules by category/branch/role.~~ ✅ done (roadmap 2, 2026-10-03).
 - Threshold-based medals for products and staff.
 - Deposits on credit sales; a combined exchange screen.
 - Offline queueing of sales on the POS (installable PWA).

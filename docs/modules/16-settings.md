@@ -18,7 +18,7 @@ one document with a sticky *Save changes* bar; every save is audited (before/aft
 | | Loyalty & rewards | Earning, referral %, expiry, redemption, tiers, award winners, portal visibility |
 | | Expenses | Required description/attachment, categories |
 | | Reports | Hide cost & profit without financial access |
-| Control | Workflow engine | module 15 |
+| Control | Workflow engine — per action: on/off, 1–5 approval levels, conditions (amount, branch, requester role, expense category) | module 15 |
 | | M-Pesa & WhatsApp | Connection status, webhook URL, WhatsApp message toggles |
 
 Credentials (M-Pesa, WhatsApp, JWT) are environment variables on the server — never stored or shown in Settings.

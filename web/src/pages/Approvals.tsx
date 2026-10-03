@@ -62,9 +62,10 @@ export default function Approvals() {
     qc.invalidateQueries({ queryKey: ["notifications"] });
   };
   const decide = useMutation({
-    mutationFn: () => api(`/approvals/${deciding!.approval.id}/${deciding!.approve ? "approve" : "reject"}`, { body: { comments } }),
-    onSuccess: () => {
-      toast.success(deciding!.approve ? "Approved — action carried out" : "Rejected");
+    mutationFn: () => api<unknown>(`/approvals/${deciding!.approval.id}/${deciding!.approve ? "approve" : "reject"}`, { body: { comments } }),
+    onSuccess: (res) => {
+      const r = res as { status?: string; level?: number; levels?: number };
+      toast.success(!deciding!.approve ? "Rejected" : r.status === "pending" ? `Approved — passed to level ${r.level} of ${r.levels}` : "Approved — action carried out");
       setDeciding(null);
       setComments("");
       refresh();
@@ -95,7 +96,10 @@ export default function Approvals() {
               <div key={a.id} className="surface flex flex-col gap-3 p-4 animate-fade-up">
                 <div className="flex items-start justify-between gap-2">
                   <Pill tone="primary">{ACTION_LABEL[a.action] ?? a.action}</Pill>
-                  <StatusBadge status={a.status} />
+                  <span className="flex items-center gap-1.5">
+                    {a.status === "pending" && a.levels > 1 && <Pill tone="info">Level {a.level} of {a.levels}</Pill>}
+                    <StatusBadge status={a.status} />
+                  </span>
                 </div>
                 <div>
                   <p className="font-medium">{a.summary}</p>
@@ -105,6 +109,15 @@ export default function Approvals() {
                   {a.requested_by_name} · {ago(a.created_at)}{a.branch_name && ` · ${a.branch_name}`}
                   {a.decided_by_name && <><br />{a.status} by {a.decided_by_name} · {dateTime(a.decided_at)}{a.comments && ` — “${a.comments}”`}</>}
                 </p>
+                {a.decisions.length > 0 && (
+                  <ol className="space-y-1 border-l-2 pl-3 text-xs">
+                    {a.decisions.map((d, n) => (
+                      <li key={n} className={d.decision === "approved" ? "text-success" : "text-destructive"}>
+                        Level {d.level} {d.decision} by {d.user_name} · {ago(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
+                      </li>
+                    ))}
+                  </ol>
+                )}
                 <div className="mt-auto flex flex-wrap gap-2">
                   {link && <Button variant="ghost" size="sm" asChild><Link to={link}>View</Link></Button>}
                   {a.can_decide && (

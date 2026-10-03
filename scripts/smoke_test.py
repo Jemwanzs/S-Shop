@@ -161,19 +161,50 @@ call("POST", f"/transfers/{t['id']}/receive", branch=b2)
 dest = call("GET", f"/stock?q=Nduma {suffix}", branch=b2)["items"][0]
 check("received at destination", dest["on_hand"] == 2, dest)
 
-step("Maker-checker: stock write-off needs approval")
+step("Maker-checker (roadmap 2): two-level chain")
 roles = call("GET", "/roles")
 mgr_role = next(r["id"] for r in roles if r["name"] == "Manager")
-call("PUT", "/settings/workflows/stock.write_off", {"enabled": True, "approver_type": "admin"})
-clerk_mail = f"clerk{suffix.lower()}@sshop.test"
-call("POST", "/users", {"name": "Clerk", "email": clerk_mail, "pin": "4321", "role_id": mgr_role, "all_branches": False, "branch_ids": [BRANCH]})
-clerk = call("POST", "/auth/login", {"email": clerk_mail, "pin": "4321"})["token"]
+call("PUT", "/settings/workflows/stock.write_off",
+     {"enabled": True, "levels": [{"approver_type": "role", "approver_role_id": mgr_role}, {"approver_type": "admin"}], "min_amount": None})
+users = {}
+for who in ("clerk", "mgr2"):
+    mail = f"{who}{suffix.lower()}@sshop.test"
+    call("POST", "/users", {"name": who.title(), "email": mail, "pin": "4321", "role_id": mgr_role, "all_branches": False, "branch_ids": [BRANCH]})
+    users[who] = call("POST", "/auth/login", {"email": mail, "pin": "4321"})["token"]
+clerk, mgr2 = users["clerk"], users["mgr2"]
 w = call("POST", "/stock/adjustments", {"product_id": nduma, "kind": "write_off", "quantity": 1, "reason": "Rotten"}, token=clerk)
 check("write-off parked for approval", w["pending_approval"] is True, w)
-call("POST", f"/approvals/{w['approval_id']}/approve", {"comments": "ok"})
-adj = call("GET", "/stock/adjustments?period=today")["items"]
-check("approved write-off applied", any(a["status"] == "applied" and a["kind"] == "write_off" for a in adj))
-call("PUT", "/settings/workflows/stock.write_off", {"enabled": False, "approver_type": "admin"})
+call("POST", f"/approvals/{w['approval_id']}/approve", {"comments": "self"}, token=clerk, expect=403)
+check("requester cannot approve own request", True)
+lvl = call("POST", f"/approvals/{w['approval_id']}/approve", {"comments": "level 1 ok"}, token=mgr2)
+check("level 1 approval passes to level 2", lvl.get("status") == "pending" and lvl.get("level") == 2, lvl)
+pending = next(a for a in call("GET", "/approvals?status=pending")["items"] if a["id"] == w["approval_id"])
+check("request shows level 2 of 2 with decision trail", pending["level"] == 2 and pending["levels"] == 2 and len(pending["decisions"]) == 1, pending)
+call("POST", f"/approvals/{w['approval_id']}/approve", {"comments": "again"}, token=mgr2, expect=403)
+check("same person cannot approve two levels", True)
+def adj_status(): return next(a["status"] for a in call("GET", "/stock/adjustments?period=today")["items"] if a["id"] == pending["entity_id"])
+check("not applied before the last level", adj_status() == "pending", adj_status())
+call("POST", f"/approvals/{w['approval_id']}/approve", {"comments": "final"})
+check("applied after the last level", adj_status() == "applied", adj_status())
+call("PUT", "/settings/workflows/stock.write_off", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+
+step("Maker-checker (roadmap 2): conditional expense rule")
+cats = call("GET", "/expense-categories")
+rent, transport = next(c["id"] for c in cats if c["name"] == "Rent"), next(c["id"] for c in cats if c["name"] == "Transport")
+call("PUT", "/settings/workflows/expense",
+     {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": 1000, "conditions": {"category_ids": [rent]}})
+e1 = call("POST", "/expenses", {"category_id": transport, "amount": 5000, "description": "Fuel"}, token=clerk)
+check("other category is not gated", e1["pending_approval"] is False, e1)
+e2 = call("POST", "/expenses", {"category_id": rent, "amount": 500, "description": "Deposit"}, token=clerk)
+check("below threshold is not gated", e2["pending_approval"] is False, e2)
+e3 = call("POST", "/expenses", {"category_id": rent, "amount": 5000, "description": "Monthly rent"}, token=clerk)
+check("matching category + amount needs approval", e3["pending_approval"] is True, e3)
+call("PUT", "/settings/workflows/expense",
+     {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None, "conditions": {"category_ids": [rent]}}, expect=200)
+call("PUT", "/settings/workflows/stock.add",
+     {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None, "conditions": {"category_ids": [rent]}}, expect=400)
+check("category conditions only allowed for expenses", True)
+call("PUT", "/settings/workflows/expense", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None, "conditions": {}})
 
 step("Ledger integrity: on_hand = Σ movements")
 pos = call("GET", f"/stock/position?period=all&product_id={nduma}&branch_id={BRANCH}")["rows"][0]

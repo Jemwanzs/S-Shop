@@ -272,7 +272,7 @@ async fn write_off(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>
     if !["outstanding", "partially_paid", "overdue"].contains(&row.status.as_str()) {
         return Err(rule("Only open credit can be written off"));
     }
-    if workflow::needs_approval(&mut tx, ctx.tenant_id, "credit.write_off", Some(row.balance)).await? {
+    if workflow::needs_approval(&mut tx, &ctx, "credit.write_off", workflow::Gate::branch(branch).amount(row.balance)).await? {
         let approval = workflow::submit(
             &mut tx,
             &ctx,
@@ -288,7 +288,7 @@ async fn write_off(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>
         )
         .await?;
         tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, "credit.write_off", Some(branch), approval).await;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
         return Ok(Json(Outcome::pending(approval)));
     }
     apply_write_off(&mut tx, &ctx, id, b.reason.trim(), None).await?;

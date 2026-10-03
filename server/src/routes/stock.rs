@@ -262,7 +262,7 @@ async fn receive(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Rece
 
     let unit_value = b.cost_price.or(p.cost_price).unwrap_or(b.marked_price.unwrap_or(p.marked_price));
     let amount = unit_value * Decimal::from(b.quantity);
-    if workflow::needs_approval(&mut tx, ctx.tenant_id, "stock.add", Some(amount)).await? {
+    if workflow::needs_approval(&mut tx, &ctx, "stock.add", workflow::Gate::branch(branch).amount(amount)).await? {
         let approval = workflow::submit(
             &mut tx,
             &ctx,
@@ -278,7 +278,7 @@ async fn receive(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Rece
         )
         .await?;
         tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, "stock.add", Some(branch), approval).await;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
         return Ok(Json(Outcome::pending(approval)));
     }
     let result = execute_receipt(&mut tx, &ctx, &b, None).await?;
@@ -527,10 +527,10 @@ fn movement_kind(adj: &str) -> &'static str {
 async fn create_adjustment(State(state): State<AppState>, ctx: Ctx, Json(b): Json<AdjustBody>) -> AppResult<Json<Outcome<Value>>> {
     let (outcome, branch) = {
         let mut tx = state.db.begin().await?;
-        let (outcome, branch, gated_action) = submit_adjustment(&mut tx, &ctx, b).await?;
+        let (outcome, branch) = submit_adjustment(&mut tx, &ctx, b).await?;
         tx.commit().await?;
-        if let (Some(action), Some(id)) = (gated_action, outcome.approval_id) {
-            super::approvals::notify_approvers(&state, &ctx, action, Some(branch), id).await;
+        if let Some(id) = outcome.approval_id {
+            super::approvals::notify_approvers(&state, &ctx, id).await;
         }
         (outcome, branch)
     };
@@ -539,7 +539,7 @@ async fn create_adjustment(State(state): State<AppState>, ctx: Ctx, Json(b): Jso
 }
 
 /// Records an adjustment and applies it (or parks it for approval).
-async fn submit_adjustment(conn: &mut PgConnection, ctx: &Ctx, b: AdjustBody) -> AppResult<(Outcome<Value>, Uuid, Option<&'static str>)> {
+async fn submit_adjustment(conn: &mut PgConnection, ctx: &Ctx, b: AdjustBody) -> AppResult<(Outcome<Value>, Uuid)> {
     let action = if b.kind == "write_off" { "stock.write_off" } else { "stock.adjust" };
     ctx.require(action)?;
     if b.reason.trim().is_empty() {
@@ -605,7 +605,7 @@ async fn submit_adjustment(conn: &mut PgConnection, ctx: &Ctx, b: AdjustBody) ->
     .fetch_one(&mut *conn)
     .await?;
 
-    if workflow::needs_approval(conn, ctx.tenant_id, action, None).await? {
+    if workflow::needs_approval(conn, ctx, action, workflow::Gate::branch(branch)).await? {
         let approval = workflow::submit(
             conn,
             ctx,
@@ -620,10 +620,10 @@ async fn submit_adjustment(conn: &mut PgConnection, ctx: &Ctx, b: AdjustBody) ->
             },
         )
         .await?;
-        return Ok((Outcome::pending(approval), branch, Some(action)));
+        return Ok((Outcome::pending(approval), branch));
     }
     let result = apply_adjustment(conn, ctx, adj_id, None).await?;
-    Ok((Outcome::done(result), branch, None))
+    Ok((Outcome::done(result), branch))
 }
 
 async fn apply_adjustment(conn: &mut PgConnection, ctx: &Ctx, adj_id: Uuid, approval_id: Option<Uuid>) -> AppResult<Value> {
@@ -726,7 +726,7 @@ async fn stock_count(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Coun
             barcode: None,
             reason: reason.clone(),
         };
-        let (outcome, _, _) = submit_adjustment(&mut tx, &ctx, body).await?;
+        let (outcome, _) = submit_adjustment(&mut tx, &ctx, body).await?;
         variances.push(json!({ "product_id": line.product_id, "system": level.on_hand, "counted": line.counted, "variance": line.counted - level.on_hand }));
         match outcome.approval_id {
             Some(id) => {
@@ -738,7 +738,7 @@ async fn stock_count(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Coun
     }
     tx.commit().await?;
     for id in approvals {
-        super::approvals::notify_approvers(&state, &ctx, "stock.adjust", Some(branch), id).await;
+        super::approvals::notify_approvers(&state, &ctx, id).await;
     }
     state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": branch }));
     Ok(Json(json!({ "applied": applied, "pending_approval": pending, "unchanged": unchanged, "variances": variances })))

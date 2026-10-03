@@ -51,22 +51,17 @@ async fn get_settings(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
     .await?;
     let settings: TenantSettings = serde_json::from_value(settings).unwrap_or_default();
 
-    let workflows: Vec<workflow::Rule> = sqlx::query_as(
-        "SELECT action, enabled, approver_type, approver_role_id, approver_user_id, min_amount FROM workflows WHERE tenant_id = $1",
-    )
-    .bind(ctx.tenant_id)
-    .fetch_all(&state.db)
-    .await?;
+    let mut conn = state.db.acquire().await?;
+    let workflows = workflow::rules(&mut conn, ctx.tenant_id).await?;
     let actions: Vec<Value> = workflow::ACTIONS
         .iter()
         .map(|a| {
             let rule = workflows.iter().find(|w| w.action == a.key);
             json!({
-                "action": a.key, "label": a.label, "uses_amount": a.uses_amount,
+                "action": a.key, "label": a.label, "uses_amount": a.uses_amount, "uses_category": a.uses_category,
                 "enabled": rule.map(|r| r.enabled).unwrap_or(false),
-                "approver_type": rule.map(|r| r.approver_type.clone()).unwrap_or_else(|| "admin".into()),
-                "approver_role_id": rule.and_then(|r| r.approver_role_id),
-                "approver_user_id": rule.and_then(|r| r.approver_user_id),
+                "levels": rule.map(|r| json!(r.levels)).unwrap_or_else(|| json!([{ "approver_type": "admin" }])),
+                "conditions": rule.map(|r| json!(r.conditions)).unwrap_or_else(|| json!({})),
                 "min_amount": rule.and_then(|r| r.min_amount),
             })
         })
@@ -216,43 +211,76 @@ async fn logo(State(state): State<AppState>, Path(slug): Path<String>) -> AppRes
 #[derive(Deserialize)]
 struct WorkflowBody {
     enabled: bool,
-    approver_type: String,
-    approver_role_id: Option<Uuid>,
-    approver_user_id: Option<Uuid>,
+    levels: Vec<workflow::Level>,
     min_amount: Option<Decimal>,
+    #[serde(default)]
+    conditions: workflow::Conditions,
 }
+
+const MAX_LEVELS: usize = 5;
 
 async fn put_workflow(State(state): State<AppState>, ctx: Ctx, Path(action): Path<String>, Json(b): Json<WorkflowBody>) -> AppResult<Json<Value>> {
     ctx.require("settings.manage")?;
-    if !workflow::ACTIONS.iter().any(|a| a.key == action) {
-        return Err(AppError::NotFound("Workflow"));
+    let Some(def) = workflow::ACTIONS.iter().find(|a| a.key == action) else { return Err(AppError::NotFound("Workflow")) };
+    if b.levels.is_empty() || b.levels.len() > MAX_LEVELS {
+        return Err(bad(format!("A workflow needs 1 to {MAX_LEVELS} approval levels")));
     }
-    match b.approver_type.as_str() {
-        "role" if b.approver_role_id.is_none() => return Err(bad("Choose the approving role")),
-        "user" if b.approver_user_id.is_none() => return Err(bad("Choose the approving user")),
-        "role" | "user" | "branch_manager" | "admin" => {}
-        _ => return Err(bad("Unknown approver type")),
+    for (i, l) in b.levels.iter().enumerate() {
+        let n = i + 1;
+        match l.approver_type.as_str() {
+            "role" if l.approver_role_id.is_none() => return Err(bad(format!("Level {n}: choose the approving role"))),
+            "user" if l.approver_user_id.is_none() => return Err(bad(format!("Level {n}: choose the approving user"))),
+            "role" | "user" | "branch_manager" | "admin" => {}
+            _ => return Err(bad(format!("Level {n}: unknown approver type"))),
+        }
+    }
+    if action == "sale.discount" && b.levels.len() > 1 {
+        return Err(bad("Counter discount approval uses one supervisor — set a single level"));
+    }
+    if !def.uses_category && !b.conditions.category_ids.is_empty() {
+        return Err(bad("Category conditions apply to expense rules only"));
     }
     let mut tx = state.db.begin().await?;
+    let known_roles: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM roles WHERE tenant_id = $1 AND id = ANY($2)")
+        .bind(ctx.tenant_id)
+        .bind(&b.conditions.role_ids)
+        .fetch_one(&mut *tx)
+        .await?;
+    let known_branches: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM branches WHERE tenant_id = $1 AND id = ANY($2)")
+        .bind(ctx.tenant_id)
+        .bind(&b.conditions.branch_ids)
+        .fetch_one(&mut *tx)
+        .await?;
+    let known_categories: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM expense_categories WHERE tenant_id = $1 AND id = ANY($2)")
+        .bind(ctx.tenant_id)
+        .bind(&b.conditions.category_ids)
+        .fetch_one(&mut *tx)
+        .await?;
+    if known_roles as usize != b.conditions.role_ids.len()
+        || known_branches as usize != b.conditions.branch_ids.len()
+        || known_categories as usize != b.conditions.category_ids.len()
+    {
+        return Err(bad("A condition refers to an unknown role, branch or category"));
+    }
+    let levels = serde_json::to_value(&b.levels).map_err(|e| AppError::Other(e.into()))?;
+    let conditions = serde_json::to_value(&b.conditions).map_err(|e| AppError::Other(e.into()))?;
     sqlx::query(
-        "INSERT INTO workflows (tenant_id, action, enabled, approver_type, approver_role_id, approver_user_id, min_amount)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT (tenant_id, action) DO UPDATE SET enabled=$3, approver_type=$4, approver_role_id=$5, approver_user_id=$6, min_amount=$7",
+        "INSERT INTO workflows (tenant_id, action, enabled, levels, min_amount, conditions) VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (tenant_id, action) DO UPDATE SET enabled=$3, levels=$4, min_amount=$5, conditions=$6",
     )
     .bind(ctx.tenant_id)
     .bind(&action)
     .bind(b.enabled)
-    .bind(&b.approver_type)
-    .bind(b.approver_role_id)
-    .bind(b.approver_user_id)
+    .bind(&levels)
     .bind(b.min_amount)
+    .bind(&conditions)
     .execute(&mut *tx)
     .await?;
     audit::record(
         &mut tx,
         &ctx,
         Entry::new("settings", "workflow", "workflow", ctx.tenant_id).after(json!({
-            "action": action, "enabled": b.enabled, "approver_type": b.approver_type, "min_amount": b.min_amount
+            "action": action, "enabled": b.enabled, "levels": levels, "min_amount": b.min_amount, "conditions": conditions
         })),
     )
     .await?;

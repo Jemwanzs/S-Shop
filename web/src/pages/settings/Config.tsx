@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { titleCase, toNum } from "@/lib/format";
-import type { CustomField, Settings } from "@/lib/types";
+import type { CustomField, MedalTargets, Settings } from "@/lib/types";
 import { useCustomFields, type FieldKind } from "@/components/CustomFields";
 
 const OPTIONAL_STATUSES = ["preparing", "dispatched", "on_delivery", "completed"];
@@ -378,18 +378,49 @@ export function ExpenseSettings() {
 
 export function ReportSettings() {
   const d = useSettingsDraft();
+  const { currency } = useSession();
   return (
     <Page d={d} title="Reports" description="Who sees which figures. Report access and export follow role permissions (reports.view, reports.export).">
-      {(s) => (
-        <Card>
-          <ToggleRow
-            label="Hide cost & profit from users without financial access"
-            hint="Users need “View cost & profit figures” to see them"
-            checked={s.reports.hide_financials_without_permission}
-            onChange={(v) => d.update((x) => { x.reports.hide_financials_without_permission = v; })}
-          />
-        </Card>
-      )}
+      {(s) => {
+        const targets = s.reports.medals.mode === "targets";
+        const targetCard = (title: string, key: "products" | "staff", t: MedalTargets) => (
+          <Card title={title}>
+            <Row label="Measured by">
+              <NativeSelect value={t.basis} onChange={(v) => d.update((x) => { x.reports.medals[key].basis = v as MedalTargets["basis"]; })}>
+                <option value="revenue">Sales value ({currency})</option>
+                <option value="units">Units sold</option>
+              </NativeSelect>
+            </Row>
+            {(["gold", "silver", "bronze"] as const).map((level) => (
+              <Row key={level} label={`${titleCase(level)} — per day`} hint={level === "bronze" ? "0 switches a medal off" : undefined}>
+                {numInput(t[level], (n) => d.update((x) => { x.reports.medals[key][level] = n; }), t.basis === "revenue")}
+              </Row>
+            ))}
+          </Card>
+        );
+        return (
+          <>
+            <Card>
+              <ToggleRow
+                label="Hide cost & profit from users without financial access"
+                hint="Users need “View cost & profit figures” to see them"
+                checked={s.reports.hide_financials_without_permission}
+                onChange={(v) => d.update((x) => { x.reports.hide_financials_without_permission = v; })}
+              />
+            </Card>
+            <Card title="Medals on dashboard leaderboards">
+              <Row label="Best sellers & staff earn medals by" hint={targets ? "Anyone reaching a target, scaled to the period viewed (a week needs 7× the daily target)" : "Position: 1st Gold, 2nd Silver, 3rd Bronze"}>
+                <NativeSelect value={s.reports.medals.mode} onChange={(v) => d.update((x) => { x.reports.medals.mode = v as "rank" | "targets"; })}>
+                  <option value="rank">Rank (top three)</option>
+                  <option value="targets">Targets</option>
+                </NativeSelect>
+              </Row>
+            </Card>
+            {targets && targetCard("Product targets", "products", s.reports.medals.products)}
+            {targets && targetCard("Staff targets", "staff", s.reports.medals.staff)}
+          </>
+        );
+      }}
     </Page>
   );
 }

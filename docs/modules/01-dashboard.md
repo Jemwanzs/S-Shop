@@ -26,8 +26,15 @@ product revenue.
 
 ## Panels
 Sales trend (daily ≤ 2 months, weekly ≤ 1 year, else monthly; profit line when permitted) · Payment mix ·
-Best sellers by revenue and by quantity (🥇🥈🥉 by rank) · Slow movers (in stock, least sold) · Low stock ·
-Top customers (with own|referral points) · Staff performance (medals by rank) · Branch comparison bars.
+Best sellers by revenue and by quantity · Slow movers (in stock, least sold) · Low stock ·
+Top customers (with own|referral points, 🥇🥈🥉 by rank) · Staff performance · Branch comparison bars.
+
+### Medals (best sellers & staff)
+Set in Settings → Reports. **Rank** (default): 1st 🥇, 2nd 🥈, 3rd 🥉. **Targets**: anyone reaching a target earns the
+medal regardless of position. Targets are entered **per day**, on sales value or units, and multiplied by the number of
+days in the period viewed. So a Gold of 10,000/day means 10,000 for *Today* and 70,000 for a 7-day week. A target of 0
+switches that medal off. Entries without a medal show their position number. The server computes the medal and returns
+it as `medal` on `top_products_*` and `by_user`.
 
 ## Permissions
 `dashboard.view`; financial KPIs `sales.view_financials`; credit KPI `credit.view`.

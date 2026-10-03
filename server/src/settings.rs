@@ -267,10 +267,70 @@ impl Default for ExpenseSettings {
 pub struct ReportSettings {
     /// Hide cost/profit columns from users without `sales.view_financials`.
     pub hide_financials_without_permission: bool,
+    pub medals: MedalSettings,
 }
 impl Default for ReportSettings {
     fn default() -> Self {
-        Self { hide_financials_without_permission: true }
+        Self { hide_financials_without_permission: true, medals: MedalSettings::default() }
+    }
+}
+
+/// How dashboard leaderboards (products, staff) award Gold / Silver / Bronze.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MedalMode {
+    /// Top three by position (1st Gold, 2nd Silver, 3rd Bronze).
+    #[default]
+    Rank,
+    /// Anyone reaching a target earns the medal, regardless of position.
+    Targets,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MedalBasis {
+    #[default]
+    Revenue,
+    Units,
+}
+
+/// Targets are **per day** and scale with the length of the period viewed. 0 switches a medal off.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct MedalTargets {
+    pub basis: MedalBasis,
+    pub gold: Decimal,
+    pub silver: Decimal,
+    pub bronze: Decimal,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct MedalSettings {
+    pub mode: MedalMode,
+    pub products: MedalTargets,
+    pub staff: MedalTargets,
+}
+
+pub const MEDALS: [&str; 3] = ["Gold", "Silver", "Bronze"];
+
+impl MedalSettings {
+    /// Medal for the entry at `rank` (0-based) with the given revenue and units over `days`.
+    pub fn award(&self, t: &MedalTargets, rank: usize, revenue: Decimal, units: i64, days: i64) -> Option<&'static str> {
+        match self.mode {
+            MedalMode::Rank => MEDALS.get(rank).copied(),
+            MedalMode::Targets => {
+                let value = match t.basis {
+                    MedalBasis::Revenue => revenue,
+                    MedalBasis::Units => Decimal::from(units),
+                };
+                let days = Decimal::from(days.max(1));
+                [(t.gold, MEDALS[0]), (t.silver, MEDALS[1]), (t.bronze, MEDALS[2])]
+                    .into_iter()
+                    .find(|(per_day, _)| *per_day > Decimal::ZERO && value >= *per_day * days)
+                    .map(|(_, m)| m)
+            }
+        }
     }
 }
 
@@ -356,6 +416,22 @@ mod tests {
         s.orders.sale_on_status = "completed".into();
         s.orders.statuses.iter_mut().find(|x| x.key == "completed").unwrap().enabled = false;
         assert!(s.order_status_enabled("completed"), "the sale stage cannot be disabled");
+    }
+
+    #[test]
+    fn medal_targets_scale_with_period() {
+        let mut m = MedalSettings::default();
+        let t = MedalTargets { basis: MedalBasis::Revenue, gold: Decimal::new(10_000, 0), silver: Decimal::new(5_000, 0), bronze: Decimal::ZERO };
+        assert_eq!(m.award(&t, 0, Decimal::ZERO, 0, 1), Some("Gold"), "rank mode ignores figures");
+        assert_eq!(m.award(&t, 3, Decimal::ZERO, 0, 1), None);
+        m.mode = MedalMode::Targets;
+        assert_eq!(m.award(&t, 4, Decimal::new(12_000, 0), 0, 1), Some("Gold"));
+        assert_eq!(m.award(&t, 0, Decimal::new(12_000, 0), 0, 7), None, "a week needs 7× the daily target");
+        assert_eq!(m.award(&t, 0, Decimal::new(40_000, 0), 0, 7), Some("Silver"));
+        assert_eq!(m.award(&t, 0, Decimal::new(4_000, 0), 0, 1), None, "bronze 0 is switched off");
+        let units = MedalTargets { basis: MedalBasis::Units, gold: Decimal::new(20, 0), ..Default::default() };
+        assert_eq!(m.award(&units, 0, Decimal::new(1_000_000, 0), 19, 1), None);
+        assert_eq!(m.award(&units, 0, Decimal::ZERO, 20, 1), Some("Gold"));
     }
 
     #[test]

@@ -213,7 +213,7 @@ check("position closing matches level", pos["closing"] == lvl["on_hand"], (pos["
 
 step("Roadmap 1a: custom product fields")
 fid = call("POST", "/product-fields", {"label": f"Size {suffix}", "field_type": "dropdown", "options": ["S", "M", "L"], "required": True})["id"]
-key = call("GET", "/product-fields")[-1]["key"]
+key = next(f["key"] for f in call("GET", "/product-fields") if f["id"] == fid)
 call("POST", "/products", {"name": f"Shirt {suffix}", "marked_price": 900}, expect=400)
 check("required product field enforced", True)
 call("POST", "/products", {"name": f"Shirt {suffix}", "marked_price": 900, "custom_fields": {key: "XL"}}, expect=400)
@@ -244,6 +244,32 @@ bad["orders"]["statuses"].append({"key": "teleported", "label": "Teleported", "e
 call("PUT", "/settings", bad, expect=400)
 check("unknown status rejected", True)
 call("POST", f"/orders/{o2['id']}/status", {"status": "cancelled"})
+call("PUT", "/settings", original)
+
+step("Roadmap 3: threshold-based medals")
+d = call("GET", "/dashboard?period=today")
+check("rank mode: top seller is Gold", d["top_products_revenue"][0]["medal"] == "Gold", d["top_products_revenue"][:1])
+settings = call("GET", "/settings")["settings"]
+original = json.loads(json.dumps(settings))
+top = float(d["top_products_revenue"][0]["revenue"])
+settings["reports"]["medals"] = {"mode": "targets",
+    "products": {"basis": "revenue", "gold": top * 10, "silver": top, "bronze": 0},
+    "staff": {"basis": "units", "gold": 1, "silver": 0, "bronze": 0}}
+call("PUT", "/settings", settings)
+d = call("GET", "/dashboard?period=today")
+p0 = d["top_products_revenue"][0]
+check("targets mode: reaching the silver target earns Silver", p0["medal"] == "Silver", p0)
+check("targets mode: below every target earns nothing",
+      all(p["medal"] is None for p in d["top_products_revenue"] if float(p["revenue"]) < top), d["top_products_revenue"])
+check("staff target by units", all(u["medal"] == "Gold" for u in d["by_user"] if u["units"] >= 1), d["by_user"])
+w = call("GET", "/dashboard?period=week")
+days = (__import__("datetime").date.fromisoformat(w["to"]) - __import__("datetime").date.fromisoformat(w["from"])).days + 1
+if days > 1 and float(w["top_products_revenue"][0]["revenue"]) < top * days:
+    check("targets scale with the period length", w["top_products_revenue"][0]["medal"] is None, w["top_products_revenue"][0])
+bad = json.loads(json.dumps(settings))
+bad["reports"]["medals"]["products"] = {"basis": "revenue", "gold": 100, "silver": 200, "bronze": 0}
+call("PUT", "/settings", bad, expect=400)
+check("targets must go down Gold > Silver > Bronze", True)
 call("PUT", "/settings", original)
 
 step("Query strings: paging & flags on every list")

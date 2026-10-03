@@ -212,8 +212,17 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(f): Query<Filt
     .bind(f.user_id)
     .fetch_all(&mut *conn)
     .await?;
+    // Product & staff medals: rank (default) or per-day targets scaled to the period (Settings → Reports).
+    let medals = &s.reports.medals;
+    let days = (scope.to - scope.from).num_days() + 1;
     let product_json = |v: &[(Uuid, String, i64, Decimal)]| -> Vec<Value> {
-        v.iter().map(|(id, name, qty, rev)| json!({ "product_id": id, "name": name, "units": qty, "revenue": rev })).collect()
+        v.iter()
+            .enumerate()
+            .map(|(i, (id, name, qty, rev))| json!({
+                "product_id": id, "name": name, "units": qty, "revenue": rev,
+                "medal": medals.award(&medals.products, i, *rev, *qty, days),
+            }))
+            .collect()
     };
     let mut by_revenue = products.clone();
     by_revenue.sort_by(|a, b| b.3.cmp(&a.3));
@@ -300,7 +309,6 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(f): Query<Filt
     .fetch_all(&mut *conn)
     .await?;
 
-    let medals = ["Gold", "Silver", "Bronze"];
     let avg = if now.transactions > 0 { (now.revenue / Decimal::from(now.transactions)).round_dp(2) } else { Decimal::ZERO };
     let gross_profit = fin.then_some(now.profit);
     Ok(Json(json!({
@@ -338,11 +346,12 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(f): Query<Filt
         })).collect::<Vec<_>>(),
         "top_customers": top_customers.into_iter().enumerate().map(|(i, (id, name, mobile, spend, own, refp, tier))| json!({
             "customer_id": id, "name": name, "mobile": mobile, "spend": spend, "own_points": own, "referral_points": refp,
-            "tier": tier, "medal": medals.get(i),
+            "tier": tier, "medal": settings::MEDALS.get(i),
         })).collect::<Vec<_>>(),
         "by_branch": by_branch.into_iter().map(|(id, name, rev, tx)| json!({ "branch_id": id, "name": name, "sales": rev, "transactions": tx })).collect::<Vec<_>>(),
         "by_user": by_user.into_iter().enumerate().map(|(i, (id, name, rev, tx, units))| json!({
-            "user_id": id, "name": name, "sales": rev, "transactions": tx, "units": units, "medal": medals.get(i),
+            "user_id": id, "name": name, "sales": rev, "transactions": tx, "units": units,
+            "medal": medals.award(&medals.staff, i, rev, units, days),
         })).collect::<Vec<_>>(),
     })))
 }

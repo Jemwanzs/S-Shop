@@ -79,7 +79,7 @@ export interface Settings {
     show_value_on_portal: boolean;
   };
   expenses: { require_attachment: boolean; require_description: boolean };
-  reports: { hide_financials_without_permission: boolean };
+  reports: { hide_financials_without_permission: boolean; medals: MedalSettings };
   notifications: { whatsapp_receipts: boolean; whatsapp_credit_reminders: boolean; whatsapp_loyalty: boolean };
 }
 
@@ -383,4 +383,17 @@ export interface Role {
   permissions: string[];
   is_system: boolean;
   user_count: number;
+}
+
+export interface MedalTargets {
+  basis: "revenue" | "units";
+  gold: Money;
+  silver: Money;
+  bronze: Money;
+}
+
+export interface MedalSettings {
+  mode: "rank" | "targets";
+  products: MedalTargets;
+  staff: MedalTargets;
 }

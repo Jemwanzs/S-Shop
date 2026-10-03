@@ -96,6 +96,15 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(body): Json<
     if !(0..=100).contains(&body.loyalty.referral_bonus_percent) {
         return Err(bad("Referral bonus must be between 0 and 100%"));
     }
+    for (who, t) in [("Product", &body.reports.medals.products), ("Staff", &body.reports.medals.staff)] {
+        let set: Vec<Decimal> = [t.gold, t.silver, t.bronze].into_iter().filter(|v| *v != Decimal::ZERO).collect();
+        if set.iter().any(|v| *v < Decimal::ZERO) {
+            return Err(bad(format!("{who} medal targets cannot be negative")));
+        }
+        if set.windows(2).any(|w| w[0] <= w[1]) {
+            return Err(bad(format!("{who} medal targets must go down from Gold to Silver to Bronze")));
+        }
+    }
     if !["delivered", "completed"].contains(&body.orders.sale_on_status.as_str()) {
         return Err(bad("Orders can become sales at Delivered or Completed"));
     }

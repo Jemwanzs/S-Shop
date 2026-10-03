@@ -31,7 +31,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 | 21 | Loyalty points (and value) on the portal | ✅ | Toggles in Settings → Loyalty. |
 | 22 | Expenses with categories, attachments, approvals | ✅ | [11-expenses](modules/11-expenses.md). Approval rules by amount threshold, category, branch and requester role (roadmap 2). |
 | 23 | Dashboard: periods, filters, KPIs, product performance, charts | ✅ | [01-dashboard](modules/01-dashboard.md). |
-| 24 | Gold/Silver/Bronze recognition without hard-coded thresholds | ◐ | Customer tiers are fully configurable (name + spend). Award-period winners and dashboard leaderboards (products, staff, customers) use rank-based medals; configurable thresholds for product/staff medals are ⏳. Underlying figures are always shown. |
+| 24 | Gold/Silver/Bronze recognition without hard-coded thresholds | ✅ | Customer tiers are fully configurable (name + spend). Product and staff medals: by rank (default) or by configurable per-day targets on sales value or units, scaled to the period viewed (roadmap 3). Award-period winners and top customers stay rank-based. Underlying figures are always shown. |
 | 25 | User / employee performance | ✅ | Dashboard staff panel + User Performance report. |
 | 26 | Reports (23 templates), consistent filters, PDF & Excel | ✅ | [12-reports](modules/12-reports.md). Excel built server-side, PDF in the browser. |
 | 27 | Approval / maker-checker engine, two-stage default, audit | ✅ | [15-approvals](modules/15-approvals.md). Excessive discounts are approved at the counter by supervisor email + PIN. Multi-level chains (up to 5 levels) with a decision trail (roadmap 2). |
@@ -66,6 +66,6 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 
 - ~~Custom product fields; configurable order statuses.~~ ✅ done (roadmap 1, 2026-10-03).
 - ~~Multi-level approval chains; expense approval rules by category/branch/role.~~ ✅ done (roadmap 2, 2026-10-03).
-- Threshold-based medals for products and staff.
+- ~~Threshold-based medals for products and staff.~~ ✅ done (roadmap 3, 2026-10-03).
 - Deposits on credit sales; a combined exchange screen.
 - Offline queueing of sales on the POS (installable PWA).

@@ -36,13 +36,13 @@ interface DashboardData {
   kpis: Record<string, Money | number | null>;
   series: { date: string; sales: Money; transactions: number; profit: Money | null }[];
   payment_mix: { method: string; amount: Money; count: number }[];
-  top_products_revenue: { product_id: string; name: string; units: number; revenue: Money }[];
-  top_products_units: { product_id: string; name: string; units: number; revenue: Money }[];
+  top_products_revenue: { product_id: string; name: string; units: number; revenue: Money; medal?: string | null }[];
+  top_products_units: { product_id: string; name: string; units: number; revenue: Money; medal?: string | null }[];
   slow_movers: { product_id: string; name: string; units: number; on_hand: number }[];
   low_stock: { product_id: string; name: string; branch_name: string; available: number; threshold: number }[];
   top_customers: { customer_id: string; name: string; mobile: string; spend: Money; own_points: number; referral_points: number; tier: string; medal?: string }[];
   by_branch: { branch_id: string; name: string; sales: Money; transactions: number }[];
-  by_user: { user_id: string; name: string; sales: Money; transactions: number; units: number; medal?: string }[];
+  by_user: { user_id: string; name: string; sales: Money; transactions: number; units: number; medal?: string | null }[];
 }
 
 const CHART_COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
@@ -210,8 +210,8 @@ function Analytics() {
           </div>
 
           <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-4">
-            <RankList title="Best sellers · revenue" rows={data.top_products_revenue.map((p) => ({ id: p.product_id, name: p.name, value: m(p.revenue), sub: `${count(p.units)} units` }))} onClick={(id) => navigate(`/products/${id}`)} />
-            <RankList title="Best sellers · quantity" rows={data.top_products_units.map((p) => ({ id: p.product_id, name: p.name, value: `${count(p.units)} units`, sub: m(p.revenue) }))} onClick={(id) => navigate(`/products/${id}`)} />
+            <RankList title="Best sellers · revenue" rows={data.top_products_revenue.map((p) => ({ id: p.product_id, name: p.name, value: m(p.revenue), sub: `${count(p.units)} units`, medal: p.medal }))} onClick={(id) => navigate(`/products/${id}`)} />
+            <RankList title="Best sellers · quantity" rows={data.top_products_units.map((p) => ({ id: p.product_id, name: p.name, value: `${count(p.units)} units`, sub: m(p.revenue), medal: p.medal }))} onClick={(id) => navigate(`/products/${id}`)} />
             <RankList title="Slow movers" rows={data.slow_movers.map((p) => ({ id: p.product_id, name: p.name, value: `${count(p.units)} sold`, sub: `${count(p.on_hand)} in stock` }))} onClick={(id) => navigate(`/products/${id}`)} plain />
             <Section title="Low stock" action={<Link to="/stock?status=low" className="text-xs text-primary">View all</Link>}>
               {data.low_stock.length === 0 ? (
@@ -307,7 +307,7 @@ function Analytics() {
   );
 }
 
-function RankList({ title, rows, onClick, plain }: { title: string; rows: { id: string; name: string; value: string; sub: string }[]; onClick: (id: string) => void; plain?: boolean }) {
+function RankList({ title, rows, onClick, plain }: { title: string; rows: { id: string; name: string; value: string; sub: string; medal?: string | null }[]; onClick: (id: string) => void; plain?: boolean }) {
   return (
     <Section title={title}>
       {rows.length === 0 ? (
@@ -317,7 +317,7 @@ function RankList({ title, rows, onClick, plain }: { title: string; rows: { id: 
           {rows.map((r, i) => (
             <li key={r.id}>
               <button onClick={() => onClick(r.id)} className="flex w-full items-center gap-3 py-2.5 text-left text-sm">
-                {!plain && <Medal tier={["Gold", "Silver", "Bronze"][i]} />}
+                {!plain && <span className="num flex w-5 shrink-0 justify-center text-xs text-muted-foreground">{r.medal ? <Medal tier={r.medal} /> : i + 1}</span>}
                 <span className="min-w-0 flex-1 truncate">{r.name}</span>
                 <span className="text-right">
                   <span className="num block font-medium">{r.value}</span>

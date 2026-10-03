@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { count, date, dateTime, initials, methodLabel, money, phone, signed, titleCase, toNum } from "@/lib/format";
-import type { Customer, CustomerField, Money, Paged } from "@/lib/types";
+import type { Customer, Money, Paged } from "@/lib/types";
+import { CustomFieldValues } from "@/components/CustomFields";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +44,6 @@ export default function CustomerDetail() {
   const [referred, setReferred] = useState("");
 
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["customer", id], queryFn: () => api<Profile>(`/customers/${id}`) });
-  const fields = useQuery({ queryKey: ["customer-fields"], queryFn: () => api<CustomerField[]>("/customer-fields") });
   const ledger = useQuery({ queryKey: ["customer", id, "ledger"], queryFn: () => api<Paged<LedgerRow>>(`/customers/${id}/loyalty`, { query: { limit: 100 } }), enabled: tab === "points" && can("customers.view_loyalty") });
   const candidates = useQuery({
     queryKey: ["customers", "refer", referred],
@@ -86,7 +86,6 @@ export default function CustomerDetail() {
   if (isLoading || !data) return <Loading />;
   const c = data.customer;
   const loyalty = can("customers.view_loyalty");
-  const custom = (fields.data ?? []).filter((f) => f.is_active && c.custom_fields[f.key] !== undefined && c.custom_fields[f.key] !== "");
   const minRedeem = session?.settings.loyalty.min_redemption_points ?? 0;
 
   return (
@@ -191,7 +190,7 @@ export default function CustomerDetail() {
           <Section title="Details">
             <KV label="Mobile"><span className="num">{phone(c.mobile)}</span></KV>
             {c.email && <KV label="Email">{c.email}</KV>}
-            {custom.map((f) => <KV key={f.id} label={f.label}>{String(f.field_type === "boolean" ? (c.custom_fields[f.key] ? "Yes" : "No") : c.custom_fields[f.key])}</KV>)}
+            <CustomFieldValues kind="customer" values={c.custom_fields} />
           </Section>
         </div>
       </div>

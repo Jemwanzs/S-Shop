@@ -20,7 +20,7 @@ use crate::auth::Ctx;
 use crate::error::{bad, rule, AppError, AppResult};
 use crate::inventory;
 use crate::notify::{self, Note};
-use crate::settings;
+use crate::settings::{self, TenantSettings};
 use crate::state::AppState;
 use crate::util::{local_range, money_str, next_doc_no, parse_tz, round2};
 
@@ -33,22 +33,6 @@ pub fn routes() -> Router<AppState> {
 }
 
 pub const FLOW: [&str; 7] = ["new", "confirmed", "preparing", "dispatched", "on_delivery", "delivered", "completed"];
-
-pub fn status_label(s: &str) -> &'static str {
-    match s {
-        "new" => "Order received",
-        "confirmed" => "Confirmed",
-        "preparing" => "Being prepared",
-        "dispatched" => "Ready / dispatched",
-        "on_delivery" => "On delivery",
-        "delivered" => "Delivered",
-        "completed" => "Completed",
-        "cancelled" => "Cancelled",
-        "rejected" => "Rejected",
-        "returned" => "Returned",
-        _ => "Updated",
-    }
-}
 
 fn rank(s: &str) -> Option<usize> {
     FLOW.iter().position(|f| *f == s)
@@ -161,7 +145,7 @@ pub async fn order_items(conn: &mut PgConnection, order_id: Uuid) -> AppResult<V
     .await?)
 }
 
-pub async fn order_events(conn: &mut PgConnection, order_id: Uuid) -> AppResult<Vec<Value>> {
+pub async fn order_events(conn: &mut PgConnection, s: &TenantSettings, order_id: Uuid) -> AppResult<Vec<Value>> {
     let rows: Vec<(String, String, DateTime<Utc>, Option<String>)> = sqlx::query_as(
         "SELECT e.status, e.notes, e.created_at, u.name FROM order_events e LEFT JOIN users u ON u.id = e.user_id
          WHERE e.order_id = $1 ORDER BY e.created_at",
@@ -171,14 +155,15 @@ pub async fn order_events(conn: &mut PgConnection, order_id: Uuid) -> AppResult<
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(status, notes, at, user)| json!({ "status": status, "label": status_label(&status), "notes": notes, "created_at": at, "user_name": user }))
+        .map(|(status, notes, at, user)| json!({ "label": s.order_label(&status), "status": status, "notes": notes, "created_at": at, "user_name": user }))
         .collect())
 }
 
-fn next_statuses(o: &OrderRow) -> Vec<&'static str> {
+/// Forward steps the business uses, plus cancel/reject while no sale exists.
+fn next_statuses(o: &OrderRow, s: &TenantSettings) -> Vec<&'static str> {
     let mut out = Vec::new();
     if let Some(r) = rank(&o.status) {
-        out.extend(FLOW.iter().skip(r + 1).copied());
+        out.extend(FLOW.iter().skip(r + 1).copied().filter(|f| s.order_status_enabled(f)));
         if o.sale_id.is_none() {
             if o.status == "new" {
                 out.push("rejected");
@@ -208,8 +193,8 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
             "photo_id": photo, "on_hand": level.0, "available": level.0 - level.1,
         }));
     }
-    let events = order_events(&mut conn, id).await?;
-    let next = if ctx.can("orders.manage") { next_statuses(&o) } else { vec![] };
+    let events = order_events(&mut conn, &s, id).await?;
+    let next = if ctx.can("orders.manage") { next_statuses(&o, &s) } else { vec![] };
     Ok(Json(json!({
         "order": o,
         "items": lines,
@@ -363,8 +348,8 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
     let o = load(&mut tx, &ctx, id, true).await?;
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
     let target = b.status.as_str();
-    if !next_statuses(&o).contains(&target) {
-        return Err(rule(format!("An order that is {} cannot move to {}", status_label(&o.status), status_label(target))));
+    if !next_statuses(&o, &s).contains(&target) {
+        return Err(rule(format!("An order that is {} cannot move to {}", s.order_label(&o.status), s.order_label(target))));
     }
     let items = order_items(&mut tx, id).await?;
     let mut reserved = o.reserved;
@@ -466,7 +451,7 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
             "Hi {}! Your {business} order {} is now *{}*. Track it here: {}/track/{}",
             o.customer_name.split(' ').next().unwrap_or_default(),
             o.order_no,
-            status_label(target),
+            s.order_label(target),
             state.cfg.public_url,
             o.track_token
         );

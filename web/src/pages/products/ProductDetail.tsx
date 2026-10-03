@@ -14,6 +14,7 @@ import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page"
 import { Pill, StockIndicator } from "@/components/Badges";
 import { ConfirmDialog } from "@/components/Form";
 import { PhotoGallery } from "@/components/PhotoGallery";
+import { CustomFieldValues } from "@/components/CustomFields";
 
 interface Detail {
   product: Product;
@@ -190,6 +191,7 @@ export default function ProductDetail() {
                 ? `${p.loyalty_points_per ?? profile?.settings.loyalty.points_per} pt per ${money(p.loyalty_threshold ?? profile?.settings.loyalty.threshold, currency)}`
                 : "Not eligible"}
             </KV>
+            <CustomFieldValues kind="product" values={p.custom_fields ?? {}} />
             {p.description && <p className="mt-2 rounded-lg bg-muted p-3 text-sm">{p.description}</p>}
           </Section>
           {p.track_items && (

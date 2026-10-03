@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardList, Minus, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
+import { orderLabel, orderStepEnabled } from "@/lib/orders";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
 import { ago, count, money, toNum } from "@/lib/format";
@@ -19,10 +20,6 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 
 const LIMIT = 50;
 const TABS = ["active", "new", "confirmed", "preparing", "dispatched", "on_delivery", "delivered", "completed", "cancelled", "all"] as const;
-const LABEL: Record<string, string> = {
-  active: "Active", new: "New", confirmed: "Confirmed", preparing: "Preparing", dispatched: "Dispatched",
-  on_delivery: "On delivery", delivered: "Delivered", completed: "Completed", cancelled: "Cancelled", all: "All",
-};
 
 export default function OrdersList() {
   const { currency, can, profile } = useSession();
@@ -55,7 +52,7 @@ export default function OrdersList() {
         <Segments
           value={status}
           onChange={(v) => { setStatus(v); setOffset(0); }}
-          options={TABS.map((t) => ({ value: t, label: LABEL[t], count: t === "active" ? activeCount : ["all", "cancelled"].includes(t) ? undefined : counts[t] }))}
+          options={TABS.filter((t) => orderStepEnabled(profile?.settings, t)).map((t) => ({ value: t, label: t === "active" ? "Active" : t === "all" ? "All" : orderLabel(profile?.settings, t), count: t === "active" ? activeCount : ["all", "cancelled"].includes(t) ? undefined : counts[t] }))}
         />
         <SearchInput value={q} onChange={(v) => { setQ(v); setOffset(0); }} placeholder="Order number, customer or mobile" className="md:max-w-sm" />
       </div>
@@ -74,7 +71,7 @@ export default function OrdersList() {
           { key: "source", header: "Source", cell: (r) => <Pill>{r.source === "portal" ? "Online" : "Staff"}</Pill>, hideBelow: "xl" },
           { key: "branch", header: "Branch", cell: (r) => r.branch_name, hideBelow: "xl" },
           { key: "age", header: "Placed", cell: (r) => <span className="whitespace-nowrap text-muted-foreground">{ago(r.created_at)}</span> },
-          { key: "status", header: "Status", cell: (r) => <div className="flex gap-1.5"><StatusBadge status={r.status} />{r.reserved && <Pill tone="info">reserved</Pill>}</div> },
+          { key: "status", header: "Status", cell: (r) => <div className="flex gap-1.5"><StatusBadge status={r.status} label={orderLabel(profile?.settings, r.status)} />{r.reserved && <Pill tone="info">reserved</Pill>}</div> },
           { key: "total", header: "Total", align: "right", cell: (r) => <span className="num font-semibold">{money(r.total, currency)}</span> },
         ]}
         mobile={(r) => (
@@ -82,7 +79,7 @@ export default function OrdersList() {
             title={<span className="flex items-center gap-2">{r.customer_name} {r.status === "new" && <span className="h-2 w-2 rounded-full bg-primary" />}</span>}
             subtitle={<span className="num">{r.order_no} · {ago(r.created_at)}</span>}
             value={money(r.total, currency)}
-            meta={<StatusBadge status={r.status} />}
+            meta={<StatusBadge status={r.status} label={orderLabel(profile?.settings, r.status)} />}
           />
         )}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}

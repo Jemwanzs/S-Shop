@@ -9,6 +9,7 @@ pub mod credit;
 pub mod customers;
 pub mod dashboard;
 pub mod expenses;
+pub mod fields;
 pub mod loyalty;
 pub mod notifications;
 pub mod orders;
@@ -37,6 +38,7 @@ pub fn api() -> Router<AppState> {
         .merge(stock::routes())
         .merge(transfers::routes())
         .merge(customers::routes())
+        .merge(fields::routes())
         .merge(loyalty::routes())
         .merge(sales::routes())
         .merge(payments::routes())

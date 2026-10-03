@@ -5,7 +5,10 @@ import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { titleCase, toNum } from "@/lib/format";
-import type { CustomerField, Settings } from "@/lib/types";
+import type { CustomField, Settings } from "@/lib/types";
+import { useCustomFields, type FieldKind } from "@/components/CustomFields";
+
+const OPTIONAL_STATUSES = ["preparing", "dispatched", "on_delivery", "completed"];
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -101,13 +104,14 @@ function NamedList({ endpoint, queryKey, title, extra }: { endpoint: string; que
 export function ProductSettings() {
   const d = useSettingsDraft();
   return (
-    <Page d={d} title="Products" description="Catalogue options, categories and suppliers.">
+    <Page d={d} title="Products" description="Catalogue options, product fields, categories and suppliers.">
       {(s) => (
         <>
           <Card>
             <Row label="Photos per product" hint="Settings → Product Configuration → Product Photos">{numInput(s.product.max_photos, (n) => d.update((x) => { x.product.max_photos = n; }))}</Row>
             <Row label="Auto product code prefix" hint="e.g. PRD → PRD0001"><Input value={s.product.auto_code_prefix} onChange={(e) => d.update((x) => { x.product.auto_code_prefix = e.target.value.toUpperCase(); })} /></Row>
           </Card>
+          <FieldsCard kind="product" empty="No product fields yet — add things like Size, Colour, Brand or Expiry date." />
           <div className="grid gap-5 xl:grid-cols-2">
             <NamedList endpoint="/categories" queryKey="categories" title="Categories" />
             <NamedList endpoint="/suppliers" queryKey="suppliers" title="Suppliers" extra />
@@ -204,6 +208,7 @@ export function OrderSettings() {
   return (
     <Page d={d} title="Orders & ordering link" description="How customer orders flow and when they become sales.">
       {(s) => (
+        <>
         <Card>
           <ToggleRow label="Ordering link open" hint="Customers can place orders online" checked={s.orders.portal_enabled} onChange={(v) => d.update((x) => { x.orders.portal_enabled = v; })} />
           <Row label="Fulfilling branch">
@@ -221,25 +226,85 @@ export function OrderSettings() {
           <ToggleRow label="Verify customers with a WhatsApp code" hint="Requires the WhatsApp integration" checked={s.orders.verify_with_otp} onChange={(v) => d.update((x) => { x.orders.verify_with_otp = v; })} />
           <ToggleRow label="Show out-of-stock products" checked={s.orders.show_out_of_stock} onChange={(v) => d.update((x) => { x.orders.show_out_of_stock = v; })} />
         </Card>
+        <Card title="Order statuses">
+          <p className="py-2 text-xs text-muted-foreground">Rename any status (customers see these names). Optional steps can be switched off; core steps and the stage at which an order becomes a sale are always on.</p>
+          {s.orders.statuses.map((st, i) => {
+            const optional = OPTIONAL_STATUSES.includes(st.key) && st.key !== s.orders.sale_on_status;
+            return (
+              <div key={st.key} className="flex items-center gap-3 py-2.5">
+                <Input className="flex-1" value={st.label} onChange={(e) => d.update((x) => { x.orders.statuses[i].label = e.target.value; })} />
+                <Pill>{st.key}</Pill>
+                {optional ? (
+                  <Switch checked={st.enabled} onCheckedChange={(v) => d.update((x) => { x.orders.statuses[i].enabled = v; })} aria-label={`Use ${st.label}`} />
+                ) : (
+                  <span className="w-11 text-center text-xs text-muted-foreground">Core</span>
+                )}
+              </div>
+            );
+          })}
+        </Card>
+        </>
       )}
     </Page>
   );
 }
 
-export function CustomerSettings() {
-  const d = useSettingsDraft();
+/** Custom field editor shared by customers and products (Settings → … → Fields). */
+function FieldsCard({ kind, empty }: { kind: FieldKind; empty: string }) {
   const qc = useQueryClient();
-  const fields = useQuery({ queryKey: ["customer-fields"], queryFn: () => api<CustomerField[]>("/customer-fields") });
-  const [editing, setEditing] = useState<Partial<CustomerField> | null>(null);
+  const fields = useCustomFields(kind);
+  const [editing, setEditing] = useState<Partial<CustomField> | null>(null);
   const save = useMutation({
-    mutationFn: (f: Partial<CustomerField>) =>
-      api(f.id ? `/customer-fields/${f.id}` : "/customer-fields", {
+    mutationFn: (f: Partial<CustomField>) =>
+      api(f.id ? `/${kind}-fields/${f.id}` : `/${kind}-fields`, {
         method: f.id ? "PUT" : "POST",
         body: { label: f.label, field_type: f.field_type, options: f.options ?? [], required: !!f.required, is_active: f.is_active ?? true, display_order: f.display_order ?? 0 },
       }),
-    onSuccess: () => { setEditing(null); qc.invalidateQueries({ queryKey: ["customer-fields"] }); toast.success("Field saved"); },
+    onSuccess: () => { setEditing(null); qc.invalidateQueries({ queryKey: [`${kind}-fields`] }); toast.success("Field saved"); },
     onError: (e) => toast.error(errorMessage(e)),
   });
+  return (
+    <>
+      <Card title={kind === "product" ? "Product fields" : "Custom fields"} action={<Button size="sm" variant="outline" onClick={() => setEditing({ field_type: "text", is_active: true, options: [] })}><Plus /> Add field</Button>}>
+        {fields.data?.map((f) => (
+          <div key={f.id} className="flex items-center gap-3 py-2.5 text-sm">
+            <span className={f.is_active ? "flex-1 font-medium" : "flex-1 text-muted-foreground line-through"}>{f.label}</span>
+            <Pill>{titleCase(f.field_type)}</Pill>
+            {f.required && <Pill tone="warning">Required</Pill>}
+            <Button variant="ghost" size="icon-sm" onClick={() => setEditing(f)} aria-label="Edit"><Pencil /></Button>
+          </div>
+        ))}
+        {!fields.data?.length && <p className="py-4 text-sm text-muted-foreground">{empty}</p>}
+      </Card>
+      <ResponsiveDialog
+        open={!!editing}
+        onOpenChange={(o) => !o && setEditing(null)}
+        title={editing?.id ? "Edit field" : "New field"}
+        footer={<Button className="w-full md:w-auto" disabled={!editing?.label?.trim() || save.isPending} onClick={() => editing && save.mutate(editing)}>Save</Button>}
+      >
+        {editing && (
+          <div className="space-y-4">
+            <Field label="Field name"><Input value={editing.label ?? ""} onChange={(e) => setEditing({ ...editing, label: e.target.value })} /></Field>
+            <Field label="Type">
+              <NativeSelect value={editing.field_type ?? "text"} onChange={(v) => setEditing({ ...editing, field_type: v as CustomField["field_type"] })}>
+                {["text", "number", "date", "dropdown", "boolean", "email"].map((t) => <option key={t} value={t}>{t === "boolean" ? "Yes / No" : titleCase(t)}</option>)}
+              </NativeSelect>
+            </Field>
+            {editing.field_type === "dropdown" && (
+              <Field label="Options" hint="Comma separated"><Input value={(editing.options ?? []).join(", ")} onChange={(e) => setEditing({ ...editing, options: e.target.value.split(",").map((o) => o.trim()) })} /></Field>
+            )}
+            <Field label="Display order">{numInput(editing.display_order ?? 0, (n) => setEditing({ ...editing, display_order: n }))}</Field>
+            <ToggleRow label="Required" checked={!!editing.required} onChange={(v) => setEditing({ ...editing, required: v })} />
+            <ToggleRow label="Active" checked={editing.is_active ?? true} onChange={(v) => setEditing({ ...editing, is_active: v })} />
+          </div>
+        )}
+      </ResponsiveDialog>
+    </>
+  );
+}
+
+export function CustomerSettings() {
+  const d = useSettingsDraft();
   return (
     <Page d={d} title="Customers" description="Mobile number, first name and nickname are always captured. Add your own fields below.">
       {(s) => (
@@ -247,40 +312,7 @@ export function CustomerSettings() {
           <Card>
             <ToggleRow label="Require email" checked={s.customers.require_email} onChange={(v) => d.update((x) => { x.customers.require_email = v; })} />
           </Card>
-          <Card title="Custom fields" action={<Button size="sm" variant="outline" onClick={() => setEditing({ field_type: "text", is_active: true, options: [] })}><Plus /> Add field</Button>}>
-            {fields.data?.map((f) => (
-              <div key={f.id} className="flex items-center gap-3 py-2.5 text-sm">
-                <span className={f.is_active ? "flex-1 font-medium" : "flex-1 text-muted-foreground line-through"}>{f.label}</span>
-                <Pill>{titleCase(f.field_type)}</Pill>
-                {f.required && <Pill tone="warning">Required</Pill>}
-                <Button variant="ghost" size="icon-sm" onClick={() => setEditing(f)} aria-label="Edit"><Pencil /></Button>
-              </div>
-            ))}
-            {!fields.data?.length && <p className="py-4 text-sm text-muted-foreground">No custom fields yet. Imported customers keep location, city and country.</p>}
-          </Card>
-          <ResponsiveDialog
-            open={!!editing}
-            onOpenChange={(o) => !o && setEditing(null)}
-            title={editing?.id ? "Edit field" : "New field"}
-            footer={<Button className="w-full md:w-auto" disabled={!editing?.label?.trim() || save.isPending} onClick={() => editing && save.mutate(editing)}>Save</Button>}
-          >
-            {editing && (
-              <div className="space-y-4">
-                <Field label="Field name"><Input value={editing.label ?? ""} onChange={(e) => setEditing({ ...editing, label: e.target.value })} /></Field>
-                <Field label="Type">
-                  <NativeSelect value={editing.field_type ?? "text"} onChange={(v) => setEditing({ ...editing, field_type: v as CustomerField["field_type"] })}>
-                    {["text", "number", "date", "dropdown", "boolean", "email"].map((t) => <option key={t} value={t}>{t === "boolean" ? "Yes / No" : titleCase(t)}</option>)}
-                  </NativeSelect>
-                </Field>
-                {editing.field_type === "dropdown" && (
-                  <Field label="Options" hint="Comma separated"><Input value={(editing.options ?? []).join(", ")} onChange={(e) => setEditing({ ...editing, options: e.target.value.split(",").map((o) => o.trim()) })} /></Field>
-                )}
-                <Field label="Display order">{numInput(editing.display_order ?? 0, (n) => setEditing({ ...editing, display_order: n }))}</Field>
-                <ToggleRow label="Required" checked={!!editing.required} onChange={(v) => setEditing({ ...editing, required: v })} />
-                <ToggleRow label="Active" checked={editing.is_active ?? true} onChange={(v) => setEditing({ ...editing, is_active: v })} />
-              </div>
-            )}
-          </ResponsiveDialog>
+          <FieldsCard kind="customer" empty="No custom fields yet. Imported customers keep location, city and country." />
         </>
       )}
     </Page>

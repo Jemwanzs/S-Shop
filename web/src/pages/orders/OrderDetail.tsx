@@ -8,6 +8,7 @@ import { useSession } from "@/lib/session";
 import { count, dateTime, money, phone, titleCase } from "@/lib/format";
 import type { Money, OrderRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ORDER_FLOW, orderLabel, orderStepEnabled } from "@/lib/orders";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,12 +26,6 @@ interface Detail {
   sale_on_status: string;
   track_url: string;
 }
-
-const FLOW = ["new", "confirmed", "preparing", "dispatched", "on_delivery", "delivered", "completed"];
-const LABEL: Record<string, string> = {
-  new: "Order received", confirmed: "Confirmed", preparing: "Being prepared", dispatched: "Ready / dispatched",
-  on_delivery: "On delivery", delivered: "Delivered", completed: "Completed", cancelled: "Cancel order", rejected: "Reject order",
-};
 
 export default function OrderDetail() {
   const { id } = useParams();
@@ -61,11 +56,14 @@ export default function OrderDetail() {
   if (error) return <ErrorState error={error} retry={refetch} />;
   if (isLoading || !data) return <Loading />;
   const o = data.order;
-  const rank = FLOW.indexOf(o.status);
-  const saleRank = FLOW.indexOf(data.sale_on_status);
-  const needsPayment = !!target && !o.sale_id && FLOW.indexOf(target) >= saleRank;
-  const forward = data.next_statuses.filter((s) => FLOW.includes(s));
-  const terminalActions = data.next_statuses.filter((s) => !FLOW.includes(s));
+  const settings = profile?.settings;
+  const label = (k: string) => (k === "cancelled" ? "Cancel order" : k === "rejected" ? "Reject order" : orderLabel(settings, k));
+  const steps = ORDER_FLOW.filter((k) => orderStepEnabled(settings, k));
+  const rank = ORDER_FLOW.indexOf(o.status);
+  const saleRank = ORDER_FLOW.indexOf(data.sale_on_status);
+  const needsPayment = !!target && !o.sale_id && ORDER_FLOW.indexOf(target) >= saleRank;
+  const forward = data.next_statuses.filter((s) => ORDER_FLOW.includes(s));
+  const terminalActions = data.next_statuses.filter((s) => !ORDER_FLOW.includes(s));
   const short = data.items.filter((i) => !o.reserved && !o.sale_id && i.available < i.quantity);
   const methods = profile?.settings.sales.payment_methods.filter((m) => m.enabled) ?? [];
   const waText = `Hi ${o.customer_name.split(" ")[0]}! Your order ${o.order_no} is ${titleCase(o.status)}. Track it here: ${data.track_url}`;
@@ -76,23 +74,26 @@ export default function OrderDetail() {
         back="/orders"
         eyebrow={dateTime(o.created_at)}
         title={<span className="num">{o.order_no}</span>}
-        actions={<div className="flex gap-2"><StatusBadge status={o.status} />{o.reserved && <Pill tone="info">Stock reserved</Pill>}</div>}
+        actions={<div className="flex gap-2"><StatusBadge status={o.status} label={orderLabel(profile?.settings, o.status)} />{o.reserved && <Pill tone="info">Stock reserved</Pill>}</div>}
       />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           {rank >= 0 && (
             <div className="surface p-5">
-              <ol className="grid grid-cols-7 gap-1">
-                {FLOW.map((s, i) => (
+              <ol className="grid gap-1" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
+                {steps.map((s, n) => {
+                  const i = ORDER_FLOW.indexOf(s);
+                  return (
                   <li key={s} className="flex flex-col items-center gap-1.5 text-center">
                     <span className={cn("flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs", i <= rank ? "border-success bg-success text-success-foreground" : "border-border text-muted-foreground", i === rank && "ring-4 ring-success/20")}>
-                      {i <= rank ? <Check className="h-4 w-4" /> : i + 1}
+                      {i <= rank ? <Check className="h-4 w-4" /> : n + 1}
                     </span>
-                    <span className={cn("hidden text-[11px] leading-tight sm:block", i <= rank ? "font-medium" : "text-muted-foreground")}>{LABEL[s]}</span>
+                    <span className={cn("hidden text-[11px] leading-tight sm:block", i <= rank ? "font-medium" : "text-muted-foreground")}>{label(s)}</span>
                   </li>
-                ))}
+                  );
+                })}
               </ol>
-              <p className="mt-3 text-center text-sm sm:hidden">{LABEL[o.status]}</p>
+              <p className="mt-3 text-center text-sm sm:hidden">{label(o.status)}</p>
             </div>
           )}
 
@@ -100,10 +101,10 @@ export default function OrderDetail() {
             <div className="surface flex flex-wrap items-center gap-2 p-4">
               <span className="label-caps mr-auto">Next step</span>
               {forward.slice(0, 3).map((s, i) => (
-                <Button key={s} variant={i === 0 ? "default" : "outline"} onClick={() => setTarget(s)}>{LABEL[s]}</Button>
+                <Button key={s} variant={i === 0 ? "default" : "outline"} onClick={() => setTarget(s)}>{label(s)}</Button>
               ))}
               {terminalActions.map((s) => (
-                <Button key={s} variant="ghost" className="text-destructive" onClick={() => setTarget(s)}>{LABEL[s]}</Button>
+                <Button key={s} variant="ghost" className="text-destructive" onClick={() => setTarget(s)}>{label(s)}</Button>
               ))}
             </div>
           )}
@@ -160,7 +161,7 @@ export default function OrderDetail() {
             <KV label="Branch">{o.branch_name}</KV>
             <KV label="Source">{o.source === "portal" ? "Ordering link" : "Staff"}</KV>
             <KV label="Stock">{o.sale_id ? "Sold" : o.reserved ? "Reserved" : "Not reserved"}</KV>
-            <KV label="Becomes a sale at">{LABEL[data.sale_on_status]}</KV>
+            <KV label="Becomes a sale at">{label(data.sale_on_status)}</KV>
             {o.sale_id && <KV label="Receipt"><Link to={`/sales/${o.sale_id}`} className="num text-primary">{o.receipt_no}</Link></KV>}
           </Section>
         </div>
@@ -169,7 +170,7 @@ export default function OrderDetail() {
       <ResponsiveDialog
         open={!!target}
         onOpenChange={(v) => !v && setTarget(null)}
-        title={target ? LABEL[target] : ""}
+        title={target ? label(target) : ""}
         description={needsPayment ? "This step completes the order: stock is cleared and a sale is recorded." : undefined}
         footer={
           <Button

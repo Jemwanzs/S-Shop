@@ -26,7 +26,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 | 16 | Customer ordering portal per business (`/order/business-name`), mobile identification | ✅ | [05-ordering-portal](modules/05-ordering-portal.md). Optional WhatsApp one-time code verification. |
 | 17 | Order catalogue: photo cards, product detail, gallery, quantity, floating cart | ✅ | |
 | 18 | Checkout, confirmation, Track My Order | ✅ | Public tracking link `/track/<token>` (unguessable, no account needed). |
-| 19 | Order management statuses, events, reserved vs sold stock, completion → sale | ✅ | [04-orders](modules/04-orders.md). Configurable stage (Delivered or Completed) at which the order becomes a sale. Statuses themselves are fixed. |
+| 19 | Order management statuses, events, reserved vs sold stock, completion → sale | ✅ | [04-orders](modules/04-orders.md). Configurable stage (Delivered or Completed) at which the order becomes a sale. Status names are configurable and optional steps can be switched off (roadmap 1b). |
 | 20 | My Orders: latest 3, total count, visual progress | ✅ | |
 | 21 | Loyalty points (and value) on the portal | ✅ | Toggles in Settings → Loyalty. |
 | 22 | Expenses with categories, attachments, approvals | ✅ / ◐ | [11-expenses](modules/11-expenses.md). Approval rules are by amount threshold + approver; rules by category/branch/role are ⏳. |
@@ -37,7 +37,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 | 27 | Approval / maker-checker engine, two-stage default, audit | ✅ | [15-approvals](modules/15-approvals.md). Excessive discounts are approved at the counter by supervisor email + PIN. ◐ Multi-level approval chains are ⏳ (single approver stage per action). |
 | 28 | Granular roles & permissions, branch restriction | ✅ | [14-users-roles](modules/14-users-roles.md). 9 default roles, 40 permissions. |
 | 29 | Audit trail, no hard deletes of financial/operational records | ✅ | [17-audit-notifications-search](modules/17-audit-notifications-search.md). Reversals, cancellations, voids and deactivation instead of deletes. |
-| 30 | Settings architecture (business, product, sales, stock, order, customer, expense, reports, workflow) | ✅ / ◐ | [16-settings](modules/16-settings.md). ⏳ Custom *product* fields and configurable order statuses. |
+| 30 | Settings architecture (business, product, sales, stock, order, customer, expense, reports, workflow) | ✅ | [16-settings](modules/16-settings.md). Product fields and order statuses added in roadmap 1. |
 | 31 | Mobile-first UI/UX, responsive to desktop, light/dark, Outfit font, no horizontal overflow | ✅ | [ui.md](ui.md). Verified at 390, 820, 1440 and 1920 px. |
 | 32 | Mobile navigation Home · Sales · Stock · Orders · More, permission-aware | ✅ | Desktop uses a grouped sidebar instead. |
 | 33 | Data-integrity rules | ✅ | Enforced in the database (unique/partial indexes, checks) and in the ledger (row locks). Negative stock only when explicitly enabled. |
@@ -64,7 +64,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 
 ## Backlog (⏳)
 
-- Custom product fields; configurable order statuses.
+- ~~Custom product fields; configurable order statuses.~~ ✅ done (roadmap 1, 2026-10-03).
 - Multi-level approval chains; expense approval rules by category/branch/role.
 - Threshold-based medals for products and staff.
 - Deposits on credit sales; a combined exchange screen.

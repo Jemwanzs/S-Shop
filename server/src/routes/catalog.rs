@@ -62,6 +62,7 @@ pub struct ProductRow {
     pub loyalty_points_per: Option<i32>,
     pub low_stock_threshold: Option<i32>,
     pub all_branches: bool,
+    pub custom_fields: Value,
     pub on_hand: i32,
     pub reserved: i32,
     pub available: i32,
@@ -75,7 +76,7 @@ pub const PRODUCT_SELECT: &str = "
     SELECT p.id, p.code, p.name, p.nickname, p.description, p.category_id, c.name AS category_name,
            p.supplier_id, s.name AS supplier_name, p.marked_price, p.max_discount, p.cost_price, p.barcode,
            p.track_items, p.is_active, p.available_for_orders, p.transfer_allowed, p.loyalty_eligible,
-           p.loyalty_threshold, p.loyalty_points_per, p.low_stock_threshold, p.all_branches,
+           p.loyalty_threshold, p.loyalty_points_per, p.low_stock_threshold, p.all_branches, p.custom_fields,
            COALESCE(sl.on_hand, 0) AS on_hand, COALESCE(sl.reserved, 0) AS reserved,
            COALESCE(sl.on_hand, 0) - COALESCE(sl.reserved, 0) AS available,
            (SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order LIMIT 1) AS primary_photo_id,
@@ -196,6 +197,8 @@ pub struct ProductBody {
     pub all_branches: bool,
     #[serde(default)]
     pub branch_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub custom_fields: serde_json::Map<String, Value>,
 }
 
 fn yes() -> bool {
@@ -207,6 +210,7 @@ async fn validate(conn: &mut PgConnection, ctx: &Ctx, b: &mut ProductBody, exist
     if b.name.is_empty() {
         return Err(bad("Product name is required"));
     }
+    b.custom_fields = super::fields::clean(conn, ctx.tenant_id, super::fields::Kind::Product, &b.custom_fields).await?;
     if b.marked_price < Decimal::ZERO {
         return Err(bad("Price cannot be negative"));
     }
@@ -293,8 +297,8 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Produ
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO products (tenant_id, code, name, nickname, description, category_id, supplier_id, marked_price, max_discount,
              cost_price, barcode, track_items, is_active, available_for_orders, transfer_allowed, loyalty_eligible,
-             loyalty_threshold, loyalty_points_per, low_stock_threshold, all_branches, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id",
+             loyalty_threshold, loyalty_points_per, low_stock_threshold, all_branches, created_by, custom_fields)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) RETURNING id",
     )
     .bind(ctx.tenant_id)
     .bind(&b.code)
@@ -317,6 +321,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Produ
     .bind(b.low_stock_threshold)
     .bind(b.all_branches)
     .bind(ctx.user_id)
+    .bind(Value::Object(b.custom_fields.clone()))
     .fetch_one(&mut *tx)
     .await?;
     write_branches(&mut tx, id, &b).await?;
@@ -393,7 +398,7 @@ async fn apply_update(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, b: &ProductB
     sqlx::query(
         "UPDATE products SET code=$3, name=$4, nickname=$5, description=$6, category_id=$7, supplier_id=$8, marked_price=$9,
              max_discount=$10, cost_price=$11, barcode=$12, track_items=$13, available_for_orders=$14, transfer_allowed=$15,
-             loyalty_eligible=$16, loyalty_threshold=$17, loyalty_points_per=$18, low_stock_threshold=$19, all_branches=$20,
+             loyalty_eligible=$16, loyalty_threshold=$17, loyalty_points_per=$18, low_stock_threshold=$19, all_branches=$20, custom_fields=$21,
              updated_at=now()
          WHERE id=$1 AND tenant_id=$2",
     )
@@ -417,6 +422,7 @@ async fn apply_update(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, b: &ProductB
     .bind(b.loyalty_points_per)
     .bind(b.low_stock_threshold)
     .bind(b.all_branches)
+    .bind(Value::Object(b.custom_fields.clone()))
     .execute(&mut *conn)
     .await?;
     write_branches(conn, id, b).await?;

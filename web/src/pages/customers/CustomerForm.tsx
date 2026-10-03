@@ -1,19 +1,18 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
 import { phone } from "@/lib/format";
-import type { Customer, CustomerField } from "@/lib/types";
+import type { Customer } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { Field, NativeSelect } from "@/components/Form";
+import { Field } from "@/components/Form";
+import { CustomFieldInputs } from "@/components/CustomFields";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 
 /** Default fields (mobile, first name, nickname …) plus the tenant's configured custom fields. */
 export function CustomerForm({ open, onOpenChange, customer, onSaved }: { open: boolean; onOpenChange: (o: boolean) => void; customer?: Customer | null; onSaved?: (id: string) => void }) {
   const qc = useQueryClient();
-  const fields = useQuery({ queryKey: ["customer-fields"], queryFn: () => api<CustomerField[]>("/customer-fields") });
   const [mobile, setMobile] = useState("");
   const [firstName, setFirstName] = useState("");
   const [otherNames, setOtherNames] = useState("");
@@ -47,8 +46,6 @@ export function CustomerForm({ open, onOpenChange, customer, onSaved }: { open: 
     onError: (e) => toast.error(errorMessage(e)),
   });
 
-  const active = (fields.data ?? []).filter((f) => f.is_active);
-  const setField = (k: string, v: unknown) => setCustom((c) => ({ ...c, [k]: v }));
 
   return (
     <ResponsiveDialog
@@ -63,28 +60,7 @@ export function CustomerForm({ open, onOpenChange, customer, onSaved }: { open: 
         <Field label="Other names" optional><Input value={otherNames} onChange={(e) => setOtherNames(e.target.value)} /></Field>
         <Field label="Nickname" optional><Input value={nickname} onChange={(e) => setNickname(e.target.value)} /></Field>
         <Field label="Email" optional><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
-        {active.map((f) => {
-          const v = custom[f.key];
-          return (
-            <Field key={f.id} label={f.label} optional={!f.required}>
-              {f.field_type === "dropdown" ? (
-                <NativeSelect value={String(v ?? "")} onChange={(x) => setField(f.key, x)}>
-                  <option value="">—</option>
-                  {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
-                </NativeSelect>
-              ) : f.field_type === "boolean" ? (
-                <div className="flex h-11 items-center"><Switch checked={!!v} onCheckedChange={(c) => setField(f.key, c)} /></div>
-              ) : (
-                <Input
-                  type={f.field_type === "date" ? "date" : f.field_type === "email" ? "email" : "text"}
-                  inputMode={f.field_type === "number" ? "decimal" : undefined}
-                  value={String(v ?? "")}
-                  onChange={(e) => setField(f.key, e.target.value)}
-                />
-              )}
-            </Field>
-          );
-        })}
+        <CustomFieldInputs kind="customer" values={custom} onChange={setCustom} />
       </div>
     </ResponsiveDialog>
   );

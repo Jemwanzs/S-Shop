@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::like;
-use super::orders::{announce_new, create_order, order_events, order_items, status_label, OrderLine, FLOW};
+use super::orders::{announce_new, create_order, order_events, order_items, OrderLine, FLOW};
 use crate::auth::{issue_token, PortalCustomer, PORTAL_TOKEN_DAYS};
 use crate::error::{bad, rule, AppError, AppResult};
 use crate::integrations::whatsapp;
@@ -204,7 +204,7 @@ struct PortalOrder {
     id: Uuid,
     order_no: String,
     status: String,
-    status_label: &'static str,
+    status_label: String,
     total: Decimal,
     created_at: DateTime<Utc>,
     track_token: Uuid,
@@ -213,20 +213,22 @@ struct PortalOrder {
 }
 
 /// Progress tracker: Order received → Being prepared → On delivery → Delivered (→ Completed).
-fn steps(status: &str) -> Vec<Value> {
+/// Steps the business has switched off are not shown to customers.
+fn steps(st: &TenantSettings, status: &str) -> Vec<Value> {
     let visible = ["new", "preparing", "on_delivery", "delivered", "completed"];
     let current = FLOW.iter().position(|s| *s == status);
     visible
         .iter()
+        .filter(|s| st.order_status_enabled(s))
         .map(|s| {
             let r = FLOW.iter().position(|f| f == s).unwrap_or(0);
             let done = current.is_some_and(|c| c >= r);
-            json!({ "status": s, "label": status_label(s), "done": done, "current": Some(r) == current })
+            json!({ "status": s, "label": st.order_label(s), "done": done, "current": Some(r) == current })
         })
         .collect()
 }
 
-async fn load_orders(state: &AppState, customer_id: Uuid, limit: i64) -> AppResult<Vec<PortalOrder>> {
+async fn load_orders(state: &AppState, st: &TenantSettings, customer_id: Uuid, limit: i64) -> AppResult<Vec<PortalOrder>> {
     let rows: Vec<(Uuid, String, String, Decimal, DateTime<Utc>, Uuid)> = sqlx::query_as(
         "SELECT id, order_no, status, total, created_at, track_token FROM orders WHERE customer_id = $1 ORDER BY created_at DESC LIMIT $2",
     )
@@ -245,7 +247,7 @@ async fn load_orders(state: &AppState, customer_id: Uuid, limit: i64) -> AppResu
                 "photo_url": photo.map(|p| format!("/api/photos/{p}")),
             }))
             .collect();
-        out.push(PortalOrder { id, steps: steps(&status), status_label: status_label(&status), order_no, status, total, created_at, track_token, items });
+        out.push(PortalOrder { id, steps: steps(st, &status), status_label: st.order_label(&status), order_no, status, total, created_at, track_token, items });
     }
     Ok(out)
 }
@@ -284,7 +286,7 @@ async fn my_orders(State(state): State<AppState>, Path(slug): Path<String>, c: P
         .bind(c.customer_id)
         .fetch_one(&state.db)
         .await?;
-    Ok(Json(json!({ "total_orders": total, "orders": load_orders(&state, c.customer_id, 3).await? })))
+    Ok(Json(json!({ "total_orders": total, "orders": load_orders(&state, &t.settings, c.customer_id, 3).await? })))
 }
 
 #[derive(Deserialize)]
@@ -404,29 +406,30 @@ async fn place_order(State(state): State<AppState>, Path(slug): Path<String>, c:
 
 /// Public tracking by unguessable token — no account needed.
 async fn track(State(state): State<AppState>, Path(token): Path<Uuid>) -> AppResult<Json<Value>> {
-    let row: Option<(Uuid, String, String, Decimal, DateTime<Utc>, String, String, String, bool)> = sqlx::query_as(
-        "SELECT o.id, o.order_no, o.status, o.total, o.created_at, o.delivery_location, t.name, t.slug, t.logo IS NOT NULL
+    let row: Option<(Uuid, String, String, Decimal, DateTime<Utc>, String, String, String, bool, Value)> = sqlx::query_as(
+        "SELECT o.id, o.order_no, o.status, o.total, o.created_at, o.delivery_location, t.name, t.slug, t.logo IS NOT NULL, t.settings
          FROM orders o JOIN tenants t ON t.id = o.tenant_id WHERE o.track_token = $1",
     )
     .bind(token)
     .fetch_optional(&state.db)
     .await?;
-    let (id, order_no, status, total, created_at, location, business, slug, has_logo) = row.ok_or(AppError::NotFound("Order"))?;
+    let (id, order_no, status, total, created_at, location, business, slug, has_logo, raw) = row.ok_or(AppError::NotFound("Order"))?;
+    let st: TenantSettings = serde_json::from_value(raw).unwrap_or_default();
     let mut conn = state.db.acquire().await?;
     let items: Vec<Value> = order_items(&mut conn, id)
         .await?
         .into_iter()
         .map(|(_, name, qty, price, line, _)| json!({ "name": name, "quantity": qty, "unit_price": price, "line_total": line }))
         .collect();
-    let events = order_events(&mut conn, id).await?;
+    let events = order_events(&mut conn, &st, id).await?;
     Ok(Json(json!({
         "business": { "name": business, "slug": slug, "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")) },
         "order": {
-            "order_no": order_no, "status": status, "status_label": status_label(&status), "total": total,
+            "order_no": order_no, "status": status, "status_label": st.order_label(&status), "total": total,
             "created_at": created_at, "delivery_location": location,
             "terminal": (["cancelled", "rejected", "returned"].contains(&status.as_str())),
         },
-        "steps": steps(&status),
+        "steps": steps(&st, &status),
         "items": items,
         "events": events.into_iter().map(|mut e| { e.as_object_mut().map(|o| o.remove("user_name")); e }).collect::<Vec<_>>(),
     })))

@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Loading, PageHeader, Section } from "@/components/Page";
 import { Field, NativeSelect, ToggleRow } from "@/components/Form";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { CustomFieldInputs } from "@/components/CustomFields";
 
 interface FormState {
   code: string;
@@ -36,12 +37,14 @@ interface FormState {
   low_stock_threshold: string;
   all_branches: boolean;
   branch_ids: string[];
+  custom_fields: Record<string, unknown>;
 }
 
 const EMPTY: FormState = {
   code: "", name: "", nickname: "", description: "", category_id: "", supplier_id: "", marked_price: "", max_discount: "",
   cost_price: "", barcode: "", track_items: false, is_active: true, available_for_orders: true, transfer_allowed: true,
   loyalty_eligible: true, loyalty_threshold: "", loyalty_points_per: "", low_stock_threshold: "", all_branches: true, branch_ids: [],
+  custom_fields: {},
 };
 
 const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
@@ -75,6 +78,7 @@ export default function ProductForm() {
       track_items: p.track_items, is_active: p.is_active, available_for_orders: p.available_for_orders, transfer_allowed: p.transfer_allowed,
       loyalty_eligible: p.loyalty_eligible, loyalty_threshold: str(p.loyalty_threshold), loyalty_points_per: str(p.loyalty_points_per),
       low_stock_threshold: str(p.low_stock_threshold), all_branches: p.all_branches, branch_ids: existing.data!.branch_ids,
+      custom_fields: p.custom_fields ?? {},
     });
   }, [existing.data]);
 
@@ -184,6 +188,7 @@ export default function ProductForm() {
                   </div>
                 )}
               </Field>
+              <CustomFieldInputs kind="product" values={f.custom_fields} onChange={(v) => set("custom_fields", v)} />
               <Field label="Description" optional className="md:col-span-2"><Textarea value={f.description} onChange={(e) => set("description", e.target.value)} rows={3} placeholder="Shown to customers on the ordering link" /></Field>
             </div>
           </Section>

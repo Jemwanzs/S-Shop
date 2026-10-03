@@ -10,224 +10,232 @@ List endpoints accept `limit` (≤500) and `offset`; period filters accept `peri
 
 ## Authentication
 
-| Method | Path | Handler |
-|---|---|---|
-| POST | `/api/auth/login` | `auth::login` |
-| GET | `/api/auth/me` | `auth::me` |
-| POST | `/api/auth/change-pin` | `auth::change_pin` |
+| Method | Path |
+|---|---|
+| POST | `/api/auth/login` |
+| GET | `/api/auth/me` |
+| POST | `/api/auth/change-pin` |
 
 ## Settings, branches, users & roles
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/settings` | `admin::get_settings` |
-| PUT | `/api/settings` | `admin::put_settings` |
-| PUT | `/api/settings/profile` | `admin::put_profile` |
-| POST | `/api/settings/logo` | `admin::upload_logo` |
-| PUT | `/api/settings/workflows/{action}` | `admin::put_workflow` |
-| GET | `/api/public/{slug}/logo` | `admin::logo` |
-| GET | `/api/branches` | `admin::list_branches` |
-| POST | `/api/branches` | `admin::create_branch` |
-| PUT | `/api/branches/{id}` | `admin::update_branch` |
-| GET | `/api/users` | `admin::list_users` |
-| POST | `/api/users` | `admin::create_user` |
-| PUT | `/api/users/{id}` | `admin::update_user` |
-| POST | `/api/users/{id}/reset-pin` | `admin::reset_user_pin` |
-| GET | `/api/roles` | `admin::list_roles` |
-| POST | `/api/roles` | `admin::create_role` |
-| PUT | `/api/roles/{id}` | `admin::update_role` |
-| GET | `/api/permissions` | `admin::permission_catalogue` |
+| Method | Path |
+|---|---|
+| GET | `/api/settings` |
+| PUT | `/api/settings` |
+| PUT | `/api/settings/profile` |
+| POST | `/api/settings/logo` |
+| PUT | `/api/settings/workflows/{action}` |
+| GET | `/api/public/{slug}/logo` |
+| GET | `/api/branches` |
+| POST | `/api/branches` |
+| PUT | `/api/branches/{id}` |
+| GET | `/api/users` |
+| POST | `/api/users` |
+| PUT | `/api/users/{id}` |
+| POST | `/api/users/{id}/reset-pin` |
+| GET | `/api/roles` |
+| POST | `/api/roles` |
+| PUT | `/api/roles/{id}` |
+| GET | `/api/permissions` |
 
 ## Products, categories, suppliers, photos
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/products` | `catalog::list` |
-| POST | `/api/products` | `catalog::create` |
-| GET | `/api/products/lookup` | `catalog::lookup` |
-| GET | `/api/products/{id}` | `catalog::detail` |
-| PUT | `/api/products/{id}` | `catalog::update` |
-| POST | `/api/products/{id}/status` | `catalog::set_status` |
-| POST | `/api/products/{id}/photos` | `catalog::upload_photo` |
-| DELETE | `/api/products/{id}/photos/{photo_id}` | `catalog::delete_photo` |
-| POST | `/api/products/{id}/photos/{photo_id}/primary` | `catalog::set_primary` |
-| GET | `/api/photos/{id}` | `catalog::photo` |
-| GET | `/api/categories` | `catalog::list_categories` |
-| POST | `/api/categories` | `catalog::create_category` |
-| PUT | `/api/categories/{id}` | `catalog::update_category` |
-| GET | `/api/suppliers` | `catalog::list_suppliers` |
-| POST | `/api/suppliers` | `catalog::create_supplier` |
-| PUT | `/api/suppliers/{id}` | `catalog::update_supplier` |
+| Method | Path |
+|---|---|
+| GET | `/api/products` |
+| POST | `/api/products` |
+| GET | `/api/products/lookup` |
+| GET | `/api/products/{id}` |
+| PUT | `/api/products/{id}` |
+| POST | `/api/products/{id}/status` |
+| POST | `/api/products/{id}/photos` |
+| DELETE | `/api/products/{id}/photos/{photo_id}` |
+| POST | `/api/products/{id}/photos/{photo_id}/primary` |
+| GET | `/api/photos/{id}` |
+| GET | `/api/categories` |
+| POST | `/api/categories` |
+| PUT | `/api/categories/{id}` |
+| GET | `/api/suppliers` |
+| POST | `/api/suppliers` |
+| PUT | `/api/suppliers/{id}` |
+
+## Custom fields (customers & products)
+
+| Method | Path |
+|---|---|
+| GET | `/api/customer-fields` |
+| POST | `/api/customer-fields` |
+| PUT | `/api/customer-fields/{id}` |
+| GET | `/api/product-fields` |
+| POST | `/api/product-fields` |
+| PUT | `/api/product-fields/{id}` |
 
 ## Stock & inventory
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/stock` | `stock::levels` |
-| GET | `/api/stock/availability/{product_id}` | `stock::availability` |
-| POST | `/api/stock/receive` | `stock::receive` |
-| GET | `/api/stock/movements` | `stock::movements` |
-| GET | `/api/stock/items` | `stock::items` |
-| GET | `/api/stock/barcode/{code}` | `stock::barcode_history` |
-| GET | `/api/stock/adjustments` | `stock::list_adjustments` |
-| POST | `/api/stock/adjustments` | `stock::create_adjustment` |
-| POST | `/api/stock/count` | `stock::stock_count` |
-| GET | `/api/stock/position` | `stock::position` |
+| Method | Path |
+|---|---|
+| GET | `/api/stock` |
+| GET | `/api/stock/availability/{product_id}` |
+| POST | `/api/stock/receive` |
+| GET | `/api/stock/movements` |
+| GET | `/api/stock/items` |
+| GET | `/api/stock/barcode/{code}` |
+| GET | `/api/stock/adjustments` |
+| POST | `/api/stock/adjustments` |
+| POST | `/api/stock/count` |
+| GET | `/api/stock/position` |
 
 ## Transfers
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/transfers` | `transfers::list` |
-| POST | `/api/transfers` | `transfers::create` |
-| GET | `/api/transfers/{id}` | `transfers::detail` |
-| POST | `/api/transfers/{id}/submit` | `transfers::submit` |
-| POST | `/api/transfers/{id}/dispatch` | `transfers::dispatch` |
-| POST | `/api/transfers/{id}/receive` | `transfers::receive` |
-| POST | `/api/transfers/{id}/cancel` | `transfers::cancel` |
+| Method | Path |
+|---|---|
+| GET | `/api/transfers` |
+| POST | `/api/transfers` |
+| GET | `/api/transfers/{id}` |
+| POST | `/api/transfers/{id}/submit` |
+| POST | `/api/transfers/{id}/dispatch` |
+| POST | `/api/transfers/{id}/receive` |
+| POST | `/api/transfers/{id}/cancel` |
 
-## Customers & custom fields
+## Customers
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/customers` | `customers::list` |
-| POST | `/api/customers` | `customers::create` |
-| GET | `/api/customers/lookup` | `customers::lookup` |
-| GET | `/api/customers/{id}` | `customers::profile` |
-| PUT | `/api/customers/{id}` | `customers::update` |
-| GET | `/api/customer-fields` | `customers::list_fields` |
-| POST | `/api/customer-fields` | `customers::create_field` |
-| PUT | `/api/customer-fields/{id}` | `customers::update_field` |
+| Method | Path |
+|---|---|
+| GET | `/api/customers` |
+| POST | `/api/customers` |
+| GET | `/api/customers/lookup` |
+| GET | `/api/customers/{id}` |
+| PUT | `/api/customers/{id}` |
 
 ## Loyalty, referrals & awards
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/loyalty/overview` | `loyalty::overview` |
-| GET | `/api/customers/{id}/loyalty` | `loyalty::ledger` |
-| POST | `/api/customers/{id}/redeem` | `loyalty::redeem` |
-| POST | `/api/customers/{id}/points` | `loyalty::adjust` |
-| GET | `/api/referrals` | `loyalty::list_referrals` |
-| POST | `/api/referrals` | `loyalty::create_referral` |
-| POST | `/api/referrals/{id}/deactivate` | `loyalty::deactivate_referral` |
-| GET | `/api/awards` | `loyalty::list_awards` |
-| POST | `/api/awards` | `loyalty::open_period` |
-| POST | `/api/awards/{id}/close` | `loyalty::close_period` |
-| POST | `/api/awards/message/{customer_id}` | `loyalty::message_customer` |
+| Method | Path |
+|---|---|
+| GET | `/api/loyalty/overview` |
+| GET | `/api/customers/{id}/loyalty` |
+| POST | `/api/customers/{id}/redeem` |
+| POST | `/api/customers/{id}/points` |
+| GET | `/api/referrals` |
+| POST | `/api/referrals` |
+| POST | `/api/referrals/{id}/deactivate` |
+| GET | `/api/awards` |
+| POST | `/api/awards` |
+| POST | `/api/awards/{id}/close` |
+| POST | `/api/awards/message/{customer_id}` |
 
 ## Sales / POS
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/pos/products` | `sales::pos_products` |
-| GET | `/api/sales` | `sales::list` |
-| POST | `/api/sales` | `sales::create` |
-| GET | `/api/sales/{id}` | `sales::detail` |
-| POST | `/api/sales/{id}/return` | `sales::return_items` |
-| POST | `/api/sales/{id}/cancel` | `sales::cancel` |
-| POST | `/api/sales/{id}/share` | `sales::share` |
+| Method | Path |
+|---|---|
+| GET | `/api/pos/products` |
+| GET | `/api/sales` |
+| POST | `/api/sales` |
+| GET | `/api/sales/{id}` |
+| POST | `/api/sales/{id}/return` |
+| POST | `/api/sales/{id}/cancel` |
+| POST | `/api/sales/{id}/share` |
 
 ## M-Pesa STK
 
-| Method | Path | Handler |
-|---|---|---|
-| POST | `/api/mpesa/stk` | `payments::push` |
-| GET | `/api/mpesa/stk/{id}` | `payments::status` |
+| Method | Path |
+|---|---|
+| POST | `/api/mpesa/stk` |
+| GET | `/api/mpesa/stk/{id}` |
 
 ## Credit sales
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/credit` | `credit::list` |
-| GET | `/api/credit/aging` | `credit::aging` |
-| GET | `/api/credit/{id}` | `credit::detail` |
-| POST | `/api/credit/{id}/payments` | `credit::repay` |
-| POST | `/api/credit/{id}/write-off` | `credit::write_off` |
-| POST | `/api/credit/{id}/remind` | `credit::remind` |
+| Method | Path |
+|---|---|
+| GET | `/api/credit` |
+| GET | `/api/credit/aging` |
+| GET | `/api/credit/{id}` |
+| POST | `/api/credit/{id}/payments` |
+| POST | `/api/credit/{id}/write-off` |
+| POST | `/api/credit/{id}/remind` |
 
 ## Orders (staff)
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/orders` | `orders::list` |
-| POST | `/api/orders` | `orders::create` |
-| GET | `/api/orders/summary` | `orders::summary` |
-| GET | `/api/orders/{id}` | `orders::detail` |
-| POST | `/api/orders/{id}/status` | `orders::change_status` |
+| Method | Path |
+|---|---|
+| GET | `/api/orders` |
+| POST | `/api/orders` |
+| GET | `/api/orders/summary` |
+| GET | `/api/orders/{id}` |
+| POST | `/api/orders/{id}/status` |
 
 ## Ordering portal (public)
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/portal/{slug}` | `portal::business` |
-| POST | `/api/portal/{slug}/identify` | `portal::identify` |
-| POST | `/api/portal/{slug}/session` | `portal::session` |
-| GET | `/api/portal/{slug}/me` | `portal::me` |
-| GET | `/api/portal/{slug}/catalogue` | `portal::catalogue` |
-| GET | `/api/portal/{slug}/products/{id}` | `portal::product` |
-| GET | `/api/portal/{slug}/orders` | `portal::my_orders` |
-| POST | `/api/portal/{slug}/orders` | `portal::place_order` |
-| GET | `/api/portal/track/{token}` | `portal::track` |
+| Method | Path |
+|---|---|
+| GET | `/api/portal/{slug}` |
+| POST | `/api/portal/{slug}/identify` |
+| POST | `/api/portal/{slug}/session` |
+| GET | `/api/portal/{slug}/me` |
+| GET | `/api/portal/{slug}/catalogue` |
+| GET | `/api/portal/{slug}/products/{id}` |
+| GET | `/api/portal/{slug}/orders` |
+| POST | `/api/portal/{slug}/orders` |
+| GET | `/api/portal/track/{token}` |
 
 ## Expenses
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/expenses` | `expenses::list` |
-| POST | `/api/expenses` | `expenses::create` |
-| GET | `/api/expenses/{id}/attachment` | `expenses::attachment` |
-| POST | `/api/expenses/{id}/void` | `expenses::void` |
-| GET | `/api/expense-categories` | `expenses::list_categories` |
-| POST | `/api/expense-categories` | `expenses::create_category` |
-| PUT | `/api/expense-categories/{id}` | `expenses::update_category` |
+| Method | Path |
+|---|---|
+| GET | `/api/expenses` |
+| POST | `/api/expenses` |
+| GET | `/api/expenses/{id}/attachment` |
+| POST | `/api/expenses/{id}/void` |
+| GET | `/api/expense-categories` |
+| POST | `/api/expense-categories` |
+| PUT | `/api/expense-categories/{id}` |
 
 ## Approvals
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/approvals` | `approvals::list` |
-| POST | `/api/approvals/{id}/approve` | `approvals::approve` |
-| POST | `/api/approvals/{id}/reject` | `approvals::reject` |
-| POST | `/api/approvals/{id}/withdraw` | `approvals::withdraw` |
+| Method | Path |
+|---|---|
+| GET | `/api/approvals` |
+| POST | `/api/approvals/{id}/approve` |
+| POST | `/api/approvals/{id}/reject` |
+| POST | `/api/approvals/{id}/withdraw` |
 
 ## Dashboard
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/dashboard` | `dashboard::dashboard` |
+| Method | Path |
+|---|---|
+| GET | `/api/dashboard` |
 
 ## Reports
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/reports` | `reports::catalogue` |
-| GET | `/api/reports/{key}` | `reports::run` |
+| Method | Path |
+|---|---|
+| GET | `/api/reports` |
+| GET | `/api/reports/{key}` |
 
 ## Notifications & live events
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/notifications` | `notifications::list` |
-| POST | `/api/notifications/read-all` | `notifications::read_all` |
-| POST | `/api/notifications/{id}/read` | `notifications::read_one` |
-| GET | `/api/events` | `notifications::stream` |
+| Method | Path |
+|---|---|
+| GET | `/api/notifications` |
+| POST | `/api/notifications/read-all` |
+| POST | `/api/notifications/{id}/read` |
+| GET | `/api/events` |
 
 ## Audit trail
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/audit` | `audit::list` |
+| Method | Path |
+|---|---|
+| GET | `/api/audit` |
 
 ## Search
 
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/api/search` | `search::search` |
+| Method | Path |
+|---|---|
+| GET | `/api/search` |
 
 ## Webhooks (public)
 
-| Method | Path | Handler |
-|---|---|---|
-| POST | `/api/webhooks/mpesa/{token}` | `webhooks::mpesa_callback` |
-| GET | `/api/webhooks/whatsapp` | `webhooks::whatsapp_verify` |
-| POST | `/api/webhooks/whatsapp` | `webhooks::whatsapp_event` |
+| Method | Path |
+|---|---|
+| POST | `/api/webhooks/mpesa/{token}` |
+| GET | `/api/webhooks/whatsapp` |
+| POST | `/api/webhooks/whatsapp` |

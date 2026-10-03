@@ -180,6 +180,41 @@ pos = call("GET", f"/stock/position?period=all&product_id={nduma}&branch_id={BRA
 lvl = call("GET", f"/stock?q=Nduma {suffix}")["items"][0]
 check("position closing matches level", pos["closing"] == lvl["on_hand"], (pos["closing"], lvl["on_hand"]))
 
+step("Roadmap 1a: custom product fields")
+fid = call("POST", "/product-fields", {"label": f"Size {suffix}", "field_type": "dropdown", "options": ["S", "M", "L"], "required": True})["id"]
+key = call("GET", "/product-fields")[-1]["key"]
+call("POST", "/products", {"name": f"Shirt {suffix}", "marked_price": 900}, expect=400)
+check("required product field enforced", True)
+call("POST", "/products", {"name": f"Shirt {suffix}", "marked_price": 900, "custom_fields": {key: "XL"}}, expect=400)
+check("dropdown value validated", True)
+shirt = call("POST", "/products", {"name": f"Shirt {suffix}", "marked_price": 900, "custom_fields": {key: "M"}})["result"]["id"]
+check("custom field value saved", call("GET", f"/products/{shirt}")["product"]["custom_fields"].get(key) == "M")
+call("PUT", f"/product-fields/{fid}", {"label": f"Size {suffix}", "field_type": "dropdown", "options": ["S", "M", "L"], "required": False, "is_active": False})
+
+step("Roadmap 1b: configurable order statuses")
+settings = call("GET", "/settings")["settings"]
+original = json.loads(json.dumps(settings))
+for st in settings["orders"]["statuses"]:
+    if st["key"] == "preparing":
+        st["label"] = "In the kitchen"
+    if st["key"] == "on_delivery":
+        st["enabled"] = False
+call("PUT", "/settings", settings)
+o2 = call("POST", f"/portal/{slug}/orders", {"items": [{"product_id": nduma, "quantity": 1}], "delivery_location": "Shop"}, token=ptoken)
+call("POST", f"/orders/{o2['id']}/status", {"status": "on_delivery"}, expect=422)
+check("disabled step cannot be used", True)
+call("POST", f"/orders/{o2['id']}/status", {"status": "preparing"})
+tr = call("GET", f"/portal/track/{o2['track_token']}", token="none")
+labels = [s["label"] for s in tr["steps"]]
+check("renamed step shown to customers", tr["order"]["status_label"] == "In the kitchen" and "In the kitchen" in labels, labels)
+check("disabled step hidden from tracker", all(s["status"] != "on_delivery" for s in tr["steps"]), labels)
+bad = json.loads(json.dumps(settings))
+bad["orders"]["statuses"].append({"key": "teleported", "label": "Teleported", "enabled": True})
+call("PUT", "/settings", bad, expect=400)
+check("unknown status rejected", True)
+call("POST", f"/orders/{o2['id']}/status", {"status": "cancelled"})
+call("PUT", "/settings", original)
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

@@ -60,6 +60,7 @@ export interface Settings {
     verify_with_otp: boolean;
     show_out_of_stock: boolean;
     notify_customer_whatsapp: boolean;
+    statuses: { key: string; label: string; enabled: boolean }[];
   };
   customers: { require_email: boolean };
   loyalty: {
@@ -114,6 +115,7 @@ export interface Product {
   loyalty_points_per: number | null;
   low_stock_threshold: number | null;
   all_branches: boolean;
+  custom_fields: Record<string, unknown>;
   on_hand: number;
   reserved: number;
   available: number;
@@ -164,7 +166,7 @@ export interface Customer {
   created_at: string;
 }
 
-export interface CustomerField {
+export interface CustomField {
   id: Id;
   key: string;
   label: string;

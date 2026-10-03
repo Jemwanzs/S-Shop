@@ -104,6 +104,14 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(body): Json<
     if !["delivered", "completed"].contains(&body.orders.sale_on_status.as_str()) {
         return Err(bad("Orders can become sales at Delivered or Completed"));
     }
+    for st in &body.orders.statuses {
+        if !crate::settings::ORDER_STATUSES.iter().any(|(k, ..)| *k == st.key) {
+            return Err(bad(format!("Unknown order status: {}", st.key)));
+        }
+        if st.label.trim().is_empty() {
+            return Err(bad("Every order status needs a name"));
+        }
+    }
     if body.sales.payment_methods.iter().all(|m| !m.enabled) {
         return Err(bad("Enable at least one payment method"));
     }

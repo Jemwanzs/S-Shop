@@ -12,6 +12,13 @@ Completed · Cancelled · All; search by order number, customer or mobile. New o
 ## Statuses
 `New → Confirmed → Preparing → Ready/Dispatched → On delivery → Delivered → Completed`, plus `Cancelled`,
 `Rejected` (from New) and `Returned` (set when the resulting sale is cancelled). Steps may be skipped forward.
+
+**Configurable statuses** (Settings → Orders → Order statuses): every status can be renamed — staff screens, the
+customer tracker and WhatsApp messages use your names. The optional steps *Preparing*, *Dispatched*, *On delivery* and
+*Completed* can be switched off (e.g. a shop without delivery); disabled steps disappear from the next-step buttons and
+the customer tracker. *New*, *Confirmed*, *Delivered*, the terminal statuses and whichever stage turns the order into a
+sale are always on.
+
 Every change records user, time and an optional note (timeline on the order page).
 
 ## Stock: reserved vs sold

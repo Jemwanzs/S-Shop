@@ -11,6 +11,10 @@ Cost price (optional, needs financial permission) · Barcode: **shared product b
 individually** · Active · Available on ordering link · Transfers allowed · All branches or selected branches ·
 Low-stock alert level (optional) · Loyalty: eligible, and optional product rule “every X spent earns Y points”.
 
+**Product fields** (Settings → Products → Product fields): your own fields such as Size, Colour, Brand or Expiry —
+text, number, date, dropdown, yes/no or email; required or optional; active/inactive; display order. They appear on the
+product form and product page and are validated by the server (also when a change waits for approval).
+
 ## Photos
 Up to **5** per product by default (Settings → Products → Photos per product). Images are resized to WebP in the
 browser before upload (≤ 1400 px). One is the **primary photo** (used on the ordering link); others can be promoted or

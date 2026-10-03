@@ -63,10 +63,10 @@ const LABELS: Record<string, string> = {
   in_stock: "In stock",
 };
 
-export function StatusBadge({ status, className }: { status: string; className?: string }) {
+export function StatusBadge({ status, label, className }: { status: string; label?: string; className?: string }) {
   return (
     <Pill tone={STATUS_TONE[status] ?? "neutral"} className={className}>
-      {LABELS[status] ?? titleCase(status)}
+      {label ?? LABELS[status] ?? titleCase(status)}
     </Pill>
   );
 }

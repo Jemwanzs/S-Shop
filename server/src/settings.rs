@@ -138,7 +138,37 @@ pub struct OrderSettings {
     pub verify_with_otp: bool,
     pub show_out_of_stock: bool,
     pub notify_customer_whatsapp: bool,
+    /// Order status names and which optional steps the business uses.
+    pub statuses: Vec<OrderStatus>,
 }
+
+/// Every order status with its default label and whether a business may switch it off.
+pub const ORDER_STATUSES: &[(&str, &str, bool)] = &[
+    ("new", "Order received", false),
+    ("confirmed", "Confirmed", false),
+    ("preparing", "Being prepared", true),
+    ("dispatched", "Ready / dispatched", true),
+    ("on_delivery", "On delivery", true),
+    ("delivered", "Delivered", false),
+    ("completed", "Completed", true),
+    ("cancelled", "Cancelled", false),
+    ("rejected", "Rejected", false),
+    ("returned", "Returned", false),
+];
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OrderStatus {
+    pub key: String,
+    pub label: String,
+    pub enabled: bool,
+}
+impl Default for OrderStatus {
+    fn default() -> Self {
+        Self { key: String::new(), label: String::new(), enabled: true }
+    }
+}
+
 impl Default for OrderSettings {
     fn default() -> Self {
         Self {
@@ -149,6 +179,10 @@ impl Default for OrderSettings {
             verify_with_otp: false,
             show_out_of_stock: true,
             notify_customer_whatsapp: true,
+            statuses: ORDER_STATUSES
+                .iter()
+                .map(|(k, l, _)| OrderStatus { key: k.to_string(), label: l.to_string(), enabled: true })
+                .collect(),
         }
     }
 }
@@ -264,6 +298,26 @@ impl TenantSettings {
             .unwrap_or_default()
     }
 
+    /// The business's name for an order status (falls back to the default label).
+    pub fn order_label(&self, key: &str) -> String {
+        self.orders
+            .statuses
+            .iter()
+            .find(|s| s.key == key && !s.label.trim().is_empty())
+            .map(|s| s.label.trim().to_string())
+            .or_else(|| ORDER_STATUSES.iter().find(|(k, ..)| *k == key).map(|(_, l, _)| l.to_string()))
+            .unwrap_or_else(|| key.replace('_', " "))
+    }
+
+    /// Optional steps can be switched off; core steps and the sale stage are always on.
+    pub fn order_status_enabled(&self, key: &str) -> bool {
+        let optional = ORDER_STATUSES.iter().any(|(k, _, opt)| *k == key && *opt);
+        if !optional || key == self.orders.sale_on_status {
+            return true;
+        }
+        self.orders.statuses.iter().find(|s| s.key == key).map(|s| s.enabled).unwrap_or(true)
+    }
+
     pub fn payment_enabled(&self, key: &str) -> bool {
         self.sales.payment_methods.iter().any(|m| m.key == key && m.enabled)
     }
@@ -287,6 +341,21 @@ mod tests {
         assert!(s.stock.allow_negative);
         assert_eq!(s.product.max_photos, 5);
         assert_eq!(s.loyalty.referral_bonus_percent, 50);
+    }
+
+    #[test]
+    fn order_status_config() {
+        let mut s = TenantSettings::default();
+        assert_eq!(s.order_label("preparing"), "Being prepared");
+        s.orders.statuses.iter_mut().find(|x| x.key == "preparing").unwrap().label = "In the kitchen".into();
+        s.orders.statuses.iter_mut().find(|x| x.key == "on_delivery").unwrap().enabled = false;
+        s.orders.statuses.iter_mut().find(|x| x.key == "delivered").unwrap().enabled = false;
+        assert_eq!(s.order_label("preparing"), "In the kitchen");
+        assert!(!s.order_status_enabled("on_delivery"));
+        assert!(s.order_status_enabled("delivered"), "core steps cannot be disabled");
+        s.orders.sale_on_status = "completed".into();
+        s.orders.statuses.iter_mut().find(|x| x.key == "completed").unwrap().enabled = false;
+        assert!(s.order_status_enabled("completed"), "the sale stage cannot be disabled");
     }
 
     #[test]

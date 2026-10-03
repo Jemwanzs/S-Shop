@@ -131,8 +131,8 @@ async fn auto_reply(state: &AppState, from: &str, text: &str) {
     if !wants_status {
         return;
     }
-    let row: Result<Option<(Uuid, String, String, Uuid, String)>, _> = sqlx::query_as(
-        "SELECT o.tenant_id, o.order_no, o.status, o.track_token, t.name FROM orders o
+    let row: Result<Option<(Uuid, String, String, Uuid, String, Value)>, _> = sqlx::query_as(
+        "SELECT o.tenant_id, o.order_no, o.status, o.track_token, t.name, t.settings FROM orders o
          JOIN customers c ON c.id = o.customer_id JOIN tenants t ON t.id = o.tenant_id
          WHERE c.mobile = $1 AND ($2::text IS NULL OR o.order_no = $2) ORDER BY o.created_at DESC LIMIT 1",
     )
@@ -141,11 +141,11 @@ async fn auto_reply(state: &AppState, from: &str, text: &str) {
     .fetch_optional(&state.db)
     .await;
     let reply = match row {
-        Ok(Some((tenant, no, status, token, business))) => (
+        Ok(Some((tenant, no, status, token, business, raw))) => (
             Some(tenant),
             format!(
                 "{business}: order {no} is *{}*.\nTrack it: {}/track/{token}",
-                super::orders::status_label(&status),
+                serde_json::from_value::<crate::settings::TenantSettings>(raw).unwrap_or_default().order_label(&status),
                 state.cfg.public_url
             ),
         ),

@@ -6,6 +6,14 @@
 At checkout choose **Credit Sale** → a customer is required (found by mobile or created with first name) and a due
 date (default *today + credit days*, Settings → Sales). Completing the sale creates the sale **and** a credit record.
 
+### Deposit at the counter
+Optionally enter **Deposit now** and choose how it was paid: Cash (with change), M-Pesa (Push STK for the deposit
+amount, or the confirmation code), or another enabled method. The deposit must be less than the total. The credit then
+opens as **Partially paid** at the remaining balance. The deposit is one payment that appears on the receipt (amount
+paid + balance) and as the first entry in the credit's payment history. The WhatsApp receipt shows *Deposit paid* and
+*On credit — balance*. API: `deposit: { amount, method, reference?, mpesa_request_id? }` on `POST /api/sales` with
+`payment.method = "credit"`.
+
 ## Credit list
 Tabs: **Open** (default) · Overdue · Paid · Written off · All; search by customer, mobile or receipt.
 Header cards: total outstanding and overdue; **aging** bars (not due · 1–30 · 31–60 · 61–90 · 90+ days).

@@ -11,7 +11,7 @@
 3. **Cart** — one or many lines: quantity × price, discount, line total, ✓ barcode, 🌼 points per line.
 4. **Customer** (optional, required for credit) — type the mobile; existing customers load with points/tier/balance;
    new ones need a first name (+ optional nickname).
-5. **Payment** — M-Pesa (Push STK and/or manual code), Cash (change calculator), Credit Sale (due date), or any custom
+5. **Payment** — M-Pesa (Push STK and/or manual code), Cash (change calculator), Credit Sale (due date, optional deposit now), or any custom
    method. Optional **points redemption** reduces the amount payable.
 6. **Totals** — subtotal at marked prices, discounts, points redeemed, **Total payable**, 🌼 *+N Loyalty Points*.
 7. **Complete sale** → success screen with receipt, WhatsApp share and *New sale*.

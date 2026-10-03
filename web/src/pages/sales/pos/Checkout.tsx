@@ -88,6 +88,10 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
     return d.toISOString().slice(0, 10);
   });
   const [redeem, setRedeem] = useState("");
+  // Optional deposit on a credit sale: collected now with the deposit method, the rest stays on credit.
+  const depositMethods = methods.filter((m) => m.key !== "credit");
+  const [deposit, setDeposit] = useState("");
+  const [depositMethod, setDepositMethod] = useState(depositMethods[0]?.key ?? "cash");
   const [stk, setStk] = useState<MpesaReq | null>(null);
   const [supEmail, setSupEmail] = useState("");
   const [supPin, setSupPin] = useState("");
@@ -99,6 +103,13 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
 
   const redeemPts = Math.max(0, parseInt(redeem) || 0);
   const t = useMemo(() => totals(lines, s, redeemPts), [lines, s, redeemPts]);
+  const isCredit = method === "credit";
+  const depositAmount = isCredit ? toNum(deposit) : 0;
+  const takingDeposit = depositAmount > 0;
+  // What is collected now, and how: the full payable, or the deposit on a credit sale.
+  const payMethod = isCredit ? depositMethod : method;
+  const payAmount = isCredit ? depositAmount : t.payable;
+  const collecting = !isCredit || takingDeposit;
   const excessive = lines.some(exceedsMax) && !can("sales.discount_override");
   const showSupervisor = excessive || needSupervisor;
   const canRedeem = s.loyalty.enabled && s.loyalty.redemption_enabled && can("customers.redeem_points") && !!customer && customer.points_available >= s.loyalty.min_redemption_points;
@@ -115,9 +126,9 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
   }, [stkStatus.data]);
 
   const push = useMutation({
-    mutationFn: () => api<{ id: string; message: string }>("/mpesa/stk", { body: { phone: payPhone, amount: t.payable, reference: profile!.tenant.name.slice(0, 12) } }),
+    mutationFn: () => api<{ id: string; message: string }>("/mpesa/stk", { body: { phone: payPhone, amount: payAmount, reference: profile!.tenant.name.slice(0, 12) } }),
     onSuccess: (r) => {
-      setStk({ id: r.id, status: "pending", result_desc: r.message, mpesa_receipt: null, amount: String(t.payable) });
+      setStk({ id: r.id, status: "pending", result_desc: r.message, mpesa_receipt: null, amount: String(payAmount) });
       toast.success(r.message);
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -136,8 +147,16 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
             mpesa_request_id: method === "mpesa" && stk?.status === "success" ? stk.id : undefined,
             phone: payPhone.replace(/\D/g, ""),
           },
+          deposit: takingDeposit
+            ? {
+                amount: depositAmount,
+                method: depositMethod,
+                reference: depositMethod === "mpesa" && !stk ? reference : "",
+                mpesa_request_id: depositMethod === "mpesa" && stk?.status === "success" ? stk.id : undefined,
+              }
+            : undefined,
           redeem_points: canRedeem ? redeemPts : 0,
-          due_date: method === "credit" ? dueDate : undefined,
+          due_date: isCredit ? dueDate : undefined,
           supervisor: showSupervisor && supEmail ? { email: supEmail, pin: supPin } : undefined,
           client_ref: clientRef,
         },
@@ -149,12 +168,13 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
     },
   });
 
-  const change = toNum(tendered) - t.payable;
+  const change = toNum(tendered) - payAmount;
   const blockers: string[] = [];
   if (!lines.length) blockers.push("Add items");
   if (method === "credit" && !customer && !(isNew && firstName.trim())) blockers.push("Credit needs a customer");
   if (isNew && digits.length >= 9 && !firstName.trim()) blockers.push("Enter the customer's first name");
-  if (method === "mpesa" && stk?.status !== "success" && reference.trim().length < 8) blockers.push(s.sales.mpesa_manual_confirmation ? "Push STK or enter the M-Pesa code" : "Push STK to collect payment");
+  if (takingDeposit && depositAmount >= t.payable) blockers.push("A deposit must be less than the total");
+  if (collecting && payMethod === "mpesa" && stk?.status !== "success" && reference.trim().length < 8) blockers.push(s.sales.mpesa_manual_confirmation ? "Push STK or enter the M-Pesa code" : "Push STK to collect payment");
   if (showSupervisor && (!supEmail || !supPin)) blockers.push("Supervisor approval needed");
   if (redeemPts > 0 && customer && redeemPts > customer.points_available) blockers.push("Not enough points");
 
@@ -196,7 +216,24 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
             <Chip key={m.key} active={method === m.key} onClick={() => setMethod(m.key)} className="h-10">{m.label}</Chip>
           ))}
         </div>
-        {method === "mpesa" && (
+        {isCredit && (
+          <div className="space-y-3 rounded-xl border p-3">
+            <Field label="Due date" hint="Credit is recorded against the customer and tracked until paid">
+              <Input type="date" min={todayIso()} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </Field>
+            <Field label="Deposit now" optional hint="Part-payment today; the balance stays on credit">
+              <Input inputMode="decimal" className="num" value={deposit} onChange={(e) => setDeposit(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0" />
+            </Field>
+            {takingDeposit && (
+              <div className="flex flex-wrap gap-2">
+                {depositMethods.map((m) => (
+                  <Chip key={m.key} active={depositMethod === m.key} onClick={() => setDepositMethod(m.key)} className="h-9">{m.label}</Chip>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {collecting && payMethod === "mpesa" && (
           <div className="space-y-3 rounded-xl border p-3">
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -204,7 +241,7 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
                 <Input inputMode="tel" placeholder="M-Pesa number (optional)" value={payPhone} onChange={(e) => setPayPhone(e.target.value)} className="num pl-9" />
               </div>
               {profile!.integrations.mpesa_stk && (
-                <Button variant="success" disabled={push.isPending || payPhone.replace(/\D/g, "").length < 9 || t.payable <= 0 || stk?.status === "pending"} onClick={() => push.mutate()}>
+                <Button variant="success" disabled={push.isPending || payPhone.replace(/\D/g, "").length < 9 || payAmount <= 0 || stk?.status === "pending"} onClick={() => push.mutate()}>
                   {push.isPending ? <Loader2 className="animate-spin" /> : "Push STK"}
                 </Button>
               )}
@@ -227,18 +264,13 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
             )}
           </div>
         )}
-        {method === "cash" && (
+        {collecting && payMethod === "cash" && (
           <div className="grid grid-cols-2 items-end gap-3">
-            <Field label="Cash received" optional><Input inputMode="decimal" className="num" value={tendered} onChange={(e) => setTendered(e.target.value.replace(/[^\d.]/g, ""))} placeholder={String(t.payable)} /></Field>
+            <Field label="Cash received" optional><Input inputMode="decimal" className="num" value={tendered} onChange={(e) => setTendered(e.target.value.replace(/[^\d.]/g, ""))} placeholder={String(payAmount)} /></Field>
             <div className="pb-2 text-right text-sm">
               {tendered && <>Change <span className={cn("num block text-lg font-semibold", change < 0 && "text-destructive")}>{money(change, currency)}</span></>}
             </div>
           </div>
-        )}
-        {method === "credit" && (
-          <Field label="Due date" hint="Credit is recorded against the customer and tracked until paid">
-            <Input type="date" min={todayIso()} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-          </Field>
         )}
       </section>
 
@@ -272,6 +304,12 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
           <span className="font-semibold">Total payable</span>
           <span className="num text-2xl font-bold">{money(t.payable, currency)}</span>
         </div>
+        {isCredit && (
+          <>
+            {takingDeposit && <Row label="Deposit now" value={money(depositAmount, currency)} tone="text-success" />}
+            <Row label="On credit" value={money(Math.max(t.payable - depositAmount, 0), currency)} tone="text-destructive" />
+          </>
+        )}
         {s.loyalty.enabled && t.points > 0 && (
           <div className={cn("mt-2 flex items-center justify-center gap-2 rounded-lg py-2 font-semibold animate-pop", customer || isNew ? "bg-points/15 text-points" : "bg-muted text-muted-foreground")}>
             🌼 +{count(t.points)} Loyalty Points {!(customer || isNew) && <span className="text-xs font-normal">· add a customer to earn</span>}

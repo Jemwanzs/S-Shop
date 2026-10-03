@@ -272,6 +272,26 @@ call("PUT", "/settings", bad, expect=400)
 check("targets must go down Gold > Silver > Bronze", True)
 call("PUT", "/settings", original)
 
+step("Roadmap 4a: deposit on a credit sale")
+line = [{"product_id": nduma, "quantity": 1, "unit_price": 400}]
+call("POST", "/sales", {"customer_id": cust_id, "items": line, "payment": {"method": "credit"},
+                        "deposit": {"amount": 400, "method": "cash"}}, expect=422)
+check("deposit equal to the total is refused", True)
+call("POST", "/sales", {"customer_id": cust_id, "items": line, "payment": {"method": "credit"},
+                        "deposit": {"amount": 100, "method": "mpesa", "reference": "BAD"}}, expect=422)
+check("M-Pesa deposit needs a valid code", True)
+ds = call("POST", "/sales", {"customer_id": cust_id, "items": line, "payment": {"method": "credit"},
+                             "deposit": {"amount": 150, "method": "cash"}})
+check("credit opens partially paid at the balance", ds["credit"]["status"] == "partially_paid" and float(ds["credit"]["balance"]) == 250, ds["credit"])
+check("sale records the deposit as paid", float(ds["sale"]["amount_paid"]) == 150, ds["sale"]["amount_paid"])
+check("deposit shown on the receipt payments", [float(x["amount"]) for x in ds["payments"]] == [150], ds["payments"])
+cd = call("GET", f"/credit/{ds['credit']['id']}")
+check("deposit in the credit payment history", [float(x["amount"]) for x in cd["payments"]] == [150], cd["payments"])
+r = call("POST", f"/credit/{ds['credit']['id']}/payments", {"amount": 250, "method": "cash"})
+check("remaining balance can be settled", r["status"] == "paid" and float(r["balance"]) == 0, r)
+nd = call("POST", "/sales", {"customer_id": cust_id, "items": line, "payment": {"method": "credit"}})
+check("credit without deposit unchanged", nd["credit"]["status"] == "outstanding" and float(nd["credit"]["balance"]) == 400, nd["credit"])
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

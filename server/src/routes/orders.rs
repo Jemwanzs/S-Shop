@@ -401,6 +401,7 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
                         payment,
                         redeem_points: 0,
                         due_date: None,
+                        deposit: None,
                         notes: format!("Order {}", o.order_no),
                         approved_by: None,
                         order_id: Some(id),

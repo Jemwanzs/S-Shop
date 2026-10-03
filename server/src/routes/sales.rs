@@ -117,6 +117,16 @@ pub struct PaymentInput {
     pub phone: String,
 }
 
+/// Part-payment taken at the moment of a credit sale; the rest stays on credit.
+#[derive(Deserialize, Clone)]
+pub struct DepositInput {
+    pub amount: Decimal,
+    pub method: String,
+    #[serde(default)]
+    pub reference: String,
+    pub mpesa_request_id: Option<Uuid>,
+}
+
 #[derive(Deserialize)]
 pub struct CustomerInput {
     pub mobile: String,
@@ -142,6 +152,7 @@ struct CreateBody {
     #[serde(default)]
     redeem_points: i64,
     due_date: Option<NaiveDate>,
+    deposit: Option<DepositInput>,
     #[serde(default)]
     notes: String,
     supervisor: Option<Supervisor>,
@@ -156,6 +167,7 @@ pub struct SaleInput {
     pub payment: PaymentInput,
     pub redeem_points: i64,
     pub due_date: Option<NaiveDate>,
+    pub deposit: Option<DepositInput>,
     pub notes: String,
     pub approved_by: Option<Uuid>,
     pub order_id: Option<Uuid>,
@@ -309,6 +321,51 @@ async fn prepare_lines(
     Ok((lines, excessive_discount))
 }
 
+/// Validates an M-Pesa payment of `amount`: a confirmed, unused STK request (then marked used by `consumer`)
+/// or, when allowed, a manually entered confirmation code. Returns the reference and the request id.
+async fn confirm_mpesa(
+    conn: &mut PgConnection,
+    ctx: &Ctx,
+    s: &TenantSettings,
+    request: Option<Uuid>,
+    reference: String,
+    amount: Decimal,
+    consumer: Uuid,
+) -> AppResult<(String, Option<Uuid>)> {
+    let Some(req_id) = request else {
+        if !s.sales.mpesa_manual_confirmation {
+            return Err(rule("Use Push STK to collect M-Pesa payments"));
+        }
+        if reference.len() < 8 || !reference.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(rule("Enter the M-Pesa confirmation code (e.g. QFT1ABC2DE)"));
+        }
+        return Ok((reference, None));
+    };
+    let (status, paid, receipt, consumed): (String, Decimal, Option<String>, Option<Uuid>) = sqlx::query_as(
+        "SELECT status, amount, mpesa_receipt, consumed_by FROM mpesa_requests WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+    )
+    .bind(req_id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(AppError::NotFound("M-Pesa request"))?;
+    if status != "success" {
+        return Err(rule("The M-Pesa payment has not been confirmed yet"));
+    }
+    if consumed.is_some() {
+        return Err(rule("This M-Pesa payment was already used"));
+    }
+    if paid < amount {
+        return Err(rule(format!("M-Pesa paid {} but {} is due", money_str(paid), money_str(amount))));
+    }
+    sqlx::query("UPDATE mpesa_requests SET consumed_by = $2, updated_at = now() WHERE id = $1")
+        .bind(req_id)
+        .bind(consumer)
+        .execute(&mut *conn)
+        .await?;
+    Ok((receipt.unwrap_or_default(), Some(req_id)))
+}
+
 /// Records a complete sale inside the caller's transaction. Returns the sale id.
 pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, input: SaleInput, trusted_prices: bool) -> AppResult<Uuid> {
     let (lines, excessive) = prepare_lines(conn, ctx, s, &input, trusted_prices).await?;
@@ -353,45 +410,32 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         };
     }
 
-    // Payment validation.
+    // Payment validation. A credit sale may take a deposit now; the rest stays on credit.
     let mut reference = input.payment.reference.trim().to_uppercase();
     let mut mpesa_request = None;
+    let mut deposit = None;
     let amount_paid = match method {
-        "credit" => Decimal::ZERO,
-        "mpesa" => {
-            if let Some(req_id) = input.payment.mpesa_request_id {
-                let (status, amount, receipt, consumed): (String, Decimal, Option<String>, Option<Uuid>) = sqlx::query_as(
-                    "SELECT status, amount, mpesa_receipt, consumed_by FROM mpesa_requests WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
-                )
-                .bind(req_id)
-                .bind(ctx.tenant_id)
-                .fetch_optional(&mut *conn)
-                .await?
-                .ok_or(AppError::NotFound("M-Pesa request"))?;
-                if status != "success" {
-                    return Err(rule("The M-Pesa payment has not been confirmed yet"));
+        "credit" => match &input.deposit {
+            Some(d) if d.amount > Decimal::ZERO => {
+                let amount = round2(d.amount);
+                if amount >= total {
+                    return Err(rule("A deposit must be less than the total — take a normal payment for the full amount"));
                 }
-                if consumed.is_some() {
-                    return Err(rule("This M-Pesa payment was already used"));
+                if d.method == "credit" || !s.payment_enabled(&d.method) {
+                    return Err(rule("Choose how the deposit was paid"));
                 }
-                if amount < total {
-                    return Err(rule(format!("M-Pesa paid {} but the sale total is {}", money_str(amount), money_str(total))));
+                let mut dref = d.reference.trim().to_uppercase();
+                let mut dreq = None;
+                if d.method == "mpesa" {
+                    (dref, dreq) = confirm_mpesa(conn, ctx, s, d.mpesa_request_id, dref, amount, sale_id).await?;
                 }
-                sqlx::query("UPDATE mpesa_requests SET consumed_by = $2, updated_at = now() WHERE id = $1")
-                    .bind(req_id)
-                    .bind(sale_id)
-                    .execute(&mut *conn)
-                    .await?;
-                reference = receipt.unwrap_or_default();
-                mpesa_request = Some(req_id);
-            } else {
-                if !s.sales.mpesa_manual_confirmation {
-                    return Err(rule("Use Push STK to collect M-Pesa payments"));
-                }
-                if reference.len() < 8 || !reference.chars().all(|c| c.is_ascii_alphanumeric()) {
-                    return Err(rule("Enter the M-Pesa confirmation code (e.g. QFT1ABC2DE)"));
-                }
+                deposit = Some((d.method.clone(), amount, dref, dreq));
+                amount
             }
+            _ => Decimal::ZERO,
+        },
+        "mpesa" => {
+            (reference, mpesa_request) = confirm_mpesa(conn, ctx, s, input.payment.mpesa_request_id, reference, total, sale_id).await?;
             total
         }
         _ => total,
@@ -470,9 +514,9 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     if method == "credit" {
         let customer = input.customer_id.expect("checked above");
         let due = input.due_date.unwrap_or_else(|| today_in(ctx.tz) + Duration::days(s.sales.credit_default_days));
-        sqlx::query(
-            "INSERT INTO credit_sales (tenant_id, branch_id, sale_id, customer_id, user_id, original_amount, due_date)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        let credit_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO credit_sales (tenant_id, branch_id, sale_id, customer_id, user_id, original_amount, due_date, amount_paid, status)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $8 > 0 THEN 'partially_paid' ELSE 'outstanding' END) RETURNING id",
         )
         .bind(ctx.tenant_id)
         .bind(input.branch_id)
@@ -481,8 +525,28 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         .bind(ctx.user_id)
         .bind(total)
         .bind(due)
-        .execute(&mut *conn)
+        .bind(amount_paid)
+        .fetch_one(&mut *conn)
         .await?;
+        if let Some((dmethod, amount, dref, dreq)) = &deposit {
+            // The deposit belongs to both the sale (receipt) and the credit (payment history).
+            sqlx::query(
+                "INSERT INTO payments (tenant_id, branch_id, sale_id, credit_sale_id, method, amount, reference, phone, mpesa_request_id, user_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+            )
+            .bind(ctx.tenant_id)
+            .bind(input.branch_id)
+            .bind(sale_id)
+            .bind(credit_id)
+            .bind(dmethod)
+            .bind(amount)
+            .bind(dref)
+            .bind(input.payment.phone.trim())
+            .bind(dreq)
+            .bind(ctx.user_id)
+            .execute(&mut *conn)
+            .await?;
+        }
     } else if total > Decimal::ZERO {
         sqlx::query(
             "INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, phone, mpesa_request_id, user_id)
@@ -600,6 +664,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             payment: b.payment.clone(),
             redeem_points: 0,
             due_date: None,
+            deposit: None,
             notes: String::new(),
             approved_by: None,
             order_id: None,
@@ -623,6 +688,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             payment: b.payment,
             redeem_points: b.redeem_points,
             due_date: b.due_date,
+            deposit: b.deposit,
             notes: b.notes,
             approved_by,
             order_id: None,
@@ -829,10 +895,10 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
 
 /// Plain-text receipt for WhatsApp; returns (customer phone, text).
 async fn receipt_text(state: &AppState, sale_id: Uuid) -> AppResult<(Option<String>, String)> {
-    let (business, receipt_no, at, total, method, points, phone, name, tz): (
-        String, String, DateTime<Utc>, Decimal, String, i64, Option<String>, Option<String>, String,
+    let (business, receipt_no, at, total, paid, method, points, phone, name, tz): (
+        String, String, DateTime<Utc>, Decimal, Decimal, String, i64, Option<String>, Option<String>, String,
     ) = sqlx::query_as(
-        "SELECT t.name, s.receipt_no, s.created_at, s.total, s.payment_method, s.points_earned, c.mobile, c.first_name, t.timezone
+        "SELECT t.name, s.receipt_no, s.created_at, s.total, s.amount_paid, s.payment_method, s.points_earned, c.mobile, c.first_name, t.timezone
          FROM sales s JOIN tenants t ON t.id = s.tenant_id LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = $1",
     )
     .bind(sale_id)
@@ -852,7 +918,15 @@ async fn receipt_text(state: &AppState, sale_id: Uuid) -> AppResult<(Option<Stri
     for (pname, qty, line) in items {
         text.push_str(&format!("• {pname} × {qty} — {}\n", money_str(line)));
     }
-    text.push_str(&format!("\n*Total: {}*\nPaid via {}\n", money_str(total), method.to_uppercase()));
+    text.push_str(&format!("\n*Total: {}*\n", money_str(total)));
+    if method == "credit" {
+        if paid > Decimal::ZERO {
+            text.push_str(&format!("Deposit paid: {}\n", money_str(paid)));
+        }
+        text.push_str(&format!("On credit — balance {}\n", money_str(total - paid)));
+    } else {
+        text.push_str(&format!("Paid via {}\n", method.to_uppercase()));
+    }
     if points > 0 {
         text.push_str(&format!("🌼 +{points} loyalty points\n"));
     }

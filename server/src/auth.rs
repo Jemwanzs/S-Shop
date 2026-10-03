@@ -1,0 +1,281 @@
+//! Authentication (JWT) and the per-request staff context.
+
+use argon2::password_hash::rand_core::OsRng;
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::Argon2;
+use axum::extract::FromRequestParts;
+use axum::http::request::Parts;
+use axum::http::HeaderMap;
+use chrono::Utc;
+use chrono_tz::Tz;
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::error::{AppError, AppResult};
+use crate::state::AppState;
+use crate::util::parse_tz;
+
+pub const STAFF_TOKEN_HOURS: i64 = 12;
+pub const PORTAL_TOKEN_DAYS: i64 = 30;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: Uuid,
+    pub tid: Uuid,
+    /// "staff" | "portal"
+    pub typ: String,
+    pub exp: i64,
+    pub iat: i64,
+}
+
+pub fn hash_pin(pin: &str) -> AppResult<String> {
+    let salt = SaltString::generate(&mut OsRng);
+    Argon2::default()
+        .hash_password(pin.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| AppError::Other(anyhow::anyhow!("hash failure: {e}")))
+}
+
+pub fn verify_pin(pin: &str, hash: &str) -> bool {
+    PasswordHash::new(hash)
+        .map(|parsed| Argon2::default().verify_password(pin.as_bytes(), &parsed).is_ok())
+        .unwrap_or(false)
+}
+
+pub fn validate_pin(pin: &str) -> AppResult<()> {
+    if pin.len() < 4 || pin.len() > 12 {
+        return Err(crate::error::bad("PIN must be 4–12 characters"));
+    }
+    Ok(())
+}
+
+pub fn issue_token(secret: &str, sub: Uuid, tid: Uuid, typ: &str, ttl: chrono::Duration) -> AppResult<String> {
+    let now = Utc::now();
+    let claims = Claims { sub, tid, typ: typ.into(), iat: now.timestamp(), exp: (now + ttl).timestamp() };
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
+        .map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
+}
+
+pub fn read_token(secret: &str, token: &str, typ: &str) -> AppResult<Claims> {
+    let data = decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &Validation::default())
+        .map_err(|_| AppError::Unauthorized)?;
+    if data.claims.typ != typ {
+        return Err(AppError::Unauthorized);
+    }
+    Ok(data.claims)
+}
+
+/// Bearer token from the Authorization header, or `access_token` query
+/// parameter (EventSource and direct downloads cannot set headers).
+pub fn bearer(parts: &Parts) -> Option<String> {
+    if let Some(v) = parts.headers.get("authorization").and_then(|v| v.to_str().ok()) {
+        if let Some(t) = v.strip_prefix("Bearer ") {
+            return Some(t.trim().to_string());
+        }
+    }
+    parts.uri.query().and_then(|q| {
+        q.split('&')
+            .filter_map(|kv| kv.split_once('='))
+            .find(|(k, _)| *k == "access_token")
+            .map(|(_, v)| v.to_string())
+    })
+}
+
+pub fn client_meta(headers: &HeaderMap) -> (String, String) {
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let ua = headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    (ip, ua.chars().take(200).collect())
+}
+
+/// Authenticated staff member + the branch they are currently operating from.
+#[derive(Clone, Debug)]
+pub struct Ctx {
+    pub user_id: Uuid,
+    pub tenant_id: Uuid,
+    pub name: String,
+    pub permissions: Vec<String>,
+    pub branch_ids: Vec<Uuid>,
+    /// Current Branch (X-Branch-Id header), validated against branch_ids.
+    pub branch_id: Uuid,
+    pub tz: Tz,
+    pub ip: String,
+    pub user_agent: String,
+}
+
+impl Ctx {
+    pub fn can(&self, perm: &str) -> bool {
+        self.permissions.iter().any(|p| p == "*" || p == perm)
+    }
+
+    pub fn is_admin(&self) -> bool {
+        self.permissions.iter().any(|p| p == "*")
+    }
+
+    pub fn require(&self, perm: &str) -> AppResult<()> {
+        if self.can(perm) {
+            Ok(())
+        } else {
+            Err(AppError::Forbidden("You do not have permission for this action".into()))
+        }
+    }
+
+    pub fn require_any(&self, perms: &[&str]) -> AppResult<()> {
+        if perms.iter().any(|p| self.can(p)) {
+            Ok(())
+        } else {
+            Err(AppError::Forbidden("You do not have permission for this action".into()))
+        }
+    }
+
+    pub fn has_branch(&self, branch_id: Uuid) -> bool {
+        self.branch_ids.contains(&branch_id)
+    }
+
+    pub fn ensure_branch(&self, branch_id: Uuid) -> AppResult<()> {
+        if self.has_branch(branch_id) {
+            Ok(())
+        } else {
+            Err(AppError::Forbidden("You are not assigned to that branch".into()))
+        }
+    }
+
+    /// Resolve an optional branch filter: an explicit branch the user may see, else the Current Branch.
+    pub fn branch_or_current(&self, branch: Option<Uuid>) -> AppResult<Uuid> {
+        match branch {
+            Some(b) => {
+                self.ensure_branch(b)?;
+                Ok(b)
+            }
+            None => Ok(self.branch_id),
+        }
+    }
+
+    /// Branches for a report/list filter: explicit branch, or all the user may see.
+    pub fn branch_scope(&self, branch: Option<Uuid>) -> AppResult<Vec<Uuid>> {
+        match branch {
+            Some(b) => {
+                self.ensure_branch(b)?;
+                Ok(vec![b])
+            }
+            None => Ok(self.branch_ids.clone()),
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct CtxRow {
+    name: String,
+    is_active: bool,
+    all_branches: bool,
+    permissions: Vec<String>,
+    timezone: String,
+}
+
+impl FromRequestParts<AppState> for Ctx {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let token = bearer(parts).ok_or(AppError::Unauthorized)?;
+        let claims = read_token(&state.cfg.jwt_secret, &token, "staff")?;
+
+        let row: Option<CtxRow> = sqlx::query_as(
+            "SELECT u.name, u.is_active, u.all_branches, r.permissions, t.timezone
+             FROM users u JOIN roles r ON r.id = u.role_id JOIN tenants t ON t.id = u.tenant_id
+             WHERE u.id = $1 AND u.tenant_id = $2",
+        )
+        .bind(claims.sub)
+        .bind(claims.tid)
+        .fetch_optional(&state.db)
+        .await?;
+        let row = row.ok_or(AppError::Unauthorized)?;
+        if !row.is_active {
+            return Err(AppError::Unauthorized);
+        }
+
+        let all_branches = row.all_branches || row.permissions.iter().any(|p| p == "*");
+        let branch_ids: Vec<Uuid> = if all_branches {
+            sqlx::query_scalar("SELECT id FROM branches WHERE tenant_id = $1 AND is_active ORDER BY created_at")
+                .bind(claims.tid)
+                .fetch_all(&state.db)
+                .await?
+        } else {
+            sqlx::query_scalar(
+                "SELECT b.id FROM user_branches ub JOIN branches b ON b.id = ub.branch_id
+                 WHERE ub.user_id = $1 AND b.is_active ORDER BY b.created_at",
+            )
+            .bind(claims.sub)
+            .fetch_all(&state.db)
+            .await?
+        };
+
+        let requested = parts
+            .headers
+            .get("x-branch-id")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| Uuid::parse_str(v).ok());
+        let branch_id = match requested {
+            Some(b) if branch_ids.contains(&b) => b,
+            Some(_) => return Err(AppError::Forbidden("You are not assigned to that branch".into())),
+            None => *branch_ids
+                .first()
+                .ok_or_else(|| AppError::Forbidden("Your account is not assigned to any branch".into()))?,
+        };
+
+        let (ip, user_agent) = client_meta(&parts.headers);
+        Ok(Ctx {
+            user_id: claims.sub,
+            tenant_id: claims.tid,
+            name: row.name,
+            permissions: row.permissions,
+            branch_ids,
+            branch_id,
+            tz: parse_tz(&row.timezone),
+            ip,
+            user_agent,
+        })
+    }
+}
+
+/// Customer identity on the public ordering portal.
+#[derive(Clone, Debug)]
+pub struct PortalCustomer {
+    pub customer_id: Uuid,
+    pub tenant_id: Uuid,
+}
+
+impl FromRequestParts<AppState> for PortalCustomer {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let token = bearer(parts).ok_or(AppError::Unauthorized)?;
+        let claims = read_token(&state.cfg.jwt_secret, &token, "portal")?;
+        Ok(PortalCustomer { customer_id: claims.sub, tenant_id: claims.tid })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pin_round_trip() {
+        let h = hash_pin("1234").unwrap();
+        assert!(verify_pin("1234", &h));
+        assert!(!verify_pin("4321", &h));
+    }
+
+    #[test]
+    fn token_type_is_enforced() {
+        let secret = "x".repeat(40);
+        let t = issue_token(&secret, Uuid::new_v4(), Uuid::new_v4(), "portal", chrono::Duration::hours(1)).unwrap();
+        assert!(read_token(&secret, &t, "staff").is_err());
+        assert!(read_token(&secret, &t, "portal").is_ok());
+    }
+}

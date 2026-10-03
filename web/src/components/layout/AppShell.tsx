@@ -1,0 +1,323 @@
+import { useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { Bell, Check, ChevronsUpDown, KeyRound, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { api, errorMessage } from "@/lib/api";
+import { useSession } from "@/lib/session";
+import { useLiveEvents } from "@/lib/events";
+import { initials } from "@/lib/format";
+import type { Notification } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { Field } from "@/components/Form";
+import { GlobalSearch } from "./GlobalSearch";
+import mark from "@/assets/sshop-mark.png";
+import { allowed, BOTTOM, NAV } from "./nav";
+
+export function useTheme() {
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
+  const toggle = () => {
+    const next = !dark;
+    document.documentElement.classList.toggle("dark", next);
+    try {
+      localStorage.setItem("sshop.theme", next ? "dark" : "light");
+    } catch {
+      /* ignore */
+    }
+    setDark(next);
+  };
+  return { dark, toggle };
+}
+
+export function ThemeToggle({ className }: { className?: string }) {
+  const { dark, toggle } = useTheme();
+  return (
+    <Button variant="ghost" size="icon" onClick={toggle} className={className} aria-label="Toggle theme">
+      {dark ? <Sun /> : <Moon />}
+    </Button>
+  );
+}
+
+function useNotificationCounts() {
+  return useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => api<{ items: Notification[]; unread: number; pending_approvals: number }>("/notifications", { query: { limit: 30 } }),
+    refetchInterval: 120_000,
+  });
+}
+
+function BranchSwitcher({ compact }: { compact?: boolean }) {
+  const { profile, branch, selectBranch } = useSession();
+  if (!profile || !branch) return null;
+  const many = profile.branches.length > 1;
+  const label = (
+    <span className="flex min-w-0 items-center gap-2">
+      <Store className="h-4 w-4 shrink-0 text-primary" />
+      <span className="truncate">{branch.name}</span>
+    </span>
+  );
+  if (!many) return <div className={cn("flex h-9 items-center rounded-lg px-2 text-sm font-medium", compact && "max-w-[34vw] sm:max-w-[40vw]")}>{label}</div>;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className={cn("flex h-9 items-center gap-2 rounded-lg border bg-card px-2.5 text-sm font-medium hover:bg-accent", compact ? "max-w-[34vw] sm:max-w-[40vw]" : "w-full justify-between")}>
+          {label}
+          <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuLabel>Current branch</DropdownMenuLabel>
+        {profile.branches.map((b) => (
+          <DropdownMenuItem key={b.id} onClick={() => { selectBranch(b.id); toast.success(`Now operating from ${b.name}`); }} className="gap-2">
+            <Check className={cn("h-4 w-4", b.id === branch.id ? "opacity-100" : "opacity-0")} />
+            <span className="truncate">{b.name}</span>
+            <span className="ml-auto text-xs text-muted-foreground">{b.code}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api("/auth/change-pin", { body: { current_pin: current, new_pin: next } });
+      toast.success("PIN changed");
+      onOpenChange(false);
+      setCurrent("");
+      setNext("");
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Change PIN"
+      footer={<Button className="w-full md:w-auto" disabled={busy || next.length < 4} onClick={save}>Save PIN</Button>}
+    >
+      <div className="space-y-4">
+        <Field label="Current PIN"><Input type="password" inputMode="numeric" value={current} onChange={(e) => setCurrent(e.target.value)} /></Field>
+        <Field label="New PIN" hint="4–12 characters"><Input type="password" inputMode="numeric" value={next} onChange={(e) => setNext(e.target.value)} /></Field>
+      </div>
+    </ResponsiveDialog>
+  );
+}
+
+function UserMenu({ full }: { full?: boolean }) {
+  const { profile, signOut } = useSession();
+  const [pinOpen, setPinOpen] = useState(false);
+  if (!profile) return null;
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className={cn("flex items-center gap-2.5 rounded-lg text-left hover:bg-accent", full ? "w-full p-2" : "p-1")}>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+              {initials(profile.user.name)}
+            </span>
+            {full && (
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium">{profile.user.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">{profile.user.role}</span>
+              </span>
+            )}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuLabel className="font-normal">
+            <div className="truncate font-medium">{profile.user.name}</div>
+            <div className="truncate text-xs text-muted-foreground">{profile.user.email}</div>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setPinOpen(true)} className="gap-2"><KeyRound className="h-4 w-4" /> Change PIN</DropdownMenuItem>
+          <DropdownMenuItem onClick={signOut} className="gap-2 text-destructive"><LogOut className="h-4 w-4" /> Sign out</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ChangePin open={pinOpen} onOpenChange={setPinOpen} />
+    </>
+  );
+}
+
+function Brand() {
+  const { profile } = useSession();
+  return (
+    <Link to="/" className="flex min-w-0 items-center gap-2.5">
+      {profile?.tenant.logo_url ? (
+        <img src={profile.tenant.logo_url} alt="" className="h-9 w-9 rounded-lg object-cover" />
+      ) : (
+        <img src={mark} alt="S'Shop" className="h-9 w-9" />
+      )}
+      <span className="min-w-0">
+        <span className="block truncate font-semibold leading-tight">{profile?.tenant.name ?? "S'Shop"}</span>
+        <span className="text-brand block text-[11px] font-semibold leading-tight">S'Shop</span>
+      </span>
+    </Link>
+  );
+}
+
+function Sidebar({ approvals }: { approvals: number }) {
+  const { can } = useSession();
+  return (
+    <aside className="sticky top-0 hidden h-screen flex-col border-r bg-card/70 backdrop-blur lg:flex print:!hidden">
+      <div className="space-y-3 p-4">
+        <Brand />
+        <BranchSwitcher />
+      </div>
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+        {NAV.map((g) => {
+          const items = g.items.filter((i) => allowed(i, can));
+          if (!items.length) return null;
+          return (
+            <div key={g.group}>
+              <p className="label-caps px-3 pb-1.5">{g.group}</p>
+              {items.map((i) => (
+                <NavLink
+                  key={i.to}
+                  to={i.to}
+                  end={i.to === "/"}
+                  className={({ isActive }) =>
+                    cn(
+                      "group flex h-10 items-center gap-3 rounded-lg px-3 text-sm transition-colors",
+                      isActive ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )
+                  }
+                >
+                  <i.icon className="h-[18px] w-[18px]" />
+                  <span className="flex-1 truncate">{i.label}</span>
+                  {i.to === "/approvals" && approvals > 0 && (
+                    <span className="num rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{approvals}</span>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          );
+        })}
+      </nav>
+      <div className="border-t p-3">
+        <UserMenu full />
+      </div>
+    </aside>
+  );
+}
+
+function BottomNav() {
+  const { can } = useSession();
+  const { pathname } = useLocation();
+  const items = BOTTOM.filter((i) => allowed(i, can));
+  const moreActive = !items.some((i) => (i.to === "/" ? pathname === "/" : pathname.startsWith(i.to)));
+  return (
+    <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur lg:hidden no-print">
+      <div className="mx-auto flex max-w-2xl items-stretch justify-around">
+        {items.map((i) => {
+          const sale = i.to === "/pos";
+          return (
+            <NavLink
+              key={i.to}
+              to={i.to}
+              end={i.to === "/"}
+              className={({ isActive }) => cn("relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium tracking-wide", isActive || sale ? "text-primary" : "text-muted-foreground")}
+            >
+              {({ isActive }) => (
+                <>
+                  {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
+                  {sale ? (
+                    <span className="-mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lift ring-4 ring-background">
+                      <i.icon className="h-5 w-5" />
+                    </span>
+                  ) : (
+                    <i.icon className="h-5 w-5" strokeWidth={isActive ? 2.4 : 1.8} />
+                  )}
+                  {i.label}
+                </>
+              )}
+            </NavLink>
+          );
+        })}
+        <NavLink to="/more" className={cn("relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium", moreActive ? "text-primary" : "text-muted-foreground")}>
+          {moreActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
+          <Menu className="h-5 w-5" />
+          More
+        </NavLink>
+      </div>
+    </nav>
+  );
+}
+
+export function AppShell() {
+  const { profile } = useSession();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const [searchOpen, setSearchOpen] = useState(false);
+  const notes = useNotificationCounts();
+  useLiveEvents(!!profile);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  useEffect(() => window.scrollTo(0, 0), [pathname]);
+
+  const unread = notes.data?.unread ?? 0;
+  const approvals = notes.data?.pending_approvals ?? 0;
+
+  return (
+    <div className="min-h-screen lg:grid lg:grid-cols-[272px_minmax(0,1fr)]">
+      <Sidebar approvals={approvals} />
+      <div className="min-w-0">
+        <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur no-print">
+          <div className="mx-auto flex h-14 max-w-[1680px] items-center gap-2 px-4 md:px-6 lg:h-16 lg:px-8">
+            <div className="min-w-0 flex-1 lg:hidden"><Brand /></div>
+            <div className="flex shrink-0 items-center gap-1 lg:flex-1">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="hidden h-10 w-full max-w-md items-center gap-2 rounded-lg border bg-card px-3 text-sm text-muted-foreground hover:border-primary/40 lg:flex"
+              >
+                <Search className="h-4 w-4" /> Search products, customers, receipts, orders…
+                <kbd className="ml-auto rounded border bg-muted px-1.5 text-[11px]">Ctrl K</kbd>
+              </button>
+              <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSearchOpen(true)} aria-label="Search"><Search /></Button>
+            </div>
+            <div className="min-w-0 shrink lg:hidden"><BranchSwitcher compact /></div>
+            <Button variant="ghost" size="icon" className="relative" onClick={() => navigate("/notifications")} aria-label="Notifications">
+              <Bell />
+              {unread > 0 && <span className="num absolute right-1.5 top-1.5 min-w-4 rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground animate-pop">{unread > 99 ? "99+" : unread}</span>}
+            </Button>
+            <ThemeToggle className="hidden sm:inline-flex" />
+            <div className="hidden lg:block"><UserMenu /></div>
+          </div>
+        </header>
+        <main className="mx-auto w-full max-w-[1680px] px-4 pb-28 pt-5 md:px-6 lg:px-8 lg:pb-12 lg:pt-7">
+          <Outlet />
+        </main>
+      </div>
+      <BottomNav />
+      <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+    </div>
+  );
+}

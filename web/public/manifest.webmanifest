@@ -1,0 +1,13 @@
+{
+  "name": "S'Shop",
+  "short_name": "S'Shop",
+  "description": "Everything you love in one place — retail, inventory, sales & customer loyalty.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf5ee",
+  "theme_color": "#faf5ee",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

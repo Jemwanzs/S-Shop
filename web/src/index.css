@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* S'Shop design tokens — warm cream surfaces, orange primary, Outfit + mono numerals.
+   The S'Shop magenta→orange gradient is reserved for brand moments (logo areas, hero cards). */
+@layer base {
+  :root {
+    --background: 36 52% 96%;
+    --foreground: 24 28% 11%;
+    --card: 36 60% 99%;
+    --card-foreground: 24 28% 11%;
+    --popover: 36 60% 99%;
+    --popover-foreground: 24 28% 11%;
+    --primary: 22 88% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 32 38% 91%;
+    --secondary-foreground: 24 28% 16%;
+    --muted: 32 30% 91%;
+    --muted-foreground: 25 11% 42%;
+    --accent: 28 70% 93%;
+    --accent-foreground: 22 70% 30%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 58% 34%;
+    --success-foreground: 0 0% 100%;
+    --warning: 36 92% 42%;
+    --warning-foreground: 0 0% 100%;
+    --points: 24 85% 44%;
+    --points-foreground: 0 0% 100%;
+    --gold: 44 90% 46%;
+    --silver: 220 8% 58%;
+    --bronze: 25 55% 42%;
+    --border: 30 26% 87%;
+    --input: 30 24% 83%;
+    --ring: 22 88% 48%;
+    --shadow: 24 40% 20%;
+    --radius: 0.75rem;
+    --chart-1: 22 88% 50%;
+    --chart-2: 168 52% 38%;
+    --chart-3: 40 88% 50%;
+    --chart-4: 215 20% 50%;
+    --chart-5: 348 62% 55%;
+    --brand-from: 336 84% 52%;
+    --brand-to: 22 95% 52%;
+  }
+
+  .dark {
+    --background: 24 18% 7%;
+    --foreground: 32 30% 94%;
+    --card: 24 16% 10%;
+    --card-foreground: 32 30% 94%;
+    --popover: 24 16% 11%;
+    --popover-foreground: 32 30% 94%;
+    --primary: 24 92% 56%;
+    --primary-foreground: 24 30% 8%;
+    --secondary: 24 12% 15%;
+    --secondary-foreground: 32 30% 90%;
+    --muted: 24 12% 15%;
+    --muted-foreground: 30 10% 62%;
+    --accent: 24 30% 16%;
+    --accent-foreground: 28 90% 70%;
+    --destructive: 0 70% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 50% 48%;
+    --success-foreground: 24 30% 8%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 24 30% 8%;
+    --points: 28 92% 60%;
+    --points-foreground: 24 30% 8%;
+    --gold: 44 90% 58%;
+    --silver: 220 10% 70%;
+    --bronze: 25 55% 55%;
+    --border: 24 12% 18%;
+    --input: 24 12% 23%;
+    --ring: 24 92% 56%;
+    --shadow: 0 0% 0%;
+    --chart-1: 24 92% 58%;
+    --chart-2: 168 50% 50%;
+    --chart-3: 40 90% 58%;
+    --chart-4: 215 20% 62%;
+    --chart-5: 348 70% 64%;
+    --brand-from: 336 84% 58%;
+    --brand-to: 24 95% 56%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+    text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "ss01";
+    overflow-x: hidden;
+  }
+  ::selection {
+    @apply bg-primary/20;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+@layer components {
+  /* Numbers & money: tabular, never broken across lines. */
+  .num {
+    @apply font-mono whitespace-nowrap;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .label-caps {
+    @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground;
+  }
+  .surface {
+    @apply rounded-xl border bg-card text-card-foreground shadow-soft;
+  }
+  .bg-brand {
+    background-image: linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
+  }
+  .text-brand {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
+  }
+  .tap {
+    @apply min-h-11 min-w-11;
+  }
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media print {
+  body {
+    background: white !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}

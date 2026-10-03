@@ -1,0 +1,9 @@
+target
+_archive
+docs
+scripts
+web/node_modules
+web/dist
+.env
+.git
+**/*.log

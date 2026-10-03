@@ -1,0 +1,20 @@
+# Build output
+/target
+web/dist
+web/node_modules
+
+# Local configuration & secrets
+.env
+.env.*
+!.env.example
+
+# Legacy backup (kept locally, not in version control)
+/_archive
+
+# Logs & editors
+*.log
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+tsconfig.tsbuildinfo

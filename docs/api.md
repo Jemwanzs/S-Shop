@@ -18,6 +18,13 @@ List endpoints accept `limit` (≤500) and `offset`; period filters accept `peri
 | GET | `/api/auth/me` |
 | POST | `/api/auth/change-pin` |
 
+## Platform (platform admins)
+| Method | Path |
+|---|---|
+| GET | `/api/platform/tenants` |
+| POST | `/api/platform/tenants/{id}/open` |
+| GET/POST | `/api/platform/demo` — status / build `{ reset }` |
+
 ## Access requests
 | Method | Path |
 |---|---|

@@ -25,6 +25,9 @@ pub struct Claims {
     pub tid: Uuid,
     /// "staff" | "portal"
     pub typ: String,
+    /// Set when a platform admin has opened another business: the admin's own (home) business.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home: Option<Uuid>,
     pub exp: i64,
     pub iat: i64,
 }
@@ -52,7 +55,22 @@ pub fn validate_pin(pin: &str) -> AppResult<()> {
 
 pub fn issue_token(secret: &str, sub: Uuid, tid: Uuid, typ: &str, ttl: chrono::Duration) -> AppResult<String> {
     let now = Utc::now();
-    let claims = Claims { sub, tid, typ: typ.into(), iat: now.timestamp(), exp: (now + ttl).timestamp() };
+    let claims = Claims { sub, tid, typ: typ.into(), home: None, iat: now.timestamp(), exp: (now + ttl).timestamp() };
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
+        .map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
+}
+
+/// Staff token for a platform admin working inside another business (`tid`) on behalf of the platform.
+pub fn issue_acting_token(secret: &str, sub: Uuid, home: Uuid, tid: Uuid) -> AppResult<String> {
+    let now = Utc::now();
+    let claims = Claims {
+        sub,
+        tid,
+        typ: "staff".into(),
+        home: Some(home),
+        iat: now.timestamp(),
+        exp: (now + chrono::Duration::hours(STAFF_TOKEN_HOURS)).timestamp(),
+    };
     encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
         .map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
 }
@@ -107,6 +125,8 @@ pub struct Ctx {
     pub tz: Tz,
     pub ip: String,
     pub user_agent: String,
+    /// The platform admin's own business when they have opened this one (full access, audited).
+    pub acting_from: Option<Uuid>,
 }
 
 impl Ctx {
@@ -176,6 +196,7 @@ struct CtxRow {
     all_branches: bool,
     permissions: Vec<String>,
     timezone: String,
+    email: String,
 }
 
 impl FromRequestParts<AppState> for Ctx {
@@ -185,18 +206,29 @@ impl FromRequestParts<AppState> for Ctx {
         let token = bearer(parts).ok_or(AppError::Unauthorized)?;
         let claims = read_token(&state.cfg.jwt_secret, &token, "staff")?;
 
+        // A platform admin who opened another business is still checked against their own account on
+        // every request: losing platform-admin status or the admin role ends the session immediately.
+        let home_tenant = claims.home.unwrap_or(claims.tid);
         let row: Option<CtxRow> = sqlx::query_as(
-            "SELECT u.name, u.is_active, u.all_branches, r.permissions, t.timezone
-             FROM users u JOIN roles r ON r.id = u.role_id JOIN tenants t ON t.id = u.tenant_id
+            "SELECT u.name, u.is_active, u.all_branches, r.permissions, t.timezone, lower(u.email) AS email
+             FROM users u JOIN roles r ON r.id = u.role_id JOIN tenants t ON t.id = $3
              WHERE u.id = $1 AND u.tenant_id = $2",
         )
         .bind(claims.sub)
+        .bind(home_tenant)
         .bind(claims.tid)
         .fetch_optional(&state.db)
         .await?;
-        let row = row.ok_or(AppError::Unauthorized)?;
+        let mut row = row.ok_or(AppError::Unauthorized)?;
         if !row.is_active {
             return Err(AppError::Unauthorized);
+        }
+        if claims.home.is_some() {
+            if !crate::routes::access::is_platform_admin(state, &row.email, &row.permissions) {
+                return Err(AppError::Unauthorized);
+            }
+            row.permissions = vec!["*".into()];
+            row.all_branches = true;
         }
 
         let all_branches = row.all_branches || row.permissions.iter().any(|p| p == "*");
@@ -239,6 +271,7 @@ impl FromRequestParts<AppState> for Ctx {
             tz: parse_tz(&row.timezone),
             ip,
             user_agent,
+            acting_from: claims.home,
         })
     }
 }

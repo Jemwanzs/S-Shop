@@ -374,6 +374,26 @@ wdone = call("POST", f"/orders/{worder['id']}/status", {"status": "delivered", "
 check("tracked order completes with its unit barcode", wdone["sale_id"] is not None, wdone)
 check("that unit is now sold", call("GET", f"/products/lookup?code={codes[1]}")["stock_item"]["status"] == "sold")
 
+step("Platform: open another business (audited)")
+plist = call("GET", "/platform/tenants")
+other_t = next(x for x in plist["items"] if x["id"] == ap["tenant_id"])
+check("platform lists businesses", bool(other_t) and plist["home_tenant_id"] == login["profile"]["tenant"]["id"])
+call("GET", "/platform/tenants", token=clerk, expect=403)
+check("staff cannot list businesses", True)
+call("POST", f"/platform/tenants/{other_t['id']}/open", token=clerk, expect=403)
+check("staff cannot open another business", True)
+op = call("POST", f"/platform/tenants/{other_t['id']}/open")
+check("opened business profile shows acting", op["profile"]["tenant"]["id"] == other_t["id"] and op["profile"]["acting"]["home_tenant_id"] == login["profile"]["tenant"]["id"], op["profile"].get("acting"))
+acting = op["token"]
+other_branch = op["profile"]["branches"][0]["id"]
+me_act = call("GET", "/auth/me", token=acting, branch=other_branch)
+check("full access inside the opened business", "*" in me_act["permissions"] and me_act["tenant"]["id"] == other_t["id"])
+check("acting session sees only that business's data", all(x["id"] != nduma for x in call("GET", "/products?status=all", token=acting, branch=other_branch)["items"]))
+audit_o = call("GET", "/audit?period=today&limit=200", token=acting, branch=other_branch)["items"]
+check("opening is in that business's audit trail", any(x.get("action") == "open_business" for x in audit_o))
+back = call("POST", f"/platform/tenants/{login['profile']['tenant']['id']}/open", token=acting, branch=other_branch)
+check("return gives a normal session", back["profile"]["acting"] is None and back["profile"]["tenant"]["id"] == login["profile"]["tenant"]["id"])
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

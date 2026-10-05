@@ -23,6 +23,8 @@ interface SessionValue {
   /** Language choice on the public screens before sign-in. */
   setDeviceLanguage: (code: string) => void;
   signIn: (token: string, profile: Profile) => void;
+  /** Platform admins: continue in another business (all cached data and the branch choice are dropped). */
+  switchBusiness: (token: string, profile: Profile) => void;
   signOut: () => void;
   selectBranch: (id: string) => void;
 }
@@ -101,6 +103,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setDeviceLang(code);
       },
       signIn: (t, p) => {
+        session.setToken(t);
+        qc.setQueryData(["me", t], p);
+        setToken(t);
+        if (p.branches.length === 1) {
+          session.setBranch(p.branches[0].id);
+          setBranchId(p.branches[0].id);
+        }
+      },
+      switchBusiness: (t, p) => {
+        qc.clear();
+        session.setBranch(null);
+        setBranchId(null);
         session.setToken(t);
         qc.setQueryData(["me", t], p);
         setToken(t);

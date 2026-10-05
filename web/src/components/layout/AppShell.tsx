@@ -1,14 +1,14 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Check, ChevronsUpDown, KeyRound, SlidersHorizontal, Loader2, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
+import { Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, Loader2, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useLiveEvents } from "@/lib/events";
 import { initials } from "@/lib/format";
-import type { Notification } from "@/lib/types";
+import type { Notification, Profile } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,6 +21,7 @@ import {
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PasswordInput } from "@/components/PasswordInput";
+import { PoweredBy } from "@/components/PoweredBy";
 import { Loading } from "@/components/Page";
 import { Field } from "@/components/Form";
 import { GlobalSearch } from "./GlobalSearch";
@@ -195,10 +196,42 @@ function Brand() {
         <img src={mark} alt="S'Shop" className="h-9 w-9" />
       )}
       <span className="min-w-0">
-        <span className="block truncate font-semibold leading-tight">{profile?.tenant.name ?? "S'Shop"}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-semibold leading-tight">{profile?.tenant.name ?? "S'Shop"}</span>
+          {profile?.tenant.is_demo && <span className="shrink-0 rounded bg-chart-2/15 px-1 text-[0.6rem] font-bold uppercase tracking-wide text-chart-2">{t("Demo")}</span>}
+        </span>
         <span className="text-brand block text-[11px] font-semibold leading-tight">S'Shop</span>
       </span>
     </Link>
+  );
+}
+
+/** Shown while a platform admin works inside another business: where they are and the way back. */
+function ActingBanner() {
+  const { profile, switchBusiness } = useSession();
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  if (!profile?.acting) return null;
+  const back = async () => {
+    setBusy(true);
+    try {
+      const r = await api<{ token: string; profile: Profile }>(`/platform/tenants/${profile.acting!.home_tenant_id}/open`, { method: "POST" });
+      switchBusiness(r.token, r.profile);
+      navigate(r.profile.branches.length > 1 ? "/select-branch" : "/settings/businesses", { replace: true });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex items-center gap-2 bg-foreground px-3.5 py-1.5 text-[0.78rem] text-background md:px-6 lg:px-8 print:hidden">
+      <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{t("Viewing")} <b>{profile.tenant.name}</b> {t("as platform owner")}</span>
+      <button onClick={back} disabled={busy} className="shrink-0 rounded-full bg-background/15 px-2.5 py-0.5 font-medium hover:bg-background/25">
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `${t("Return to")} ${profile.acting.home_tenant_name}`}
+      </button>
+    </div>
   );
 }
 
@@ -320,6 +353,7 @@ export function AppShell() {
     <div className="min-h-screen lg:grid lg:grid-cols-[var(--sidebar-w)_minmax(0,1fr)]">
       <Sidebar approvals={approvals} />
       <div className="min-w-0">
+        <ActingBanner />
         <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur no-print">
           <div className="mx-auto flex h-14 max-w-[1680px] items-center gap-2 px-4 md:px-6 lg:h-16 lg:px-8">
             <div className="min-w-0 flex-1 lg:hidden"><Brand /></div>
@@ -334,6 +368,7 @@ export function AppShell() {
               <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSearchOpen(true)} aria-label="Search"><Search /></Button>
             </div>
             <div className="min-w-0 shrink lg:hidden"><BranchSwitcher compact /></div>
+            <PoweredBy className="me-1 hidden lg:inline-flex" />
             <Button variant="ghost" size="icon" className="relative" onClick={() => navigate("/notifications")} aria-label="Notifications">
               <Bell />
               {unread > 0 && <span className="num absolute end-1.5 top-1.5 min-w-4 rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground animate-pop">{unread > 99 ? "99+" : unread}</span>}

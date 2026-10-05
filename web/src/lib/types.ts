@@ -86,11 +86,13 @@ export interface Settings {
 
 export interface Profile {
   user: { id: Id; name: string; email: string; role: string; all_branches: boolean; platform_admin: boolean; preferences: Preferences };
-  tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null };
+  tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null; is_demo: boolean };
   branches: Branch[];
   permissions: string[];
   settings: Settings;
   integrations: { mpesa_stk: boolean; whatsapp: boolean };
+  /** Present while a platform admin works inside another business. */
+  acting: { home_tenant_id: Id; home_tenant_name: string } | null;
 }
 
 export interface Product {

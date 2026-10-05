@@ -35,6 +35,7 @@
 | 17 | Audit trail, notifications & search | [modules/17-audit-notifications-search.md](modules/17-audit-notifications-search.md) |
 | 18 | Access requests (no open signup) | [modules/18-access-requests.md](modules/18-access-requests.md) |
 | 19 | Barcode scanning (camera, handheld, manual) | [modules/19-barcode-scanning.md](modules/19-barcode-scanning.md) |
+| 20 | Platform owner: businesses & the Pablo Niche demo | [modules/20-platform-and-demo.md](modules/20-platform-and-demo.md) |
 
 ## Glossary
 

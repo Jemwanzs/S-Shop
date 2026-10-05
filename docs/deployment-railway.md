@@ -29,6 +29,7 @@ S'Shop runs as **one service** (built from the repository `Dockerfile`) plus **o
 | `PLATFORM_ADMIN_EMAILS` | Comma-separated platform admins who review access requests (falls back to `BOOTSTRAP_ADMIN_EMAIL` — set it before removing the bootstrap variables) |
 | `RESEND_API_KEY` | Optional; enables email alerts for access requests ([module 18](modules/18-access-requests.md)) |
 | `MAIL_FROM` | Optional; sender, default `S'Shop <onboarding@resend.dev>` |
+| `PEXELS_API_KEY` | Optional; product photos for the demo business ([module 20](modules/20-platform-and-demo.md)) |
 | `ACCESS_REQUEST_NOTIFY_EMAILS` | Optional; who is emailed about requests (default: the platform admins) |
 
 Bootstrap runs only when the database is empty; the variables can be removed afterwards (set `PLATFORM_ADMIN_EMAILS` first). Optional M-Pesa and WhatsApp

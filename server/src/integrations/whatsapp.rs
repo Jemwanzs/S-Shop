@@ -65,6 +65,13 @@ async fn send_template(
 }
 
 async fn send(state: &AppState, tenant_id: Option<Uuid>, phone: &str, log_body: &str, payload: Value) -> anyhow::Result<bool> {
+    // Demo businesses never message anyone: their customer numbers are placeholders.
+    if let Some(t) = tenant_id {
+        let demo: bool = sqlx::query_scalar("SELECT is_demo FROM tenants WHERE id = $1").bind(t).fetch_optional(&state.db).await?.unwrap_or(false);
+        if demo {
+            return Ok(false);
+        }
+    }
     let Some(cfg) = &state.cfg.whatsapp else { return Ok(false) };
     let url = format!("https://graph.facebook.com/{}/{}/messages", cfg.api_version, cfg.phone_number_id);
 

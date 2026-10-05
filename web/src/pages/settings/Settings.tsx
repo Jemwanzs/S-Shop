@@ -4,6 +4,7 @@ import {
   Building2,
   SlidersHorizontal,
   Inbox,
+  Network,
   ChevronRight,
   ClipboardList,
   CreditCard,
@@ -29,6 +30,7 @@ import { CustomerSettings, ExpenseSettings, LoyaltySettings, OrderSettings, Prod
 import { WorkflowSettings } from "./Workflows";
 import { AccessRequests } from "./AccessRequests";
 import { PreferencesSettings } from "./Preferences";
+import { BusinessesSettings } from "./Businesses";
 import { t } from "@/lib/i18n";
 
 interface SectionDef {
@@ -58,6 +60,7 @@ const SECTIONS: SectionDef[] = [
   // Everyone: their own preferences.
   { path: "preferences", label: "User preferences", group: "Personal", icon: SlidersHorizontal, perm: "", element: <PreferencesSettings /> },
   // "platform": only platform administrators (PLATFORM_ADMIN_EMAILS) see this section.
+  { path: "businesses", label: "Businesses", group: "Platform", icon: Network, perm: "platform", element: <BusinessesSettings /> },
   { path: "access-requests", label: "Access requests", group: "Platform", icon: Inbox, perm: "platform", element: <AccessRequests /> },
 ];
 

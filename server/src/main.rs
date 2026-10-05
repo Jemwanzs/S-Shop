@@ -2,6 +2,7 @@ mod audit;
 mod auth;
 mod bootstrap;
 mod config;
+mod demo;
 mod error;
 mod integrations;
 mod inventory;
@@ -36,6 +37,7 @@ USAGE:
   sshop reset-pin <email> <new-pin>      Reset a user's PIN (recovery)
   sshop import-legacy <legacy-db-url> [--tenant <slug>]
                                          Import a Pablo Loyalty (Supabase) database
+  sshop seed-demo [--reset]              Build the Pablo Niche demo business (demo-flagged; --reset rebuilds it)
 
 ENVIRONMENT: see .env.example";
 
@@ -59,6 +61,14 @@ async fn main() -> anyhow::Result<()> {
             let tenant = args.iter().position(|a| a == "--tenant").and_then(|i| args.get(i + 1)).cloned();
             let db = connect().await?;
             legacy::import(&db, source, tenant.as_deref()).await
+        }
+        Some("seed-demo") => {
+            let db = connect().await?;
+            let cfg = config::Config::from_env()?;
+            let state = state::AppState::new(db, cfg);
+            let report = demo::seed(&state, args.iter().any(|a| a == "--reset"), |step| println!("… {step}")).await?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
         }
         Some(_) => {
             println!("{USAGE}");

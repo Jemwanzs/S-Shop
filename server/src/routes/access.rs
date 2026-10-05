@@ -159,7 +159,7 @@ async fn announce(state: &AppState, id: Uuid) {
 
 // ───────────────────────────── Platform admin ─────────────────────────────
 
-async fn require_platform_admin(state: &AppState, ctx: &Ctx) -> AppResult<()> {
+pub async fn require_platform_admin(state: &AppState, ctx: &Ctx) -> AppResult<()> {
     if !ctx.can("*") {
         return Err(AppError::Forbidden("Only platform administrators can review access requests".into()));
     }

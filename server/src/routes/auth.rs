@@ -106,7 +106,7 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Js
     .await?;
 
     let token = issue_token(&state.cfg.jwt_secret, user.id, user.tenant_id, "staff", Duration::hours(STAFF_TOKEN_HOURS))?;
-    let profile = load_profile(&state, user.id, user.tenant_id).await?;
+    let profile = load_profile(&state, user.id, user.tenant_id, None).await?;
     Ok(Json(LoginResponse { token, profile }))
 }
 
@@ -118,9 +118,12 @@ pub struct Profile {
     permissions: Vec<String>,
     settings: Value,
     integrations: Value,
+    /// Present while a platform admin works inside another business.
+    acting: Option<Value>,
 }
 
-async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid) -> AppResult<Profile> {
+/// `acting`: the platform admin's own business when they have opened `tenant_id` from the platform.
+pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acting: Option<Uuid>) -> AppResult<Profile> {
     let (name, email, role, permissions, all_branches, preferences): (String, String, String, Vec<String>, bool, Value) = sqlx::query_as(
         "SELECT u.name, u.email, r.name, r.permissions, u.all_branches, u.preferences FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1",
     )
@@ -144,8 +147,8 @@ async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid) -> AppRe
         .await?
     };
 
-    let (tname, slug, tagline, currency, has_logo, settings): (String, String, String, String, bool, Value) = sqlx::query_as(
-        "SELECT name, slug, tagline, currency, logo IS NOT NULL, settings FROM tenants WHERE id = $1",
+    let (tname, slug, tagline, currency, has_logo, settings, is_demo): (String, String, String, String, bool, Value, bool) = sqlx::query_as(
+        "SELECT name, slug, tagline, currency, logo IS NOT NULL, settings, is_demo FROM tenants WHERE id = $1",
     )
     .bind(tenant_id)
     .fetch_one(&state.db)
@@ -160,8 +163,15 @@ async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid) -> AppRe
         }),
         tenant: serde_json::json!({
             "id": tenant_id, "name": tname, "slug": slug, "tagline": tagline, "currency": currency,
-            "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")),
+            "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")), "is_demo": is_demo,
         }),
+        acting: match acting {
+            Some(home) => {
+                let name: String = sqlx::query_scalar("SELECT name FROM tenants WHERE id = $1").bind(home).fetch_one(&state.db).await?;
+                Some(serde_json::json!({ "home_tenant_id": home, "home_tenant_name": name }))
+            }
+            None => None,
+        },
         branches: branches
             .into_iter()
             .map(|(id, name, code, location)| serde_json::json!({ "id": id, "name": name, "code": code, "location": location }))
@@ -176,7 +186,7 @@ async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid) -> AppRe
 }
 
 async fn me(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Profile>> {
-    Ok(Json(load_profile(&state, ctx.user_id, ctx.tenant_id).await?))
+    Ok(Json(load_profile(&state, ctx.user_id, ctx.tenant_id, ctx.acting_from).await?))
 }
 
 #[derive(Deserialize)]

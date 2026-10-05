@@ -7,7 +7,7 @@ const TONES = {
   success: "bg-success/15 text-success",
   warning: "bg-warning/15 text-warning",
   danger: "bg-destructive/15 text-destructive",
-  info: "bg-chart-2/12 text-chart-2",
+  info: "bg-chart-2/15 text-chart-2",
 } as const;
 export type Tone = keyof typeof TONES;
 

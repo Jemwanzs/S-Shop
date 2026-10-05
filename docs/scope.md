@@ -95,6 +95,10 @@ Added 2026-10-05 (owner request), delivered in this order before the remaining i
   ([module 19](modules/19-barcode-scanning.md)). Fixed on the way: camera scanning never started (video element
   mounted after the camera effect ran); orders with tracked products could not be completed; cost prices were exposed
   to users without financial access in product and stock endpoints.
+- ✅ **12. Platform branding** — tenant brand top-left, *Powered by S'Shop* top-right on larger screens (More page on phones).
+- ✅ **13. Businesses & demo data** — platform admins open any business (audited, banner, return); repeatable
+  Pablo Niche demo business built through the real API ([module 20](modules/20-platform-and-demo.md)). Keep extending
+  the demo as modules land.
 
 Then:
 - Combined exchange screen (rest of roadmap 4).

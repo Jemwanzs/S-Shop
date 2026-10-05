@@ -5,6 +5,7 @@ import { useSession } from "@/lib/session";
 import { initials } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { ChangePin, useTheme } from "@/components/layout/AppShell";
+import { PoweredBy } from "@/components/PoweredBy";
 import { allowed, BOTTOM, NAV } from "@/components/layout/nav";
 import { t } from "@/lib/i18n";
 
@@ -51,6 +52,7 @@ export default function More() {
       {(profile?.branches.length ?? 0) > 1 && <Button variant="outline" className="w-full" asChild><Link to="/select-branch">{t("Switch branch")}</Link></Button>}
       <Button variant="outline" className="w-full" onClick={() => setPinOpen(true)}><KeyRound /> {t("Change PIN")}</Button>
       <Button variant="outline" className="w-full text-destructive" onClick={signOut}><LogOut /> {t("Sign out")}</Button>
+      <div className="flex justify-center pt-1"><PoweredBy /></div>
       <ChangePin open={pinOpen} onOpenChange={setPinOpen} />
     </div>
   );

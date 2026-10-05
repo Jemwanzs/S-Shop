@@ -113,7 +113,7 @@ export function ItemSheet({
             <StockIndicator available={product.available} threshold={s.stock.low_stock_threshold} />
             {product.reserved > 0 && <span className="text-xs text-muted-foreground">{count(product.reserved)} reserved for orders</span>}
             {product.photo_count > 0 && (
-              <Button variant="outline" size="sm" className="ml-auto" onClick={() => setPhotos(true)}>
+              <Button variant="outline" size="sm" className="ms-auto" onClick={() => setPhotos(true)}>
                 <Images /> View photos
               </Button>
             )}
@@ -195,7 +195,7 @@ export function ItemSheet({
           <div className="rounded-xl border">
             <button type="button" onClick={() => setShowOther(!showOther)} className="flex w-full items-center gap-2 px-3 py-2.5 text-sm font-medium">
               <Store className="h-4 w-4 text-muted-foreground" /> View stock in other branches
-              <ChevronDown className={cn("ml-auto h-4 w-4 transition", showOther && "rotate-180")} />
+              <ChevronDown className={cn("ms-auto h-4 w-4 transition", showOther && "rotate-180")} />
             </button>
             {showOther && (
               <ul className="divide-y border-t text-sm">

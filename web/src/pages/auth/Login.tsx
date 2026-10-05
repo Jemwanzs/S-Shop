@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
 import { AuthLabel, AuthLayout } from "./AuthLayout";
+import { t } from "@/lib/i18n";
 
 export default function LoginPage() {
   const { profile, signIn } = useSession();
@@ -40,24 +41,24 @@ export default function LoginPage() {
         <label className="block">
           <AuthLabel>Email</AuthLabel>
           <div className="relative">
-            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" className="pl-9" required />
+            <Mail className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" className="ps-9" required />
           </div>
         </label>
         <label className="block">
           <AuthLabel>PIN</AuthLabel>
-          <PasswordInput withIcon autoComplete="current-password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter your PIN" maxLength={12} required />
+          <PasswordInput withIcon autoComplete="current-password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={t("Enter your PIN")} maxLength={12} required />
         </label>
         {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
         <Button type="submit" className="w-full" disabled={busy}>
-          {busy ? <Loader2 className="animate-spin" /> : "Sign in"}
+          {busy ? <Loader2 className="animate-spin" /> : t("Sign in")}
         </Button>
-        <p className="text-center text-xs text-muted-foreground">Forgot your PIN? Ask your administrator to reset it.</p>
+        <p className="text-center text-xs text-muted-foreground">{t("Forgot your PIN? Ask your administrator to reset it.")}</p>
       </form>
       <div className="mt-6 border-t pt-5 text-center">
-        <p className="text-xs text-muted-foreground">Interested in accessing S'Shop?</p>
+        <p className="text-xs text-muted-foreground">{t("Interested in accessing S'Shop?")}</p>
         <Button variant="outline" size="sm" className="mt-2 w-full" asChild>
-          <Link to="/request-access">Request Access</Link>
+          <Link to="/request-access">{t("Request Access")}</Link>
         </Button>
       </div>
     </AuthLayout>

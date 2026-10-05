@@ -129,8 +129,8 @@ export default function ReceiveStock() {
                 <ul className="divide-y rounded-lg border empty:hidden">
                   {results.data?.items.map((r) => (
                     <li key={r.id}>
-                      <button className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm hover:bg-accent" onClick={() => setProductId(r.id)}>
-                        <span>{r.name} <span className="text-muted-foreground">· {r.code}</span>{!r.is_active && <Pill tone="danger" className="ml-2">Inactive</Pill>}</span>
+                      <button className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-start text-sm hover:bg-accent" onClick={() => setProductId(r.id)}>
+                        <span>{r.name} <span className="text-muted-foreground">· {r.code}</span>{!r.is_active && <Pill tone="danger" className="ms-2">Inactive</Pill>}</span>
                         <span className="num text-muted-foreground">{count(r.on_hand)}</span>
                       </button>
                     </li>

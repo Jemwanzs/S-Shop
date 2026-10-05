@@ -9,13 +9,13 @@ export const PasswordInput = forwardRef<HTMLInputElement, Omit<ComponentProps<"i
     const [show, setShow] = useState(false);
     return (
       <div className="relative">
-        {withIcon && <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />}
-        <Input ref={ref} type={show ? "text" : "password"} className={cn("pr-10", withIcon && "pl-9", className)} {...props} />
+        {withIcon && <Lock className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />}
+        <Input ref={ref} type={show ? "text" : "password"} className={cn("pe-10", withIcon && "ps-9", className)} {...props} />
         <button
           type="button"
           tabIndex={-1}
           onClick={() => setShow((s) => !s)}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground hover:text-foreground"
+          className="absolute end-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground hover:text-foreground"
           aria-label={show ? "Hide" : "Show"}
         >
           {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

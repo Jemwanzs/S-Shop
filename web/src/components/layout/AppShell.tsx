@@ -26,6 +26,7 @@ import { Field } from "@/components/Form";
 import { GlobalSearch } from "./GlobalSearch";
 import mark from "@/assets/sshop-mark.png";
 import { allowed, BOTTOM, NAV } from "./nav";
+import { t } from "@/lib/i18n";
 
 export function useTheme() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -84,7 +85,7 @@ function BranchSwitcher({ compact }: { compact?: boolean }) {
           <DropdownMenuItem key={b.id} onClick={() => { selectBranch(b.id); toast.success(`Now operating from ${b.name}`); }} className="gap-2">
             <Check className={cn("h-4 w-4", b.id === branch.id ? "opacity-100" : "opacity-0")} />
             <span className="truncate">{b.name}</span>
-            <span className="ml-auto text-xs text-muted-foreground">{b.code}</span>
+            <span className="ms-auto text-xs text-muted-foreground">{b.code}</span>
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
@@ -132,7 +133,7 @@ export function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange:
       onOpenChange={onOpenChange}
       title="Change PIN"
       description="Use the PIN you signed in with, then choose a new one."
-      footer={<Button type="submit" form="change-pin" className="w-full md:w-auto" disabled={!!problem || busy}>{busy ? <Loader2 className="animate-spin" /> : "Save PIN"}</Button>}
+      footer={<Button type="submit" form="change-pin" className="w-full md:w-auto" disabled={!!problem || busy}>{busy ? <Loader2 className="animate-spin" /> : t("Save PIN")}</Button>}
     >
       <form id="change-pin" onSubmit={save} className="space-y-4">
         {/* Lets password managers file the new PIN under the right account. */}
@@ -155,7 +156,7 @@ function UserMenu({ full }: { full?: boolean }) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className={cn("flex items-center gap-2.5 rounded-lg text-left hover:bg-accent", full ? "w-full p-2" : "p-1")}>
+          <button className={cn("flex items-center gap-2.5 rounded-lg text-start hover:bg-accent", full ? "w-full p-2" : "p-1")}>
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
               {initials(profile.user.name)}
             </span>
@@ -171,12 +172,12 @@ function UserMenu({ full }: { full?: boolean }) {
           <DropdownMenuLabel className="font-normal">
             <div className="truncate font-medium">{profile.user.name}</div>
             <div className="truncate text-xs text-muted-foreground">{profile.user.email}</div>
-            <div className="mt-1 text-xs font-medium text-primary">Figures in {displayCurrency}</div>
+            <div className="mt-1 text-xs font-medium text-primary">{t("Figures in")} {displayCurrency}</div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => navigate("/settings/preferences")} className="gap-2"><SlidersHorizontal className="h-4 w-4" /> Preferences</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setPinOpen(true)} className="gap-2"><KeyRound className="h-4 w-4" /> Change PIN</DropdownMenuItem>
-          <DropdownMenuItem onClick={signOut} className="gap-2 text-destructive"><LogOut className="h-4 w-4" /> Sign out</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate("/settings/preferences")} className="gap-2"><SlidersHorizontal className="h-4 w-4" /> {t("Preferences")}</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setPinOpen(true)} className="gap-2"><KeyRound className="h-4 w-4" /> {t("Change PIN")}</DropdownMenuItem>
+          <DropdownMenuItem onClick={signOut} className="gap-2 text-destructive"><LogOut className="h-4 w-4" /> {t("Sign out")}</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <ChangePin open={pinOpen} onOpenChange={setPinOpen} />
@@ -204,7 +205,7 @@ function Brand() {
 function Sidebar({ approvals }: { approvals: number }) {
   const { can } = useSession();
   return (
-    <aside className="sticky top-0 hidden h-screen flex-col border-r bg-card/70 backdrop-blur lg:flex print:!hidden">
+    <aside className="sticky top-0 hidden h-screen flex-col border-e bg-card/70 backdrop-blur lg:flex print:!hidden">
       <div className="space-y-3 p-4">
         <Brand />
         <BranchSwitcher />
@@ -215,7 +216,7 @@ function Sidebar({ approvals }: { approvals: number }) {
           if (!items.length) return null;
           return (
             <div key={g.group}>
-              <p className="label-caps px-3 pb-1.5">{g.group}</p>
+              <p className="label-caps px-3 pb-1.5">{t(g.group)}</p>
               {items.map((i) => (
                 <NavLink
                   key={i.to}
@@ -229,7 +230,7 @@ function Sidebar({ approvals }: { approvals: number }) {
                   }
                 >
                   <i.icon className="h-[18px] w-[18px]" />
-                  <span className="flex-1 truncate">{i.label}</span>
+                  <span className="flex-1 truncate">{t(i.label)}</span>
                   {i.to === "/approvals" && approvals > 0 && (
                     <span className="num rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{approvals}</span>
                   )}
@@ -273,7 +274,7 @@ function BottomNav() {
                   ) : (
                     <i.icon className="h-5 w-5" strokeWidth={isActive ? 2.4 : 1.8} />
                   )}
-                  {i.label}
+                  {t(i.label)}
                 </>
               )}
             </NavLink>
@@ -282,7 +283,7 @@ function BottomNav() {
         <NavLink to="/more" className={cn("relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium", moreActive ? "text-primary" : "text-muted-foreground")}>
           {moreActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
           <Menu className="h-5 w-5" />
-          More
+          {t("More")}
         </NavLink>
       </div>
     </nav>
@@ -327,15 +328,15 @@ export function AppShell() {
                 onClick={() => setSearchOpen(true)}
                 className="hidden h-10 w-full max-w-md items-center gap-2 rounded-lg border bg-card px-3 text-sm text-muted-foreground hover:border-primary/40 lg:flex"
               >
-                <Search className="h-4 w-4" /> Search products, customers, receipts, orders…
-                <kbd className="ml-auto rounded border bg-muted px-1.5 text-[11px]">Ctrl K</kbd>
+                <Search className="h-4 w-4" /> {t("Search products, customers, receipts, orders…")}
+                <kbd className="ms-auto rounded border bg-muted px-1.5 text-[11px]">Ctrl K</kbd>
               </button>
               <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSearchOpen(true)} aria-label="Search"><Search /></Button>
             </div>
             <div className="min-w-0 shrink lg:hidden"><BranchSwitcher compact /></div>
             <Button variant="ghost" size="icon" className="relative" onClick={() => navigate("/notifications")} aria-label="Notifications">
               <Bell />
-              {unread > 0 && <span className="num absolute right-1.5 top-1.5 min-w-4 rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground animate-pop">{unread > 99 ? "99+" : unread}</span>}
+              {unread > 0 && <span className="num absolute end-1.5 top-1.5 min-w-4 rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground animate-pop">{unread > 99 ? "99+" : unread}</span>}
             </Button>
             <ThemeToggle className="hidden sm:inline-flex" />
             <div className="hidden lg:block"><UserMenu /></div>

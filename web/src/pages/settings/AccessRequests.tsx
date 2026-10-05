@@ -110,7 +110,7 @@ export function AccessRequests() {
               {r.status === "pending" && (
                 <div className="flex gap-2 pt-1">
                   <Button size="sm" variant="outline" className="text-destructive" onClick={() => setRejecting(r)}><X /> Reject</Button>
-                  <Button size="sm" variant="success" className="ml-auto" disabled={approve.isPending} onClick={() => approve.mutate(r)}><Check /> Approve & create</Button>
+                  <Button size="sm" variant="success" className="ms-auto" disabled={approve.isPending} onClick={() => approve.mutate(r)}><Check /> Approve & create</Button>
                 </div>
               )}
             </div>

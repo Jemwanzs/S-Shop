@@ -164,7 +164,7 @@ export default function Pos() {
                   key={p.id}
                   onClick={() => open(p)}
                   disabled={out && !p.track_items}
-                  className={cn("surface flex items-center gap-3 p-3 text-left transition hover:border-primary/40 hover:shadow-lift active:scale-[0.99] disabled:opacity-50", inCart(p.id) > 0 && "border-primary/50 bg-primary/5")}
+                  className={cn("surface flex items-center gap-3 p-3 text-start transition hover:border-primary/40 hover:shadow-lift active:scale-[0.99] disabled:opacity-50", inCart(p.id) > 0 && "border-primary/50 bg-primary/5")}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{p.name}</div>
@@ -172,7 +172,7 @@ export default function Pos() {
                       {p.code}{p.nickname && ` · ${p.nickname}`}{p.track_items && " · per item"}
                     </div>
                   </div>
-                  <div className="shrink-0 text-right">
+                  <div className="shrink-0 text-end">
                     <div className="num font-semibold">{money(p.marked_price)}</div>
                     <div className={cn("num text-xs", out ? "text-destructive" : left <= s.stock.low_stock_threshold ? "text-warning" : "text-success")}>
                       {out ? "Out of stock" : `${count(left)} left`}
@@ -195,14 +195,14 @@ export default function Pos() {
         <button onClick={() => setCartOpen(true)} className="fixed inset-x-4 bottom-[76px] z-30 flex items-center gap-3 rounded-2xl bg-foreground px-4 py-3.5 text-background shadow-lift animate-fade-up md:inset-x-6 lg:hidden">
           <span className="relative">
             <ShoppingCart className="h-5 w-5" />
-            <span className="num absolute -right-2.5 -top-2.5 rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">{t.units}</span>
+            <span className="num absolute -end-2.5 -top-2.5 rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">{t.units}</span>
           </span>
-          <span className="flex-1 text-left font-medium">View cart & checkout</span>
+          <span className="flex-1 text-start font-medium">View cart & checkout</span>
           <span className="num font-semibold">{money(t.net)}</span>
         </button>
       )}
       {desktop && cart.lines.length > 0 && (
-        <button onClick={() => setCartOpen(true)} className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-full bg-foreground px-5 py-3 text-background shadow-lift lg:hidden">
+        <button onClick={() => setCartOpen(true)} className="fixed bottom-6 end-6 z-30 flex items-center gap-2 rounded-full bg-foreground px-5 py-3 text-background shadow-lift lg:hidden">
           <ShoppingCart className="h-5 w-5" /> <span className="num">{t.units} · {money(t.net)}</span>
         </button>
       )}

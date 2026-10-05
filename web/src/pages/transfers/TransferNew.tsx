@@ -66,7 +66,7 @@ export default function TransferNew() {
             <ul className="mt-2 divide-y rounded-lg border">
               {results.data?.items.filter((r) => !lines.some((l) => l.product.product_id === r.product_id)).map((r) => (
                 <li key={r.product_id}>
-                  <button className="flex w-full justify-between px-3 py-2.5 text-left text-sm hover:bg-accent" onClick={() => { setLines([...lines, { product: r, quantity: 1, barcodes: [] }]); setQ(""); }}>
+                  <button className="flex w-full justify-between px-3 py-2.5 text-start text-sm hover:bg-accent" onClick={() => { setLines([...lines, { product: r, quantity: 1, barcodes: [] }]); setQ(""); }}>
                     <span>{r.name}</span><span className="num text-muted-foreground">{count(r.available)} available</span>
                   </button>
                 </li>

@@ -19,10 +19,10 @@ export function PhotoGallery({ open, onOpenChange, title, urls }: { open: boolea
             <img src={urls[idx]} alt={title} className="mx-auto max-h-[60vh] w-full object-contain" />
             {urls.length > 1 && (
               <>
-                <button className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-background/80 p-2 shadow" onClick={() => setI((idx - 1 + urls.length) % urls.length)} aria-label="Previous photo">
+                <button className="absolute start-2 top-1/2 -translate-y-1/2 rounded-full bg-background/80 p-2 shadow" onClick={() => setI((idx - 1 + urls.length) % urls.length)} aria-label="Previous photo">
                   <ChevronLeft className="h-5 w-5" />
                 </button>
-                <button className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-background/80 p-2 shadow" onClick={() => setI((idx + 1) % urls.length)} aria-label="Next photo">
+                <button className="absolute end-2 top-1/2 -translate-y-1/2 rounded-full bg-background/80 p-2 shadow" onClick={() => setI((idx + 1) % urls.length)} aria-label="Next photo">
                   <ChevronRight className="h-5 w-5" />
                 </button>
               </>

@@ -175,7 +175,7 @@ export default function ReportView() {
               {data.columns.filter((c) => data.totals[c.key] !== undefined).map((c) => (
                 <span key={c.key} className="text-muted-foreground">{c.label}: <span className="font-semibold text-foreground">{cell(c.kind, data.totals[c.key])}</span></span>
               ))}
-              <span className="ml-auto text-muted-foreground">{data.rows.length} rows</span>
+              <span className="ms-auto text-muted-foreground">{data.rows.length} rows</span>
             </div>
           )
         }

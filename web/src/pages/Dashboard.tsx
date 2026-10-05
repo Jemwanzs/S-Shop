@@ -28,6 +28,7 @@ import { StatCard } from "@/components/Stat";
 import { PeriodFilter, type PeriodValue } from "@/components/Filters";
 import { NativeSelect } from "@/components/Form";
 import { Medal, PointsPill, Pill } from "@/components/Badges";
+import { t } from "@/lib/i18n";
 
 interface DashboardData {
   from: string;
@@ -113,17 +114,17 @@ function Analytics() {
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           {multiBranch && (
             <NativeSelect value={branchId} onChange={setBranchId} className="sm:w-48">
-              <option value="">All my branches</option>
+              <option value="">{t("All my branches")}</option>
               {profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </NativeSelect>
           )}
           <NativeSelect value={categoryId} onChange={setCategoryId} className="sm:w-48">
-            <option value="">All categories</option>
+            <option value="">{t("All categories")}</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </NativeSelect>
           {users.data && (
             <NativeSelect value={userId} onChange={setUserId} className="sm:w-48">
-              <option value="">All staff</option>
+              <option value="">{t("All staff")}</option>
               {users.data.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </NativeSelect>
           )}
@@ -142,8 +143,8 @@ function Analytics() {
             <StatCard label="Transactions" value={count(k.transactions as number)} icon={ShoppingBag} change={k.transactions_change_pct as number | null} />
             <StatCard label="Avg. transaction" value={m(k.average_transaction)} icon={CreditCard} />
             <StatCard label="Units sold" value={count(k.units_sold as number)} icon={Package} />
-            <StatCard label="Orders" value={count(k.orders as number)} icon={ClipboardList} hint={`${count(k.open_orders as number)} open`} tone="primary" />
-            {k.gross_profit !== null && <StatCard label="Gross profit" value={m(k.gross_profit)} icon={Coins} tone="success" hint={k.profit_coverage_pct !== null ? `${k.profit_coverage_pct}% of sales costed` : undefined} />}
+            <StatCard label="Orders" value={count(k.orders as number)} icon={ClipboardList} hint={`${count(k.open_orders as number)} ${t("open")}`} tone="primary" />
+            {k.gross_profit !== null && <StatCard label="Gross profit" value={m(k.gross_profit)} icon={Coins} tone="success" hint={k.profit_coverage_pct !== null ? `${k.profit_coverage_pct}% ${t("of sales costed")}` : undefined} />}
             <StatCard label="Expenses" value={m(k.expenses)} icon={Wallet} tone="warning" />
             {k.net_performance !== null && <StatCard label="Net performance" value={m(k.net_performance)} icon={TrendingUp} tone={toNum(k.net_performance as Money) >= 0 ? "success" : "danger"} />}
             {k.stock_value !== null && <StatCard label="Stock value" value={m(k.stock_value)} icon={Boxes} hint={`${count(k.stock_units as number)} units`} />}
@@ -244,7 +245,7 @@ function Analytics() {
                           <span className="flex items-center gap-1.5 truncate font-medium">{c.name} <Medal tier={c.medal} /></span>
                           <span className="num block text-xs text-muted-foreground">{maskPhone(c.mobile)}</span>
                         </span>
-                        <span className="text-right">
+                        <span className="text-end">
                           <span className="num block font-semibold">{m(c.spend)}</span>
                           <PointsPill own={c.own_points} referral={c.referral_points} />
                         </span>
@@ -316,10 +317,10 @@ function RankList({ title, rows, onClick, plain }: { title: string; rows: { id: 
         <ul className="divide-y">
           {rows.map((r, i) => (
             <li key={r.id}>
-              <button onClick={() => onClick(r.id)} className="flex w-full items-center gap-3 py-2.5 text-left text-sm">
+              <button onClick={() => onClick(r.id)} className="flex w-full items-center gap-3 py-2.5 text-start text-sm">
                 {!plain && <span className="num flex w-5 shrink-0 justify-center text-xs text-muted-foreground">{r.medal ? <Medal tier={r.medal} /> : i + 1}</span>}
                 <span className="min-w-0 flex-1 truncate">{r.name}</span>
-                <span className="text-right">
+                <span className="text-end">
                   <span className="num block font-medium">{r.value}</span>
                   <span className="num block text-xs text-muted-foreground">{r.sub}</span>
                 </span>

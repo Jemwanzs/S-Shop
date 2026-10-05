@@ -147,8 +147,8 @@ export function BarcodeScanner({
           }}
         >
           <div className="relative flex-1">
-            <Keyboard className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="Type or use a handheld scanner" className="pl-9" />
+            <Keyboard className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="Type or use a handheld scanner" className="ps-9" />
           </div>
           <Button type="submit" variant="ink">
             Add

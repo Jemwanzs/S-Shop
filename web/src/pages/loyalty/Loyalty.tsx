@@ -68,7 +68,7 @@ function Overview() {
                     <div className="flex items-center gap-1.5 truncate font-medium">{c.name} {i < 3 && <Medal tier={["Gold", "Silver", "Bronze"][i]} />}</div>
                     <div className="num text-xs text-muted-foreground">{maskPhone(c.mobile)}{c.tier && <span className="font-sans"> · {c.tier}</span>}</div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-end">
                     <div className="num font-semibold">{money(c.total_spend)}</div>
                     <PointsPill own={c.own_points} referral={c.referral_points} />
                   </div>
@@ -121,7 +121,7 @@ function CustomerPicker({ label, value, onPick, exclude }: { label: string; valu
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name or mobile" />
           <ul className="mt-1 divide-y rounded-lg border empty:hidden">
             {res.data?.items.filter((c) => c.id !== exclude).map((c) => (
-              <li key={c.id}><button className="flex w-full justify-between px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => { onPick(c); setQ(""); }}><span>{c.first_name} {c.other_names}</span><span className="num text-muted-foreground">{phone(c.mobile)}</span></button></li>
+              <li key={c.id}><button className="flex w-full justify-between px-3 py-2 text-start text-sm hover:bg-accent" onClick={() => { onPick(c); setQ(""); }}><span>{c.first_name} {c.other_names}</span><span className="num text-muted-foreground">{phone(c.mobile)}</span></button></li>
             ))}
           </ul>
         </>
@@ -283,7 +283,7 @@ function Awards() {
                     <div className="flex items-center gap-1.5 truncate font-medium">{s.name} {i < data.winners_per_period && <Medal tier={medals[i] ?? "Bronze"} />}</div>
                     <div className="num text-xs text-muted-foreground">{maskPhone(s.mobile)}</div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-end">
                     <div className="num font-semibold">{money(s.period_spend)}</div>
                     <PointsPill own={s.period_points} referral={s.period_referral_points} />
                   </div>

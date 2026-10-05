@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { t, tx } from "@/lib/i18n";
 
 export function PageHeader({
   eyebrow,
@@ -24,12 +25,12 @@ export function PageHeader({
       <div className="min-w-0">
         {back && (
           <Link to={back} className="mb-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="h-4 w-4" /> Back
+            <ArrowLeft className="h-4 w-4 rtl:rotate-180" /> {t("Back")}
           </Link>
         )}
-        {eyebrow && <p className="label-caps mb-1">{eyebrow}</p>}
-        <h1 className="truncate text-xl font-semibold tracking-tight lg:text-2xl">{title}</h1>
-        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+        {eyebrow && <p className="label-caps mb-1">{t(eyebrow)}</p>}
+        <h1 className="truncate text-xl font-semibold tracking-tight lg:text-2xl">{tx(title)}</h1>
+        {description && <p className="mt-1 text-sm text-muted-foreground">{tx(description)}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>
@@ -41,7 +42,7 @@ export function Section({ title, action, children, className }: { title?: ReactN
     <section className={cn("surface p-3.5 lg:p-5", className)}>
       {(title || action) && (
         <div className="mb-3 flex items-center justify-between gap-2">
-          {title && <h2 className="label-caps">{title}</h2>}
+          {title && <h2 className="label-caps">{tx(title)}</h2>}
           {action}
         </div>
       )}
@@ -56,8 +57,8 @@ export function EmptyState({ icon: Icon = Inbox, title, hint, action }: { icon?:
       <div className="mb-1 rounded-full bg-muted p-3">
         <Icon className="h-6 w-6 text-muted-foreground" />
       </div>
-      <p className="font-medium">{title}</p>
-      {hint && <p className="max-w-sm text-sm text-muted-foreground">{hint}</p>}
+      <p className="font-medium">{t(title)}</p>
+      {hint && <p className="max-w-sm text-sm text-muted-foreground">{t(hint)}</p>}
       {action && <div className="mt-2">{action}</div>}
     </div>
   );
@@ -66,7 +67,7 @@ export function EmptyState({ icon: Icon = Inbox, title, hint, action }: { icon?:
 export function Loading({ label = "Loading…", className }: { label?: string; className?: string }) {
   return (
     <div className={cn("flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground", className)}>
-      <Loader2 className="h-4 w-4 animate-spin" /> {label}
+      <Loader2 className="h-4 w-4 animate-spin" /> {t(label)}
     </div>
   );
 }
@@ -90,7 +91,7 @@ export function KV({ label, children, className }: { label: ReactNode; children:
   return (
     <div className={cn("flex items-baseline justify-between gap-4 py-2 text-sm", className)}>
       <span className="text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-right font-medium">{children}</span>
+      <span className="min-w-0 text-end font-medium">{children}</span>
     </div>
   );
 }

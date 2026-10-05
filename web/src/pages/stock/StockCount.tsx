@@ -54,7 +54,7 @@ export default function StockCount() {
       ) : (
         <div className="surface divide-y pb-2">
           <div className="hidden grid-cols-[1fr_100px_120px_100px] gap-3 px-4 py-3 md:grid">
-            <span className="label-caps">Product</span><span className="label-caps text-right">System</span><span className="label-caps text-right">Counted</span><span className="label-caps text-right">Variance</span>
+            <span className="label-caps">Product</span><span className="label-caps text-end">System</span><span className="label-caps text-end">Counted</span><span className="label-caps text-end">Variance</span>
           </div>
           {rows.map((r) => {
             const v = counts[r.product_id] ?? "";
@@ -65,15 +65,15 @@ export default function StockCount() {
                   <div className="truncate font-medium">{r.name}</div>
                   <div className="num text-xs text-muted-foreground md:hidden">System {count(r.on_hand)}{variance !== null && variance !== 0 && <span className={variance > 0 ? "text-success" : "text-destructive"}> · {signed(variance)}</span>}</div>
                 </div>
-                <span className="num hidden text-right md:block">{count(r.on_hand)}</span>
+                <span className="num hidden text-end md:block">{count(r.on_hand)}</span>
                 <Input inputMode="numeric" className="num text-center" value={v} placeholder="—" onChange={(e) => setCounts({ ...counts, [r.product_id]: e.target.value.replace(/\D/g, "") })} />
-                <span className={cn("num hidden text-right font-semibold md:block", variance && variance > 0 && "text-success", variance && variance < 0 && "text-destructive")}>{variance === null ? "" : variance === 0 ? "✓" : signed(variance)}</span>
+                <span className={cn("num hidden text-end font-semibold md:block", variance && variance > 0 && "text-success", variance && variance < 0 && "text-destructive")}>{variance === null ? "" : variance === 0 ? "✓" : signed(variance)}</span>
               </div>
             );
           })}
         </div>
       )}
-      <div className="fixed inset-x-0 bottom-[60px] z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:left-[272px]">
+      <div className="fixed inset-x-0 bottom-[60px] z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-[272px]">
         <div className="mx-auto flex max-w-[1680px] items-center justify-between gap-3 px-1 md:px-3 lg:px-5">
           <span className="text-sm text-muted-foreground"><span className="num font-semibold text-foreground">{entered.length}</span> counted · <span className="num font-semibold text-foreground">{variances.length}</span> variances</span>
           <Button disabled={!entered.length || submit.isPending} onClick={() => submit.mutate()}>{submit.isPending ? <Loader2 className="animate-spin" /> : <><ClipboardCheck /> Submit count</>}</Button>

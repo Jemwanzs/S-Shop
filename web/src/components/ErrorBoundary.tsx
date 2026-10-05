@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { RefreshCw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { t } from "@/lib/i18n";
 
 /** Contains a crash to the page that caused it, so navigation keeps working. Re-key it to reset. */
 export class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -22,10 +23,10 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
           <TriangleAlert className="h-6 w-6" />
         </span>
         <div>
-          <p className="font-semibold">This page could not be shown</p>
-          <p className="mt-1 text-sm text-muted-foreground">Your data is safe. Reload to try again, or use the menu to go elsewhere.</p>
+          <p className="font-semibold">{t("This page could not be shown")}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{t("Your data is safe. Reload to try again, or use the menu to go elsewhere.")}</p>
         </div>
-        <Button onClick={() => window.location.reload()}><RefreshCw /> Reload</Button>
+        <Button onClick={() => window.location.reload()}><RefreshCw /> {t("Reload")}</Button>
       </div>
     );
   }

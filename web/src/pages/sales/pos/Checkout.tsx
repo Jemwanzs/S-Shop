@@ -185,9 +185,9 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
       <section className="space-y-2">
         <p className="label-caps">Customer {method === "credit" ? "" : "· optional"}</p>
         <div className="relative">
-          <UserRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input inputMode="tel" placeholder="Mobile number, e.g. 0712 345 678" value={mobile} onChange={(e) => setMobile(e.target.value)} className="num pl-9 pr-9" />
-          {mobile && <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground" onClick={() => { setMobile(""); setFirstName(""); setNickname(""); setRedeem(""); }} aria-label="Clear customer"><X className="h-4 w-4" /></button>}
+          <UserRound className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input inputMode="tel" placeholder="Mobile number, e.g. 0712 345 678" value={mobile} onChange={(e) => setMobile(e.target.value)} className="num ps-9 pe-9" />
+          {mobile && <button className="absolute end-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground" onClick={() => { setMobile(""); setFirstName(""); setNickname(""); setRedeem(""); }} aria-label="Clear customer"><X className="h-4 w-4" /></button>}
         </div>
         {lookup.isFetching && <p className="text-xs text-muted-foreground">Checking customer book…</p>}
         {lookup.error && <p className="text-xs text-destructive">{errorMessage(lookup.error)}</p>}
@@ -238,8 +238,8 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
           <div className="space-y-3 rounded-xl border p-3">
             <div className="flex gap-2">
               <div className="relative flex-1">
-                <Smartphone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input inputMode="tel" placeholder="M-Pesa number (optional)" value={payPhone} onChange={(e) => setPayPhone(e.target.value)} className="num pl-9" />
+                <Smartphone className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input inputMode="tel" placeholder="M-Pesa number (optional)" value={payPhone} onChange={(e) => setPayPhone(e.target.value)} className="num ps-9" />
               </div>
               {profile!.integrations.mpesa_stk && (
                 <Button variant="success" disabled={push.isPending || payPhone.replace(/\D/g, "").length < 9 || payAmount <= 0 || stk?.status === "pending"} onClick={() => push.mutate()}>
@@ -268,7 +268,7 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
         {collecting && payMethod === "cash" && (
           <div className="grid grid-cols-2 items-end gap-3">
             <Field label="Cash received" optional><Input inputMode="decimal" className="num" value={tendered} onChange={(e) => setTendered(e.target.value.replace(/[^\d.]/g, ""))} placeholder={String(payAmount)} /></Field>
-            <div className="pb-2 text-right text-sm">
+            <div className="pb-2 text-end text-sm">
               {tendered && <>Change <span className={cn("num block text-lg font-semibold", change < 0 && "text-destructive")}>{money(change)}</span></>}
             </div>
           </div>

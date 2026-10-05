@@ -75,3 +75,9 @@ photos hidden on operational screens until “View photos”; the ordering porta
   KES. Changing the display currency re-renders the app once (`SessionProvider`).
 - **Fonts** — the body font comes from `--app-font` (Outfit by default); other preference fonts load from Google Fonts
   on first use.
+- **Languages** — `t("English text")` translates via `web/src/i18n/dict.ts` (`[Swahili, French, Arabic]` per English
+  key); missing entries fall back to English. Shared components (`PageHeader`, `Section`, `Field`, `ToggleRow`,
+  `StatCard`, `EmptyState`, `Segments`, dialogs, settings cards, navigation) translate their text props, so new screens
+  get translated titles and labels by adding dictionary entries only. Arabic sets `dir="rtl"`: use logical classes
+  (`ms-/me-/ps-/pe-/start-/end-/text-start/border-s`) instead of left/right ones, and `rtl:rotate-180` on directional
+  arrows. Signed-in users get their preference; the sign-in screens use the device's last choice.

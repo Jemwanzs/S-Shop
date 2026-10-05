@@ -228,8 +228,8 @@ export default function ProductForm() {
                 {photos.map((p, i) => (
                   <div key={i} className="relative h-24 w-24 overflow-hidden rounded-xl border">
                     <img src={URL.createObjectURL(p)} alt="" className="h-full w-full object-cover" />
-                    {i === 0 && <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 text-[10px] text-white">Primary</span>}
-                    <button type="button" className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white" onClick={() => setPhotos(photos.filter((_, n) => n !== i))} aria-label="Remove photo"><X className="h-3 w-3" /></button>
+                    {i === 0 && <span className="absolute bottom-1 start-1 rounded bg-black/60 px-1.5 text-[10px] text-white">Primary</span>}
+                    <button type="button" className="absolute end-1 top-1 rounded-full bg-black/60 p-1 text-white" onClick={() => setPhotos(photos.filter((_, n) => n !== i))} aria-label="Remove photo"><X className="h-3 w-3" /></button>
                   </div>
                 ))}
                 {photos.length < maxPhotos && (
@@ -277,7 +277,7 @@ export default function ProductForm() {
           </Section>
         </div>
 
-        <div className="fixed inset-x-0 bottom-[60px] z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:left-[272px]">
+        <div className="fixed inset-x-0 bottom-[60px] z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-[272px]">
           <div className="mx-auto flex max-w-[1680px] justify-end gap-2 px-1 md:px-3 lg:px-5">
             <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
             <Button type="submit" disabled={!valid || save.isPending} className="min-w-32">{save.isPending ? <Loader2 className="animate-spin" /> : editing ? "Save changes" : "Create product"}</Button>

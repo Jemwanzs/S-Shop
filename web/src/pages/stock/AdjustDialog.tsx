@@ -95,7 +95,7 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
               <SearchInput value={q} onChange={setQ} placeholder="Find product" autoFocus />
               <ul className="divide-y rounded-lg border">
                 {results.data?.items.map((p) => (
-                  <li key={p.id}><button className="flex w-full justify-between px-3 py-2.5 text-left text-sm hover:bg-accent" onClick={() => setProduct(p)}><span>{p.name}</span><span className="num text-muted-foreground">{count(p.on_hand)}</span></button></li>
+                  <li key={p.id}><button className="flex w-full justify-between px-3 py-2.5 text-start text-sm hover:bg-accent" onClick={() => setProduct(p)}><span>{p.name}</span><span className="num text-muted-foreground">{count(p.on_hand)}</span></button></li>
                 ))}
               </ul>
             </div>

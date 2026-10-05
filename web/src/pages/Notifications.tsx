@@ -51,7 +51,7 @@ export default function Notifications() {
             const Icon = ICONS[n.kind] ?? Bell;
             return (
               <li key={n.id}>
-                <button onClick={() => open(n)} className={cn("flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-accent/40", !n.read_at && "bg-primary/5")}>
+                <button onClick={() => open(n)} className={cn("flex w-full items-start gap-3 px-4 py-3.5 text-start transition-colors hover:bg-accent/40", !n.read_at && "bg-primary/5")}>
                   <span className={cn("mt-0.5 rounded-lg p-2", !n.read_at ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}><Icon className="h-4 w-4" /></span>
                   <span className="min-w-0 flex-1">
                     <span className={cn("block", !n.read_at && "font-semibold")}>{n.title}</span>

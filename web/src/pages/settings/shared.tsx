@@ -6,6 +6,7 @@ import { api, errorMessage } from "@/lib/api";
 import type { Money, Settings } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/Page";
+import { tx } from "@/lib/i18n";
 
 export interface WorkflowLevel {
   approver_type: "admin" | "role" | "user" | "branch_manager";
@@ -77,14 +78,14 @@ export function SettingsPage({ title, description, children, dirty, saving, onSa
   return (
     <div className="space-y-5 pb-20">
       <div>
-        <h2 className="text-xl font-semibold">{title}</h2>
-        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+        <h2 className="text-xl font-semibold">{tx(title)}</h2>
+        {description && <p className="mt-1 text-sm text-muted-foreground">{tx(description)}</p>}
       </div>
       {children}
       {onSave && dirty && (
-        <div className="fixed inset-x-0 bottom-[60px] z-20 border-t bg-background/95 p-3 backdrop-blur animate-fade-up lg:bottom-0 lg:left-[272px]">
+        <div className="fixed inset-x-0 bottom-[60px] z-20 border-t bg-background/95 p-3 backdrop-blur animate-fade-up lg:bottom-0 lg:start-[272px]">
           <div className="mx-auto flex max-w-[1680px] items-center justify-end gap-2 px-1 md:px-3 lg:px-5">
-            <span className="mr-auto text-sm text-muted-foreground">Unsaved changes</span>
+            <span className="me-auto text-sm text-muted-foreground">Unsaved changes</span>
             <Button variant="outline" onClick={onReset}>Discard</Button>
             <Button onClick={onSave} disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : "Save changes"}</Button>
           </div>
@@ -99,7 +100,7 @@ export function Card({ title, children, action }: { title?: string; children: Re
     <section className="surface p-4 lg:p-5">
       {(title || action) && (
         <div className="mb-2 flex items-center justify-between">
-          {title && <h3 className="font-semibold">{title}</h3>}
+          {title && <h3 className="font-semibold">{tx(title)}</h3>}
           {action}
         </div>
       )}

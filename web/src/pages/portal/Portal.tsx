@@ -36,7 +36,7 @@ export default function Portal() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="absolute right-3 top-3"><ThemeToggle /></div>
+      <div className="absolute end-3 top-3"><ThemeToggle /></div>
       <Routes>
         <Route index element={<Entry b={b} sess={sess} setSess={setSess} />} />
         <Route path="shop" element={sess ? <Shop b={b} sess={sess} /> : <Navigate to={`/order/${slug}`} replace />} />
@@ -243,10 +243,10 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
               const inCart = cart[p.id]?.qty ?? 0;
               const out = p.available <= 0;
               return (
-                <button key={p.id} onClick={() => setOpen(p)} className={cn("surface group overflow-hidden text-left transition hover:shadow-lift", out && "opacity-60")}>
+                <button key={p.id} onClick={() => setOpen(p)} className={cn("surface group overflow-hidden text-start transition hover:shadow-lift", out && "opacity-60")}>
                   <div className="relative aspect-square bg-muted">
                     {p.primary_photo_id ? <img src={photoUrl(p.primary_photo_id)} alt={p.name} loading="lazy" className="h-full w-full object-cover transition group-hover:scale-105" /> : <ImageOff className="absolute inset-0 m-auto h-8 w-8 text-muted-foreground" />}
-                    {inCart > 0 && <span className="num absolute right-2 top-2 rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">{inCart}</span>}
+                    {inCart > 0 && <span className="num absolute end-2 top-2 rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">{inCart}</span>}
                   </div>
                   <div className="space-y-1 p-3">
                     <p className="line-clamp-2 font-medium leading-snug">{p.name}</p>
@@ -261,9 +261,9 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
       </main>
 
       {units > 0 && (
-        <button onClick={() => setCartOpen(true)} className="fixed bottom-6 right-5 z-30 flex h-16 w-16 items-center justify-center rounded-full bg-foreground text-background shadow-lift animate-pop" aria-label={`Cart, ${units} items`}>
+        <button onClick={() => setCartOpen(true)} className="fixed bottom-6 end-5 z-30 flex h-16 w-16 items-center justify-center rounded-full bg-foreground text-background shadow-lift animate-pop" aria-label={`Cart, ${units} items`}>
           <ShoppingCart className="h-6 w-6" />
-          <span className="num absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-primary-foreground">{units}</span>
+          <span className="num absolute -end-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-primary-foreground">{units}</span>
         </button>
       )}
 
@@ -292,7 +292,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
                   <span className="num w-6 text-center">{l.qty}</span>
                   <button className="p-2" onClick={() => setQty(l.item, l.qty + 1)} disabled={l.qty >= l.item.available} aria-label="More"><Plus className="h-4 w-4" /></button>
                 </div>
-                <span className="num w-20 text-right font-semibold">{amount(toNum(l.item.price) * l.qty)}</span>
+                <span className="num w-20 text-end font-semibold">{amount(toNum(l.item.price) * l.qty)}</span>
               </li>
             ))}
           </ul>
@@ -376,7 +376,7 @@ function MyOrders({ b, sess }: { b: Business; sess: PortalSession }) {
             <div key={o.id} className="surface space-y-4 p-5">
               <Link to={`/track/${o.track_token}`} className="flex items-start justify-between gap-3">
                 <div><p className="num font-medium">{o.order_no}</p><p className="num text-sm text-muted-foreground">{date(o.created_at)}</p></div>
-                <div className="text-right"><p className="num font-semibold">{amount(o.total)}</p><p className="text-sm text-muted-foreground">{o.status_label}</p></div>
+                <div className="text-end"><p className="num font-semibold">{amount(o.total)}</p><p className="text-sm text-muted-foreground">{o.status_label}</p></div>
               </Link>
               {active && i === 0 && <Steps steps={o.steps} compact />}
             </div>

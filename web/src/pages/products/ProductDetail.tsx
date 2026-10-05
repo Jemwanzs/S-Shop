@@ -132,7 +132,7 @@ export default function ProductDetail() {
                 {data.photos.map((ph) => (
                   <div key={ph.id} className={cn("group relative h-28 w-28 overflow-hidden rounded-xl border-2", ph.is_primary ? "border-primary" : "border-transparent")}>
                     <button className="h-full w-full" onClick={() => setGallery(true)}><img src={ph.url} alt="" className="h-full w-full object-cover" loading="lazy" /></button>
-                    {ph.is_primary && <span className="absolute left-1 top-1 rounded bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">Primary</span>}
+                    {ph.is_primary && <span className="absolute start-1 top-1 rounded bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">Primary</span>}
                     {canPhotos && (
                       <div className="absolute inset-x-1 bottom-1 flex justify-end gap-1">
                         {!ph.is_primary && <button className="rounded-full bg-black/60 p-1.5 text-white" onClick={() => photoAction(ph.id, "primary")} aria-label="Make primary"><Star className="h-3 w-3" /></button>}

@@ -72,7 +72,7 @@ export function WorkflowSettings() {
       <Card>
         {data?.workflows.map((w) => (
           <div key={w.action} className="flex items-center gap-3 py-3">
-            <button className="min-w-0 flex-1 text-left" onClick={() => setEdit(structuredClone(w))}>
+            <button className="min-w-0 flex-1 text-start" onClick={() => setEdit(structuredClone(w))}>
               <div className="font-medium">{w.label}</div>
               <div className="text-xs text-muted-foreground">
                 {w.enabled ? <>{w.levels.map(levelName).join(" → ")}{conditionText(w)}</> : "No approval needed"}

@@ -5,6 +5,7 @@ import { toast } from "@/lib/toast";
 import { api, errorMessage, session } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { CURRENCIES, FONTS, type Preferences } from "@/lib/prefs";
+import { LANGUAGES, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, SettingsPage } from "./shared";
@@ -33,15 +34,26 @@ export function PreferencesSettings() {
 
   return (
     <SettingsPage title="User preferences" description="Your own settings — they follow you on every device you sign in to.">
+      <Card title="Language">
+        <div className="grid grid-cols-2 gap-2 py-2 sm:grid-cols-4">
+          {LANGUAGES.map((l) => (
+            <Choice key={l.code} active={draft.language === l.code} onClick={() => setDraft({ ...draft, language: l.code })}>
+              <span className="block font-semibold" dir={l.code === "ar" ? "rtl" : "ltr"}>{l.label}</span>
+              <span className="block text-xs uppercase text-muted-foreground">{l.code}</span>
+            </Choice>
+          ))}
+        </div>
+      </Card>
+
       <Card title="Currency">
         <p className="pb-2 text-xs text-muted-foreground">
-          Figures across the app are shown in this currency, without symbols. Sales, payments and prices are still recorded and entered in KES.
+          {t("Figures across the app are shown in this currency, without symbols. Sales, payments and prices are still recorded and entered in KES.")}
         </p>
         <div className="grid gap-2 py-2 sm:grid-cols-3">
           {CURRENCIES.map((c) => (
             <Choice key={c.code} active={draft.currency === c.code} onClick={() => setDraft({ ...draft, currency: c.code })}>
               <span className="block font-semibold">{c.code}</span>
-              <span className="block text-xs text-muted-foreground">{c.label}</span>
+              <span className="block text-xs text-muted-foreground">{t(c.label)}</span>
               {c.code !== "KES" && rate(c.code) && <span className="num mt-1 block text-[11px] text-muted-foreground">{rate(c.code)}</span>}
             </Choice>
           ))}
@@ -62,8 +74,8 @@ export function PreferencesSettings() {
 
       {dirty && (
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setDraft(preferences)}>Discard</Button>
-          <Button disabled={save.isPending} onClick={() => save.mutate(draft)}>{save.isPending ? <Loader2 className="animate-spin" /> : "Save preferences"}</Button>
+          <Button variant="outline" onClick={() => setDraft(preferences)}>{t("Discard")}</Button>
+          <Button disabled={save.isPending} onClick={() => save.mutate(draft)}>{save.isPending ? <Loader2 className="animate-spin" /> : t("Save preferences")}</Button>
         </div>
       )}
     </SettingsPage>
@@ -75,9 +87,9 @@ function Choice({ active, onClick, children }: { active: boolean; onClick: () =>
     <button
       type="button"
       onClick={onClick}
-      className={cn("relative rounded-xl border p-3 text-left transition-colors", active ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-accent/50")}
+      className={cn("relative rounded-xl border p-3 text-start transition-colors", active ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-accent/50")}
     >
-      {active && <Check className="absolute right-2.5 top-2.5 h-4 w-4 text-primary" />}
+      {active && <Check className="absolute end-2.5 top-2.5 h-4 w-4 text-primary" />}
       {children}
     </button>
   );

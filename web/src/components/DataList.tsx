@@ -47,7 +47,7 @@ export function DataList<T>({
   if (loading && !rows) return <div className={cn("surface", className)}><Loading /></div>;
   if (!rows?.length) return <div className={cn("surface", className)}>{empty ?? <EmptyState title="Nothing here yet" />}</div>;
 
-  const align = (a?: string) => (a === "right" ? "text-right" : a === "center" ? "text-center" : "text-left");
+  const align = (a?: string) => (a === "right" ? "text-end" : a === "center" ? "text-center" : "text-start");
   return (
     <div className={cn("surface overflow-hidden", className)}>
       <div className="hidden md:block">
@@ -82,7 +82,7 @@ export function DataList<T>({
         {rows.map((r) => (
           <li key={rowKey(r)}>
             {onRowClick ? (
-              <button type="button" onClick={() => onRowClick(r)} className="block w-full px-3.5 py-2.5 text-left active:bg-accent/50">
+              <button type="button" onClick={() => onRowClick(r)} className="block w-full px-3.5 py-2.5 text-start active:bg-accent/50">
                 {mobile(r)}
               </button>
             ) : (
@@ -127,7 +127,7 @@ export function CardRow({ title, subtitle, value, meta, leading }: { title: Reac
         {subtitle && <div className="truncate text-xs text-muted-foreground">{subtitle}</div>}
       </div>
       {(value || meta) && (
-        <div className="shrink-0 text-right">
+        <div className="shrink-0 text-end">
           {value && <div className="num font-semibold">{value}</div>}
           {meta && <div className="text-xs text-muted-foreground">{meta}</div>}
         </div>

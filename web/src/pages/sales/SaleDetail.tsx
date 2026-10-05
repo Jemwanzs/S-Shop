@@ -94,12 +94,12 @@ export default function SaleDetail() {
           )}
           <table className="w-full text-sm">
             <thead className="border-b text-xs text-muted-foreground">
-              <tr><th className="py-2 text-left font-medium">Item</th><th className="text-right font-medium">Qty</th><th className="text-right font-medium">Price</th><th className="text-right font-medium">Total</th></tr>
+              <tr><th className="py-2 text-start font-medium">Item</th><th className="text-end font-medium">Qty</th><th className="text-end font-medium">Price</th><th className="text-end font-medium">Total</th></tr>
             </thead>
             <tbody className="divide-y">
               {data.items.map((i) => (
                 <tr key={i.id}>
-                  <td className="py-2 pr-2">
+                  <td className="py-2 pe-2">
                     <div className="font-medium">{i.product_name}</div>
                     <div className="num text-xs text-muted-foreground">
                       {i.barcode && `${i.barcode} · `}marked {amount(i.marked_price)}
@@ -107,9 +107,9 @@ export default function SaleDetail() {
                       {i.returned_qty > 0 && <span className="text-warning"> · {i.returned_qty} returned</span>}
                     </div>
                   </td>
-                  <td className="num text-right align-top py-2">{count(i.quantity)}</td>
-                  <td className="num text-right align-top py-2">{amount(i.unit_price)}</td>
-                  <td className="num text-right align-top py-2 font-medium">{amount(i.line_total)}</td>
+                  <td className="num text-end align-top py-2">{count(i.quantity)}</td>
+                  <td className="num text-end align-top py-2">{amount(i.unit_price)}</td>
+                  <td className="num text-end align-top py-2 font-medium">{amount(i.line_total)}</td>
                 </tr>
               ))}
             </tbody>

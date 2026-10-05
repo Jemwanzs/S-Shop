@@ -332,6 +332,11 @@ me = call("GET", "/auth/me")
 check("preferences saved on the profile", me["user"]["preferences"] == {"language": "en", "font": "Poppins", "currency": "USD"}, me["user"]["preferences"])
 fx = call("GET", "/fx")
 check("exchange rates for KES/USD/EUR", fx["base"] == "KES" and fx["rates"]["KES"] == 1 and 0 < fx["rates"]["USD"] < 1, fx)
+call("PUT", "/auth/preferences", {"language": "de", "font": "Outfit", "currency": "KES"}, expect=400)
+check("unsupported language refused", True)
+for lang in ("sw", "fr", "ar"):
+    call("PUT", "/auth/preferences", {"language": lang, "font": "Outfit", "currency": "KES"})
+check("Swahili, French and Arabic accepted", call("GET", "/auth/me")["user"]["preferences"]["language"] == "ar")
 call("PUT", "/auth/preferences", {"language": "en", "font": "Outfit", "currency": "KES"})
 
 step("Query strings: paging & flags on every list")

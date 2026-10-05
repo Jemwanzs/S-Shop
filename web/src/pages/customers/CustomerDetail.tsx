@@ -215,7 +215,7 @@ export default function CustomerDetail() {
         <Input placeholder="Search the referred customer" value={referred} onChange={(e) => setReferred(e.target.value)} autoFocus />
         <ul className="mt-2 divide-y rounded-lg border empty:hidden">
           {candidates.data?.items.filter((x) => x.id !== c.id).map((x) => (
-            <li key={x.id}><button className="flex w-full justify-between px-3 py-2.5 text-left text-sm hover:bg-accent" onClick={() => refer.mutate(x.id)}><span>{x.first_name} {x.other_names}</span><span className="num text-muted-foreground">{phone(x.mobile)}</span></button></li>
+            <li key={x.id}><button className="flex w-full justify-between px-3 py-2.5 text-start text-sm hover:bg-accent" onClick={() => refer.mutate(x.id)}><span>{x.first_name} {x.other_names}</span><span className="num text-muted-foreground">{phone(x.mobile)}</span></button></li>
           ))}
         </ul>
       </ResponsiveDialog>
@@ -237,7 +237,7 @@ function Row({ to, title, sub, value, meta }: { to: string; title: React.ReactNo
           <div className="font-medium">{title}</div>
           <div className="truncate text-xs text-muted-foreground">{sub}</div>
         </div>
-        <div className="shrink-0 text-right">
+        <div className="shrink-0 text-end">
           <div className="num font-semibold">{value}</div>
           {meta && <div className="text-xs">{meta}</div>}
         </div>

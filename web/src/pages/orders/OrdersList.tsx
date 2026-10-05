@@ -138,7 +138,7 @@ function NewOrder({ open, onOpenChange, onCreated }: { open: boolean; onOpenChan
             <ul className="max-h-40 divide-y overflow-y-auto rounded-lg border">
               {products.data?.map((p) => (
                 <li key={p.id}>
-                  <button className="flex w-full justify-between px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => { if (!items.some((i) => i.product.id === p.id)) setItems([...items, { product: p, quantity: 1 }]); setQ(""); }}>
+                  <button className="flex w-full justify-between px-3 py-2 text-start text-sm hover:bg-accent" onClick={() => { if (!items.some((i) => i.product.id === p.id)) setItems([...items, { product: p, quantity: 1 }]); setQ(""); }}>
                     <span>{p.name}</span><span className="num text-muted-foreground">{count(p.available)} · {money(p.marked_price)}</span>
                   </button>
                 </li>

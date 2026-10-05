@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toNum } from "@/lib/format";
+import { t, tx } from "@/lib/i18n";
 
 export function StatCard({
   label,
@@ -36,7 +37,7 @@ export function StatCard({
             <Icon className="h-3.5 w-3.5" />
           </span>
         )}
-        <span className="label-caps truncate">{label}</span>
+        <span className="label-caps truncate">{t(label)}</span>
       </div>
       <div className="num truncate text-lg font-semibold lg:text-2xl">{value}</div>
       {(c !== null || hint) && (
@@ -47,7 +48,7 @@ export function StatCard({
               {Math.abs(c)}%
             </span>
           )}
-          {hint}
+          {tx(hint)}
         </div>
       )}
     </div>

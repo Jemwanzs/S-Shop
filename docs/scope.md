@@ -80,7 +80,10 @@ Added 2026-10-05 (owner request), delivered in this order before the remaining i
 - ✅ **8. User preferences** (per user) — font (Outfit default, Poppins, Inter, Roboto, Nunito) and display currency
   (KES default, USD, EUR) with live exchange rates; the active currency is shown once in the profile and figures are
   shown without repeated currency symbols.
-- **9. Languages** — English, Swahili, French, Arabic (right-to-left), per user.
+- ◐ **9. Languages** — English, Swahili, French, Arabic (right-to-left), per user. Done: translation system, language
+  preference + sign-in picker, full RTL layout, navigation, menus, sign-in/request access, preferences, page titles,
+  section/field/KPI labels, dashboard filters. Remaining: text written directly inside individual screens (buttons,
+  table headings, toasts, server messages), translated module by module.
 
 Then:
 - Combined exchange screen (rest of roadmap 4).

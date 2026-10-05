@@ -5,6 +5,7 @@ import { todayIso } from "@/lib/format";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { t, tx } from "@/lib/i18n";
 
 export interface PeriodValue {
   period?: string;
@@ -30,23 +31,23 @@ export function PeriodFilter({ value, onChange, presets = PRESETS.map((p) => p[0
     <div className="scrollbar-none -mx-4 flex gap-1.5 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:px-0">
       {PRESETS.filter(([k]) => presets.includes(k)).map(([k, label]) => (
         <Chip key={k} active={!custom && value.period === k} onClick={() => onChange({ period: k })}>
-          {label}
+          {t(label)}
         </Chip>
       ))}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Chip active={custom}>
             <CalendarRange className="h-3.5 w-3.5" />
-            {custom ? (value.from === value.to ? value.from : `${value.from} → ${value.to}`) : "Dates"}
+            {custom ? (value.from === value.to ? value.from : `${value.from} → ${value.to}`) : t("Dates")}
           </Chip>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-72 space-y-3">
           <label className="block text-sm">
-            <span className="label-caps">From</span>
+            <span className="label-caps">{t("From")}</span>
             <Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
           </label>
           <label className="block text-sm">
-            <span className="label-caps">To</span>
+            <span className="label-caps">{t("To")}</span>
             <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
           </label>
           <div className="flex gap-2">
@@ -93,9 +94,9 @@ export function SearchInput({ value, onChange, placeholder = "Search…", classN
 }) {
   return (
     <div className={cn("relative", className)}>
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="bg-card pl-9 pr-20" autoFocus={autoFocus} />
-      <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1">
+      <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="bg-card ps-9 pe-20" autoFocus={autoFocus} />
+      <div className="absolute end-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1">
         {value && (
           <button type="button" onClick={() => onChange("")} className="rounded-full p-1.5 text-muted-foreground hover:bg-muted" aria-label="Clear">
             <X className="h-4 w-4" />
@@ -113,7 +114,7 @@ export function Segments<T extends string>({ value, onChange, options }: { value
     <div className="scrollbar-none -mx-4 flex gap-1.5 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:px-0">
       {options.map((o) => (
         <Chip key={o.value} active={o.value === value} onClick={() => onChange(o.value)}>
-          {o.label}
+          {tx(o.label)}
           {o.count ? <span className={cn("num rounded-full px-1.5 text-xs", o.value === value ? "bg-background/20" : "bg-muted")}>{o.count}</span> : null}
         </Chip>
       ))}

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/Form";
 import { AuthLabel, AuthLayout } from "./AuthLayout";
+import { t } from "@/lib/i18n";
 
 const BUSINESS_TYPES = ["Retail shop", "Supermarket / mini-mart", "Fashion & boutique", "Jewellery & accessories", "Electronics", "Pharmacy & beauty", "Hardware", "Restaurant / café", "Wholesale", "Other"];
 const SUPPORT = ["0798 993 404", "0732 968 898"];
@@ -38,16 +39,16 @@ export default function RequestAccessPage() {
       <AuthLayout title="Request received">
         <div className="space-y-4 text-center">
           <CheckCircle2 className="mx-auto h-10 w-10 text-success" />
-          <p className="text-sm font-medium">Access request submitted successfully. We will review your request and get back to you.</p>
+          <p className="text-sm font-medium">{t("Access request submitted successfully. We will review your request and get back to you.")}</p>
           <div className="rounded-xl bg-muted/60 p-3">
-            <p className="text-xs text-muted-foreground">In case of any delays, please call:</p>
+            <p className="text-xs text-muted-foreground">{t("In case of any delays, please call:")}</p>
             <div className="mt-1.5 flex flex-col items-center gap-1">
               {SUPPORT.map((p) => (
                 <a key={p} href={`tel:${p.replace(/\s/g, "")}`} className="num inline-flex items-center gap-1.5 text-sm font-semibold text-primary"><Phone className="h-3.5 w-3.5" />{p}</a>
               ))}
             </div>
           </div>
-          <Button variant="outline" className="w-full" asChild><Link to="/login">Back to sign in</Link></Button>
+          <Button variant="outline" className="w-full" asChild><Link to="/login">{t("Back to sign in")}</Link></Button>
         </div>
       </AuthLayout>
     );
@@ -66,8 +67,8 @@ export default function RequestAccessPage() {
         <label className="block">
           <AuthLabel>Type of business</AuthLabel>
           <NativeSelect value={f.business_type} onChange={set("business_type")}>
-            <option value="">Choose…</option>
-            {BUSINESS_TYPES.map((t) => <option key={t}>{t}</option>)}
+            <option value="">{t("Choose…")}</option>
+            {BUSINESS_TYPES.map((b) => <option key={b} value={b}>{t(b)}</option>)}
           </NativeSelect>
         </label>
         <label className="block"><AuthLabel>Town / location</AuthLabel><Input value={f.location} onChange={(e) => set("location")(e.target.value)} maxLength={120} /></label>
@@ -75,8 +76,8 @@ export default function RequestAccessPage() {
         {/* Honeypot for bots: hidden from people and assistive tech. */}
         <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden value={f.website} onChange={(e) => set("website")(e.target.value)} className="absolute -left-[9999px] h-0 w-0 opacity-0" />
         {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
-        <Button type="submit" className="w-full" disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : "Submit request"}</Button>
-        <Link to="/login" className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Back to sign in</Link>
+        <Button type="submit" className="w-full" disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : t("Submit request")}</Button>
+        <Link to="/login" className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5 rtl:rotate-180" /> {t("Back to sign in")}</Link>
       </form>
     </AuthLayout>
   );

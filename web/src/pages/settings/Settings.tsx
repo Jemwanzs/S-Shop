@@ -29,6 +29,7 @@ import { CustomerSettings, ExpenseSettings, LoyaltySettings, OrderSettings, Prod
 import { WorkflowSettings } from "./Workflows";
 import { AccessRequests } from "./AccessRequests";
 import { PreferencesSettings } from "./Preferences";
+import { t } from "@/lib/i18n";
 
 interface SectionDef {
   path: string;
@@ -71,7 +72,7 @@ export default function Settings() {
     <nav className="space-y-5">
       {groups.map((g) => (
         <div key={g}>
-          <p className="label-caps mb-1.5 px-3">{g}</p>
+          <p className="label-caps mb-1.5 px-3">{t(g)}</p>
           <div className="surface overflow-hidden lg:border-0 lg:bg-transparent lg:shadow-none">
             {sections.filter((s) => s.group === g).map((s) => (
               <NavLink
@@ -85,8 +86,8 @@ export default function Settings() {
                 }
               >
                 <s.icon className="h-4 w-4 shrink-0" />
-                <span className="flex-1">{s.label}</span>
-                <ChevronRight className="h-4 w-4 text-muted-foreground lg:hidden" />
+                <span className="flex-1">{t(s.label)}</span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground lg:hidden rtl:rotate-180" />
               </NavLink>
             ))}
           </div>

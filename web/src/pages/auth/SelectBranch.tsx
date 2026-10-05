@@ -25,7 +25,7 @@ export default function SelectBranchPage() {
               selectBranch(b.id);
               navigate("/", { replace: true });
             }}
-            className={`surface flex items-center gap-3 p-4 text-left transition hover:border-primary/50 hover:shadow-lift animate-fade-up ${branch?.id === b.id ? "border-primary" : ""}`}
+            className={`surface flex items-center gap-3 p-4 text-start transition hover:border-primary/50 hover:shadow-lift animate-fade-up ${branch?.id === b.id ? "border-primary" : ""}`}
           >
             <span className="rounded-xl bg-primary/10 p-2.5 text-primary"><Store className="h-5 w-5" /></span>
             <span className="min-w-0 flex-1">

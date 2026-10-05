@@ -109,7 +109,7 @@ export default function Approvals() {
                   {a.decided_by_name && <><br />{a.status} by {a.decided_by_name} · {dateTime(a.decided_at)}{a.comments && ` — “${a.comments}”`}</>}
                 </p>
                 {a.decisions.length > 0 && (
-                  <ol className="space-y-1 border-l-2 pl-3 text-xs">
+                  <ol className="space-y-1 border-s-2 ps-3 text-xs">
                     {a.decisions.map((d, n) => (
                       <li key={n} className={d.decision === "approved" ? "text-success" : "text-destructive"}>
                         Level {d.level} {d.decision} by {d.user_name} · {ago(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
@@ -121,12 +121,12 @@ export default function Approvals() {
                   {link && <Button variant="ghost" size="sm" asChild><Link to={link}>View</Link></Button>}
                   {a.can_decide && (
                     <>
-                      <Button size="sm" variant="outline" className="ml-auto text-destructive" onClick={() => setDeciding({ approval: a, approve: false })}><X /> Reject</Button>
+                      <Button size="sm" variant="outline" className="ms-auto text-destructive" onClick={() => setDeciding({ approval: a, approve: false })}><X /> Reject</Button>
                       <Button size="sm" variant="success" onClick={() => setDeciding({ approval: a, approve: true })}><Check /> Approve</Button>
                     </>
                   )}
                   {status === "mine" && a.status === "pending" && (
-                    <Button size="sm" variant="outline" className="ml-auto" onClick={() => withdraw.mutate(a.id)}><Undo2 /> Withdraw</Button>
+                    <Button size="sm" variant="outline" className="ms-auto" onClick={() => withdraw.mutate(a.id)}><Undo2 /> Withdraw</Button>
                   )}
                 </div>
               </div>

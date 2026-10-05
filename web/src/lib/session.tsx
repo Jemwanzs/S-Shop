@@ -4,6 +4,7 @@ import { api, session } from "./api";
 import type { Branch, Profile } from "./types";
 import { setDisplayCurrency } from "./format";
 import { applyFont, DEFAULT_PREFERENCES, type Fx, type Preferences } from "./prefs";
+import { deviceLanguage, rememberDeviceLanguage, setLanguage } from "./i18n";
 
 interface SessionValue {
   profile: Profile | null;
@@ -18,6 +19,9 @@ interface SessionValue {
   /** Currency figures are shown in (KES until rates load for another choice). */
   displayCurrency: string;
   fx: Fx | null;
+  language: string;
+  /** Language choice on the public screens before sign-in. */
+  setDeviceLanguage: (code: string) => void;
   signIn: (token: string, profile: Profile) => void;
   signOut: () => void;
   selectBranch: (id: string) => void;
@@ -72,6 +76,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const rate = wantsFx ? fx.data?.rates[preferences.currency] : undefined;
   const displayCode = rate ? preferences.currency : "KES";
   setDisplayCurrency(displayCode, rate ?? 1);
+  const [deviceLang, setDeviceLang] = useState(deviceLanguage);
+  const language = signedIn ? preferences.language : deviceLang;
+  setLanguage(language);
+  useEffect(() => {
+    if (signedIn) rememberDeviceLanguage(preferences.language);
+  }, [signedIn, preferences.language]);
 
   const value = useMemo<SessionValue>(
     () => ({
@@ -85,6 +95,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       preferences,
       displayCurrency: displayCode,
       fx: fx.data ?? null,
+      language,
+      setDeviceLanguage: (code: string) => {
+        rememberDeviceLanguage(code);
+        setDeviceLang(code);
+      },
       signIn: (t, p) => {
         session.setToken(t);
         qc.setQueryData(["me", t], p);
@@ -106,11 +121,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "me" });
       },
     }),
-    [token, profile, isLoading, branch, can, qc, preferences, displayCode, fx.data],
+    [token, profile, isLoading, branch, can, qc, preferences, displayCode, fx.data, language],
   );
 
-  // Re-render every screen when the display currency changes (figures are formatted outside React state).
-  return <Ctx.Provider value={value}><Fragment key={displayCode}>{children}</Fragment></Ctx.Provider>;
+  // Re-render every screen when the display currency or language changes (both are applied outside React state).
+  return <Ctx.Provider value={value}><Fragment key={`${displayCode}-${language}`}>{children}</Fragment></Ctx.Provider>;
 }
 
 export function useSession() {

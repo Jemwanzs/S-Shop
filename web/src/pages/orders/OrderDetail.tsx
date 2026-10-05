@@ -99,7 +99,7 @@ export default function OrderDetail() {
 
           {forward.length > 0 && (
             <div className="surface flex flex-wrap items-center gap-2 p-4">
-              <span className="label-caps mr-auto">Next step</span>
+              <span className="label-caps me-auto">Next step</span>
               {forward.slice(0, 3).map((s, i) => (
                 <Button key={s} variant={i === 0 ? "default" : "outline"} onClick={() => setTarget(s)}>{label(s)}</Button>
               ))}
@@ -131,10 +131,10 @@ export default function OrderDetail() {
           </Section>
 
           <Section title="Timeline">
-            <ol className="relative space-y-4 border-l pl-5">
+            <ol className="relative space-y-4 border-s ps-5">
               {data.events.map((e, i) => (
                 <li key={i} className="relative">
-                  <span className="absolute -left-[26px] top-1 h-2.5 w-2.5 rounded-full bg-primary" />
+                  <span className="absolute -start-[26px] top-1 h-2.5 w-2.5 rounded-full bg-primary" />
                   <div className="text-sm font-medium">{e.label}</div>
                   <div className="text-xs text-muted-foreground">{dateTime(e.created_at)}{e.user_name && ` · ${e.user_name}`}</div>
                   {e.notes && <div className="mt-0.5 text-sm">{e.notes}</div>}

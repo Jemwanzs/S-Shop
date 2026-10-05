@@ -3,6 +3,7 @@ import { toast as sonner, type ExternalToast } from "sonner";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { t } from "@/lib/i18n";
 
 /**
  * App-wide notifications. Confirmations (success/info) are brief toasts at the top centre;
@@ -64,7 +65,7 @@ export function AlertHost() {
           </div>
           <div className="border-t p-3">
             <Button className="w-full" onClick={() => dismiss(current.id)} autoFocus>
-              OK{alerts.length > 1 && <span className="text-xs opacity-80"> · {alerts.length - 1} more</span>}
+              {t("OK")}{alerts.length > 1 && <span className="text-xs opacity-80"> · {alerts.length - 1} {t("more")}</span>}
             </Button>
           </div>
         </DialogContent>

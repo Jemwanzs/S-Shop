@@ -221,6 +221,8 @@ List endpoints accept `limit` (≤500) and `offset`; period filters accept `peri
 |---|---|
 | GET | `/api/dashboard` — `mine=true` for My Dashboard |
 | GET | `/api/dashboard/activity` — `branch_id`, `mine` |
+| GET | `/api/leaderboards/products` — period, `branch_id`, `category_id`, `metric` (revenue, units, sales, orders, profit, margin), `limit` |
+| GET | `/api/leaderboards/staff` — period, `branch_id`, `metric` (revenue, units, transactions, avg_sale, orders, customers, new_customers, discounts, credit), `limit` — needs `staff.view_others` |
 
 ## Reports
 

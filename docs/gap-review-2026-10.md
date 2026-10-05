@@ -24,6 +24,7 @@ Reviewed against the code, database and roadmap before building. ✅ complete ·
 **Progress:** step 1 done (2026-10-05) — items 3, 6, 7, 8 are now ✅: `staff.view_others`, `sales.print`, settings
 areas, role retirement, My Dashboard, recent activity; plus a privilege-escalation fix (non-admins can no longer grant
 or assign permissions they do not hold) found during this review.
+Step 2 done (2026-10-05) — items 1 and 2 are now ✅: **Leaderboards** (`/leaderboards`).
 
 **Order of work** (each end-to-end: database → backend → permissions → UI → audit → reports, with demo data):
 1. Access: `staff.view_others` + data scoping, My Dashboard, recent activity, `sales.print`, settings areas, role deactivation.

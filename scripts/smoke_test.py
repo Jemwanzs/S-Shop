@@ -452,6 +452,27 @@ call("PUT", f"/roles/{spare}", {"name": f"Spare {suffix}", "permissions": ["sale
 call("POST", "/users", {"name": "Late", "email": f"late{suffix.lower()}@sshop.test", "pin": "4321", "role_id": spare, "all_branches": True, "branch_ids": []}, expect=400)
 check("retired role cannot be assigned", True)
 
+step("Roadmap 15: leaderboards")
+for m in ["revenue", "units", "sales", "orders", "profit", "margin"]:
+    lb = call("GET", f"/leaderboards/products?period=today&metric={m}")
+    vals = [float(x[m]) for x in lb["items"] if x[m] is not None]
+    check(f"products ranked by {m}", vals == sorted(vals, reverse=True), vals[:5])
+call("GET", "/leaderboards/products?metric=nonsense", expect=400)
+check("unknown metric refused", True)
+top = call("GET", "/leaderboards/products?period=today&metric=revenue&limit=100")["items"]
+dash_today = call("GET", "/dashboard?period=today")
+check("leaderboard totals match the dashboard", abs(sum(float(x["revenue"]) for x in top) - float(dash_today["kpis"]["sales"])) < 0.01 or len(top) == 100, (len(top), dash_today["kpis"]["sales"]))
+check("top product carries a medal", top and top[0]["medal"] == "Gold", top[:1])
+for m in ["revenue", "transactions", "avg_sale", "orders", "customers", "new_customers", "discounts", "credit"]:
+    st = call("GET", f"/leaderboards/staff?period=today&metric={m}")["items"]
+    vals = [float(x[m]) for x in st if x[m] is not None]
+    check(f"staff ranked by {m}", vals == sorted(vals, reverse=True), vals[:5])
+call("GET", "/leaderboards/staff?period=today", token=reporter, expect=403)
+check("staff board needs permission to view other employees", True)
+call("GET", "/leaderboards/products?period=today&metric=profit", token=reporter, expect=403)
+rep_metrics = call("GET", "/leaderboards/products?period=today", token=reporter)["metrics"]
+check("profit metrics hidden without financial access", "profit" not in rep_metrics and "margin" not in rep_metrics, rep_metrics)
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

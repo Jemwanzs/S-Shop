@@ -12,6 +12,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
+  Trophy,
   UserRound,
   Users,
   Wallet,
@@ -32,6 +33,7 @@ export const NAV: { group: string; items: NavItem[] }[] = [
     items: [
       { to: "/", label: "Dashboard", icon: LayoutGrid, perms: [] },
       { to: "/my", label: "My Dashboard", icon: UserRound, perms: ["sales.create", "sales.view", "orders.manage"] },
+      { to: "/leaderboards", label: "Leaderboards", icon: Trophy, perms: ["dashboard.view", "reports.view"] },
     ],
   },
   {

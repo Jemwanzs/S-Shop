@@ -11,6 +11,7 @@ pub mod customers;
 pub mod dashboard;
 pub mod expenses;
 pub mod fields;
+pub mod leaderboards;
 pub mod loyalty;
 pub mod notifications;
 pub mod orders;
@@ -54,6 +55,7 @@ pub fn api() -> Router<AppState> {
         .merge(expenses::routes())
         .merge(approvals::routes())
         .merge(dashboard::routes())
+        .merge(leaderboards::routes())
         .merge(reports::routes())
         .merge(notifications::routes())
         .merge(audit::routes())

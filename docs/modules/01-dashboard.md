@@ -48,6 +48,18 @@ for the period (position only, never colleagues' figures). The server always sco
 On the business dashboard, choosing a staff member needs *View other employees*, and every figure then follows that
 person (not only sales). The staff leaderboard is shown only with that permission.
 
+## Leaderboards (`/leaderboards`)
+Ranked boards over a period and branch, from the same net sale lines as the dashboard and reports (sales after
+returns), so the figures agree everywhere. Shown to users with `dashboard.view` or `reports.view`.
+
+- **Products** — rank by sales value, units, number of sales, orders, profit or margin (category filter). Profit and
+  margin need `sales.view_financials`; without it they are neither offered nor returned.
+- **Staff** — rank by sales value, units, transactions, average sale, orders processed, customers served, new
+  customers, discounts given or credit sales. Needs *View other employees* (`staff.view_others`); without it the tab
+  is hidden and the server refuses.
+- **Medals** follow Settings → Reports: by rank (top three), or by targets for value/units scaled to the period;
+  other metrics always medal the top three.
+
 ## Recent activity
 A compact feed of the latest sales, returns, orders, stock receipts, transfers, adjustments, expenses, new customers,
 credit payments and approvals — each kind only with the permission that guards it, only for the user's branches, and

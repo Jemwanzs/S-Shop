@@ -35,6 +35,8 @@ struct AuditRow {
     comments: String,
     ip: String,
     user_agent: String,
+    /// Device position at the time ({lat, lng, accuracy_m}), when the browser shared it.
+    location: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -55,7 +57,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     let rows: Vec<Counted<AuditRow>> = sqlx::query_as(
         "SELECT COUNT(*) OVER() AS total_count, a.id, a.created_at, u.name AS user_name, a.module, a.action, a.entity_type, a.entity_id,
                 b.name AS branch_name, a.before, a.after, ap.status AS approval_status, du.name AS approver_name,
-                a.comments, a.ip, a.user_agent
+                a.comments, a.ip, a.user_agent, a.location
          FROM audit_log a LEFT JOIN users u ON u.id = a.user_id LEFT JOIN branches b ON b.id = a.branch_id
          LEFT JOIN approvals ap ON ap.id = a.approval_id LEFT JOIN users du ON du.id = ap.decided_by
          WHERE a.tenant_id = $1 AND a.created_at >= $2 AND a.created_at < $3

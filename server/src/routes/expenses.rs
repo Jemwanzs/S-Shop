@@ -136,6 +136,7 @@ struct CreateBody {
 
 async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBody>) -> AppResult<Json<Outcome<Value>>> {
     ctx.require("expenses.create")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "expenses").await?;
     let branch = ctx.branch_or_current(b.branch_id)?;
     if b.amount <= Decimal::ZERO {
         return Err(bad("Enter the amount"));

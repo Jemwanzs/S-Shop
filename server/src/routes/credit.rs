@@ -176,6 +176,7 @@ struct RepayBody {
 
 async fn repay(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<RepayBody>) -> AppResult<Json<Value>> {
     ctx.require("credit.collect")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "credit").await?;
     if b.amount <= Decimal::ZERO {
         return Err(bad("Enter the amount received"));
     }

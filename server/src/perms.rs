@@ -25,6 +25,7 @@ pub const CATALOGUE: &[PermGroup] = &[
         ("sales.discount_override", "Approve discounts above the maximum"),
         ("sales.change_branch", "Sell from another branch"),
         ("sales.outside_hours", "Sell outside trading hours"),
+        ("location.bypass", "Work away from the branch (geofencing does not apply)"),
         ("sales.return", "Process returns & refunds"),
         ("sales.cancel", "Cancel sales"),
         ("sales.view_financials", "View cost & profit figures"),
@@ -86,7 +87,7 @@ pub const CATALOGUE: &[PermGroup] = &[
         ("settings.customers", "Customer & loyalty settings"),
         ("settings.expenses", "Expense settings & categories"),
         ("settings.reports", "Report & medal settings"),
-        ("settings.workspace", "Working days & trading hours"),
+        ("settings.workspace", "Working days, trading hours & location rules"),
         ("settings.workflows", "Approval workflows"),
         ("settings.integrations", "M-Pesa & WhatsApp settings"),
     ]},
@@ -113,7 +114,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
         "stock.view", "stock.add", "stock.adjust", "stock.write_off", "stock.transfer", "stock.receive_transfer",
         "customers.view", "customers.create", "customers.edit", "customers.view_loyalty", "customers.redeem_points",
         "customers.view_credit", "loyalty.manage", "expenses.view", "expenses.create", "reports.view", "reports.export",
-        "approvals.approve", "audit.view", "staff.view_others", "sales.print", "sales.outside_hours",
+        "approvals.approve", "audit.view", "staff.view_others", "sales.print", "sales.outside_hours", "location.bypass",
     ]},
     RoleTemplate { name: "Director", description: "Oversees the whole business: figures, approvals and reports", permissions: &[
         "dashboard.view", "staff.view_others", "sales.view", "sales.print", "sales.view_financials", "credit.view", "orders.view",
@@ -132,6 +133,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
         "stock.adjust", "stock.transfer", "stock.receive_transfer", "customers.view", "customers.create", "customers.edit",
         "customers.view_loyalty", "customers.redeem_points", "customers.view_credit", "expenses.view", "expenses.create",
         "reports.view", "reports.export", "approvals.approve", "staff.view_others", "sales.print", "sales.outside_hours",
+        "location.bypass",
     ]},
     RoleTemplate { name: "Salesperson", description: "Records sales at the counter", permissions: &[
         "sales.view", "sales.create", "sales.discount", "credit.view", "credit.collect", "products.view", "stock.view",

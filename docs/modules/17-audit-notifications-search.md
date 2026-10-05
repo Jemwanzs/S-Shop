@@ -4,7 +4,7 @@
 
 ## Audit trail (`/audit`, needs `audit.view`)
 Every critical action writes one row **in the same transaction** as the change: user, module, action, record, branch,
-before and after values (JSON), linked approval and approver, comments, IP address and device (user agent), time.
+before and after values (JSON), linked approval and approver, comments, IP address and device (user agent), device location when shared (geofencing, module 16), time.
 Covered: sign-ins, PIN changes, products, stock receipts/adjustments, transfers, sales, returns, cancellations, credit
 repayments/write-offs, customers, loyalty adjustments/redemptions/referrals/awards, expenses, users, roles, branches,
 settings, workflows, approvals. Filters: period, module. Tap a row for the before/after comparison.

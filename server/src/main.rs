@@ -4,6 +4,7 @@ mod bootstrap;
 mod config;
 mod demo;
 mod error;
+mod geo;
 mod integrations;
 mod inventory;
 mod jobs;

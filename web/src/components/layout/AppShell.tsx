@@ -28,6 +28,8 @@ import { GlobalSearch } from "./GlobalSearch";
 import mark from "@/assets/sshop-mark.png";
 import { allowed, BOTTOM, NAV } from "./nav";
 import { t } from "@/lib/i18n";
+import { onLocationStatus, locationStatus, startLocation, stopLocation, type LocationStatus } from "@/lib/location";
+import { MapPinOff } from "lucide-react";
 
 export function useTheme() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -323,6 +325,29 @@ function BottomNav() {
   );
 }
 
+/** Watches the device position while the Current Branch is geofenced; explains when location is blocked. */
+function LocationGuard() {
+  const { profile, branch, can } = useSession();
+  const needed = profile?.settings.workspace.location.mode === "branch" && !!branch?.geofence && !can("location.bypass");
+  const [status, setStatus] = useState<LocationStatus>(locationStatus());
+  useEffect(() => onLocationStatus(setStatus), []);
+  useEffect(() => {
+    if (needed) startLocation();
+    else stopLocation();
+  }, [needed]);
+  if (!needed || (status !== "denied" && status !== "unavailable")) return null;
+  return (
+    <div className="flex items-start gap-2 bg-warning/15 px-4 py-2 text-xs text-warning no-print md:px-6 lg:px-8">
+      <MapPinOff className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span>
+        {status === "denied"
+          ? t("Location is blocked. This branch only accepts sales and stock work on site: allow location for this site in your browser settings.")
+          : t("Your location could not be found. Turn on location (GPS) to work at this branch.")}
+      </span>
+    </div>
+  );
+}
+
 export function AppShell() {
   const { profile } = useSession();
   const navigate = useNavigate();
@@ -354,6 +379,7 @@ export function AppShell() {
       <Sidebar approvals={approvals} />
       <div className="min-w-0">
         <ActingBanner />
+        <LocationGuard />
         <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur no-print">
           <div className="mx-auto flex h-14 max-w-[1680px] items-center gap-2 px-4 md:px-6 lg:h-16 lg:px-8">
             <div className="min-w-0 flex-1 lg:hidden"><Brand /></div>

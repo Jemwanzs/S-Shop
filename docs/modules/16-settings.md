@@ -38,6 +38,17 @@ one document with a sticky *Save changes* bar; every save is audited (before/aft
   sales — people with **Sell outside trading hours** (`sales.outside_hours`) can still sell. Existing roles that may
   approve discount overrides were given this permission, and the Manager, Supervisor and Branch Manager templates
   include it. Online orders are always accepted.
+- **Where staff can work (geofencing).** *Anywhere* (default) or *At the branch* for chosen areas: record sales,
+  returns & cancellations, receive & adjust stock (incl. stock counts), transfers, expenses, process orders, collect
+  credit payments. With *At the branch*, those actions are accepted only when the device is within the **Current
+  Branch's** radius (branches without a location or with geofencing off are not restricted).
+  - The browser shares its position (only while the rule applies to the user's branch) in `X-Location`; the server
+    measures the distance and decides. No location, a reading less precise than 500 m, or a position outside the
+    radius is refused with a clear message; up to 100 m of the reported accuracy counts in the user's favour.
+  - **Work away from the branch** (`location.bypass`) lifts the rule (Manager and Branch Manager templates; existing
+    roles with discount override + reports were given it).
+  - The device position is stored with every audited action (Audit trail → entry → Location, with a map link).
+  - Browser locations can be faked by a determined user: geofencing is a control backed by the audit record, not proof.
 
 Credentials (M-Pesa, WhatsApp, JWT) are environment variables on the server — never stored or shown in Settings.
 Permissions: `settings.manage` or the area permission (`settings.workspace`, `settings.sales`, …) (and `branches.manage`, `users.manage`, `roles.manage` for those sections).

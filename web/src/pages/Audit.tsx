@@ -14,6 +14,7 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 interface AuditRow {
   id: string; created_at: string; user_name: string | null; module: string; action: string; entity_type: string; entity_id: string | null;
   branch_name: string | null; before: unknown; after: unknown; approval_status: string | null; approver_name: string | null; comments: string; ip: string; user_agent: string;
+  location: { lat: number; lng: number; accuracy_m: number } | null;
 }
 const MODULES = ["auth", "sales", "credit", "orders", "products", "stock", "transfers", "customers", "loyalty", "expenses", "approvals", "users", "roles", "branches", "settings"];
 const LIMIT = 50;
@@ -65,6 +66,15 @@ export default function Audit() {
               <div><p className="label-caps mb-1">After</p><pre className="max-h-72 overflow-auto rounded-lg bg-muted p-3 text-xs">{open.after ? JSON.stringify(open.after, null, 2) : "—"}</pre></div>
             </div>
             <p className="text-xs text-muted-foreground">Device: {open.user_agent || "—"} · IP {open.ip || "—"}{open.entity_id && ` · Record ${open.entity_id}`}</p>
+            {open.location && (
+              <p className="text-xs text-muted-foreground">
+                Location:{" "}
+                <a className="text-primary underline" target="_blank" rel="noreferrer" href={`https://www.openstreetmap.org/?mlat=${open.location.lat}&mlon=${open.location.lng}#map=18/${open.location.lat}/${open.location.lng}`}>
+                  {open.location.lat.toFixed(5)}, {open.location.lng.toFixed(5)}
+                </a>{" "}
+                (±{Math.round(open.location.accuracy_m)} m)
+              </p>
+            )}
           </div>
         )}
       </ResponsiveDialog>

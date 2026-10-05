@@ -163,6 +163,7 @@ struct CreateBody {
 
 async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBody>) -> AppResult<Json<Value>> {
     ctx.require("stock.transfer")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "transfers").await?;
     let from = ctx.branch_or_current(b.from_branch_id)?;
     if from == b.to_branch_id {
         return Err(bad("Choose a different destination branch"));
@@ -302,6 +303,7 @@ async fn submit_inner(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, from: Uuid, 
 
 async fn submit(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     ctx.require("stock.transfer")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "transfers").await?;
     let mut tx = state.db.begin().await?;
     let t = load(&mut tx, &ctx, id, true).await?;
     ctx.ensure_branch(t.from_branch_id)?;
@@ -326,6 +328,7 @@ async fn transfer_items(conn: &mut PgConnection, id: Uuid) -> AppResult<Vec<(Uui
 
 async fn dispatch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     ctx.require("stock.transfer")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "transfers").await?;
     let mut tx = state.db.begin().await?;
     let t = load(&mut tx, &ctx, id, true).await?;
     ctx.ensure_branch(t.from_branch_id)?;
@@ -408,6 +411,7 @@ async fn receive_inner(conn: &mut PgConnection, ctx: &Ctx, t: &TransferRow, item
 
 async fn receive(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     ctx.require("stock.receive_transfer")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "transfers").await?;
     let mut tx = state.db.begin().await?;
     let t = load(&mut tx, &ctx, id, true).await?;
     ctx.ensure_branch(t.to_branch_id)?;
@@ -442,6 +446,7 @@ struct CancelBody {
 
 async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, body: Option<Json<CancelBody>>) -> AppResult<Json<Value>> {
     ctx.require("stock.transfer")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "transfers").await?;
     let reason = body.map(|b| b.0.reason).unwrap_or_default();
     let mut tx = state.db.begin().await?;
     let t = load(&mut tx, &ctx, id, true).await?;

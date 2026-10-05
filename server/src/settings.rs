@@ -355,6 +355,30 @@ pub struct WorkspaceSettings {
     pub hours: Hours,
     /// What happens to a sale outside trading hours: `allow` (default) or `block` (unless `sales.outside_hours`).
     pub outside_hours: OutsideHours,
+    /// Where selected actions may be done from (geofencing).
+    pub location: LocationPolicy,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct LocationPolicy {
+    /// `anywhere` (default) or `branch`: the areas below only within the Current Branch's radius.
+    pub mode: LocationMode,
+    pub areas: Vec<String>,
+}
+
+impl Default for LocationPolicy {
+    fn default() -> Self {
+        Self { mode: LocationMode::Anywhere, areas: crate::geo::AREAS.iter().map(|a| a.to_string()).collect() }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LocationMode {
+    #[default]
+    Anywhere,
+    Branch,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]

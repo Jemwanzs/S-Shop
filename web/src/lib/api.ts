@@ -1,4 +1,5 @@
 /** Thin fetch wrapper for the S'Shop API. */
+import { locationHeader } from "./location";
 
 const TOKEN_KEY = "sshop.token";
 const BRANCH_KEY = "sshop.branch";
@@ -75,6 +76,9 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   if (bearer) headers.Authorization = `Bearer ${bearer}`;
   // Auth calls never carry a branch: a stale stored branch must not block sign-in or /auth/me.
   if (opts.token === undefined && branchId && !path.startsWith("/auth/")) headers["X-Branch-Id"] = branchId;
+  // Geofencing: the device position goes with staff requests while the business requires it.
+  const where = opts.token === undefined ? locationHeader() : null;
+  if (where) headers["X-Location"] = where;
   let body: BodyInit | undefined;
   if (opts.body instanceof FormData) body = opts.body;
   else if (opts.body !== undefined) {

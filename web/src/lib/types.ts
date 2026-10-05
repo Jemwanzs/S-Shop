@@ -23,6 +23,8 @@ export interface Branch {
   /** Effective trading hours (own override, else the business hours). */
   hours?: Hours;
   own_hours?: boolean;
+  /** Present when geofencing is on for this branch. */
+  geofence?: { latitude: number; longitude: number; radius_m: number } | null;
 }
 
 /** Trading days Monday..Sunday and one opening/closing time ("HH:MM"); a close at or before the open runs past midnight. */
@@ -92,7 +94,7 @@ export interface Settings {
   expenses: { require_attachment: boolean; require_description: boolean };
   reports: { hide_financials_without_permission: boolean; medals: MedalSettings };
   notifications: { whatsapp_receipts: boolean; whatsapp_credit_reminders: boolean; whatsapp_loyalty: boolean };
-  workspace: { hours: Hours; outside_hours: "allow" | "block" };
+  workspace: { hours: Hours; outside_hours: "allow" | "block"; location: { mode: "anywhere" | "branch"; areas: string[] } };
 }
 
 export interface Profile {

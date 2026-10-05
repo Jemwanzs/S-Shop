@@ -8,6 +8,9 @@ List endpoints accept `limit` (≤500) and `offset`; period filters accept `peri
 
 *Generated from `server/src/routes/*.rs`.*
 
+**Geofencing:** staff requests may carry `X-Location: lat,lng,accuracy_m`; when the business restricts an area to the
+branch it is required (422 when missing, imprecise or outside the radius) and it is stored in the audit trail.
+
 ## Authentication
 
 | Method | Path |
@@ -45,7 +48,7 @@ List endpoints accept `limit` (≤500) and `offset`; period filters accept `peri
 | GET | `/api/public/{slug}/logo` |
 | GET | `/api/branches` |
 | POST | `/api/branches` |
-| PUT | `/api/branches/{id}` — `hours`: omit = unchanged, `null` = follow the business, `{days[7], open, close}` = own hours (needs `settings.workspace`) |
+| PUT | `/api/branches/{id}` — `hours`: omit = unchanged, `null` = follow the business, `{days[7], open, close}` = own hours (needs `settings.workspace`); `geofence: {latitude, longitude, radius_m, enabled}` (omit = unchanged; needs `settings.workspace`) |
 | GET | `/api/users` |
 | POST | `/api/users` |
 | PUT | `/api/users/{id}` |

@@ -317,6 +317,7 @@ struct CreateBody {
 
 async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBody>) -> AppResult<Json<Value>> {
     ctx.require("orders.manage")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "orders").await?;
     let branch = ctx.branch_or_current(b.branch_id)?;
     let mut tx = state.db.begin().await?;
     let customer_id = match (b.customer_id, &b.customer) {
@@ -353,6 +354,7 @@ struct ItemBarcodes {
 
 async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<StatusBody>) -> AppResult<Json<Value>> {
     ctx.require("orders.manage")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "orders").await?;
     let mut tx = state.db.begin().await?;
     let o = load(&mut tx, &ctx, id, true).await?;
     let s = settings::load(&mut tx, ctx.tenant_id).await?;

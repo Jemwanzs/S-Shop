@@ -142,6 +142,9 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(body): Json<
         ctx.ensure_branch(b)?;
     }
     body.workspace.hours.validate().map_err(bad)?;
+    if let Some(a) = body.workspace.location.areas.iter().find(|a| !crate::geo::AREAS.contains(&a.as_str())) {
+        return Err(bad(format!("Unknown location area: {a}")));
+    }
     let mut tx = state.db.begin().await?;
     let before: Value = sqlx::query_scalar("SELECT settings FROM tenants WHERE id = $1 FOR UPDATE")
         .bind(ctx.tenant_id)
@@ -333,11 +336,16 @@ struct Branch {
     user_count: i64,
     /// Own trading hours; null = follows the business hours.
     hours: Option<Value>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    geofence_radius_m: i32,
+    geofence_enabled: bool,
 }
 
 async fn list_branches(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<Branch>>> {
     let rows = sqlx::query_as(
         "SELECT b.id, b.name, b.code, b.location, b.phone, b.manager_id, m.name AS manager_name, b.is_active, b.hours,
+                b.latitude, b.longitude, b.geofence_radius_m, b.geofence_enabled,
                 (SELECT COUNT(*) FROM users u WHERE u.tenant_id = b.tenant_id AND u.is_active
                    AND (u.all_branches OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = b.id))) AS user_count
          FROM branches b LEFT JOIN users m ON m.id = b.manager_id
@@ -360,6 +368,39 @@ struct BranchBody {
     /// Own trading hours (overrides Settings → Workspace): absent = unchanged, null = follow the business.
     #[serde(default, deserialize_with = "present")]
     hours: Option<Option<Hours>>,
+    /// Where the branch is, for geofencing (absent = unchanged).
+    #[serde(default)]
+    geofence: Option<Geofence>,
+}
+
+#[derive(Deserialize, Serialize, Clone, PartialEq, Debug)]
+struct Geofence {
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    radius_m: i32,
+    enabled: bool,
+}
+
+/// The branch location is a security setting: changing it needs the workspace permission.
+fn check_geofence(ctx: &Ctx, current: Option<&Geofence>, g: &Option<Geofence>) -> AppResult<()> {
+    let Some(g) = g else { return Ok(()) };
+    if let (Some(lat), Some(lng)) = (g.latitude, g.longitude) {
+        if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
+            return Err(bad("Branch coordinates are out of range"));
+        }
+    } else if g.latitude.is_some() || g.longitude.is_some() {
+        return Err(bad("Enter both latitude and longitude"));
+    }
+    if !(20..=5000).contains(&g.radius_m) {
+        return Err(bad("Radius must be between 20 and 5,000 metres"));
+    }
+    if g.enabled && g.latitude.is_none() {
+        return Err(bad("Set the branch location before turning on geofencing"));
+    }
+    if current != Some(g) {
+        ctx.require("settings.workspace")?;
+    }
+    Ok(())
 }
 
 /// Distinguishes a field sent as `null` (Some(None)) from one left out (None).
@@ -387,9 +428,13 @@ async fn create_branch(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Br
         return Err(bad("Branch name and code are required"));
     }
     let hours = check_branch_hours(&ctx, None, &b)?.flatten();
+    let default_fence = Geofence { latitude: None, longitude: None, radius_m: 150, enabled: false };
+    check_geofence(&ctx, Some(&default_fence), &b.geofence)?;
+    let fence = b.geofence.clone().unwrap_or(default_fence);
     let mut tx = state.db.begin().await?;
     let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO branches (tenant_id, name, code, location, phone, manager_id, hours) VALUES ($1,$2,upper($3),$4,$5,$6,$7) RETURNING id",
+        "INSERT INTO branches (tenant_id, name, code, location, phone, manager_id, hours, latitude, longitude, geofence_radius_m, geofence_enabled)
+         VALUES ($1,$2,upper($3),$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",
     )
     .bind(ctx.tenant_id)
     .bind(b.name.trim())
@@ -398,6 +443,10 @@ async fn create_branch(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Br
     .bind(b.phone.as_deref().unwrap_or("").trim())
     .bind(b.manager_id)
     .bind(hours)
+    .bind(fence.latitude)
+    .bind(fence.longitude)
+    .bind(fence.radius_m)
+    .bind(fence.enabled)
     .fetch_one(&mut *tx)
     .await?;
     let s = crate::settings::load(&mut tx, ctx.tenant_id).await?;
@@ -410,13 +459,18 @@ async fn create_branch(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Br
 async fn update_branch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<BranchBody>) -> AppResult<Json<Value>> {
     ctx.require("branches.manage")?;
     let mut tx = state.db.begin().await?;
-    let current: Option<Option<Value>> = sqlx::query_scalar("SELECT hours FROM branches WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
-        .bind(id)
-        .bind(ctx.tenant_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-    let Some(current) = current else { return Err(AppError::NotFound("Branch")) };
+    let current: Option<(Option<Value>, Option<f64>, Option<f64>, i32, bool)> = sqlx::query_as(
+        "SELECT hours, latitude, longitude, geofence_radius_m, geofence_enabled FROM branches WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+    )
+    .bind(id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((current, lat, lng, radius, enabled)) = current else { return Err(AppError::NotFound("Branch")) };
     let hours = check_branch_hours(&ctx, current.as_ref(), &b)?;
+    let old_fence = Geofence { latitude: lat, longitude: lng, radius_m: radius, enabled };
+    check_geofence(&ctx, Some(&old_fence), &b.geofence)?;
+    let fence = b.geofence.clone().unwrap_or(old_fence);
     if b.is_active == Some(false) {
         let active: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM branches WHERE tenant_id = $1 AND is_active AND id <> $2")
             .bind(ctx.tenant_id)
@@ -429,7 +483,8 @@ async fn update_branch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
     }
     let n = sqlx::query(
         "UPDATE branches SET name=$3, code=upper($4), location=$5, phone=$6, manager_id=$7, is_active=COALESCE($8, is_active),
-                hours=CASE WHEN $10 THEN $9 ELSE hours END
+                hours=CASE WHEN $10 THEN $9 ELSE hours END,
+                latitude=$11, longitude=$12, geofence_radius_m=$13, geofence_enabled=$14
          WHERE id=$1 AND tenant_id=$2",
     )
     .bind(id)
@@ -442,6 +497,10 @@ async fn update_branch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
     .bind(b.is_active)
     .bind(hours.clone().flatten())
     .bind(hours.is_some())
+    .bind(fence.latitude)
+    .bind(fence.longitude)
+    .bind(fence.radius_m)
+    .bind(fence.enabled)
     .execute(&mut *tx)
     .await?
     .rows_affected();

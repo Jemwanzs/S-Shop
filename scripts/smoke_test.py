@@ -23,13 +23,15 @@ BRANCH = None
 FAILURES = []
 
 
-def call(method, path, body=None, expect=200, token=None, branch=None):
+def call(method, path, body=None, expect=200, token=None, branch=None, location=None):
     req = urllib.request.Request(BASE + "/api" + path.replace(" ", "%20"), method=method)
     req.add_header("Content-Type", "application/json")
     if token or TOKEN:
         req.add_header("Authorization", "Bearer " + (token or TOKEN))
     if branch or BRANCH:
         req.add_header("X-Branch-Id", branch or BRANCH)
+    if location:
+        req.add_header("X-Location", location)
     data = json.dumps(body).encode() if body is not None else None
     try:
         with urllib.request.urlopen(req, data) as r:
@@ -56,6 +58,11 @@ step("Sign in")
 login = call("POST", "/auth/login", {"email": EMAIL, "pin": PIN})
 TOKEN = login["token"]
 BRANCH = login["profile"]["branches"][0]["id"]
+# A run that crashed part-way may have left trading-hour or location rules on: start from the defaults.
+_cfg = call("GET", "/settings")["settings"]
+if _cfg["workspace"]["location"]["mode"] != "anywhere" or _cfg["workspace"]["outside_hours"] != "allow" or _cfg["workspace"]["hours"]["open"] != _cfg["workspace"]["hours"]["close"]:
+    _cfg["workspace"] = {"hours": {"days": [True] * 7, "open": "00:00", "close": "00:00"}, "outside_hours": "allow", "location": {**_cfg["workspace"]["location"], "mode": "anywhere"}}
+    call("PUT", "/settings", _cfg)
 check("admin has full access", "*" in login["profile"]["permissions"])
 call("POST", "/auth/login", {"email": EMAIL, "pin": "0000"}, expect=400)
 check("wrong PIN rejected", True)
@@ -477,7 +484,7 @@ step("Roadmap 16: working days, trading hours, business date")
 import datetime as _dt
 call("POST", "/stock/receive", {"product_id": nduma, "quantity": 10, "cost_price": 250})
 base_cfg = call("GET", "/settings")["settings"]
-check("workspace defaults: every day, calendar day", base_cfg["workspace"] == {"hours": {"days": [True] * 7, "open": "00:00", "close": "00:00"}, "outside_hours": "allow"}, base_cfg.get("workspace"))
+check("workspace defaults: every day, calendar day", base_cfg["workspace"]["hours"] == {"days": [True] * 7, "open": "00:00", "close": "00:00"} and base_cfg["workspace"]["outside_hours"] == "allow", base_cfg.get("workspace"))
 def put_ws(hours, outside="allow", expect=200, token=None):
     c = json.loads(json.dumps(base_cfg)); c["workspace"] = {"hours": hours, "outside_hours": outside}
     return call("PUT", "/settings", c, expect=expect, token=token)
@@ -529,6 +536,62 @@ check("supervising template can sell after hours", "sales.outside_hours" in role
 put_ws({"days": [True] * 7, "open": "00:00", "close": "00:00"}, outside="allow")
 call("POST", "/sales", {"items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, token=seller)
 check("allowed again after reopening", True)
+
+step("Roadmap 17: geofencing")
+call("POST", "/stock/receive", {"product_id": nduma, "quantity": 10, "cost_price": 250})
+HERE, FAR = "-1.284100,36.823300,15", "-1.264900,36.802800,15"   # at the branch / ~3 km away (Westlands)
+NEAR = "-1.282300,36.823300,60"                                     # ~200 m away, ±60 m (radius 150)
+def sell(token=None, location=None, expect=200):
+    return call("POST", "/sales", {"items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "cash"},
+                                   "client_ref": str(uuid.uuid4())}, token=token, location=location, expect=expect)
+gbr = next(b for b in call("GET", "/branches") if b["id"] == BRANCH)
+g_body = {k: gbr[k] for k in ("name", "code", "location", "phone", "manager_id", "is_active")}
+call("PUT", f"/branches/{BRANCH}", {**g_body, "geofence": {"latitude": None, "longitude": None, "radius_m": 150, "enabled": True}}, expect=400)
+call("PUT", f"/branches/{BRANCH}", {**g_body, "geofence": {"latitude": -1.2841, "longitude": 36.8233, "radius_m": 5, "enabled": True}}, expect=400)
+call("PUT", f"/branches/{BRANCH}", {**g_body, "geofence": {"latitude": 95, "longitude": 36.8233, "radius_m": 150, "enabled": False}}, expect=400)
+check("invalid branch location refused", True)
+call("PUT", f"/branches/{BRANCH}", {**g_body, "geofence": {"latitude": -1.2841, "longitude": 36.8233, "radius_m": 175, "enabled": True}}, token=bm, expect=403)
+check("branch location needs the workspace permission", True)
+call("PUT", f"/branches/{BRANCH}", {**g_body, "geofence": {"latitude": -1.2841, "longitude": 36.8233, "radius_m": 150, "enabled": True}})
+check("profile shows the branch fence", next(b for b in call("GET", "/auth/me")["branches"] if b["id"] == BRANCH)["geofence"]["radius_m"] == 150)
+sell(token=seller)
+check("anywhere rule: fence alone restricts nothing", True)
+g_cfg = call("GET", "/settings")["settings"]
+def put_loc(mode, areas=None, expect=200):
+    c = json.loads(json.dumps(g_cfg)); c["workspace"]["location"] = {"mode": mode, "areas": areas if areas is not None else g_cfg["workspace"]["location"]["areas"]}
+    return call("PUT", "/settings", c, expect=expect)
+check("default rule is anywhere for every area", g_cfg["workspace"]["location"] == {"mode": "anywhere", "areas": ["sales", "returns", "stock", "transfers", "expenses", "orders", "credit"]}, g_cfg["workspace"]["location"])
+put_loc("branch", ["sales", "teleport"], expect=400)
+check("unknown area refused", True)
+put_loc("branch")
+sell(token=seller, expect=422)
+check("no location: refused at a geofenced branch", True)
+sell(token=seller, location=FAR, expect=422)
+check("far from the branch: refused", True)
+sell(token=seller, location="-1.284100,36.823300,900", expect=422)
+check("imprecise reading: refused", True)
+sell(token=seller, location="here,there,1", expect=422)
+check("garbled location treated as none", True)
+near_sale = sell(token=seller, location=NEAR)
+check("within radius (with accuracy allowance): accepted", True)
+sell(token=seller, location=HERE)
+spender = make_user("spender", call("POST", "/roles", {"name": f"Petty cash {suffix}", "permissions": ["expenses.create", "expenses.view"]})["id"])
+call("POST", "/expenses", {"category_id": transport, "amount": 100, "description": "Bus fare"}, token=spender, location=FAR, expect=422)
+call("POST", "/expenses", {"category_id": transport, "amount": 100, "description": "Bus fare"}, token=clerk, location=FAR)
+check("other areas restricted too (expenses); managers may work away", True)
+sell(location=FAR)
+check("bypass permission works anywhere", True)
+check("manager template can work away", "location.bypass" in next(r for r in call("GET", "/roles") if r["name"] == "Manager")["permissions"])
+put_loc("branch", ["stock"])
+sell(token=seller)
+check("only chosen areas are restricted", True)
+aud = call("GET", "/audit?period=today&module=sales&limit=200")["items"]
+loc_entry = next((x for x in aud if x["entity_id"] == near_sale["sale"]["id"] and x["location"]), None)
+check("location saved in the audit trail", loc_entry is not None and abs(loc_entry["location"]["lat"] + 1.2823) < 1e-6 and loc_entry["location"]["accuracy_m"] == 60, loc_entry and loc_entry["location"])
+put_loc("anywhere")
+call("PUT", f"/branches/{BRANCH}", {**g_body, "geofence": {"latitude": -1.2841, "longitude": 36.8233, "radius_m": 150, "enabled": False}})
+sell(token=seller)
+check("back to anywhere", True)
 
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",

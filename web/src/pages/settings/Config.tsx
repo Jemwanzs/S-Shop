@@ -12,6 +12,7 @@ const OPTIONAL_STATUSES = ["preparing", "dispatched", "on_delivery", "completed"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, NativeSelect, ToggleRow } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
@@ -361,6 +362,11 @@ export function LoyaltySettings() {
   );
 }
 
+const LOCATION_AREAS: [string, string][] = [
+  ["sales", "Record sales"], ["returns", "Returns & cancellations"], ["stock", "Receive & adjust stock"], ["transfers", "Transfers"],
+  ["expenses", "Expenses"], ["orders", "Process orders"], ["credit", "Collect credit payments"],
+];
+
 export function WorkspaceSettings() {
   const d = useSettingsDraft();
   const { profile } = useSession();
@@ -385,6 +391,37 @@ export function WorkspaceSettings() {
                 <option value="block">{t("Block")}</option>
               </NativeSelect>
             </Row>
+          </Card>
+          <Card title="Where staff can work">
+            <Row label="Location rule" hint="“At the branch” accepts the chosen actions only from devices within the branch radius. Set each branch's location under Branches.">
+              <NativeSelect value={s.workspace.location.mode} onChange={(v) => d.update((x) => { x.workspace.location.mode = v as "anywhere" | "branch"; })}>
+                <option value="anywhere">{t("Anywhere")}</option>
+                <option value="branch">{t("At the branch")}</option>
+              </NativeSelect>
+            </Row>
+            {s.workspace.location.mode === "branch" && (
+              <div className="py-3">
+                <p className="mb-2 text-sm font-medium">{t("Actions that need to be at the branch")}</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {LOCATION_AREAS.map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={s.workspace.location.areas.includes(key)}
+                        onCheckedChange={(v) => d.update((x) => {
+                          const set = new Set(x.workspace.location.areas);
+                          if (v) set.add(key); else set.delete(key);
+                          x.workspace.location.areas = LOCATION_AREAS.map(([k]) => k).filter((k) => set.has(k));
+                        })}
+                      />
+                      {t(label)}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {t("People with “Work away from the branch” are not restricted. The device location is saved in the audit trail with each action.")}
+                </p>
+              </div>
+            )}
           </Card>
           <Card title="Branches with their own hours">
             {own.length ? (

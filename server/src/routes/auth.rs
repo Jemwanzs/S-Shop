@@ -132,14 +132,14 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
     .await?;
     let is_admin = permissions.iter().any(|p| p == "*");
 
-    let branches: Vec<(Uuid, String, String, String, Option<Value>)> = if all_branches || is_admin {
-        sqlx::query_as("SELECT id, name, code, location, hours FROM branches WHERE tenant_id = $1 AND is_active ORDER BY created_at")
+    let branches: Vec<(Uuid, String, String, String, Option<Value>, bool, Option<f64>, Option<f64>, i32)> = if all_branches || is_admin {
+        sqlx::query_as("SELECT id, name, code, location, hours, geofence_enabled, latitude, longitude, geofence_radius_m FROM branches WHERE tenant_id = $1 AND is_active ORDER BY created_at")
             .bind(tenant_id)
             .fetch_all(&state.db)
             .await?
     } else {
         sqlx::query_as(
-            "SELECT b.id, b.name, b.code, b.location, b.hours FROM user_branches ub JOIN branches b ON b.id = ub.branch_id
+            "SELECT b.id, b.name, b.code, b.location, b.hours, b.geofence_enabled, b.latitude, b.longitude, b.geofence_radius_m FROM user_branches ub JOIN branches b ON b.id = ub.branch_id
              WHERE ub.user_id = $1 AND b.is_active ORDER BY b.created_at",
         )
         .bind(user_id)
@@ -175,9 +175,10 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         branches: branches
             .into_iter()
             // Effective trading hours (own, else the business hours) for the open/closed banner at the till.
-            .map(|(id, name, code, location, hours)| serde_json::json!({
+            .map(|(id, name, code, location, hours, fenced, lat, lng, radius)| serde_json::json!({
                 "id": id, "name": name, "code": code, "location": location,
                 "hours": crate::settings::effective_hours(hours.as_ref(), &settings), "own_hours": hours.is_some(),
+                "geofence": fenced.then(|| serde_json::json!({ "latitude": lat, "longitude": lng, "radius_m": radius })),
             }))
             .collect(),
         permissions,

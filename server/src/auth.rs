@@ -125,6 +125,8 @@ pub struct Ctx {
     pub tz: Tz,
     /// Minutes after midnight that still belong to the previous business day at the Current Branch.
     pub day_shift: i32,
+    /// Device position reported by the browser (X-Location), for geofencing and the audit trail.
+    pub location: Option<crate::geo::Location>,
     pub ip: String,
     pub user_agent: String,
     /// The platform admin's own business when they have opened this one (full access, audited).
@@ -284,6 +286,7 @@ impl FromRequestParts<AppState> for Ctx {
             branch_id,
             tz: parse_tz(&row.timezone),
             day_shift: branches.iter().find(|b| b.0 == branch_id).map_or(0, |b| b.1),
+            location: parts.headers.get("x-location").and_then(|v| v.to_str().ok()).and_then(crate::geo::Location::parse),
             ip,
             user_agent,
             acting_from: claims.home,

@@ -259,6 +259,7 @@ async fn check_receipt(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b
 
 async fn receive(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<ReceiveBody>) -> AppResult<Json<Outcome<Value>>> {
     ctx.require("stock.add")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "stock").await?;
     let branch = ctx.branch_or_current(b.branch_id)?;
     b.branch_id = Some(branch);
     let mut tx = state.db.begin().await?;
@@ -545,6 +546,7 @@ fn movement_kind(adj: &str) -> &'static str {
 }
 
 async fn create_adjustment(State(state): State<AppState>, ctx: Ctx, Json(b): Json<AdjustBody>) -> AppResult<Json<Outcome<Value>>> {
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "stock").await?;
     let (outcome, branch) = {
         let mut tx = state.db.begin().await?;
         let (outcome, branch) = submit_adjustment(&mut tx, &ctx, b).await?;
@@ -722,6 +724,7 @@ struct CountBody {
 /// Physical stock take: one count adjustment per line with a variance.
 async fn stock_count(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CountBody>) -> AppResult<Json<Value>> {
     ctx.require("stock.adjust")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "stock").await?;
     let branch = ctx.branch_or_current(b.branch_id)?;
     if b.lines.is_empty() {
         return Err(bad("Add at least one counted product"));

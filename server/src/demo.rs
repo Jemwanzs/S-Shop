@@ -274,6 +274,8 @@ const SUPPLIERS: [(&str, &str); 3] = [
     ("Essence Fragrance Imports (demo)", "0700 000 903"),
 ];
 const BRANCHES: [(&str, &str, &str); 3] = [("Westlands", "WLD", "Westlands, Nairobi"), ("Village Market", "VMK", "Gigiri, Nairobi"), ("Two Rivers", "TRV", "Ruaka, Nairobi")];
+/// Where the branches are (main branch first), for geofencing. The demo keeps the "anywhere" rule.
+const BRANCH_POINTS: [(f64, f64); 4] = [(-1.2841, 36.8233), (-1.2649, 36.8028), (-1.2297, 36.8045), (-1.2087, 36.7956)];
 
 const FIRST: &[&str] = &[
     "Amani", "Wanjiru", "Brian", "Achieng", "Kevin", "Njeri", "Dennis", "Atieno", "Collins", "Wairimu", "Faith", "Otieno", "Mercy", "Kiprono",
@@ -382,13 +384,20 @@ impl<'a> Seeder<'a> {
     async fn setup(&mut self) -> anyhow::Result<()> {
         let a = self.admin;
         let main: Uuid = sqlx::query_scalar("SELECT id FROM branches WHERE tenant_id = $1").bind(self.api.tenant).fetch_one(&self.api.db).await?;
-        sqlx::query("UPDATE branches SET location = 'Kimathi Street, Nairobi CBD', created_at = now() - interval '170 days' WHERE id = $1")
-            .bind(main)
-            .execute(&self.api.db)
-            .await?;
+        sqlx::query(
+            "UPDATE branches SET location = 'Kimathi Street, Nairobi CBD', created_at = now() - interval '170 days',
+                 latitude = $2, longitude = $3, geofence_enabled = true WHERE id = $1",
+        )
+        .bind(main)
+        .bind(BRANCH_POINTS[0].0)
+        .bind(BRANCH_POINTS[0].1)
+        .execute(&self.api.db)
+        .await?;
         self.branches.push(main);
-        for (name, code, location) in BRANCHES {
-            let v = self.api.post(a, None, "/branches", json!({ "name": name, "code": code, "location": location })).await?;
+        for (i, (name, code, location)) in BRANCHES.into_iter().enumerate() {
+            let (lat, lng) = BRANCH_POINTS[i + 1];
+            let fence = json!({ "latitude": lat, "longitude": lng, "radius_m": 150, "enabled": true });
+            let v = self.api.post(a, None, "/branches", json!({ "name": name, "code": code, "location": location, "geofence": fence })).await?;
             self.branches.push(uuid(&v["id"])?);
         }
         self.report.branches = self.branches.len();

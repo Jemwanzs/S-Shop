@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Pencil, Plus } from "lucide-react";
+import { KeyRound, LocateFixed, Pencil, Plus } from "lucide-react";
+import { currentPosition } from "@/lib/location";
 import { toast } from "@/lib/toast";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -19,7 +20,11 @@ import { t } from "@/lib/i18n";
 
 // ───────────────────────────── Branches ─────────────────────────────
 
-interface BranchRow { id: string; name: string; code: string; location: string; phone: string; manager_id: string | null; manager_name: string | null; is_active: boolean; user_count: number; hours: Hours | null }
+interface BranchRow { id: string; name: string; code: string; location: string; phone: string; manager_id: string | null; manager_name: string | null; is_active: boolean; user_count: number; hours: Hours | null;
+  latitude: number | string | null; longitude: number | string | null; geofence_radius_m: number; geofence_enabled: boolean }
+
+/** Coordinates are edited as text (so "-1." can become "-1.28"), converted when saved. */
+const coord = (v: number | string | null | undefined) => (v == null || String(v).trim() === "" || Number.isNaN(Number(v)) ? null : Number(v));
 
 export function BranchesSettings() {
   const qc = useQueryClient();
@@ -27,12 +32,18 @@ export function BranchesSettings() {
   // Hours are only sent by people who may change them; otherwise the server keeps them as they are.
   const canHours = can("settings.workspace");
   const businessHours = profile?.settings.workspace.hours;
+  const [locating, setLocating] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ["branches"], queryFn: () => api<BranchRow[]>("/branches") });
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<UserRow[]>("/users") });
   const [edit, setEdit] = useState<Partial<BranchRow> | null>(null);
   const save = useMutation({
     mutationFn: (b: Partial<BranchRow>) =>
-      api(b.id ? `/branches/${b.id}` : "/branches", { method: b.id ? "PUT" : "POST", body: { name: b.name, code: b.code, location: b.location, phone: b.phone, manager_id: b.manager_id || null, is_active: b.is_active, ...(canHours ? { hours: b.hours ?? null } : {}) } }),
+      api(b.id ? `/branches/${b.id}` : "/branches", { method: b.id ? "PUT" : "POST", body: { name: b.name, code: b.code, location: b.location, phone: b.phone, manager_id: b.manager_id || null, is_active: b.is_active, ...(canHours
+            ? {
+                hours: b.hours ?? null,
+                geofence: { latitude: coord(b.latitude), longitude: coord(b.longitude), radius_m: b.geofence_radius_m ?? 150, enabled: !!b.geofence_enabled },
+              }
+            : {}) } }),
     onSuccess: () => {
       toast.success("Branch saved");
       setEdit(null);
@@ -47,7 +58,7 @@ export function BranchesSettings() {
         {data?.map((b) => (
           <div key={b.id} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 font-medium">{b.name} <Pill>{b.code}</Pill>{!b.is_active && <Pill tone="danger">Inactive</Pill>}</div>
+              <div className="flex items-center gap-2 font-medium">{b.name} <Pill>{b.code}</Pill>{!b.is_active && <Pill tone="danger">Inactive</Pill>}{b.geofence_enabled && <Pill tone="success">{t("Geofenced")} · {b.geofence_radius_m} m</Pill>}</div>
               <div className="truncate text-xs text-muted-foreground">{[b.location, b.manager_name && `Manager: ${b.manager_name}`, `${b.user_count} users`].filter(Boolean).join(" · ")}</div>
               {b.hours && <div className="truncate text-xs text-muted-foreground">{t("Own hours")}: {hoursLabel(b.hours)}</div>}
             </div>
@@ -77,6 +88,42 @@ export function BranchesSettings() {
                   onChange={(v) => setEdit({ ...edit, hours: v ? { ...businessHours, days: [...businessHours.days] } : null })}
                 />
                 {edit.hours && <HoursEditor value={edit.hours} onChange={(h) => setEdit({ ...edit, hours: h })} />}
+              </div>
+            )}
+            {canHours && (
+              <div className="space-y-3 border-t pt-3 sm:col-span-2">
+                <ToggleRow
+                  label="Geofencing"
+                  hint="When the business requires it (Workspace), chosen actions are accepted only within this distance of the branch"
+                  checked={!!edit.geofence_enabled}
+                  disabled={coord(edit.latitude) == null || coord(edit.longitude) == null}
+                  onChange={(v) => setEdit({ ...edit, geofence_enabled: v })}
+                />
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <Field label="Latitude"><Input inputMode="decimal" value={edit.latitude ?? ""} onChange={(e) => setEdit({ ...edit, latitude: e.target.value, geofence_enabled: coord(e.target.value) == null ? false : edit.geofence_enabled })} /></Field>
+                  <Field label="Longitude"><Input inputMode="decimal" value={edit.longitude ?? ""} onChange={(e) => setEdit({ ...edit, longitude: e.target.value, geofence_enabled: coord(e.target.value) == null ? false : edit.geofence_enabled })} /></Field>
+                  <Field label="Radius (m)" className="col-span-2 sm:col-span-1"><Input inputMode="numeric" value={edit.geofence_radius_m ?? 150} onChange={(e) => setEdit({ ...edit, geofence_radius_m: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></Field>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={locating}
+                  onClick={async () => {
+                    setLocating(true);
+                    try {
+                      const p = await currentPosition();
+                      setEdit({ ...edit, latitude: +p.coords.latitude.toFixed(6), longitude: +p.coords.longitude.toFixed(6) });
+                      toast.success(`${t("Location set")} (±${Math.round(p.coords.accuracy)} m)`);
+                    } catch (e) {
+                      toast.error(errorMessage(e));
+                    } finally {
+                      setLocating(false);
+                    }
+                  }}
+                >
+                  <LocateFixed /> {t("Use my current location")}
+                </Button>
               </div>
             )}
             {edit.id && <div className="sm:col-span-2"><ToggleRow label="Active" checked={!!edit.is_active} onChange={(v) => setEdit({ ...edit, is_active: v })} /></div>}

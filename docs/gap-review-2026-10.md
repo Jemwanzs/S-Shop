@@ -29,6 +29,8 @@ Step 3 done (2026-10-05) — items 10–13 are now ✅: **Settings → Workspace
 allow/block outside hours with `sales.outside_hours`), **branch hours** override, and a **business date** stored with
 every sale, order, payment, credit sale, stock movement and return (database trigger, snapshot at the time of the
 transaction) that dashboards, reports, lists and leaderboards filter on.
+Step 4 done (2026-10-06) — item 14 is now ✅: **geofencing** (branch location, radius, on/off; *anywhere* or *at the
+branch* for chosen areas; server-side distance check; `location.bypass`; device location in the audit trail).
 
 **Order of work** (each end-to-end: database → backend → permissions → UI → audit → reports, with demo data):
 1. Access: `staff.view_others` + data scoping, My Dashboard, recent activity, `sales.print`, settings areas, role deactivation.

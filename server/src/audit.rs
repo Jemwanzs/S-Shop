@@ -59,8 +59,8 @@ impl<'a> Entry<'a> {
 pub async fn record(conn: &mut PgConnection, ctx: &Ctx, e: Entry<'_>) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO audit_log (tenant_id, user_id, module, action, entity_type, entity_id, branch_id,
-                                before, after, approval_id, comments, ip, user_agent)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+                                before, after, approval_id, comments, ip, user_agent, location)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
     )
     .bind(ctx.tenant_id)
     .bind(ctx.user_id)
@@ -75,6 +75,7 @@ pub async fn record(conn: &mut PgConnection, ctx: &Ctx, e: Entry<'_>) -> AppResu
     .bind(e.comments)
     .bind(&ctx.ip)
     .bind(&ctx.user_agent)
+    .bind(ctx.location.map(|l| serde_json::json!(l)))
     .execute(&mut *conn)
     .await?;
     Ok(())

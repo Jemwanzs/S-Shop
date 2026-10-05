@@ -601,6 +601,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
 
 async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBody>) -> AppResult<Json<Value>> {
     ctx.require("sales.create")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "sales").await?;
     let branch = ctx.branch_or_current(b.branch_id)?;
     if branch != ctx.branch_id {
         ctx.require("sales.change_branch")?;
@@ -1035,6 +1036,7 @@ async fn sale_head(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Sa
 
 async fn return_items(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<ReturnBody>) -> AppResult<Json<Outcome<Value>>> {
     ctx.require("sales.return")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "returns").await?;
     if b.reason.trim().is_empty() {
         return Err(bad("A reason is required"));
     }
@@ -1257,6 +1259,7 @@ async fn all_lines(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<Vec<Retu
 
 async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<CancelBody>) -> AppResult<Json<Outcome<Value>>> {
     ctx.require("sales.cancel")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "returns").await?;
     if b.reason.trim().is_empty() {
         return Err(bad("A reason is required"));
     }

@@ -89,6 +89,8 @@ async fn serve() -> anyhow::Result<()> {
     tracing::info!(
         mpesa = cfg.mpesa.is_some(),
         whatsapp = cfg.whatsapp.is_some(),
+        email = cfg.email.is_some(),
+        platform_admins = cfg.platform_admins.len(),
         public_url = %cfg.public_url,
         "S'Shop starting"
     );

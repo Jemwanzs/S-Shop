@@ -79,7 +79,7 @@ export default function OrderDetail() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           {rank >= 0 && (
-            <div className="surface p-5">
+            <div className="surface card-body">
               <ol className="grid gap-1" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
                 {steps.map((s, n) => {
                   const i = ORDER_FLOW.indexOf(s);
@@ -98,7 +98,7 @@ export default function OrderDetail() {
           )}
 
           {forward.length > 0 && (
-            <div className="surface flex flex-wrap items-center gap-2 p-4">
+            <div className="surface card-body flex flex-wrap items-center gap-2">
               <span className="label-caps me-auto">Next step</span>
               {forward.slice(0, 3).map((s, i) => (
                 <Button key={s} variant={i === 0 ? "default" : "outline"} onClick={() => setTarget(s)}>{label(s)}</Button>

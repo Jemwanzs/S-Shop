@@ -9,9 +9,19 @@ export default {
   theme: {
     extend: {
       screens: { "3xl": "1920px" },
+      spacing: {
+        control: "var(--control-h)",
+        "control-sm": "var(--control-h-sm)",
+        "control-lg": "var(--control-h-lg)",
+        nav: "var(--nav-h)",
+        sidebar: "var(--sidebar-w)",
+      },
+      fontSize: {
+        // Text inside inputs and selects (≈13px on phones).
+        control: ["0.93rem", { lineHeight: "1.25rem" }],
+      },
       fontFamily: {
         sans: ["var(--app-font)", "Outfit", "system-ui", "-apple-system", "sans-serif"],
-        mono: ["'JetBrains Mono'", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       colors: {
         border: token("border"),

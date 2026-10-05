@@ -277,7 +277,7 @@ export default function ProductForm() {
           </Section>
         </div>
 
-        <div className="fixed inset-x-0 bottom-[60px] z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-[272px]">
+        <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-sidebar">
           <div className="mx-auto flex max-w-[1680px] justify-end gap-2 px-1 md:px-3 lg:px-5">
             <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
             <Button type="submit" disabled={!valid || save.isPending} className="min-w-32">{save.isPending ? <Loader2 className="animate-spin" /> : editing ? "Save changes" : "Create product"}</Button>

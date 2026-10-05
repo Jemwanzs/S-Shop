@@ -16,7 +16,7 @@ export default function More() {
   const bottom = new Set(BOTTOM.map((b) => b.to));
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div className="surface flex items-center gap-3 p-4">
+      <div className="surface card-body flex items-center gap-3">
         <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 font-semibold text-primary">{initials(profile?.user.name)}</span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{profile?.user.name}</div>
@@ -33,7 +33,7 @@ export default function More() {
             <p className="label-caps mb-2 px-1">{t(g.group)}</p>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {items.map((i) => (
-                <Link key={i.to} to={i.to} className="surface flex aspect-square flex-col items-center justify-center gap-2 p-2 text-center text-xs font-medium transition active:scale-95">
+                <Link key={i.to} to={i.to} className="surface flex h-[5.75rem] flex-col items-center justify-center gap-1.5 p-2 text-center text-xs font-medium transition active:scale-95">
                   <span className="rounded-xl bg-primary/10 p-2.5 text-primary"><i.icon className="h-5 w-5" /></span>
                   {t(i.label)}
                 </Link>
@@ -43,7 +43,7 @@ export default function More() {
         );
       })}
       {profile && (
-        <a href={`/order/${profile.tenant.slug}`} target="_blank" rel="noreferrer" className="surface flex items-center justify-between p-4 text-sm">
+        <a href={`/order/${profile.tenant.slug}`} target="_blank" rel="noreferrer" className="surface card-body flex items-center justify-between text-sm">
           <span>{t("Customer ordering link")}<span className="block text-xs text-muted-foreground">/order/{profile.tenant.slug}</span></span>
           <ExternalLink className="h-4 w-4 text-muted-foreground" />
         </a>

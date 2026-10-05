@@ -81,3 +81,30 @@ photos hidden on operational screens until “View photos”; the ordering porta
   get translated titles and labels by adding dictionary entries only. Arabic sets `dir="rtl"`: use logical classes
   (`ms-/me-/ps-/pe-/start-/end-/text-start/border-s`) instead of left/right ones, and `rtl:rotate-180` on directional
   arrows. Signed-in users get their preference; the sign-in screens use the device's last choice.
+
+## Design system (roadmap 10)
+Sizes are rem-based on a compact root (14px phones, 15px tablet and up), so the whole UI scales together and large
+screens gain layout, not bigger controls.
+
+| Token / class | Value | Used by |
+|---|---|---|
+| `h-control` (`--control-h`) | 2.75rem (~38px) | inputs, selects, default buttons |
+| `h-control-sm` | 2.25rem | small buttons, chips |
+| `h-control-lg` | 3rem | primary checkout actions |
+| `icon-sm` button | 2rem | row actions (edit, delete) |
+| `text-control` | 0.93rem | text inside inputs/selects/textareas |
+| `.label-caps` | 0.72rem caps | section labels (OVERVIEW, TOP CUSTOMERS) |
+| `.card-body` | p-3.5 → md p-4 → xl p-5 | every content card (`.surface`) |
+| `.page-stack` | space-y-4 → lg space-y-6 | vertical rhythm between sections |
+| `--nav-h`, `.bottom-above-nav` | 3.6rem + safe area | bottom nav and bars fixed above it |
+| `--sidebar-w`, `start-sidebar` | 272px | desktop navigation |
+| `--overlay` | black at 50% + slight blur | dialog and sheet backdrops |
+| `.select-chevron` | CSS arrow, mirrored in RTL | native selects |
+| `.scroll-thin` | thin, token-coloured scrollbar | wide tables, internal scroll areas |
+| `.num` | Outfit, tabular figures, no wrapping | all amounts, counts, points |
+
+Hierarchy: page title (`PageHeader`, text-xl → lg text-2xl) · section label (`.label-caps`) · card title (semibold) ·
+body (text-sm) · meta (text-xs, muted) · figures (`.num`, semibold). Colours come only from the theme tokens in
+`index.css` (light and dark, `color-scheme` set so native pickers match); avoid hard-coded colours except on photo or
+camera overlays. Forms open as bottom sheets on phones (actions pinned below the scroll area) and centred dialogs on
+larger screens. Wide tables scroll horizontally inside their card; the page itself never scrolls sideways.

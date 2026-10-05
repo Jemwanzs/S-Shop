@@ -262,13 +262,13 @@ function BottomNav() {
               key={i.to}
               to={i.to}
               end={i.to === "/"}
-              className={({ isActive }) => cn("relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium tracking-wide", isActive || sale ? "text-primary" : "text-muted-foreground")}
+              className={({ isActive }) => cn("relative flex h-nav flex-1 flex-col items-center justify-center gap-0.5 text-[0.7rem] font-medium", isActive || sale ? "text-primary" : "text-muted-foreground")}
             >
               {({ isActive }) => (
                 <>
                   {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
                   {sale ? (
-                    <span className="-mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lift ring-4 ring-background">
+                    <span className="-mt-4 flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lift ring-4 ring-background">
                       <i.icon className="h-5 w-5" />
                     </span>
                   ) : (
@@ -280,7 +280,7 @@ function BottomNav() {
             </NavLink>
           );
         })}
-        <NavLink to="/more" className={cn("relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium", moreActive ? "text-primary" : "text-muted-foreground")}>
+        <NavLink to="/more" className={cn("relative flex h-nav flex-1 flex-col items-center justify-center gap-0.5 text-[0.7rem] font-medium", moreActive ? "text-primary" : "text-muted-foreground")}>
           {moreActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
           <Menu className="h-5 w-5" />
           {t("More")}
@@ -317,7 +317,7 @@ export function AppShell() {
   const approvals = notes.data?.pending_approvals ?? 0;
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[272px_minmax(0,1fr)]">
+    <div className="min-h-screen lg:grid lg:grid-cols-[var(--sidebar-w)_minmax(0,1fr)]">
       <Sidebar approvals={approvals} />
       <div className="min-w-0">
         <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur no-print">
@@ -342,7 +342,7 @@ export function AppShell() {
             <div className="hidden lg:block"><UserMenu /></div>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1680px] px-3.5 pb-28 pt-4 md:px-6 lg:px-8 lg:pb-12 lg:pt-6">
+        <main className="mx-auto w-full max-w-[1680px] px-3.5 pb-[calc(var(--nav-h)+env(safe-area-inset-bottom,0px)+2rem)] pt-4 md:px-6 lg:px-8 lg:pb-12 lg:pt-6">
           <ErrorBoundary key={pathname}>
             <Suspense fallback={<Loading className="min-h-[50vh]" />}>
               <Outlet />

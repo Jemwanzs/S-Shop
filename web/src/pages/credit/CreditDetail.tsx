@@ -91,7 +91,7 @@ export default function CreditDetail() {
       />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-5">
-          <div className="surface p-5">
+          <div className="surface card-body">
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="label-caps">Outstanding balance</p>

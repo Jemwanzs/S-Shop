@@ -9,7 +9,7 @@ import { t, tx } from "@/lib/i18n";
 export function Field({ label, hint, optional, children, className }: { label: ReactNode; hint?: ReactNode; optional?: boolean; children: ReactNode; className?: string }) {
   return (
     <label className={cn("block space-y-1.5", className)}>
-      <span className="flex items-baseline justify-between gap-2 text-sm font-medium">
+      <span className="flex items-baseline justify-between gap-2 text-[0.85rem] font-medium">
         {tx(label)}
         {optional && <span className="text-xs font-normal text-muted-foreground">{t("Optional")}</span>}
       </span>
@@ -45,7 +45,7 @@ export function NativeSelect({ value, onChange, children, className, disabled }:
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
       className={cn(
-        "flex h-11 w-full appearance-none rounded-lg border border-input bg-background bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23888%22 stroke-width=%222%22><path d=%22m6 9 6 6 6-6%22/></svg>')] bg-[right_0.75rem_center] bg-no-repeat px-3 pe-9 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:text-sm",
+        "select-chevron flex h-control w-full appearance-none rounded-lg border border-input bg-background px-3 pe-9 text-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
         className,
       )}
     >

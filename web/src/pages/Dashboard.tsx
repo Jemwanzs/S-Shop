@@ -293,7 +293,7 @@ function Analytics() {
               </Section>
             )}
             {can("customers.create") && data.by_branch.length <= 1 && (
-              <Link to="/customers?new=1" className="surface flex items-center gap-3 p-5 transition hover:shadow-lift">
+              <Link to="/customers?new=1" className="surface card-body flex items-center gap-3 transition hover:shadow-lift">
                 <span className="rounded-xl bg-primary/10 p-3 text-primary"><UserPlus className="h-5 w-5" /></span>
                 <span>
                   <span className="block font-semibold">Grow your customer book</span>

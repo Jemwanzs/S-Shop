@@ -73,7 +73,7 @@ export default function StockCount() {
           })}
         </div>
       )}
-      <div className="fixed inset-x-0 bottom-[60px] z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-[272px]">
+      <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-sidebar">
         <div className="mx-auto flex max-w-[1680px] items-center justify-between gap-3 px-1 md:px-3 lg:px-5">
           <span className="text-sm text-muted-foreground"><span className="num font-semibold text-foreground">{entered.length}</span> counted · <span className="num font-semibold text-foreground">{variances.length}</span> variances</span>
           <Button disabled={!entered.length || submit.isPending} onClick={() => submit.mutate()}>{submit.isPending ? <Loader2 className="animate-spin" /> : <><ClipboardCheck /> Submit count</>}</Button>

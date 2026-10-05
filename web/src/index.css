@@ -2,11 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-/* S'Shop design tokens — warm cream surfaces, orange primary, Outfit + mono numerals.
+/* S'Shop design tokens — warm cream surfaces, orange primary, Outfit everywhere (tabular figures for numbers).
    The S'Shop magenta→orange gradient is reserved for brand moments (logo areas, hero cards). */
 @layer base {
   :root {
     --app-font: "Outfit";
+    /* Sizing tokens (rem, so they follow the compact root scale). */
+    --control-h: 2.75rem;     /* inputs, selects, default buttons */
+    --control-h-sm: 2.25rem;  /* small buttons, chips */
+    --control-h-lg: 3rem;     /* primary checkout actions */
+    --nav-h: 3.6rem;          /* mobile bottom navigation (safe area added on top) */
+    --sidebar-w: 272px;       /* desktop side navigation */
+    --overlay: 0 0% 0%;
     --background: 36 52% 96%;
     --foreground: 24 28% 11%;
     --card: 36 60% 99%;
@@ -46,7 +53,11 @@
     --brand-to: 22 95% 52%;
   }
 
+  :root {
+    color-scheme: light;
+  }
   .dark {
+    color-scheme: dark;
     --background: 24 18% 7%;
     --foreground: 32 30% 94%;
     --card: 24 16% 10%;
@@ -127,12 +138,21 @@
 @layer components {
   /* Numbers & money: tabular, never broken across lines. */
   .num {
-    @apply font-mono whitespace-nowrap;
+    @apply whitespace-nowrap;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
   }
+  /* Small section label: "OVERVIEW", "TOP CUSTOMERS" … */
   .label-caps {
-    @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground;
+    @apply text-[0.72rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground;
+  }
+  /* Card padding scale: compact on phones, roomier on large screens. */
+  .card-body {
+    @apply p-3.5 md:p-4 xl:p-5;
+  }
+  /* Vertical rhythm between page sections. */
+  .page-stack {
+    @apply space-y-4 lg:space-y-6;
   }
   .surface {
     @apply rounded-xl border bg-card text-card-foreground shadow-soft;
@@ -175,4 +195,33 @@
   left: auto;
   right: 0;
   transform: translate(35%, -35%);
+}
+
+@layer utilities {
+  /* Dropdown arrow for native selects (end side, mirrored in right-to-left). */
+  .select-chevron {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+  }
+  [dir="rtl"] .select-chevron {
+    background-position: left 0.75rem center;
+  }
+  /* Fixed bars that sit just above the mobile bottom navigation (and the phone's safe area). */
+  .bottom-above-nav {
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+  }
+  /* Subtle scrollbars for internal scroll areas (tables, drawers). */
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
+  }
 }

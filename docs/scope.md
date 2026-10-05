@@ -84,6 +84,11 @@ Added 2026-10-05 (owner request), delivered in this order before the remaining i
   preference + sign-in picker, full RTL layout, navigation, menus, sign-in/request access, preferences, page titles,
   section/field/KPI labels, dashboard filters. Remaining: text written directly inside individual screens (buttons,
   table headings, toasts, server messages), translated module by module.
+- ◐ **10. Mobile-first UI/UX refinement** (2026-10-05) — one design language across the app: shared tokens for type,
+  control heights, radius, card padding, bottom-nav height and overlays; Outfit everywhere (tabular figures for
+  numbers); compact primitives (buttons, inputs, selects, textareas, cards, KPI cards, lists, chips, sheets, dialogs,
+  bottom nav); tables scroll inside their card; light and dark verified on every main screen at phone and desktop
+  widths. Ongoing: screen-by-screen polish as remaining modules are translated.
 
 Then:
 - Combined exchange screen (rest of roadmap 4).

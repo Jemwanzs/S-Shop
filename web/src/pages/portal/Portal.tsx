@@ -373,7 +373,7 @@ function MyOrders({ b, sess }: { b: Business; sess: PortalSession }) {
         {isLoading ? <Loading /> : data?.orders.map((o, i) => {
           const active = !["completed", "cancelled", "rejected", "returned"].includes(o.status);
           return (
-            <div key={o.id} className="surface space-y-4 p-5">
+            <div key={o.id} className="surface card-body space-y-4">
               <Link to={`/track/${o.track_token}`} className="flex items-start justify-between gap-3">
                 <div><p className="num font-medium">{o.order_no}</p><p className="num text-sm text-muted-foreground">{date(o.created_at)}</p></div>
                 <div className="text-end"><p className="num font-semibold">{amount(o.total)}</p><p className="text-sm text-muted-foreground">{o.status_label}</p></div>

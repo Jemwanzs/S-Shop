@@ -140,10 +140,10 @@ export default function Pos() {
           title="Record Sale"
           actions={<Button variant="ink" onClick={() => setScan(true)}><ScanLine /> Scan</Button>}
         />
-        <div className="sticky top-14 z-20 -mx-4 space-y-2 bg-background/90 px-4 pb-3 pt-1 backdrop-blur md:-mx-6 md:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
+        <div className="sticky top-14 z-20 -mx-3.5 space-y-2 bg-background/90 px-3.5 pb-3 pt-1 backdrop-blur md:-mx-6 md:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
           <SearchInput value={q} onChange={setQ} placeholder="Search name, nickname, code or barcode" autoFocus={desktop} />
           {categories.length > 1 && (
-            <div className="scrollbar-none -mx-4 flex gap-1.5 overflow-x-auto px-4 md:mx-0 md:px-0">
+            <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:px-0">
               <Chip active={!category} onClick={() => setCategory(null)}>All</Chip>
               {categories.map((c) => <Chip key={c} active={category === c} onClick={() => setCategory(c)}>{c}</Chip>)}
             </div>
@@ -187,12 +187,12 @@ export default function Pos() {
 
       {/* Desktop: always-visible cart */}
       <aside className="hidden lg:block">
-        <div className="surface sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto p-5">{cartPanel}</div>
+        <div className="surface card-body sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto">{cartPanel}</div>
       </aside>
 
       {/* Phones & tablets: floating cart bar */}
       {cart.lines.length > 0 && !desktop && (
-        <button onClick={() => setCartOpen(true)} className="fixed inset-x-4 bottom-[76px] z-30 flex items-center gap-3 rounded-2xl bg-foreground px-4 py-3.5 text-background shadow-lift animate-fade-up md:inset-x-6 lg:hidden">
+        <button onClick={() => setCartOpen(true)} className="fixed inset-x-4 bottom-above-nav mb-3 z-30 flex items-center gap-3 rounded-2xl bg-foreground px-4 py-3.5 text-background shadow-lift animate-fade-up md:inset-x-6 lg:hidden">
           <span className="relative">
             <ShoppingCart className="h-5 w-5" />
             <span className="num absolute -end-2.5 -top-2.5 rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">{t.units}</span>

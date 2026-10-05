@@ -58,7 +58,7 @@ export default function TransferDetail() {
         actions={<StatusBadge status={t.status === "dispatched" ? "in_transit" : t.status} />}
       />
       {!terminal && (
-        <div className="surface mb-5 p-5">
+        <div className="surface card-body mb-5">
           <ol className="grid grid-cols-5 gap-1">
             {STEPS.map(([s, label], i) => (
               <li key={s} className="flex flex-col items-center gap-1.5 text-center">

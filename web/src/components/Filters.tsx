@@ -28,7 +28,7 @@ export function PeriodFilter({ value, onChange, presets = PRESETS.map((p) => p[0
   const [to, setTo] = useState(value.to ?? todayIso());
   const [open, setOpen] = useState(false);
   return (
-    <div className="scrollbar-none -mx-4 flex gap-1.5 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:px-0">
+    <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:flex-wrap md:px-0">
       {PRESETS.filter(([k]) => presets.includes(k)).map(([k, label]) => (
         <Chip key={k} active={!custom && value.period === k} onClick={() => onChange({ period: k })}>
           {t(label)}
@@ -111,7 +111,7 @@ export function SearchInput({ value, onChange, placeholder = "Search…", classN
 /** Segmented tabs that scroll horizontally on phones. */
 export function Segments<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { value: T; label: ReactNode; count?: number }[] }) {
   return (
-    <div className="scrollbar-none -mx-4 flex gap-1.5 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:px-0">
+    <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:flex-wrap md:px-0">
       {options.map((o) => (
         <Chip key={o.value} active={o.value === value} onClick={() => onChange(o.value)}>
           {tx(o.label)}

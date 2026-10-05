@@ -114,9 +114,9 @@ export default function ProductDetail() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="surface p-4"><p className="label-caps">Marked price</p><p className="num mt-1 text-2xl font-semibold">{money(p.marked_price)}</p></div>
-            <div className="surface p-4"><p className="label-caps">Here now</p><p className="num mt-1 text-2xl font-semibold">{count(p.available)}</p><p className="num text-xs text-muted-foreground">{count(p.reserved)} reserved</p></div>
-            <div className="surface p-4"><p className="label-caps">All branches</p><p className="num mt-1 text-2xl font-semibold">{count(totalOnHand)}</p></div>
+            <div className="surface card-body"><p className="label-caps">Marked price</p><p className="num mt-1 text-2xl font-semibold">{money(p.marked_price)}</p></div>
+            <div className="surface card-body"><p className="label-caps">Here now</p><p className="num mt-1 text-2xl font-semibold">{count(p.available)}</p><p className="num text-xs text-muted-foreground">{count(p.reserved)} reserved</p></div>
+            <div className="surface card-body"><p className="label-caps">All branches</p><p className="num mt-1 text-2xl font-semibold">{count(totalOnHand)}</p></div>
           </div>
 
           <Section title={`Photos · ${data.photos.length}/${maxPhotos}`} action={canPhotos && data.photos.length < maxPhotos && (

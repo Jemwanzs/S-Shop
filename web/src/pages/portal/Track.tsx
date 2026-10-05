@@ -42,7 +42,7 @@ export default function Track() {
             <div className="px-2"><Steps steps={data.steps} /></div>
           )}
           {o.delivery_location && (
-            <div className="surface p-5">
+            <div className="surface card-body">
               <p className="font-medium">Delivering to</p>
               <p className="mt-1 text-muted-foreground">{o.delivery_location}</p>
             </div>

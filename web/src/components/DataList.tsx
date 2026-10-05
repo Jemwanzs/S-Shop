@@ -50,7 +50,8 @@ export function DataList<T>({
   const align = (a?: string) => (a === "right" ? "text-end" : a === "center" ? "text-center" : "text-start");
   return (
     <div className={cn("surface overflow-hidden", className)}>
-      <div className="hidden md:block">
+      {/* Wide tables scroll sideways inside the card, never the page. */}
+      <div className="scroll-thin hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-muted/60 backdrop-blur">
             <tr>

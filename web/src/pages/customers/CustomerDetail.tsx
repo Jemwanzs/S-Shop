@@ -132,7 +132,7 @@ export default function CustomerDetail() {
               { value: "referrals" as const, label: "Referrals", count: data.referrals.length },
             ]}
           />
-          <div className="surface p-2 md:p-4">
+          <div className="surface card-body p-2">
             {tab === "sales" && (
               <List empty="No purchases yet">
                 {data.sales.map((s) => (

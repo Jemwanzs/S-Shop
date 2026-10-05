@@ -89,7 +89,7 @@ export function AccessRequests() {
       ) : (
         <div className="grid gap-3 xl:grid-cols-2">
           {data.items.map((r) => (
-            <div key={r.id} className="surface space-y-2.5 p-3.5">
+            <div key={r.id} className="surface card-body space-y-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{r.business_name}</p>

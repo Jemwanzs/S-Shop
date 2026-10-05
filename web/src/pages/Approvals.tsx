@@ -92,7 +92,7 @@ export default function Approvals() {
           {data.items.map((a) => {
             const link = entityLink(a);
             return (
-              <div key={a.id} className="surface flex flex-col gap-3 p-4 animate-fade-up">
+              <div key={a.id} className="surface card-body flex flex-col gap-3 animate-fade-up">
                 <div className="flex items-start justify-between gap-2">
                   <Pill tone="primary">{ACTION_LABEL[a.action] ?? a.action}</Pill>
                   <span className="flex items-center gap-1.5">

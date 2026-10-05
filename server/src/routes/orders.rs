@@ -188,9 +188,10 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
             .fetch_optional(&mut *conn)
             .await?
             .unwrap_or((0, 0));
+        let tracked: bool = sqlx::query_scalar("SELECT track_items FROM products WHERE id = $1").bind(pid).fetch_one(&mut *conn).await?;
         lines.push(json!({
             "product_id": pid, "product_name": name, "quantity": qty, "unit_price": price, "line_total": total,
-            "photo_id": photo, "on_hand": level.0, "available": level.0 - level.1,
+            "photo_id": photo, "on_hand": level.0, "available": level.0 - level.1, "track_items": tracked,
         }));
     }
     let events = order_events(&mut conn, &s, id).await?;
@@ -340,6 +341,15 @@ struct StatusBody {
     notes: String,
     /// Required when the order becomes a sale.
     payment: Option<super::sales::PaymentInput>,
+    /// Individually tracked products: the barcode of every unit handed over, scanned at fulfilment.
+    #[serde(default)]
+    barcodes: Vec<ItemBarcodes>,
+}
+
+#[derive(Deserialize)]
+struct ItemBarcodes {
+    product_id: Uuid,
+    barcodes: Vec<String>,
 }
 
 async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<StatusBody>) -> AppResult<Json<Value>> {
@@ -383,10 +393,34 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
                     }
                     reserved = false;
                 }
-                let lines = items
-                    .iter()
-                    .map(|(pid, _, qty, price, ..)| super::sales::LineInput { product_id: *pid, quantity: *qty, unit_price: *price, barcode: None })
-                    .collect();
+                // Tracked products become one line per scanned unit; record_sale verifies each barcode is
+                // in stock at the order's branch and belongs to the product.
+                let mut lines = Vec::new();
+                for (pid, _, qty, price, ..) in &items {
+                    let (name, tracked): (String, bool) = sqlx::query_as("SELECT name, track_items FROM products WHERE id = $1")
+                        .bind(pid)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                    if !tracked {
+                        lines.push(super::sales::LineInput { product_id: *pid, quantity: *qty, unit_price: *price, barcode: None });
+                        continue;
+                    }
+                    let mut codes: Vec<String> = b
+                        .barcodes
+                        .iter()
+                        .filter(|x| x.product_id == *pid)
+                        .flat_map(|x| x.barcodes.iter().map(|c| c.trim().to_string()))
+                        .filter(|c| !c.is_empty())
+                        .collect();
+                    codes.sort();
+                    codes.dedup();
+                    if codes.len() != *qty as usize {
+                        return Err(rule(format!("Scan {qty} barcode(s) for {name} — {} scanned", codes.len())));
+                    }
+                    for code in codes {
+                        lines.push(super::sales::LineInput { product_id: *pid, quantity: 1, unit_price: *price, barcode: Some(code) });
+                    }
+                }
                 // Orders are fulfilled at the order's branch on behalf of the user progressing it.
                 let mut sale_ctx = ctx.clone();
                 sale_ctx.branch_id = o.branch_id;

@@ -1,19 +1,19 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, MessageCircle, PackageSearch, Printer, ScanLine, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useDebounced, useIsDesktop, usePersistentState } from "@/lib/hooks";
-import { count, money } from "@/lib/format";
+import { count, money, toNum } from "@/lib/format";
 import type { PosProduct, Product, SaleDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Chip, SearchInput } from "@/components/Filters";
 import { EmptyState, Loading, PageHeader } from "@/components/Page";
-import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { totals, type CartLine } from "./pos/cart";
 import { ItemSheet } from "./pos/ItemSheet";
@@ -21,8 +21,14 @@ import { CartLines, Checkout } from "./pos/Checkout";
 
 const newRef = () => crypto.randomUUID();
 
+interface Lookup {
+  product: Product;
+  stock_item: { barcode: string; branch_name: string; status: string; in_current_branch: boolean } | null;
+  other_branches: { branch_id: string; branch_name: string; available: number }[];
+}
+
 export default function Pos() {
-  const { profile, branch } = useSession();
+  const { profile, branch, can } = useSession();
   const s = profile!.settings;
   const desktop = useIsDesktop();
   const qc = useQueryClient();
@@ -60,22 +66,59 @@ export default function Pos() {
     setSelected(p);
   };
 
-  const onScan = async (code: string) => {
+  // Scans add straight to the cart (the scanner stays open); tap a line to change price or quantity.
+  const cartRef = useRef(cart);
+  cartRef.current = cart;
+  const onScan = async (code: string): Promise<ScanOutcome> => {
+    let r: Lookup;
     try {
-      const r = await api<{ product: Product; stock_item: { barcode: string; branch_name: string; status: string; in_current_branch: boolean } | null }>("/products/lookup", { query: { code } });
-      if (r.stock_item && (!r.stock_item.in_current_branch || r.stock_item.status !== "in_stock")) {
-        toast.error(r.stock_item.status === "sold" ? `${code} has already been sold` : `${code} is at ${r.stock_item.branch_name} (${r.stock_item.status.replace("_", " ")})`);
-        return;
-      }
-      if (takenBarcodes.includes(code)) {
-        toast.info("That item is already in the cart");
-        return;
-      }
-      const p = products.data?.find((x) => x.id === r.product.id) ?? (r.product as unknown as PosProduct);
-      open(p, r.stock_item || r.product.barcode === code ? code : undefined);
+      r = await api<Lookup>("/products/lookup", { query: { code } });
     } catch (e) {
-      toast.error(errorMessage(e));
+      if (e instanceof ApiError && e.status === 404) {
+        return {
+          tone: "error",
+          title: "Barcode not found",
+          detail: "No product or item in this business uses this code.",
+          actions: [
+            { label: "Search product", onClick: () => { setScan(false); setQ(""); } },
+            ...(can("products.edit") ? [{ label: "Assign barcode", onClick: () => navigate(`/products?assign=${encodeURIComponent(code)}`) }] : []),
+          ],
+        };
+      }
+      return { tone: "error", title: errorMessage(e) };
     }
+    const p = { ...(r.product as unknown as PosProduct), ...products.data?.find((x) => x.id === r.product.id) };
+    const where = r.other_branches.length ? (
+      <span>Available at {r.other_branches.map((b) => `${b.branch_name} (${b.available})`).join(" · ")} — change branch or request a transfer.</span>
+    ) : "Not available at any other branch either.";
+    if (!r.product.is_active) return { tone: "error", title: `${p.name} is not active for sale` };
+    const lines = cartRef.current.lines;
+
+    if (p.track_items) {
+      const item = r.stock_item;
+      if (!item) return { tone: "error", title: `${p.name} is tracked per item`, detail: "Scan the barcode label of the individual item, not the product barcode." };
+      if (item.status === "sold") return { tone: "error", title: "This item has already been sold" };
+      if (!item.in_current_branch) return { tone: "error", title: `This item is at ${item.branch_name}`, detail: "It cannot be sold from this branch — change branch or transfer it first." };
+      if (item.status !== "in_stock") return { tone: "error", title: `This item is ${item.status.replace("_", " ")}` };
+      if (lines.some((l) => l.barcode === code)) return { tone: "info", title: `${p.name} is already in the cart` };
+      setCart((c) => ({ ...c, lines: [...c.lines, { key: newRef(), product: p, quantity: 1, unitPrice: toNum(p.marked_price), barcode: code }] }));
+      return { tone: "success", title: `${p.name} added` };
+    }
+
+    const already = lines.filter((l) => l.product.id === p.id).reduce((a, l) => a + l.quantity, 0);
+    if (p.available - already <= 0 && !s.stock.allow_negative) {
+      return { tone: "error", title: `${p.name} — out of stock at ${branch?.name}`, detail: where };
+    }
+    // The product barcode clears it at the counter (Require barcode clearance).
+    const cleared = p.barcode === code ? code : undefined;
+    const same = lines.find((l) => l.product.id === p.id && !l.product.track_items && l.unitPrice === toNum(p.marked_price));
+    setCart((c) => ({
+      ...c,
+      lines: same
+        ? c.lines.map((l) => (l.key === same.key ? { ...l, quantity: l.quantity + 1, barcode: l.barcode ?? cleared } : l))
+        : [...c.lines, { key: newRef(), product: p, quantity: 1, unitPrice: toNum(p.marked_price), barcode: cleared }],
+    }));
+    return { tone: "success", title: `${p.name} added · Qty ${already + 1}` };
   };
 
   const save = (line: Omit<CartLine, "key"> & { key?: string }) => {
@@ -221,7 +264,7 @@ export default function Pos() {
         onSave={save}
         takenBarcodes={takenBarcodes}
       />
-      <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={onScan} title="Scan to sell" />
+      <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={onScan} title="Scan to sell" continuous />
 
       <ResponsiveDialog
         open={!!done}

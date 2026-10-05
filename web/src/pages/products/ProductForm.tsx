@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImagePlus, Loader2, Plus, ScanLine, X } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -56,7 +56,10 @@ export default function ProductForm() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { profile, can } = useSession();
-  const [f, setF] = useState<FormState>(EMPTY);
+  // ?barcode= comes from a scanner's "Assign barcode" (unknown code scanned at the counter or when receiving).
+  const [params] = useSearchParams();
+  const assignBarcode = params.get("barcode")?.trim() || null;
+  const [f, setF] = useState<FormState>(() => (assignBarcode ? { ...EMPTY, barcode: assignBarcode } : EMPTY));
   const [scan, setScan] = useState(false);
   const [photos, setPhotos] = useState<File[]>([]);
   const [newCategory, setNewCategory] = useState<string | null>(null);
@@ -79,6 +82,7 @@ export default function ProductForm() {
       loyalty_eligible: p.loyalty_eligible, loyalty_threshold: str(p.loyalty_threshold), loyalty_points_per: str(p.loyalty_points_per),
       low_stock_threshold: str(p.low_stock_threshold), all_branches: p.all_branches, branch_ids: existing.data!.branch_ids,
       custom_fields: p.custom_fields ?? {},
+      ...(assignBarcode && !p.track_items ? { barcode: assignBarcode } : {}),
     });
   }, [existing.data]);
 
@@ -205,6 +209,13 @@ export default function ProductForm() {
 
           {!barcodesDisabled && (
             <Section title="Barcode">
+              {assignBarcode && (
+                <p className="mb-2 rounded-lg bg-primary/10 p-2.5 text-xs">
+                  {f.track_items
+                    ? <>This product is tracked per item, so <span className="num font-semibold">{assignBarcode}</span> should be captured as an item barcode when receiving stock.</>
+                    : <>Assigning scanned barcode <span className="num font-semibold">{assignBarcode}</span>{existing.data?.product.barcode && existing.data.product.barcode !== assignBarcode ? <> — it replaces <span className="num">{existing.data.product.barcode}</span></> : null}. Save to apply.</>}
+                </p>
+              )}
               <ToggleRow
                 label="Track each item individually"
                 hint="Every physical unit gets its own barcode, scanned when received and when sold."

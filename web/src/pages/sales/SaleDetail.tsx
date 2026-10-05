@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Download, MessageCircle, Printer, RotateCcw } from "lucide-react";
+import { Ban, Download, MessageCircle, Printer, RotateCcw, ScanLine } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { amount, count, dateTime, methodLabel, money, phone, toNum } from "@/lib/format";
 import { receiptPdf } from "@/lib/pdf";
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page";
 import { Pill, StatusBadge } from "@/components/Badges";
 import { ConfirmDialog, Field, NativeSelect, ToggleRow } from "@/components/Form";
+import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 
 export default function SaleDetail() {
   const { id } = useParams();
@@ -22,6 +23,9 @@ export default function SaleDetail() {
   const [returning, setReturning] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [qty, setQty] = useState<Record<string, number>>({});
+  const [scanReturn, setScanReturn] = useState(false);
+  const qtyRef = useRef(qty);
+  qtyRef.current = qty;
   const [restock, setRestock] = useState(true);
   const [refundMethod, setRefundMethod] = useState("");
 
@@ -62,6 +66,24 @@ export default function SaleDetail() {
   const s = data.sale;
   const reversible = !s.is_legacy && !["cancelled", "returned"].includes(s.status) && !data.pending_approval_id;
   const returnable = data.items.filter((i) => i.quantity > i.returned_qty);
+  // Scanning a returned item ticks it: its own barcode for tracked items, otherwise the product's barcode.
+  const onReturnScan = async (code: string): Promise<ScanOutcome> => {
+    let item = returnable.find((i) => i.barcode === code);
+    if (!item) {
+      try {
+        const r = await api<{ product: { id: string } }>("/products/lookup", { query: { code } });
+        item = returnable.find((i) => i.product_id === r.product.id && (qtyRef.current[i.id] ?? 0) < i.quantity - i.returned_qty) ?? returnable.find((i) => i.product_id === r.product.id);
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 404)) return { tone: "error", title: errorMessage(e) };
+      }
+    }
+    if (!item) return { tone: "error", title: "Not part of this sale", detail: "Only items sold on this receipt can be returned here." };
+    const max = item.quantity - item.returned_qty;
+    const current = qtyRef.current[item.id] ?? 0;
+    if (current >= max) return { tone: "info", title: `All returnable ${item.product_name} already selected` };
+    setQty((q) => ({ ...q, [item.id]: current + 1 }));
+    return { tone: "success", title: `${item.product_name} · returning ${current + 1}` };
+  };
 
   return (
     <>
@@ -174,6 +196,7 @@ export default function SaleDetail() {
         busy={ret.isPending}
         onConfirm={(reason) => ret.mutate(reason)}
       >
+        <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setScanReturn(true)}><ScanLine /> Scan returned items</Button>
         <ul className="divide-y rounded-xl border">
           {returnable.map((i) => (
             <li key={i.id} className="flex items-center gap-3 p-3">
@@ -194,6 +217,7 @@ export default function SaleDetail() {
         <ToggleRow label="Return to stock" hint="Turn off for damaged goods that cannot be resold" checked={restock} onChange={setRestock} />
         <RefundMethod value={refundMethod} onChange={setRefundMethod} methods={profile?.settings.sales.payment_methods.filter((m) => m.key !== "credit") ?? []} />
       </ConfirmDialog>
+      <BarcodeScanner open={scanReturn} onOpenChange={setScanReturn} onDetected={onReturnScan} continuous title="Scan returned items" />
       <ConfirmDialog
         open={cancelling}
         onOpenChange={setCancelling}

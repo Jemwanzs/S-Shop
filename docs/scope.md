@@ -89,6 +89,12 @@ Added 2026-10-05 (owner request), delivered in this order before the remaining i
   numbers); compact primitives (buttons, inputs, selects, textareas, cards, KPI cards, lists, chips, sheets, dialogs,
   bottom nav); tables scroll inside their card; light and dark verified on every main screen at phone and desktop
   widths. Ongoing: screen-by-screen polish as remaining modules are translated.
+- ✅ **11. Camera & barcode scanning** (2026-10-05) — one shared scanner (camera full screen on phones, handheld,
+  manual) for sales, receiving, transfers, counts, returns and order completion; scan-to-cart with qty increments and
+  per-unit validation; other-branch availability; *Barcode not found* → Scan again / Search / Assign barcode
+  ([module 19](modules/19-barcode-scanning.md)). Fixed on the way: camera scanning never started (video element
+  mounted after the camera effect ran); orders with tracked products could not be completed; cost prices were exposed
+  to users without financial access in product and stock endpoints.
 
 Then:
 - Combined exchange screen (rest of roadmap 4).

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Loader2, Minus, Plus, ScanLine, Trash2, X } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
 import { count, todayIso } from "@/lib/format";
@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageHeader, Section } from "@/components/Page";
 import { Field, NativeSelect } from "@/components/Form";
 import { SearchInput } from "@/components/Filters";
-import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 
 interface Line {
   product: StockLevel;
@@ -37,6 +37,43 @@ export default function TransferNew() {
   const destinations = (branches.data ?? profile?.branches.map((b) => ({ ...b, is_active: true })) ?? []).filter((b) => b.is_active && b.id !== branch?.id);
 
   const update = (id: string, fn: (l: Line) => Line) => setLines((ls) => ls.map((l) => (l.product.product_id === id ? fn(l) : l)));
+
+  // Scanning adds products (product barcode) or specific units (item labels), checked against this branch's stock.
+  const onScan = async (code: string): Promise<ScanOutcome> => {
+    let r: { product: { id: string; name: string; track_items: boolean; transfer_allowed: boolean; is_active: boolean; available: number }; stock_item: { status: string; in_current_branch: boolean; branch_name: string } | null };
+    try {
+      r = await api("/products/lookup", { query: { code } });
+    } catch (e) {
+      return { tone: "error", title: e instanceof ApiError && e.status === 404 ? "Barcode not found" : errorMessage(e) };
+    }
+    const p = r.product;
+    if (!p.is_active || !p.transfer_allowed) return { tone: "error", title: `${p.name} cannot be transferred` };
+    let level = lines.find((l) => l.product.product_id === p.id)?.product;
+    if (!level) {
+      const found = await api<Paged<StockLevel>>("/stock", { query: { q: code, limit: 5 } }).catch(() => null);
+      level = found?.items.find((x) => x.product_id === p.id)
+        ?? (await api<Paged<StockLevel>>("/stock", { query: { q: p.name, limit: 20 } }).catch(() => null))?.items.find((x) => x.product_id === p.id);
+      if (!level) return { tone: "error", title: `${p.name} has no stock at ${branch?.name}` };
+    }
+    const product = level;
+    if (p.track_items) {
+      const item = r.stock_item;
+      if (!item) return { tone: "error", title: `${p.name} is tracked per item`, detail: "Scan the individual item's barcode label." };
+      if (!item.in_current_branch) return { tone: "error", title: `This item is at ${item.branch_name}` };
+      if (item.status !== "in_stock") return { tone: "error", title: `This item is ${item.status.replace("_", " ")}` };
+      if (lines.some((l) => l.barcodes.includes(code))) return { tone: "info", title: "Already on this transfer" };
+      setLines((ls) => ls.some((l) => l.product.product_id === p.id)
+        ? ls.map((l) => (l.product.product_id === p.id ? { ...l, barcodes: [...l.barcodes, code] } : l))
+        : [...ls, { product, quantity: 1, barcodes: [code] }]);
+      return { tone: "success", title: `${p.name} added` };
+    }
+    const current = lines.find((l) => l.product.product_id === p.id)?.quantity ?? 0;
+    if (current + 1 > product.available) return { tone: "error", title: `Only ${product.available} ${p.name} available here` };
+    setLines((ls) => ls.some((l) => l.product.product_id === p.id)
+      ? ls.map((l) => (l.product.product_id === p.id ? { ...l, quantity: l.quantity + 1 } : l))
+      : [...ls, { product, quantity: 1, barcodes: [] }]);
+    return { tone: "success", title: `${p.name} · Qty ${current + 1}` };
+  };
   const save = useMutation({
     mutationFn: (submit: boolean) =>
       api<{ id: string; status: string }>("/transfers", {
@@ -58,7 +95,7 @@ export default function TransferNew() {
 
   return (
     <>
-      <PageHeader back="/transfers" eyebrow="Stock" title="New transfer" />
+      <PageHeader back="/transfers" eyebrow="Stock" title="New transfer" actions={<Button variant="ink" onClick={() => setScanFor("any")}><ScanLine /> Scan</Button>} />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <Section title="Products">
           <SearchInput value={q} onChange={setQ} placeholder="Add products with stock at this branch" />
@@ -126,13 +163,7 @@ export default function TransferNew() {
           </div>
         </div>
       </div>
-      <BarcodeScanner
-        open={!!scanFor}
-        onOpenChange={(o) => !o && setScanFor(null)}
-        continuous
-        title="Scan items to transfer"
-        onDetected={(code) => scanFor && update(scanFor, (l) => (l.barcodes.includes(code) ? l : { ...l, barcodes: [...l.barcodes, code] }))}
-      />
+      <BarcodeScanner open={!!scanFor} onOpenChange={(o) => !o && setScanFor(null)} continuous title="Scan items to transfer" onDetected={onScan} />
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Images, Package, Plus, ScanBarcode } from "lucide-react";
 import { api } from "@/lib/api";
@@ -19,6 +19,9 @@ const LIMIT = 50;
 export default function ProductsList() {
   const { can, profile } = useSession();
   const navigate = useNavigate();
+  // Arrived from a scanner's "Assign barcode": pick the product that should carry this code.
+  const [params] = useSearchParams();
+  const assign = can("products.edit") ? params.get("assign") : null;
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<"active" | "inactive" | "all">("active");
   const [category, setCategory] = useState("");
@@ -41,6 +44,16 @@ export default function ProductsList() {
         description={data ? `${count(data.total)} products` : undefined}
         actions={can("products.create") && <Button asChild><Link to="/products/new"><Plus /> New product</Link></Button>}
       />
+      {assign && (
+        <div className="surface card-body mb-4 flex flex-wrap items-center gap-3 border-primary/40 bg-primary/5">
+          <ScanBarcode className="h-5 w-5 shrink-0 text-primary" />
+          <p className="min-w-0 flex-1 text-sm">Choose the product for barcode <span className="num font-semibold">{assign}</span>, or create a new product with it.</p>
+          <div className="flex gap-2">
+            {can("products.create") && <Button size="sm" asChild><Link to={`/products/new?barcode=${encodeURIComponent(assign)}`}><Plus /> New product</Link></Button>}
+            <Button size="sm" variant="ghost" asChild><Link to="/products">Cancel</Link></Button>
+          </div>
+        </div>
+      )}
       <div className="mb-4 space-y-3">
         <Segments value={status} onChange={(v) => { setStatus(v); setOffset(0); }} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }, { value: "all", label: "All" }]} />
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:flex">
@@ -57,7 +70,7 @@ export default function ProductsList() {
         error={error}
         retry={refetch}
         rowKey={(r) => r.id}
-        onRowClick={(r) => navigate(`/products/${r.id}`)}
+        onRowClick={(r) => navigate(assign ? `/products/${r.id}/edit?barcode=${encodeURIComponent(assign)}` : `/products/${r.id}`)}
         empty={<EmptyState icon={Package} title="No products yet" action={can("products.create") && <Button asChild><Link to="/products/new"><Plus /> Add your first product</Link></Button>} />}
         columns={[
           {

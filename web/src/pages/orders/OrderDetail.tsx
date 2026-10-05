@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, MapPin, MessageCircle, Phone } from "lucide-react";
+import { Check, Copy, MapPin, MessageCircle, Phone, ScanLine } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage, photoUrl } from "@/lib/api";
+import { api, ApiError, errorMessage, photoUrl } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { count, dateTime, money, phone, titleCase } from "@/lib/format";
 import type { Money, OrderRow } from "@/lib/types";
@@ -17,10 +17,11 @@ import { Pill, StatusBadge } from "@/components/Badges";
 import { Field } from "@/components/Form";
 import { Chip } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 
 interface Detail {
   order: OrderRow;
-  items: { product_id: string; product_name: string; quantity: number; unit_price: Money; line_total: Money; photo_id: string | null; on_hand: number; available: number }[];
+  items: { product_id: string; product_name: string; quantity: number; unit_price: Money; line_total: Money; photo_id: string | null; on_hand: number; available: number; track_items: boolean }[];
   events: { status: string; label: string; notes: string; created_at: string; user_name: string | null }[];
   next_statuses: string[];
   sale_on_status: string;
@@ -36,17 +37,28 @@ export default function OrderDetail() {
   const [notes, setNotes] = useState("");
   const [method, setMethod] = useState("cash");
   const [reference, setReference] = useState("");
+  // Individually tracked products: every unit handed over is scanned when the order becomes a sale.
+  const [units, setUnits] = useState<Record<string, string[]>>({});
+  const unitsRef = useRef(units);
+  unitsRef.current = units;
+  const [scanUnits, setScanUnits] = useState(false);
 
   const move = useMutation({
     mutationFn: () =>
       api<{ status: string; sale_id: string | null }>(`/orders/${id}/status`, {
-        body: { status: target, notes, payment: needsPayment ? { method, reference } : undefined },
+        body: {
+          status: target,
+          notes,
+          payment: needsPayment ? { method, reference } : undefined,
+          barcodes: needsPayment ? Object.entries(units).map(([product_id, barcodes]) => ({ product_id, barcodes })) : [],
+        },
       }),
     onSuccess: (r) => {
       toast.success(r.sale_id && !data?.order.sale_id ? "Order completed and recorded as a sale" : `Order marked ${titleCase(r.status)}`);
       setTarget(null);
       setNotes("");
       setReference("");
+      setUnits({});
       qc.invalidateQueries({ queryKey: ["order", id] });
       qc.invalidateQueries({ queryKey: ["orders"] });
     },
@@ -66,6 +78,26 @@ export default function OrderDetail() {
   const terminalActions = data.next_statuses.filter((s) => !ORDER_FLOW.includes(s));
   const short = data.items.filter((i) => !o.reserved && !o.sale_id && i.available < i.quantity);
   const methods = profile?.settings.sales.payment_methods.filter((m) => m.enabled) ?? [];
+  const trackedItems = data.items.filter((i) => i.track_items);
+  const unitsMissing = needsPayment && trackedItems.some((i) => (units[i.product_id]?.length ?? 0) < i.quantity);
+  const onUnitScan = async (code: string): Promise<ScanOutcome> => {
+    let r: { product: { id: string; name: string }; stock_item: { status: string; in_current_branch: boolean; branch_name: string } | null };
+    try {
+      r = await api("/products/lookup", { query: { code, branch_id: o.branch_id } });
+    } catch (e) {
+      return { tone: "error", title: e instanceof ApiError && e.status === 404 ? "Barcode not found" : errorMessage(e) };
+    }
+    const line = trackedItems.find((i) => i.product_id === r.product.id);
+    if (!line) return { tone: "error", title: `${r.product.name} is not on this order` };
+    if (!r.stock_item) return { tone: "error", title: "Scan the item's own label", detail: "Each unit of this product has its own barcode." };
+    if (!r.stock_item.in_current_branch) return { tone: "error", title: `This item is at ${r.stock_item.branch_name}`, detail: `The order is fulfilled from ${o.branch_name}.` };
+    if (r.stock_item.status !== "in_stock") return { tone: "error", title: `This item is ${r.stock_item.status.replace("_", " ")}` };
+    const have = unitsRef.current[line.product_id] ?? [];
+    if (have.includes(code)) return { tone: "info", title: "Already scanned" };
+    if (have.length >= line.quantity) return { tone: "info", title: `All ${line.quantity} ${line.product_name} scanned` };
+    setUnits((u) => ({ ...u, [line.product_id]: [...(u[line.product_id] ?? []), code] }));
+    return { tone: "success", title: `${line.product_name} · ${have.length + 1} of ${line.quantity}` };
+  };
   const waText = `Hi ${o.customer_name.split(" ")[0]}! Your order ${o.order_no} is ${titleCase(o.status)}. Track it here: ${data.track_url}`;
 
   return (
@@ -176,7 +208,7 @@ export default function OrderDetail() {
           <Button
             className="w-full md:w-auto"
             variant={target === "cancelled" || target === "rejected" ? "destructive" : "default"}
-            disabled={move.isPending || (needsPayment && method === "mpesa" && reference.length < 8)}
+            disabled={move.isPending || unitsMissing || (needsPayment && method === "mpesa" && reference.length < 8)}
             onClick={() => move.mutate()}
           >
             Confirm
@@ -191,11 +223,27 @@ export default function OrderDetail() {
                 {methods.map((m) => <Chip key={m.key} active={method === m.key} onClick={() => setMethod(m.key)}>{m.label}</Chip>)}
               </div>
               {method === "mpesa" && <Field label="M-Pesa confirmation code"><Input className="num uppercase" value={reference} onChange={(e) => setReference(e.target.value.toUpperCase())} /></Field>}
+              {trackedItems.length > 0 && (
+                <div className="space-y-2 rounded-xl border p-3">
+                  <p className="text-sm font-medium">Scan each item handed over</p>
+                  {trackedItems.map((i) => {
+                    const n = units[i.product_id]?.length ?? 0;
+                    return (
+                      <div key={i.product_id} className="flex items-center justify-between text-sm">
+                        <span className="truncate">{i.product_name}</span>
+                        <span className={cn("num font-medium", n >= i.quantity ? "text-success" : "text-muted-foreground")}>{n} / {i.quantity}</span>
+                      </div>
+                    );
+                  })}
+                  <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setScanUnits(true)}><ScanLine /> Scan items</Button>
+                </div>
+              )}
             </>
           )}
           <Field label="Note" optional><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. rider name, reason" /></Field>
         </div>
       </ResponsiveDialog>
+      <BarcodeScanner open={scanUnits} onOpenChange={setScanUnits} onDetected={onUnitScan} continuous title="Scan order items" hint={o.order_no} />
     </>
   );
 }

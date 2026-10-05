@@ -339,6 +339,41 @@ for lang in ("sw", "fr", "ar"):
 check("Swahili, French and Arabic accepted", call("GET", "/auth/me")["user"]["preferences"]["language"] == "ar")
 call("PUT", "/auth/preferences", {"language": "en", "font": "Outfit", "currency": "KES"})
 
+step("Barcode scanning: costs, branch availability, tracked orders")
+store_role = next(r["id"] for r in call("GET", "/roles") if r["name"] == "Storekeeper")
+skmail = f"store{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Store", "email": skmail, "pin": "4321", "role_id": store_role, "all_branches": True, "branch_ids": []})
+store = call("POST", "/auth/login", {"email": skmail, "pin": "4321"})["token"]
+look = call("GET", f"/products/lookup?code={codes[1]}", token=store)
+check("item barcode resolves to its product", look["product"]["id"] == watch and look["stock_item"]["status"] == "in_stock", look["stock_item"])
+check("cost price hidden on lookup without financial access", look["product"]["cost_price"] is None, look["product"]["cost_price"])
+plist = call("GET", f"/products?q=Nduma {suffix}", token=store)["items"]
+check("cost price hidden on product list", plist and plist[0]["cost_price"] is None, plist[:1])
+check("cost price hidden on product detail", call("GET", f"/products/{nduma}", token=store)["product"]["cost_price"] is None)
+lv = call("GET", f"/stock?q=Nduma {suffix}", token=store)["items"][0]
+check("cost and cost-based value hidden on stock levels", lv["cost_price"] is None and lv["value"] is None, lv)
+mv = call("GET", "/stock/movements?period=today&limit=50", token=store)["items"]
+check("unit cost hidden on movements", all(m["unit_cost"] is None for m in mv))
+check("admin still sees the cost", float(call("GET", f"/products/{nduma}")["product"]["cost_price"]) == 250)
+call("PUT", f"/products/{nduma}", {"name": f"Nduma {suffix}", "marked_price": 400, "max_discount": 50, "category_id": cat, "cost_price": None}, token=store)
+check("saving without cost access keeps the cost", float(call("GET", f"/products/{nduma}")["product"]["cost_price"]) == 250)
+call("GET", f"/products/lookup?code=NO-SUCH-{suffix}", expect=404)
+check("unknown barcode returns not found", True)
+other = call("GET", f"/products/lookup?code={codes[1]}", branch=b2)
+check("lookup lists other branches with stock", any(o["branch_id"] != b2 and o["available"] >= 1 for o in other["other_branches"]), other["other_branches"])
+check("item seen from another branch is not local", other["stock_item"]["in_current_branch"] is False)
+# A customer order for a tracked product needs the unit barcodes when it becomes a sale.
+worder = call("POST", f"/portal/{slug}/orders", {"items": [{"product_id": watch, "quantity": 1}], "delivery_location": "Shop"}, token=ptoken)
+wdetail = call("GET", f"/orders/{worder['id']}")
+check("order detail flags tracked items", wdetail["items"][0]["track_items"] is True)
+call("POST", f"/orders/{worder['id']}/status", {"status": "delivered", "payment": {"method": "cash"}}, expect=422)
+check("tracked order cannot complete without unit barcodes", True)
+call("POST", f"/orders/{worder['id']}/status", {"status": "delivered", "payment": {"method": "cash"}, "barcodes": [{"product_id": watch, "barcodes": [codes[1], codes[2]]}]}, expect=422)
+check("barcode count must match the quantity", True)
+wdone = call("POST", f"/orders/{worder['id']}/status", {"status": "delivered", "payment": {"method": "cash"}, "barcodes": [{"product_id": watch, "barcodes": [codes[1]]}]})
+check("tracked order completes with its unit barcode", wdone["sale_id"] is not None, wdone)
+check("that unit is now sold", call("GET", f"/products/lookup?code={codes[1]}")["stock_item"]["status"] == "sold")
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

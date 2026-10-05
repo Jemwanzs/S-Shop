@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Images, Loader2, PackagePlus, ScanLine, X } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
 import { count, money, todayIso, toNum } from "@/lib/format";
@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { PageHeader, Section } from "@/components/Page";
 import { Field, NativeSelect, ToggleRow } from "@/components/Form";
 import { SearchInput } from "@/components/Filters";
-import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { Pill } from "@/components/Badges";
 
@@ -25,6 +25,7 @@ interface ProductDetail {
 
 export default function ReceiveStock() {
   const { profile, branch, can } = useSession();
+  const navigate = useNavigate();
   const s = profile!.settings;
   const qc = useQueryClient();
   const [params] = useSearchParams();
@@ -61,23 +62,46 @@ export default function ReceiveStock() {
     setQty("1");
   }, [p]);
 
+  const barcodesRef = useRef(barcodes);
+  barcodesRef.current = barcodes;
   const qtyLocked = s.stock.quantity_entry === "locked";
   const barcodesOn = s.stock.barcode_requirement !== "disabled";
   const tracked = !!p?.track_items;
   const quantity = tracked ? barcodes.length : Math.max(0, parseInt(qty) || 0);
   const showCost = s.stock.capture_cost && can("sales.view_financials");
 
-  const findByCode = async (code: string) => {
+  // Scan a product's barcode to pick it; an unknown code can be assigned to a product or start a new one.
+  const findByCode = async (code: string): Promise<ScanOutcome> => {
     try {
       const r = await api<{ product: Product }>("/products/lookup", { query: { code } });
       setProductId(r.product.id);
       if (!r.product.track_items && !r.product.barcode) setBarcodes([code]);
-    } catch {
-      toast.error(`No product uses ${code}. Create the product first, then scan it here.`);
+      return { tone: "success", title: `${r.product.name} found` };
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 404)) return { tone: "error", title: errorMessage(e) };
+      return {
+        tone: "error",
+        title: "Barcode not found",
+        detail: "No product uses this code yet.",
+        actions: [
+          ...(can("products.edit") ? [{ label: "Assign barcode", onClick: () => navigate(`/products?assign=${encodeURIComponent(code)}`) }] : []),
+          ...(can("products.create") ? [{ label: "New product", onClick: () => navigate(`/products/new?barcode=${encodeURIComponent(code)}`) }] : []),
+        ],
+      };
     }
   };
-  const addItem = (code: string) => {
-    setBarcodes((b) => (b.includes(code) ? (toast.info(`${code} already scanned`), b) : [...b, code]));
+  // Tracked products: every unit's own label, checked so a code can never be in stock twice.
+  const addItem = async (code: string): Promise<ScanOutcome> => {
+    if (barcodesRef.current.includes(code)) return { tone: "info", title: "Already scanned in this delivery" };
+    const known = await api<{ product: Product; stock_item: { status: string; branch_name: string } | null }>("/products/lookup", { query: { code } }).catch(() => null);
+    if (known?.stock_item && ["in_stock", "reserved", "in_transit"].includes(known.stock_item.status)) {
+      return { tone: "error", title: "This barcode is already in stock", detail: `${known.product.name} at ${known.stock_item.branch_name}` };
+    }
+    if (known && !known.stock_item && known.product.barcode === code) {
+      return { tone: "error", title: "That is a product barcode", detail: "Scan the label that identifies this individual item." };
+    }
+    setBarcodes((b) => [...b, code]);
+    return { tone: "success", title: `Item ${barcodesRef.current.length + 1} captured` };
   };
 
   const save = useMutation({
@@ -232,6 +256,7 @@ export default function ReceiveStock() {
         open={scan !== null}
         onOpenChange={(o) => !o && setScan(null)}
         onDetected={(code) => (scan === "find" ? findByCode(code) : tracked ? addItem(code) : setBarcodes([code]))}
+        hint={scan === "items" && tracked ? "Each item's own label" : undefined}
         continuous={scan === "items" && tracked}
         title={scan === "items" && tracked ? `Scan each ${p?.name}` : "Scan barcode"}
       />

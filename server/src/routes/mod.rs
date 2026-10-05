@@ -198,3 +198,12 @@ impl<T: Serialize> Outcome<T> {
 pub fn like(q: &Option<String>) -> Option<String> {
     q.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| format!("%{}%", s.replace('%', "\\%").replace('_', "\\_")))
 }
+
+/// Cost prices (and values derived from them) are financial figures: hidden from users without
+/// "View cost & profit figures" while Settings → Reports → "Hide cost & profit" is on (the default).
+pub async fn costs_hidden(conn: &mut sqlx::PgConnection, ctx: &crate::auth::Ctx) -> crate::error::AppResult<bool> {
+    if ctx.can("sales.view_financials") {
+        return Ok(false);
+    }
+    Ok(crate::settings::load(conn, ctx.tenant_id).await?.reports.hide_financials_without_permission)
+}

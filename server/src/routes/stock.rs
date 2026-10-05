@@ -54,7 +54,8 @@ pub struct LevelRow {
     pub reserved: i32,
     pub available: i32,
     pub low_threshold: i32,
-    pub value: Decimal,
+    /// None when valued at cost and costs are hidden from this user.
+    pub value: Option<Decimal>,
     pub primary_photo_id: Option<Uuid>,
 }
 
@@ -82,7 +83,7 @@ async fn levels(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LevelQu
     let mut conn = state.db.acquire().await?;
     let s = settings::load(&mut conn, ctx.tenant_id).await?;
     let price = value_expr(s.stock.valuation);
-    let rows: Vec<Counted<LevelRow>> = sqlx::query_as(&format!(
+    let mut rows: Vec<Counted<LevelRow>> = sqlx::query_as(&format!(
         "SELECT COUNT(*) OVER() AS total_count, p.id AS product_id, p.code, p.name, p.nickname, c.name AS category_name,
                 p.track_items, p.is_active, p.marked_price, p.cost_price,
                 COALESCE(sl.on_hand,0) AS on_hand, COALESCE(sl.reserved,0) AS reserved,
@@ -115,6 +116,15 @@ async fn levels(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LevelQu
     .bind(q.page.offset())
     .fetch_all(&mut *conn)
     .await?;
+    if super::costs_hidden(&mut conn, &ctx).await? {
+        let by_cost = s.stock.valuation == Valuation::Cost;
+        for r in rows.iter_mut() {
+            r.row.cost_price = None;
+            if by_cost {
+                r.row.value = None;
+            }
+        }
+    }
     Ok(Json(rows.into()))
 }
 
@@ -387,7 +397,7 @@ async fn movements(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Move
     let branches = ctx.branch_scope(q.branch_id)?;
     let (from, to) = q.period.resolve(ctx.tz, "month");
     let (start, end) = local_range(from, to, ctx.tz);
-    let rows: Vec<Counted<MovementRow>> = sqlx::query_as(
+    let mut rows: Vec<Counted<MovementRow>> = sqlx::query_as(
         "SELECT COUNT(*) OVER() AS total_count, m.id, m.created_at, m.occurred_on, b.name AS branch_name, m.product_id,
                 p.name AS product_name, m.kind, m.quantity, m.unit_cost, m.unit_price, si.barcode, m.ref_type, m.ref_id,
                 m.notes, u.name AS user_name
@@ -408,6 +418,9 @@ async fn movements(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Move
     .bind(q.page.offset())
     .fetch_all(&state.db)
     .await?;
+    if super::costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
+        rows.iter_mut().for_each(|r| r.row.unit_cost = None);
+    }
     Ok(Json(rows.into()))
 }
 
@@ -438,7 +451,7 @@ struct ItemQuery {
 async fn items(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ItemQuery>) -> AppResult<Json<Paged<ItemRow>>> {
     ctx.require_any(&["stock.view", "sales.create"])?;
     let branches = ctx.branch_scope(q.branch_id)?;
-    let rows: Vec<Counted<ItemRow>> = sqlx::query_as(
+    let mut rows: Vec<Counted<ItemRow>> = sqlx::query_as(
         "SELECT COUNT(*) OVER() AS total_count, si.id, si.barcode, si.status, si.product_id, p.name AS product_name,
                 si.branch_id, b.name AS branch_name, si.cost_price, si.created_at, si.updated_at
          FROM stock_items si JOIN products p ON p.id = si.product_id JOIN branches b ON b.id = si.branch_id
@@ -455,13 +468,16 @@ async fn items(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ItemQuer
     .bind(q.page.offset())
     .fetch_all(&state.db)
     .await?;
+    if super::costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
+        rows.iter_mut().for_each(|r| r.row.cost_price = None);
+    }
     Ok(Json(rows.into()))
 }
 
 /// Full audit trail of a barcode: every unit that carried it and every movement.
 async fn barcode_history(State(state): State<AppState>, ctx: Ctx, Path(code): Path<String>) -> AppResult<Json<Value>> {
     ctx.require("stock.view")?;
-    let items: Vec<ItemRow> = sqlx::query_as(
+    let mut items: Vec<ItemRow> = sqlx::query_as(
         "SELECT si.id, si.barcode, si.status, si.product_id, p.name AS product_name, si.branch_id, b.name AS branch_name,
                 si.cost_price, si.created_at, si.updated_at
          FROM stock_items si JOIN products p ON p.id = si.product_id JOIN branches b ON b.id = si.branch_id
@@ -472,7 +488,7 @@ async fn barcode_history(State(state): State<AppState>, ctx: Ctx, Path(code): Pa
     .fetch_all(&state.db)
     .await?;
     let ids: Vec<Uuid> = items.iter().map(|i| i.id).collect();
-    let history: Vec<MovementRow> = sqlx::query_as(
+    let mut history: Vec<MovementRow> = sqlx::query_as(
         "SELECT m.id, m.created_at, m.occurred_on, b.name AS branch_name, m.product_id, p.name AS product_name, m.kind, m.quantity,
                 m.unit_cost, m.unit_price, si.barcode, m.ref_type, m.ref_id, m.notes, u.name AS user_name
          FROM stock_movements m JOIN branches b ON b.id = m.branch_id JOIN products p ON p.id = m.product_id
@@ -482,6 +498,10 @@ async fn barcode_history(State(state): State<AppState>, ctx: Ctx, Path(code): Pa
     .bind(&ids)
     .fetch_all(&state.db)
     .await?;
+    if super::costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
+        items.iter_mut().for_each(|i| i.cost_price = None);
+        history.iter_mut().for_each(|m| m.unit_cost = None);
+    }
     let product: Option<(Uuid, String)> = sqlx::query_as("SELECT id, name FROM products WHERE tenant_id = $1 AND barcode = $2")
         .bind(ctx.tenant_id)
         .bind(code.trim())
@@ -915,7 +935,12 @@ async fn position(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Posit
     let mut conn = state.db.acquire().await?;
     let (from, to, rows) = position_rows(&mut conn, &ctx, &q).await?;
     let total_value: Decimal = rows.iter().map(|r| r.value).sum();
-    Ok(Json(json!({ "from": from, "to": to, "rows": rows, "total_value": total_value })))
+    let hide_value = super::costs_hidden(&mut conn, &ctx).await? && settings::load(&mut conn, ctx.tenant_id).await?.stock.valuation == Valuation::Cost;
+    let mut rows = serde_json::to_value(&rows).map_err(|e| crate::error::AppError::Other(e.into()))?;
+    if hide_value {
+        rows.as_array_mut().into_iter().flatten().for_each(|r| r["value"] = Value::Null);
+    }
+    Ok(Json(json!({ "from": from, "to": to, "rows": rows, "total_value": if hide_value { None } else { Some(total_value) } })))
 }
 
 /// Raise low/out-of-stock alerts for products touched by a transaction (deduped per day).

@@ -312,7 +312,7 @@ export interface StockLevel {
   reserved: number;
   available: number;
   low_threshold: number;
-  value: Money;
+  value: Money | null;
   primary_photo_id: Id | null;
 }
 

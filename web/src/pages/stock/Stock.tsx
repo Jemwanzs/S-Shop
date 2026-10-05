@@ -102,7 +102,7 @@ function Levels() {
           { key: "reserved", header: "Reserved", align: "right", cell: (r) => <span className="num text-muted-foreground">{count(r.reserved)}</span>, hideBelow: "lg" },
           { key: "available", header: "Available", align: "right", cell: (r) => <span className="num font-semibold">{count(r.available)}</span> },
           { key: "status", header: "Status", cell: (r) => <StockIndicator available={r.available} threshold={r.low_threshold} /> },
-          ...(showValue ? [{ key: "value", header: "Value", align: "right" as const, cell: (r: StockLevel) => <span className="num">{money(r.value)}</span>, hideBelow: "lg" as const }] : []),
+          ...(showValue ? [{ key: "value", header: "Value", align: "right" as const, cell: (r: StockLevel) => <span className="num">{r.value === null ? "—" : money(r.value)}</span>, hideBelow: "lg" as const }] : []),
         ]}
         mobile={(r) => (
           <CardRow
@@ -121,7 +121,7 @@ function Levels() {
 interface PositionRow {
   product_id: string; code: string; name: string; category_name: string | null; opening: number; added: number; transfers_in: number;
   transfers_out: number; sold: number; returns: number; adjustments: number; damaged_written_off: number; closing: number; reserved: number;
-  available_now: number; low_threshold: number; value: Money;
+  available_now: number; low_threshold: number; value: Money | null;
 }
 
 function Position() {
@@ -130,7 +130,7 @@ function Position() {
   const [period, setPeriod] = useState<PeriodValue>({ period: "month" });
   const [status, setStatus] = useState<"all" | "low" | "out">("all");
   const query = { ...period, status: status === "all" ? undefined : status };
-  const { data, isLoading, error, refetch } = useQuery({ queryKey: ["stock", "position", query], queryFn: () => api<{ rows: PositionRow[]; total_value: Money }>("/stock/position", { query }) });
+  const { data, isLoading, error, refetch } = useQuery({ queryKey: ["stock", "position", query], queryFn: () => api<{ rows: PositionRow[]; total_value: Money | null }>("/stock/position", { query }) });
   const n = (v: number, tone?: boolean) => <span className={cn("num", tone && v > 0 && "text-success", tone && v < 0 && "text-destructive")}>{v === 0 ? "·" : count(v)}</span>;
   return (
     <>
@@ -158,7 +158,7 @@ function Position() {
           { key: "dmg", header: "Damaged", align: "right", cell: (r) => n(r.damaged_written_off), hideBelow: "xl" },
           { key: "closing", header: "Closing", align: "right", cell: (r) => <span className="num font-semibold">{count(r.closing)}</span> },
           { key: "reserved", header: "Reserved", align: "right", cell: (r) => n(r.reserved), hideBelow: "2xl" },
-          ...(can("sales.view_financials") ? [{ key: "value", header: "Value", align: "right" as const, cell: (r: PositionRow) => <span className="num">{money(r.value)}</span>, hideBelow: "lg" as const }] : []),
+          ...(can("sales.view_financials") ? [{ key: "value", header: "Value", align: "right" as const, cell: (r: PositionRow) => <span className="num">{r.value === null ? "—" : money(r.value)}</span>, hideBelow: "lg" as const }] : []),
         ]}
         mobile={(r) => (
           <div>

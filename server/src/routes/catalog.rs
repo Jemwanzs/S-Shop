@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use super::{like, Counted, Outcome, Page, Paged};
+use super::{costs_hidden, like, Counted, Outcome, Page, Paged};
 use crate::audit::{self, Entry};
 use crate::auth::Ctx;
 use crate::error::{bad, rule, AppError, AppResult};
@@ -101,7 +101,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     ctx.require_any(&["products.view", "stock.view", "sales.create"])?;
     let branch = ctx.branch_or_current(q.branch_id)?;
     let select = PRODUCT_SELECT.replacen("SELECT", "SELECT COUNT(*) OVER() AS total_count,", 1);
-    let rows: Vec<Counted<ProductRow>> = sqlx::query_as(&format!(
+    let mut rows: Vec<Counted<ProductRow>> = sqlx::query_as(&format!(
         "{select} WHERE p.tenant_id = $1
            AND ($3::text IS NULL OR p.name ILIKE $3 OR p.nickname ILIKE $3 OR p.code ILIKE $3 OR p.barcode ILIKE $3)
            AND ($4::uuid IS NULL OR p.category_id = $4)
@@ -117,18 +117,24 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .bind(q.page.offset())
     .fetch_all(&state.db)
     .await?;
+    if costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
+        rows.iter_mut().for_each(|r| r.row.cost_price = None);
+    }
     Ok(Json(rows.into()))
 }
 
 async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     ctx.require_any(&["products.view", "stock.view", "sales.create"])?;
-    let product: ProductRow = sqlx::query_as(&format!("{PRODUCT_SELECT} WHERE p.tenant_id = $1 AND p.id = $3"))
+    let mut product: ProductRow = sqlx::query_as(&format!("{PRODUCT_SELECT} WHERE p.tenant_id = $1 AND p.id = $3"))
         .bind(ctx.tenant_id)
         .bind(ctx.branch_id)
         .bind(id)
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::NotFound("Product"))?;
+    if costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
+        product.cost_price = None;
+    }
     let photos: Vec<(Uuid, bool)> =
         sqlx::query_as("SELECT id, is_primary FROM product_photos WHERE product_id = $1 ORDER BY is_primary DESC, sort_order")
             .bind(id)
@@ -353,12 +359,17 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Produ
 async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(mut b): Json<ProductBody>) -> AppResult<Json<Outcome<Value>>> {
     ctx.require("products.edit")?;
     let mut tx = state.db.begin().await?;
-    let (current_active, current_code): (bool, String) = sqlx::query_as("SELECT is_active, code FROM products WHERE id=$1 AND tenant_id=$2")
+    let (current_active, current_code, current_cost): (bool, String, Option<Decimal>) =
+        sqlx::query_as("SELECT is_active, code, cost_price FROM products WHERE id=$1 AND tenant_id=$2")
         .bind(id)
         .bind(ctx.tenant_id)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(AppError::NotFound("Product"))?;
+    // Someone who cannot see the cost price must not erase it by saving the form.
+    if costs_hidden(&mut tx, &ctx).await? {
+        b.cost_price = current_cost;
+    }
     validate(&mut tx, &ctx, &mut b, Some(id)).await?;
     if b.code.is_none() {
         b.code = Some(current_code);
@@ -646,14 +657,29 @@ async fn lookup(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LookupQ
     let Some(product_id) = product_id else {
         return Err(AppError::NotFound("Product for this barcode"));
     };
-    let product: ProductRow = sqlx::query_as(&format!("{PRODUCT_SELECT} WHERE p.tenant_id = $1 AND p.id = $3"))
+    let mut product: ProductRow = sqlx::query_as(&format!("{PRODUCT_SELECT} WHERE p.tenant_id = $1 AND p.id = $3"))
         .bind(ctx.tenant_id)
         .bind(branch)
         .bind(product_id)
         .fetch_one(&state.db)
         .await?;
+    if costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
+        product.cost_price = None;
+    }
+    // Where else it can be found, so a salesperson can point the customer to another branch or request a transfer.
+    let elsewhere: Vec<(Uuid, String, i32)> = sqlx::query_as(
+        "SELECT b.id, b.name, sl.on_hand - sl.reserved FROM stock_levels sl JOIN branches b ON b.id = sl.branch_id
+         WHERE sl.tenant_id = $1 AND sl.product_id = $2 AND sl.branch_id <> $3 AND b.is_active AND sl.on_hand - sl.reserved > 0
+         ORDER BY sl.on_hand - sl.reserved DESC LIMIT 10",
+    )
+    .bind(ctx.tenant_id)
+    .bind(product_id)
+    .bind(branch)
+    .fetch_all(&state.db)
+    .await?;
     Ok(Json(json!({
         "product": product,
+        "other_branches": elsewhere.into_iter().map(|(id, name, available)| json!({ "branch_id": id, "branch_name": name, "available": available })).collect::<Vec<_>>(),
         "stock_item": item.map(|(id, _, bid, bname, status)| json!({
             "id": id, "barcode": code, "branch_id": bid, "branch_name": bname, "status": status,
             "in_current_branch": bid == branch,

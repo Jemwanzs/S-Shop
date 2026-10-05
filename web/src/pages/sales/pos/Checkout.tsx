@@ -290,7 +290,7 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
           <p className="flex items-center gap-2 text-sm font-medium text-warning"><ShieldCheck className="h-4 w-4" /> Supervisor approval for discount</p>
           <div className="grid grid-cols-2 gap-2">
             <Input type="email" placeholder="Supervisor email" value={supEmail} onChange={(e) => setSupEmail(e.target.value)} />
-            <Input type="password" inputMode="numeric" placeholder="PIN" value={supPin} onChange={(e) => setSupPin(e.target.value)} />
+            <Input type="password" placeholder="PIN" value={supPin} onChange={(e) => setSupPin(e.target.value)} />
           </div>
         </section>
       )}

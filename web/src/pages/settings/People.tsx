@@ -121,7 +121,7 @@ export function UsersSettings() {
             <Field label="Name"><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
             <Field label="Email"><Input type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
             <Field label="Phone" optional><Input value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
-            {!edit.id && <Field label="Login PIN" hint="4–12 characters"><Input type="password" inputMode="numeric" value={edit.pin} onChange={(e) => setEdit({ ...edit, pin: e.target.value })} /></Field>}
+            {!edit.id && <Field label="Login PIN" hint="4–12 characters"><Input type="password" value={edit.pin} onChange={(e) => setEdit({ ...edit, pin: e.target.value })} /></Field>}
             <Field label="Role" className="sm:col-span-2">
               <NativeSelect value={edit.role_id} onChange={(v) => setEdit({ ...edit, role_id: v })}>
                 <option value="">Choose…</option>
@@ -146,7 +146,7 @@ export function UsersSettings() {
         )}
       </ResponsiveDialog>
       <ResponsiveDialog open={!!resetFor} onOpenChange={(o) => !o && setResetFor(null)} title={`Reset PIN for ${resetFor?.name}`} footer={<Button className="w-full md:w-auto" disabled={newPin.length < 4 || reset.isPending} onClick={() => reset.mutate()}>Reset PIN</Button>}>
-        <Field label="New PIN" hint="Share it with the user privately"><Input type="password" inputMode="numeric" value={newPin} onChange={(e) => setNewPin(e.target.value)} autoFocus /></Field>
+        <Field label="New PIN" hint="Share it with the user privately"><Input type="password" value={newPin} onChange={(e) => setNewPin(e.target.value)} autoFocus /></Field>
       </ResponsiveDialog>
     </SettingsPage>
   );

@@ -116,8 +116,8 @@ function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange: (o: bo
       footer={<Button className="w-full md:w-auto" disabled={busy || next.length < 4} onClick={save}>Save PIN</Button>}
     >
       <div className="space-y-4">
-        <Field label="Current PIN"><Input type="password" inputMode="numeric" value={current} onChange={(e) => setCurrent(e.target.value)} /></Field>
-        <Field label="New PIN" hint="4–12 characters"><Input type="password" inputMode="numeric" value={next} onChange={(e) => setNext(e.target.value)} /></Field>
+        <Field label="Current PIN"><Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} /></Field>
+        <Field label="New PIN" hint="4–12 characters"><Input type="password" value={next} onChange={(e) => setNext(e.target.value)} /></Field>
       </div>
     </ResponsiveDialog>
   );

@@ -1,3 +1,4 @@
+import type { Preferences } from "./prefs";
 /** API response shapes (mirrors server/src/routes). Money arrives as strings/numbers. */
 
 export type Money = string | number;
@@ -84,7 +85,7 @@ export interface Settings {
 }
 
 export interface Profile {
-  user: { id: Id; name: string; email: string; role: string; all_branches: boolean; platform_admin: boolean };
+  user: { id: Id; name: string; email: string; role: string; all_branches: boolean; platform_admin: boolean; preferences: Preferences };
   tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null };
   branches: Branch[];
   permissions: string[];

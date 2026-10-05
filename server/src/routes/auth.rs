@@ -121,8 +121,8 @@ pub struct Profile {
 }
 
 async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid) -> AppResult<Profile> {
-    let (name, email, role, permissions, all_branches): (String, String, String, Vec<String>, bool) = sqlx::query_as(
-        "SELECT u.name, u.email, r.name, r.permissions, u.all_branches FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1",
+    let (name, email, role, permissions, all_branches, preferences): (String, String, String, Vec<String>, bool, Value) = sqlx::query_as(
+        "SELECT u.name, u.email, r.name, r.permissions, u.all_branches, u.preferences FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1",
     )
     .bind(user_id)
     .fetch_one(&state.db)
@@ -156,6 +156,7 @@ async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid) -> AppRe
         user: serde_json::json!({
             "id": user_id, "name": name, "email": email, "role": role, "all_branches": all_branches || is_admin,
             "platform_admin": super::access::is_platform_admin(state, &email, &permissions),
+            "preferences": super::prefs::Preferences::from_stored(preferences),
         }),
         tenant: serde_json::json!({
             "id": tenant_id, "name": tname, "slug": slug, "tagline": tagline, "currency": currency,

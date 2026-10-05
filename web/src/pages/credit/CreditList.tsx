@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { HandCoins } from "lucide-react";
 import { api } from "@/lib/api";
-import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
 import { count, date, money, toNum } from "@/lib/format";
 import type { CreditRow, Money } from "@/lib/types";
@@ -18,7 +17,7 @@ const LIMIT = 50;
 type Status = "open" | "overdue" | "paid" | "written_off" | "all";
 
 export default function CreditList() {
-  const { currency } = useSession();
+  
   const navigate = useNavigate();
   const [status, setStatus] = useState<Status>("open");
   const [q, setQ] = useState("");
@@ -37,8 +36,8 @@ export default function CreditList() {
     <>
       <PageHeader eyebrow="Sales" title="Credit Sales" description="Track what customers owe, collect repayments and follow up overdue balances." />
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_2fr]">
-        <StatCard label="Outstanding" value={money(data?.summary.outstanding, currency)} icon={HandCoins} tone="warning" />
-        <StatCard label="Overdue" value={money(data?.summary.overdue, currency)} icon={HandCoins} tone="danger" />
+        <StatCard label="Outstanding" value={money(data?.summary.outstanding)} icon={HandCoins} tone="warning" />
+        <StatCard label="Overdue" value={money(data?.summary.overdue)} icon={HandCoins} tone="danger" />
         <Section title="Aging" className="sm:col-span-2 xl:col-span-1">
           <div className="grid grid-cols-5 gap-2">
             {aging.data?.buckets.map((b) => (
@@ -79,9 +78,9 @@ export default function CreditList() {
           { key: "customer", header: "Customer", cell: (r) => <div><div className="font-medium">{r.customer_name}</div><div className="num text-xs text-muted-foreground">{r.receipt_no}</div></div> },
           { key: "branch", header: "Branch", cell: (r) => r.branch_name, hideBelow: "xl" },
           { key: "salesperson", header: "Salesperson", cell: (r) => r.salesperson ?? "—", hideBelow: "xl" },
-          { key: "amount", header: "Amount", align: "right", cell: (r) => <span className="num">{money(toNum(r.original_amount) - toNum(r.adjustments), currency)}</span>, hideBelow: "lg" },
-          { key: "paid", header: "Paid", align: "right", cell: (r) => <span className="num">{money(r.amount_paid, currency)}</span>, hideBelow: "lg" },
-          { key: "balance", header: "Balance", align: "right", cell: (r) => <span className="num font-semibold">{money(r.balance, currency)}</span> },
+          { key: "amount", header: "Amount", align: "right", cell: (r) => <span className="num">{money(toNum(r.original_amount) - toNum(r.adjustments))}</span>, hideBelow: "lg" },
+          { key: "paid", header: "Paid", align: "right", cell: (r) => <span className="num">{money(r.amount_paid)}</span>, hideBelow: "lg" },
+          { key: "balance", header: "Balance", align: "right", cell: (r) => <span className="num font-semibold">{money(r.balance)}</span> },
           { key: "due", header: "Due", cell: (r) => <span className="whitespace-nowrap">{date(r.due_date)}</span> },
           { key: "days", header: "Days", align: "right", cell: (r) => <span className="num">{r.days_outstanding}</span>, hideBelow: "lg" },
           { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
@@ -90,7 +89,7 @@ export default function CreditList() {
           <CardRow
             title={r.customer_name}
             subtitle={<span className="num">{r.receipt_no} · due {date(r.due_date)}</span>}
-            value={money(r.balance, currency)}
+            value={money(r.balance)}
             meta={<StatusBadge status={r.status} />}
           />
         )}

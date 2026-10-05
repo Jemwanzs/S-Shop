@@ -7,9 +7,27 @@ export const toNum = (v: Num): number => (v === null || v === undefined || v ===
 const whole = new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 });
 const two = new Intl.NumberFormat("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function money(v: Num, currency = "KSh", decimals = false): string {
-  const n = toNum(v);
-  return `${currency} ${(decimals ? two : whole).format(n)}`;
+/**
+ * Display currency for app screens (User preferences). Amounts are recorded in the business currency (KES);
+ * figures on screen are converted with the current rate and shown without a symbol — the active currency is
+ * shown once in the profile instead of beside every number.
+ */
+const display = { code: "KES", rate: 1 };
+export function setDisplayCurrency(code: string, rate: number) {
+  display.code = code;
+  display.rate = rate > 0 ? rate : 1;
+}
+export const displayCurrency = () => display.code;
+
+/** Screen figure in the user's display currency, no symbol. Foreign currencies always show cents. */
+export function money(v: Num, decimals = false): string {
+  const n = toNum(v) * display.rate;
+  return (decimals || display.code !== "KES" ? two : whole).format(n);
+}
+
+/** Document figure (receipts, PDFs, messages to customers): business currency with its symbol. */
+export function moneyDoc(v: Num, currency = "KSh", decimals = false): string {
+  return `${currency} ${(decimals ? two : whole).format(toNum(v))}`;
 }
 
 export function amount(v: Num, decimals = false): string {

@@ -24,7 +24,7 @@ interface ProductDetail {
 }
 
 export default function ReceiveStock() {
-  const { profile, branch, currency, can } = useSession();
+  const { profile, branch, can } = useSession();
   const s = profile!.settings;
   const qc = useQueryClient();
   const [params] = useSearchParams();
@@ -148,8 +148,8 @@ export default function ReceiveStock() {
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Mini label="On hand" value={count(onHand)} />
-                  <Mini label="Value" value={money(onHand * toNum(p.cost_price ?? p.marked_price), currency)} />
-                  <Mini label="Marked price" value={money(p.marked_price, currency)} />
+                  <Mini label="Value" value={money(onHand * toNum(p.cost_price ?? p.marked_price))} />
+                  <Mini label="Marked price" value={money(p.marked_price)} />
                   <Mini label="Branch" value={profile?.branches.find((b) => b.id === branchId)?.name ?? ""} />
                 </div>
                 <div className="flex flex-wrap gap-2">

@@ -5,7 +5,6 @@ import { ClipboardList, Package, Receipt, User } from "lucide-react";
 import { api } from "@/lib/api";
 import { useDebounced } from "@/lib/hooks";
 import { money } from "@/lib/format";
-import { useSession } from "@/lib/session";
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
 interface Result {
@@ -29,7 +28,7 @@ export function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChan
   const [q, setQ] = useState("");
   const term = useDebounced(q.trim(), 200);
   const navigate = useNavigate();
-  const { currency } = useSession();
+  
   const { data, isFetching } = useQuery({
     queryKey: ["search", term],
     queryFn: () => api<{ results: Result[] }>("/search", { query: { q: term } }),
@@ -62,7 +61,7 @@ export function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChan
                     <span className="block truncate font-medium">{r.title}</span>
                     <span className="block truncate text-xs text-muted-foreground">{r.subtitle}</span>
                   </span>
-                  {r.amount !== undefined && <span className="num text-sm">{money(r.amount, currency)}</span>}
+                  {r.amount !== undefined && <span className="num text-sm">{money(r.amount)}</span>}
                 </CommandItem>
               ))}
             </CommandGroup>

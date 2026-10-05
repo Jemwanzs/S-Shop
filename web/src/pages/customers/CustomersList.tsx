@@ -17,7 +17,7 @@ import { CustomerForm } from "./CustomerForm";
 const LIMIT = 50;
 
 export default function CustomersList() {
-  const { currency, can } = useSession();
+  const { can } = useSession();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState("");
@@ -63,19 +63,19 @@ export default function CustomersList() {
               </div>
             ),
           },
-          { key: "spend", header: "Total spend", align: "right", cell: (r) => <span className="num font-medium">{money(r.total_spend, currency)}</span> },
+          { key: "spend", header: "Total spend", align: "right", cell: (r) => <span className="num font-medium">{money(r.total_spend)}</span> },
           { key: "visits", header: "Purchases", align: "right", cell: (r) => <span className="num">{count(r.purchase_count)}</span>, hideBelow: "lg" },
           { key: "last", header: "Last purchase", cell: (r) => <span className="text-muted-foreground">{r.last_purchase_at ? ago(r.last_purchase_at) : "—"}</span>, hideBelow: "lg" },
           ...(showLoyalty ? [{ key: "points", header: "Points (own|ref)", align: "right" as const, cell: (r: Customer) => <PointsPill own={r.own_points} referral={r.referral_points} /> }] : []),
           { key: "tier", header: "Tier", cell: (r) => (r.tier ? <Pill tone="primary">{r.tier}</Pill> : <span className="text-muted-foreground">—</span>), hideBelow: "xl" },
-          ...(showCredit ? [{ key: "credit", header: "Owes", align: "right" as const, cell: (r: Customer) => (toNum(r.credit_balance) > 0 ? <span className="num text-destructive">{money(r.credit_balance, currency)}</span> : <span className="text-muted-foreground">—</span>), hideBelow: "lg" as const }] : []),
+          ...(showCredit ? [{ key: "credit", header: "Owes", align: "right" as const, cell: (r: Customer) => (toNum(r.credit_balance) > 0 ? <span className="num text-destructive">{money(r.credit_balance)}</span> : <span className="text-muted-foreground">—</span>), hideBelow: "lg" as const }] : []),
         ]}
         mobile={(r) => (
           <CardRow
             leading={<span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">{initials(`${r.first_name} ${r.other_names}`)}</span>}
             title={<span className="flex items-center gap-1.5">{r.first_name} {r.other_names}{r.tier && <Medal tier={r.tier} />}</span>}
             subtitle={<span className="num">{maskPhone(r.mobile)}</span>}
-            value={money(r.total_spend, currency)}
+            value={money(r.total_spend)}
             meta={showLoyalty ? <PointsPill own={r.own_points} referral={r.referral_points} /> : undefined}
           />
         )}

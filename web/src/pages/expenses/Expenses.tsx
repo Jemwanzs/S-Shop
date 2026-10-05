@@ -26,7 +26,7 @@ interface Category { id: string; name: string; is_active: boolean }
 const LIMIT = 50;
 
 export default function Expenses() {
-  const { currency, can, profile } = useSession();
+  const { can, profile } = useSession();
   const qc = useQueryClient();
   const [period, setPeriod] = useState<PeriodValue>({ period: "month" });
   const [category, setCategory] = useState("");
@@ -65,12 +65,12 @@ export default function Expenses() {
         </NativeSelect>
       </div>
       <div className="mb-5 grid gap-3 md:grid-cols-[260px_minmax(0,1fr)]">
-        <StatCard label="Approved spend" value={money(total, currency)} icon={Wallet} tone="warning" />
+        <StatCard label="Approved spend" value={money(total)} icon={Wallet} tone="warning" />
         <Section title="By category">
           <div className="space-y-2">
             {data?.summary.by_category.map((c) => (
               <div key={c.category} className="space-y-1">
-                <div className="flex justify-between text-sm"><span>{c.category}</span><span className="num">{money(c.amount, currency)}</span></div>
+                <div className="flex justify-between text-sm"><span>{c.category}</span><span className="num">{money(c.amount)}</span></div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-warning" style={{ width: `${total ? (toNum(c.amount) / total) * 100 : 0}%` }} /></div>
               </div>
             ))}
@@ -93,7 +93,7 @@ export default function Expenses() {
           { key: "method", header: "Paid by", cell: (r) => methodLabel(r.payment_method), hideBelow: "lg" },
           { key: "user", header: "Recorded by", cell: (r) => r.user_name ?? "—", hideBelow: "xl" },
           { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
-          { key: "amount", header: "Amount", align: "right", cell: (r) => <span className="num font-semibold">{money(r.amount, currency)}</span> },
+          { key: "amount", header: "Amount", align: "right", cell: (r) => <span className="num font-semibold">{money(r.amount)}</span> },
           {
             key: "actions",
             header: "",
@@ -108,7 +108,7 @@ export default function Expenses() {
         ]}
         mobile={(r) => (
           <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1"><CardRow title={r.description || r.category_name} subtitle={`${r.category_name} · ${date(r.expense_date)}`} value={money(r.amount, currency)} meta={r.status !== "approved" ? <StatusBadge status={r.status} /> : undefined} /></div>
+            <div className="min-w-0 flex-1"><CardRow title={r.description || r.category_name} subtitle={`${r.category_name} · ${date(r.expense_date)}`} value={money(r.amount)} meta={r.status !== "approved" ? <StatusBadge status={r.status} /> : undefined} /></div>
             {r.has_attachment && <Button variant="ghost" size="icon-sm" onClick={() => openAttachment(r.id)} aria-label="Attachment"><Paperclip /></Button>}
           </div>
         )}

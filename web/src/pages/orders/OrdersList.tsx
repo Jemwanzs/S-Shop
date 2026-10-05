@@ -22,7 +22,7 @@ const LIMIT = 50;
 const TABS = ["active", "new", "confirmed", "preparing", "dispatched", "on_delivery", "delivered", "completed", "cancelled", "all"] as const;
 
 export default function OrdersList() {
-  const { currency, can, profile } = useSession();
+  const { can, profile } = useSession();
   const navigate = useNavigate();
   const [status, setStatus] = useState<(typeof TABS)[number]>("active");
   const [q, setQ] = useState("");
@@ -72,13 +72,13 @@ export default function OrdersList() {
           { key: "branch", header: "Branch", cell: (r) => r.branch_name, hideBelow: "xl" },
           { key: "age", header: "Placed", cell: (r) => <span className="whitespace-nowrap text-muted-foreground">{ago(r.created_at)}</span> },
           { key: "status", header: "Status", cell: (r) => <div className="flex gap-1.5"><StatusBadge status={r.status} label={orderLabel(profile?.settings, r.status)} />{r.reserved && <Pill tone="info">reserved</Pill>}</div> },
-          { key: "total", header: "Total", align: "right", cell: (r) => <span className="num font-semibold">{money(r.total, currency)}</span> },
+          { key: "total", header: "Total", align: "right", cell: (r) => <span className="num font-semibold">{money(r.total)}</span> },
         ]}
         mobile={(r) => (
           <CardRow
             title={<span className="flex items-center gap-2">{r.customer_name} {r.status === "new" && <span className="h-2 w-2 rounded-full bg-primary" />}</span>}
             subtitle={<span className="num">{r.order_no} · {ago(r.created_at)}</span>}
-            value={money(r.total, currency)}
+            value={money(r.total)}
             meta={<StatusBadge status={r.status} label={orderLabel(profile?.settings, r.status)} />}
           />
         )}
@@ -90,7 +90,7 @@ export default function OrdersList() {
 }
 
 function NewOrder({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; onCreated: (id: string) => void }) {
-  const { currency } = useSession();
+  
   const qc = useQueryClient();
   const [mobile, setMobile] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -123,7 +123,7 @@ function NewOrder({ open, onOpenChange, onCreated }: { open: boolean; onOpenChan
       onOpenChange={onOpenChange}
       title="New phone order"
       wide
-      footer={<Button className="w-full md:w-auto" disabled={!items.length || mobile.replace(/\D/g, "").length < 9 || create.isPending} onClick={() => create.mutate()}>Create order · <span className="num">{money(total, currency)}</span></Button>}
+      footer={<Button className="w-full md:w-auto" disabled={!items.length || mobile.replace(/\D/g, "").length < 9 || create.isPending} onClick={() => create.mutate()}>Create order · <span className="num">{money(total)}</span></Button>}
     >
       <div className="grid gap-5 md:grid-cols-2">
         <div className="space-y-3">
@@ -139,7 +139,7 @@ function NewOrder({ open, onOpenChange, onCreated }: { open: boolean; onOpenChan
               {products.data?.map((p) => (
                 <li key={p.id}>
                   <button className="flex w-full justify-between px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => { if (!items.some((i) => i.product.id === p.id)) setItems([...items, { product: p, quantity: 1 }]); setQ(""); }}>
-                    <span>{p.name}</span><span className="num text-muted-foreground">{count(p.available)} · {money(p.marked_price, currency)}</span>
+                    <span>{p.name}</span><span className="num text-muted-foreground">{count(p.available)} · {money(p.marked_price)}</span>
                   </button>
                 </li>
               ))}

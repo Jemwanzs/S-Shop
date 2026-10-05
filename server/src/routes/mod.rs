@@ -16,6 +16,7 @@ pub mod notifications;
 pub mod orders;
 pub mod payments;
 pub mod portal;
+pub mod prefs;
 pub mod reports;
 pub mod sales;
 pub mod search;
@@ -35,6 +36,7 @@ pub fn api() -> Router<AppState> {
     Router::new()
         .merge(auth::routes())
         .merge(access::routes())
+        .merge(prefs::routes())
         .merge(admin::routes())
         .merge(catalog::routes())
         .merge(stock::routes())

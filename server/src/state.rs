@@ -28,6 +28,8 @@ pub struct AppState {
     pub http: reqwest::Client,
     pub events: broadcast::Sender<LiveEvent>,
     pub mpesa_token: Arc<Mutex<Option<(String, Instant)>>>,
+    /// Cached exchange rates (routes/prefs.rs).
+    pub fx: Arc<Mutex<Option<(Instant, serde_json::Value)>>>,
 }
 
 impl AppState {
@@ -43,6 +45,7 @@ impl AppState {
                 .expect("http client"),
             events,
             mpesa_token: Arc::new(Mutex::new(None)),
+            fx: Arc::new(Mutex::new(None)),
         }
     }
 

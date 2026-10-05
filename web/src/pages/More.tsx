@@ -9,7 +9,7 @@ import { allowed, BOTTOM, NAV } from "@/components/layout/nav";
 
 /** Phone/tablet menu for everything not on the bottom bar. */
 export default function More() {
-  const { profile, can, signOut, branch } = useSession();
+  const { profile, can, signOut, branch, displayCurrency } = useSession();
   const { dark, toggle } = useTheme();
   const [pinOpen, setPinOpen] = useState(false);
   const bottom = new Set(BOTTOM.map((b) => b.to));
@@ -20,6 +20,7 @@ export default function More() {
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{profile?.user.name}</div>
           <div className="truncate text-sm text-muted-foreground">{profile?.user.role} · {branch?.name}</div>
+          <Link to="/settings/preferences" className="text-xs font-medium text-primary">Figures in {displayCurrency} · Preferences</Link>
         </div>
         <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">{dark ? <Sun /> : <Moon />}</Button>
       </div>

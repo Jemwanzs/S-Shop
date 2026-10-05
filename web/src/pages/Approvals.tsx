@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ShieldCheck, Undo2, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, errorMessage } from "@/lib/api";
-import { useSession } from "@/lib/session";
 import { ago, dateTime, money } from "@/lib/format";
 import type { Approval, Paged } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -50,7 +49,7 @@ function entityLink(a: Approval) {
 }
 
 export default function Approvals() {
-  const { currency } = useSession();
+  
   const qc = useQueryClient();
   const [status, setStatus] = useState<"pending" | "mine" | "approved" | "rejected">("pending");
   const [deciding, setDeciding] = useState<{ approval: Approval; approve: boolean } | null>(null);
@@ -103,7 +102,7 @@ export default function Approvals() {
                 </div>
                 <div>
                   <p className="font-medium">{a.summary}</p>
-                  {a.amount !== null && <p className="num mt-1 text-lg font-semibold">{money(a.amount, currency)}</p>}
+                  {a.amount !== null && <p className="num mt-1 text-lg font-semibold">{money(a.amount)}</p>}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {a.requested_by_name} · {ago(a.created_at)}{a.branch_name && ` · ${a.branch_name}`}

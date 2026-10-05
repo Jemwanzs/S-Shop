@@ -24,7 +24,7 @@ interface MpesaReq {
 }
 
 export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEdit: (l: CartLine) => void; onRemove: (key: string) => void }) {
-  const { profile, currency } = useSession();
+  const { profile } = useSession();
   const s = profile!.settings;
   return (
     <ul className="divide-y">
@@ -36,7 +36,7 @@ export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEd
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium">{l.product.name}</div>
               <div className="num text-xs text-muted-foreground">
-                {count(l.quantity)} × {money(l.unitPrice, currency)}
+                {count(l.quantity)} × {money(l.unitPrice)}
                 {disc !== 0 && <span className={disc > 0 ? "text-destructive" : "text-success"}> ({disc > 0 ? "−" : "+"}{count(Math.abs(disc))})</span>}
               </div>
               <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
@@ -46,7 +46,7 @@ export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEd
               </div>
             </div>
             <div className="flex flex-col items-end justify-between">
-              <span className="num font-semibold">{money(lineTotal(l), currency)}</span>
+              <span className="num font-semibold">{money(lineTotal(l))}</span>
               <span className="flex gap-0.5">
                 <button className="rounded p-1.5 text-muted-foreground hover:bg-muted" onClick={() => onEdit(l)} aria-label="Edit"><Pencil className="h-3.5 w-3.5" /></button>
                 <button className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive" onClick={() => onRemove(l.key)} aria-label="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -60,7 +60,7 @@ export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEd
 }
 
 export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDone: (sale: SaleDetail) => void; clientRef: string }) {
-  const { profile, currency, can } = useSession();
+  const { profile, can } = useSession();
   const s = profile!.settings;
   const methods = s.sales.payment_methods.filter((m) => m.enabled && (m.key !== "credit" || s.sales.credit_enabled));
   const [method, setMethod] = useState(methods[0]?.key ?? "cash");
@@ -196,7 +196,7 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
             <CheckCircle2 className="h-5 w-5 text-success" />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium">{customer.first_name} {customer.other_names}{customer.nickname && <span className="text-muted-foreground"> “{customer.nickname}”</span>}</div>
-              <div className="text-xs text-muted-foreground">{customer.tier || "Member"} · {count(customer.purchase_count)} visits{toNum(customer.credit_balance) > 0 && <span className="text-destructive"> · owes {money(customer.credit_balance, currency)}</span>}</div>
+              <div className="text-xs text-muted-foreground">{customer.tier || "Member"} · {count(customer.purchase_count)} visits{toNum(customer.credit_balance) > 0 && <span className="text-destructive"> · owes {money(customer.credit_balance)}</span>}</div>
             </div>
             <PointsPill own={customer.points_available} />
           </div>
@@ -269,7 +269,7 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
           <div className="grid grid-cols-2 items-end gap-3">
             <Field label="Cash received" optional><Input inputMode="decimal" className="num" value={tendered} onChange={(e) => setTendered(e.target.value.replace(/[^\d.]/g, ""))} placeholder={String(payAmount)} /></Field>
             <div className="pb-2 text-right text-sm">
-              {tendered && <>Change <span className={cn("num block text-lg font-semibold", change < 0 && "text-destructive")}>{money(change, currency)}</span></>}
+              {tendered && <>Change <span className={cn("num block text-lg font-semibold", change < 0 && "text-destructive")}>{money(change)}</span></>}
             </div>
           </div>
         )}
@@ -282,7 +282,7 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
             <button className="text-xs text-points underline" onClick={() => setRedeem(String(Math.min(customer!.points_available, Math.floor(t.net / Math.max(toNum(s.loyalty.point_value), 0.0001)))))}>Use max</button>
           </div>
           <Input inputMode="numeric" className="num" placeholder={`Up to ${count(customer!.points_available)} points`} value={redeem} onChange={(e) => setRedeem(e.target.value.replace(/\D/g, ""))} />
-          {redeemPts > 0 && <p className="num text-xs text-muted-foreground">Worth {money(t.redeemValue, currency)}</p>}
+          {redeemPts > 0 && <p className="num text-xs text-muted-foreground">Worth {money(t.redeemValue)}</p>}
         </section>
       )}
 
@@ -298,17 +298,17 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
 
       {/* Totals */}
       <section className="space-y-1.5 rounded-xl bg-muted/50 p-4 text-sm">
-        <Row label="Subtotal (marked)" value={money(t.gross, currency)} />
-        {t.discount !== 0 && <Row label={t.discount > 0 ? "Discounts" : "Above marked price"} value={`${t.discount > 0 ? "−" : "+"}${money(Math.abs(t.discount), currency)}`} tone={t.discount > 0 ? "text-destructive" : "text-success"} />}
-        {t.redeemValue > 0 && <Row label={`Points redeemed (${count(redeemPts)})`} value={`−${money(t.redeemValue, currency)}`} tone="text-points" />}
+        <Row label="Subtotal (marked)" value={money(t.gross)} />
+        {t.discount !== 0 && <Row label={t.discount > 0 ? "Discounts" : "Above marked price"} value={`${t.discount > 0 ? "−" : "+"}${money(Math.abs(t.discount))}`} tone={t.discount > 0 ? "text-destructive" : "text-success"} />}
+        {t.redeemValue > 0 && <Row label={`Points redeemed (${count(redeemPts)})`} value={`−${money(t.redeemValue)}`} tone="text-points" />}
         <div className="flex items-baseline justify-between border-t pt-2">
           <span className="font-semibold">Total payable</span>
-          <span className="num text-2xl font-bold">{money(t.payable, currency)}</span>
+          <span className="num text-2xl font-bold">{money(t.payable)}</span>
         </div>
         {isCredit && (
           <>
-            {takingDeposit && <Row label="Deposit now" value={money(depositAmount, currency)} tone="text-success" />}
-            <Row label="On credit" value={money(Math.max(t.payable - depositAmount, 0), currency)} tone="text-destructive" />
+            {takingDeposit && <Row label="Deposit now" value={money(depositAmount)} tone="text-success" />}
+            <Row label="On credit" value={money(Math.max(t.payable - depositAmount, 0))} tone="text-destructive" />
           </>
         )}
         {s.loyalty.enabled && t.points > 0 && (
@@ -319,7 +319,7 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
       </section>
 
       <Button size="lg" className="h-14 w-full text-base" disabled={blockers.length > 0 || complete.isPending} onClick={() => complete.mutate()}>
-        {complete.isPending ? <Loader2 className="animate-spin" /> : <>Complete sale · <span className="num">{money(t.payable, currency)}</span></>}
+        {complete.isPending ? <Loader2 className="animate-spin" /> : <>Complete sale · <span className="num">{money(t.payable)}</span></>}
       </Button>
       {blockers.length > 0 && lines.length > 0 && <p className="text-center text-xs text-muted-foreground">{blockers[0]}</p>}
     </div>

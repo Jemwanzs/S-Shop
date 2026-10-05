@@ -78,7 +78,7 @@ function QuickHome() {
 }
 
 function Analytics() {
-  const { profile, currency, can } = useSession();
+  const { profile, can } = useSession();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [period, setPeriod] = useState<PeriodValue>({ period: "week" });
@@ -97,7 +97,7 @@ function Analytics() {
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<UserRow[]>("/users"), enabled: can("users.manage") || can("approvals.approve") });
 
   const k = data?.kpis ?? {};
-  const m = (v: unknown) => money(v as Money, currency);
+  const m = (v: unknown) => money(v as Money);
   const multiBranch = (profile?.branches.length ?? 0) > 1;
 
   return (
@@ -171,7 +171,7 @@ function Analytics() {
                       <YAxis tickFormatter={(v) => compact(v)} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} width={44} />
                       <Tooltip
                         contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }}
-                        formatter={(v: number, name) => [money(v, currency), titleCase(String(name))]}
+                        formatter={(v: number, name) => [money(v), titleCase(String(name))]}
                         labelFormatter={(d) => new Date(d).toDateString()}
                       />
                       <Area type="monotone" dataKey="sales" stroke="hsl(var(--chart-1))" strokeWidth={2.5} fill="url(#salesFill)" />

@@ -13,6 +13,8 @@ List endpoints accept `limit` (≤500) and `offset`; period filters accept `peri
 | Method | Path |
 |---|---|
 | POST | `/api/auth/login` |
+| PUT | `/api/auth/preferences` — `{ language, font, currency }` |
+| GET | `/api/fx` — KES→USD/EUR rates (cached 1 h) |
 | GET | `/api/auth/me` |
 | POST | `/api/auth/change-pin` |
 

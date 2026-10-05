@@ -18,7 +18,7 @@ import { StatCard } from "@/components/Stat";
 const LIMIT = 50;
 
 export default function SalesList() {
-  const { profile, currency, can } = useSession();
+  const { profile, can } = useSession();
   const navigate = useNavigate();
   const [period, setPeriod] = useState<PeriodValue>({ period: "today" });
   const [q, setQ] = useState("");
@@ -76,8 +76,8 @@ export default function SalesList() {
       {data && (
         <div className="mb-4 grid grid-cols-3 gap-3 lg:max-w-3xl">
           <StatCard label="Sales" value={count(data.summary.count)} />
-          <StatCard label="Value" value={money(data.summary.total, currency)} tone="success" />
-          <StatCard label="Discounts" value={money(data.summary.discount, currency)} />
+          <StatCard label="Value" value={money(data.summary.total)} tone="success" />
+          <StatCard label="Discounts" value={money(data.summary.discount)} />
         </div>
       )}
       <DataList
@@ -97,13 +97,13 @@ export default function SalesList() {
           { key: "items", header: "Items", align: "right", cell: (r) => <span className="num">{count(r.item_count)}</span>, hideBelow: "xl" },
           { key: "method", header: "Payment", cell: (r) => methodLabel(r.payment_method) },
           { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
-          { key: "total", header: "Total", align: "right", cell: (r) => <span className="num font-semibold">{money(r.total, currency)}</span> },
+          { key: "total", header: "Total", align: "right", cell: (r) => <span className="num font-semibold">{money(r.total)}</span> },
         ]}
         mobile={(r) => (
           <CardRow
             title={r.customer_name ?? "Walk-in customer"}
             subtitle={<span className="num">{r.receipt_no} · {time(r.created_at)} · {methodLabel(r.payment_method)}</span>}
-            value={money(r.total, currency)}
+            value={money(r.total)}
             meta={r.status !== "completed" ? <StatusBadge status={r.status} /> : r.points_earned > 0 ? `🌼 +${r.points_earned}` : undefined}
           />
         )}

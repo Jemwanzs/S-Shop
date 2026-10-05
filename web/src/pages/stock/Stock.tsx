@@ -63,7 +63,7 @@ export default function Stock() {
 }
 
 function Levels() {
-  const { currency, profile, can } = useSession();
+  const { profile, can } = useSession();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [status, setStatus] = useState<"all" | "in" | "low" | "out">((params.get("status") as "low") ?? "all");
@@ -102,7 +102,7 @@ function Levels() {
           { key: "reserved", header: "Reserved", align: "right", cell: (r) => <span className="num text-muted-foreground">{count(r.reserved)}</span>, hideBelow: "lg" },
           { key: "available", header: "Available", align: "right", cell: (r) => <span className="num font-semibold">{count(r.available)}</span> },
           { key: "status", header: "Status", cell: (r) => <StockIndicator available={r.available} threshold={r.low_threshold} /> },
-          ...(showValue ? [{ key: "value", header: "Value", align: "right" as const, cell: (r: StockLevel) => <span className="num">{money(r.value, currency)}</span>, hideBelow: "lg" as const }] : []),
+          ...(showValue ? [{ key: "value", header: "Value", align: "right" as const, cell: (r: StockLevel) => <span className="num">{money(r.value)}</span>, hideBelow: "lg" as const }] : []),
         ]}
         mobile={(r) => (
           <CardRow
@@ -125,7 +125,7 @@ interface PositionRow {
 }
 
 function Position() {
-  const { currency, can } = useSession();
+  const { can } = useSession();
   const navigate = useNavigate();
   const [period, setPeriod] = useState<PeriodValue>({ period: "month" });
   const [status, setStatus] = useState<"all" | "low" | "out">("all");
@@ -138,7 +138,7 @@ function Position() {
         <PeriodFilter value={period} onChange={setPeriod} />
         <Segments value={status} onChange={setStatus} options={[{ value: "all", label: "All" }, { value: "low", label: "Low" }, { value: "out", label: "Out" }]} />
       </div>
-      {data && can("sales.view_financials") && <p className="mb-3 text-sm text-muted-foreground">Closing stock value: <span className="num font-semibold text-foreground">{money(data.total_value, currency)}</span></p>}
+      {data && can("sales.view_financials") && <p className="mb-3 text-sm text-muted-foreground">Closing stock value: <span className="num font-semibold text-foreground">{money(data.total_value)}</span></p>}
       <DataList
         rows={data?.rows}
         loading={isLoading}
@@ -158,7 +158,7 @@ function Position() {
           { key: "dmg", header: "Damaged", align: "right", cell: (r) => n(r.damaged_written_off), hideBelow: "xl" },
           { key: "closing", header: "Closing", align: "right", cell: (r) => <span className="num font-semibold">{count(r.closing)}</span> },
           { key: "reserved", header: "Reserved", align: "right", cell: (r) => n(r.reserved), hideBelow: "2xl" },
-          ...(can("sales.view_financials") ? [{ key: "value", header: "Value", align: "right" as const, cell: (r: PositionRow) => <span className="num">{money(r.value, currency)}</span>, hideBelow: "lg" as const }] : []),
+          ...(can("sales.view_financials") ? [{ key: "value", header: "Value", align: "right" as const, cell: (r: PositionRow) => <span className="num">{money(r.value)}</span>, hideBelow: "lg" as const }] : []),
         ]}
         mobile={(r) => (
           <div>

@@ -1,7 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, session } from "./api";
 import type { Branch, Profile } from "./types";
+import { setDisplayCurrency } from "./format";
+import { applyFont, DEFAULT_PREFERENCES, type Fx, type Preferences } from "./prefs";
 
 interface SessionValue {
   profile: Profile | null;
@@ -12,6 +14,10 @@ interface SessionValue {
   can: (perm: string) => boolean;
   canAny: (...perms: string[]) => boolean;
   currency: string;
+  preferences: Preferences;
+  /** Currency figures are shown in (KES until rates load for another choice). */
+  displayCurrency: string;
+  fx: Fx | null;
   signIn: (token: string, profile: Profile) => void;
   signOut: () => void;
   selectBranch: (id: string) => void;
@@ -57,6 +63,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const can = useCallback((perm: string) => !!profile?.permissions.some((p) => p === "*" || p === perm), [profile]);
 
+  // Preferences: font now; figures convert once exchange rates arrive (refreshed when the app opens).
+  const signedIn = !!token && !!profile;
+  const preferences = (signedIn && profile.user.preferences) || DEFAULT_PREFERENCES;
+  useEffect(() => applyFont(preferences.font), [preferences.font]);
+  const wantsFx = signedIn && preferences.currency !== "KES";
+  const fx = useQuery({ queryKey: ["fx"], queryFn: () => api<Fx>("/fx"), enabled: wantsFx, staleTime: 60 * 60_000, refetchOnWindowFocus: false });
+  const rate = wantsFx ? fx.data?.rates[preferences.currency] : undefined;
+  const displayCode = rate ? preferences.currency : "KES";
+  setDisplayCurrency(displayCode, rate ?? 1);
+
   const value = useMemo<SessionValue>(
     () => ({
       profile: token ? (profile ?? null) : null,
@@ -66,6 +82,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       can,
       canAny: (...perms) => perms.some(can),
       currency: profile?.tenant.currency ?? "KSh",
+      preferences,
+      displayCurrency: displayCode,
+      fx: fx.data ?? null,
       signIn: (t, p) => {
         session.setToken(t);
         qc.setQueryData(["me", t], p);
@@ -87,10 +106,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "me" });
       },
     }),
-    [token, profile, isLoading, branch, can, qc],
+    [token, profile, isLoading, branch, can, qc, preferences, displayCode, fx.data],
   );
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  // Re-render every screen when the display currency changes (figures are formatted outside React state).
+  return <Ctx.Provider value={value}><Fragment key={displayCode}>{children}</Fragment></Ctx.Provider>;
 }
 
 export function useSession() {

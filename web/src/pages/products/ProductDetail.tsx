@@ -37,7 +37,7 @@ interface Movement {
 
 export default function ProductDetail() {
   const { id } = useParams();
-  const { currency, can, profile } = useSession();
+  const { can, profile } = useSession();
   const qc = useQueryClient();
   const [gallery, setGallery] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -114,7 +114,7 @@ export default function ProductDetail() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="surface p-4"><p className="label-caps">Marked price</p><p className="num mt-1 text-2xl font-semibold">{money(p.marked_price, currency)}</p></div>
+            <div className="surface p-4"><p className="label-caps">Marked price</p><p className="num mt-1 text-2xl font-semibold">{money(p.marked_price)}</p></div>
             <div className="surface p-4"><p className="label-caps">Here now</p><p className="num mt-1 text-2xl font-semibold">{count(p.available)}</p><p className="num text-xs text-muted-foreground">{count(p.reserved)} reserved</p></div>
             <div className="surface p-4"><p className="label-caps">All branches</p><p className="num mt-1 text-2xl font-semibold">{count(totalOnHand)}</p></div>
           </div>
@@ -179,8 +179,8 @@ export default function ProductDetail() {
           </Section>
           <Section title="Details">
             <KV label="Status">{p.is_active ? <Pill tone="success">Active</Pill> : <Pill tone="danger">Inactive</Pill>}</KV>
-            {p.max_discount !== null && <KV label="Max discount"><span className="num">{money(p.max_discount, currency)}</span></KV>}
-            {p.cost_price !== null && can("sales.view_financials") && <KV label="Cost price"><span className="num">{money(p.cost_price, currency)}</span></KV>}
+            {p.max_discount !== null && <KV label="Max discount"><span className="num">{money(p.max_discount)}</span></KV>}
+            {p.cost_price !== null && can("sales.view_financials") && <KV label="Cost price"><span className="num">{money(p.cost_price)}</span></KV>}
             <KV label="Barcode">{p.track_items ? "Per item" : p.barcode ? <span className="num">{p.barcode}</span> : "—"}</KV>
             <KV label="Supplier">{p.supplier_name ?? "—"}</KV>
             <KV label="Ordering link">{p.available_for_orders ? "Visible" : "Hidden"}</KV>
@@ -188,7 +188,7 @@ export default function ProductDetail() {
             <KV label="Branches">{p.all_branches ? "All" : `${data.branch_ids.length} selected`}</KV>
             <KV label="Loyalty">
               {p.loyalty_eligible
-                ? `${p.loyalty_points_per ?? profile?.settings.loyalty.points_per} pt per ${money(p.loyalty_threshold ?? profile?.settings.loyalty.threshold, currency)}`
+                ? `${p.loyalty_points_per ?? profile?.settings.loyalty.points_per} pt per ${money(p.loyalty_threshold ?? profile?.settings.loyalty.threshold)}`
                 : "Not eligible"}
             </KV>
             <CustomFieldValues kind="product" values={p.custom_fields ?? {}} />

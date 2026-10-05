@@ -23,7 +23,7 @@ interface Detail {
 
 export default function CreditDetail() {
   const { id } = useParams();
-  const { currency, can, profile } = useSession();
+  const { can, profile } = useSession();
   const qc = useQueryClient();
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["credit", id], queryFn: () => api<Detail>(`/credit/${id}`) });
   const [paying, setPaying] = useState(false);
@@ -39,7 +39,7 @@ export default function CreditDetail() {
   const pay = useMutation({
     mutationFn: () => api<{ balance: number; status: string }>(`/credit/${id}/payments`, { body: { amount: toNum(amountStr), method, reference } }),
     onSuccess: (r) => {
-      toast.success(r.status === "paid" ? "Fully paid 🎉" : `Payment recorded · balance ${money(r.balance, currency)}`);
+      toast.success(r.status === "paid" ? "Fully paid 🎉" : `Payment recorded · balance ${money(r.balance)}`);
       setPaying(false);
       setAmount("");
       setReference("");
@@ -95,14 +95,14 @@ export default function CreditDetail() {
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="label-caps">Outstanding balance</p>
-                <p className="num mt-1 text-3xl font-bold">{money(c.balance, currency)}</p>
+                <p className="num mt-1 text-3xl font-bold">{money(c.balance)}</p>
               </div>
               <StatusBadge status={c.status} />
             </div>
             <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-muted">
               <div className="h-full rounded-full bg-success transition-all" style={{ width: `${paidPct}%` }} />
             </div>
-            <p className="num mt-1.5 text-xs text-muted-foreground">{money(c.amount_paid, currency)} paid of {money(toNum(c.original_amount) - toNum(c.adjustments), currency)}</p>
+            <p className="num mt-1.5 text-xs text-muted-foreground">{money(c.amount_paid)} paid of {money(toNum(c.original_amount) - toNum(c.adjustments))}</p>
           </div>
           <Section title="Payment history">
             {data.payments.length === 0 ? (
@@ -115,7 +115,7 @@ export default function CreditDetail() {
                       <div className="font-medium">{methodLabel(p.method)}{p.reference && <span className="num text-muted-foreground"> · {p.reference}</span>}</div>
                       <div className="text-xs text-muted-foreground">{dateTime(p.created_at)} · {p.user_name}</div>
                     </div>
-                    <span className="num font-semibold text-success">{money(p.amount, currency)}</span>
+                    <span className="num font-semibold text-success">{money(p.amount)}</span>
                   </li>
                 ))}
               </ul>
@@ -133,8 +133,8 @@ export default function CreditDetail() {
         <div className="space-y-5">
           <Section title="Details">
             <KV label="Receipt"><Link to={`/sales/${c.sale_id}`} className="num text-primary">{c.receipt_no}</Link></KV>
-            <KV label="Original amount"><span className="num">{money(c.original_amount, currency)}</span></KV>
-            {toNum(c.adjustments) > 0 && <KV label="Returns"><span className="num">−{money(c.adjustments, currency)}</span></KV>}
+            <KV label="Original amount"><span className="num">{money(c.original_amount)}</span></KV>
+            {toNum(c.adjustments) > 0 && <KV label="Returns"><span className="num">−{money(c.adjustments)}</span></KV>}
             <KV label="Due date">{date(c.due_date)}</KV>
             <KV label="Days outstanding"><span className="num">{c.days_outstanding}</span></KV>
             <KV label="Branch">{c.branch_name}</KV>
@@ -151,7 +151,7 @@ export default function CreditDetail() {
         open={paying}
         onOpenChange={setPaying}
         title="Record repayment"
-        description={`Outstanding ${money(c.balance, currency)}`}
+        description={`Outstanding ${money(c.balance)}`}
         footer={<Button className="w-full md:w-auto" disabled={pay.isPending || toNum(amountStr) <= 0 || (method === "mpesa" && reference.length < 8)} onClick={() => pay.mutate()}>Save payment</Button>}
       >
         <div className="space-y-4">
@@ -176,7 +176,7 @@ export default function CreditDetail() {
         open={writing}
         onOpenChange={setWriting}
         title="Write off this balance?"
-        description={`${money(c.balance, currency)} will no longer be collected. This is recorded in the audit trail.`}
+        description={`${money(c.balance)} will no longer be collected. This is recorded in the audit trail.`}
         confirmLabel="Write off"
         destructive
         requireReason

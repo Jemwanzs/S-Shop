@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Check, ChevronsUpDown, KeyRound, Loader2, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
+import { Bell, Check, ChevronsUpDown, KeyRound, SlidersHorizontal, Loader2, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { api, errorMessage } from "@/lib/api";
@@ -147,7 +147,8 @@ export function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange:
 }
 
 function UserMenu({ full }: { full?: boolean }) {
-  const { profile, signOut } = useSession();
+  const { profile, signOut, displayCurrency } = useSession();
+  const navigate = useNavigate();
   const [pinOpen, setPinOpen] = useState(false);
   if (!profile) return null;
   return (
@@ -170,8 +171,10 @@ function UserMenu({ full }: { full?: boolean }) {
           <DropdownMenuLabel className="font-normal">
             <div className="truncate font-medium">{profile.user.name}</div>
             <div className="truncate text-xs text-muted-foreground">{profile.user.email}</div>
+            <div className="mt-1 text-xs font-medium text-primary">Figures in {displayCurrency}</div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => navigate("/settings/preferences")} className="gap-2"><SlidersHorizontal className="h-4 w-4" /> Preferences</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setPinOpen(true)} className="gap-2"><KeyRound className="h-4 w-4" /> Change PIN</DropdownMenuItem>
           <DropdownMenuItem onClick={signOut} className="gap-2 text-destructive"><LogOut className="h-4 w-4" /> Sign out</DropdownMenuItem>
         </DropdownMenuContent>

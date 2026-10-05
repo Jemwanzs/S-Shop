@@ -6,6 +6,7 @@
    The S'Shop magenta→orange gradient is reserved for brand moments (logo areas, hero cards). */
 @layer base {
   :root {
+    --app-font: "Outfit";
     --background: 36 52% 96%;
     --foreground: 24 28% 11%;
     --card: 36 60% 99%;

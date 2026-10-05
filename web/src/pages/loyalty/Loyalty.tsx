@@ -42,7 +42,7 @@ interface OverviewData {
 }
 
 function Overview() {
-  const { currency, can } = useSession();
+  const { can } = useSession();
   const { data, isLoading } = useQuery({ queryKey: ["loyalty", "overview"], queryFn: () => api<OverviewData>("/loyalty/overview") });
   if (isLoading || !data) return <Loading />;
   const t = data.totals;
@@ -50,7 +50,7 @@ function Overview() {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Outstanding points" value={count(t.outstanding)} icon={Coins} tone="primary" hint={`worth ${money(t.outstanding_value, currency)}`} className="col-span-2 md:col-span-1" />
+        <StatCard label="Outstanding points" value={count(t.outstanding)} icon={Coins} tone="primary" hint={`worth ${money(t.outstanding_value)}`} className="col-span-2 md:col-span-1" />
         <StatCard label="Own points earned" value={count(t.own_points)} icon={Gift} />
         <StatCard label="Referral points" value={count(t.referral_points)} icon={UserPlus} />
         <StatCard label="Redeemed" value={count(t.redeemed)} icon={Award} tone="success" />
@@ -69,7 +69,7 @@ function Overview() {
                     <div className="num text-xs text-muted-foreground">{maskPhone(c.mobile)}{c.tier && <span className="font-sans"> · {c.tier}</span>}</div>
                   </div>
                   <div className="text-right">
-                    <div className="num font-semibold">{money(c.total_spend, currency)}</div>
+                    <div className="num font-semibold">{money(c.total_spend)}</div>
                     <PointsPill own={c.own_points} referral={c.referral_points} />
                   </div>
                 </Link>
@@ -81,9 +81,9 @@ function Overview() {
           <Section title="How points work" action={can("settings.manage") && <Link to="/settings/loyalty" className="text-xs text-primary">Configure</Link>}>
             {r.enabled ? (
               <ul className="space-y-2 text-sm">
-                <li>🌼 <span className="num font-medium">{r.points_per}</span> point{r.points_per === 1 ? "" : "s"} for every <span className="num font-medium">{money(r.threshold, currency)}</span> spent</li>
+                <li>🌼 <span className="num font-medium">{r.points_per}</span> point{r.points_per === 1 ? "" : "s"} for every <span className="num font-medium">{money(r.threshold)}</span> spent</li>
                 <li>🤝 Referrers earn <span className="font-medium">{r.referral_bonus_percent}%</span> of their referrals' points</li>
-                <li>🎁 1 point = <span className="num font-medium">{money(r.point_value, currency, true)}</span> · redeem from {count(r.min_redemption_points)} points</li>
+                <li>🎁 1 point = <span className="num font-medium">{money(r.point_value, true)}</span> · redeem from {count(r.min_redemption_points)} points</li>
                 <li>⏳ {r.expiry_days > 0 ? `Points expire after ${r.expiry_days} days` : "Points never expire"}</li>
               </ul>
             ) : (
@@ -235,7 +235,7 @@ interface Period {
 }
 
 function Awards() {
-  const { currency, can } = useSession();
+  const { can } = useSession();
   const qc = useQueryClient();
   const [closing, setClosing] = useState<Period | null>(null);
   const [opening, setOpening] = useState(false);
@@ -284,7 +284,7 @@ function Awards() {
                     <div className="num text-xs text-muted-foreground">{maskPhone(s.mobile)}</div>
                   </div>
                   <div className="text-right">
-                    <div className="num font-semibold">{money(s.period_spend, currency)}</div>
+                    <div className="num font-semibold">{money(s.period_spend)}</div>
                     <PointsPill own={s.period_points} referral={s.period_referral_points} />
                   </div>
                   <Button variant="ghost" size="icon-sm" onClick={() => message(s.customer_id)} aria-label="Message"><MessageCircle /></Button>
@@ -309,7 +309,7 @@ function Awards() {
                 {p.winners.map((w) => (
                   <li key={w.customer_id} className="flex items-center justify-between gap-2 text-sm">
                     <span className="flex min-w-0 items-center gap-1.5 truncate"><Medal tier={w.tier} /> {w.customer_name}</span>
-                    <span className="num">{money(w.total_spend, currency)}</span>
+                    <span className="num">{money(w.total_spend)}</span>
                   </li>
                 ))}
                 {p.winners.length === 0 && <li className="text-sm text-muted-foreground">No winners</li>}

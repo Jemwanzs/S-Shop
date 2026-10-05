@@ -29,7 +29,7 @@ interface Detail {
 
 export default function OrderDetail() {
   const { id } = useParams();
-  const { currency, profile } = useSession();
+  const { profile } = useSession();
   const qc = useQueryClient();
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["order", id], queryFn: () => api<Detail>(`/orders/${id}`) });
   const [target, setTarget] = useState<string | null>(null);
@@ -121,13 +121,13 @@ export default function OrderDetail() {
                   {i.photo_id ? <img src={photoUrl(i.photo_id)} alt="" className="h-12 w-12 rounded-lg object-cover" loading="lazy" /> : <div className="h-12 w-12 rounded-lg bg-muted" />}
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{i.product_name}</div>
-                    <div className="num text-xs text-muted-foreground">{count(i.quantity)} × {money(i.unit_price, currency)} · {count(i.available)} available now</div>
+                    <div className="num text-xs text-muted-foreground">{count(i.quantity)} × {money(i.unit_price)} · {count(i.available)} available now</div>
                   </div>
-                  <span className="num font-semibold">{money(i.line_total, currency)}</span>
+                  <span className="num font-semibold">{money(i.line_total)}</span>
                 </li>
               ))}
             </ul>
-            <div className="flex justify-between border-t pt-3 text-base font-semibold"><span>Total</span><span className="num">{money(o.total, currency)}</span></div>
+            <div className="flex justify-between border-t pt-3 text-base font-semibold"><span>Total</span><span className="num">{money(o.total)}</span></div>
           </Section>
 
           <Section title="Timeline">
@@ -186,7 +186,7 @@ export default function OrderDetail() {
         <div className="space-y-4">
           {needsPayment && (
             <>
-              <p className="num text-2xl font-bold">{money(o.total, currency)}</p>
+              <p className="num text-2xl font-bold">{money(o.total)}</p>
               <div className="flex flex-wrap gap-2">
                 {methods.map((m) => <Chip key={m.key} active={method === m.key} onClick={() => setMethod(m.key)}>{m.label}</Chip>)}
               </div>

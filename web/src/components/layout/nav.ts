@@ -62,7 +62,7 @@ export const NAV: { group: string; items: NavItem[] }[] = [
     group: "Admin",
     items: [
       { to: "/approvals", label: "Approvals", icon: ShieldCheck, perms: [] },
-      { to: "/settings", label: "Settings", icon: Settings, perms: ["settings.manage", "users.manage", "roles.manage", "branches.manage"] },
+      { to: "/settings", label: "Settings", icon: Settings, perms: [] },
       { to: "/audit", label: "Audit Trail", icon: History, perms: ["audit.view"] },
     ],
   },

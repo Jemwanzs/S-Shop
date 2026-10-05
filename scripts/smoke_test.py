@@ -322,6 +322,18 @@ other = next(x for x in call("GET", "/platform/access-requests?status=pending")[
 call("POST", f"/platform/access-requests/{other['id']}/reject", {"note": "Not a fit yet"})
 check("rejected request leaves pending list", all(x["id"] != other["id"] for x in call("GET", "/platform/access-requests?status=pending")["items"]))
 
+step("Roadmap 8: user preferences & exchange rates")
+call("PUT", "/auth/preferences", {"language": "en", "font": "Comic Sans", "currency": "KES"}, expect=400)
+check("unknown font refused", True)
+call("PUT", "/auth/preferences", {"language": "en", "font": "Poppins", "currency": "XYZ"}, expect=400)
+check("unknown currency refused", True)
+call("PUT", "/auth/preferences", {"language": "en", "font": "Poppins", "currency": "USD"})
+me = call("GET", "/auth/me")
+check("preferences saved on the profile", me["user"]["preferences"] == {"language": "en", "font": "Poppins", "currency": "USD"}, me["user"]["preferences"])
+fx = call("GET", "/fx")
+check("exchange rates for KES/USD/EUR", fx["base"] == "KES" and fx["rates"]["KES"] == 1 and 0 < fx["rates"]["USD"] < 1, fx)
+call("PUT", "/auth/preferences", {"language": "en", "font": "Outfit", "currency": "KES"})
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

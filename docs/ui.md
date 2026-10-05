@@ -69,3 +69,9 @@ photos hidden on operational screens until “View photos”; the ordering porta
   one-liners (e.g. `window.scrollTo` returns a Promise in current Chrome; returning it crashed navigation).
 - **PIN fields** — PINs are 4–12 characters of any kind: PIN inputs never use a numeric keypad. Change PIN is in the
   user menu (desktop) and on the More page (phones).
+- **Figures** — `money(x)` renders screen figures in the user's display currency **without a symbol** (KES whole
+  numbers, USD/EUR with cents); the active currency is shown once under the profile. `moneyDoc(x, label)` keeps the
+  business currency and symbol for receipts, PDFs and customer messages. Amounts are always recorded and entered in
+  KES. Changing the display currency re-renders the app once (`SessionProvider`).
+- **Fonts** — the body font comes from `--app-font` (Outfit by default); other preference fonts load from Google Fonts
+  on first use.

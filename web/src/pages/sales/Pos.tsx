@@ -22,7 +22,7 @@ import { CartLines, Checkout } from "./pos/Checkout";
 const newRef = () => crypto.randomUUID();
 
 export default function Pos() {
-  const { profile, branch, currency } = useSession();
+  const { profile, branch } = useSession();
   const s = profile!.settings;
   const desktop = useIsDesktop();
   const qc = useQueryClient();
@@ -173,7 +173,7 @@ export default function Pos() {
                     </div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className="num font-semibold">{money(p.marked_price, currency)}</div>
+                    <div className="num font-semibold">{money(p.marked_price)}</div>
                     <div className={cn("num text-xs", out ? "text-destructive" : left <= s.stock.low_stock_threshold ? "text-warning" : "text-success")}>
                       {out ? "Out of stock" : `${count(left)} left`}
                     </div>
@@ -198,12 +198,12 @@ export default function Pos() {
             <span className="num absolute -right-2.5 -top-2.5 rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">{t.units}</span>
           </span>
           <span className="flex-1 text-left font-medium">View cart & checkout</span>
-          <span className="num font-semibold">{money(t.net, currency)}</span>
+          <span className="num font-semibold">{money(t.net)}</span>
         </button>
       )}
       {desktop && cart.lines.length > 0 && (
         <button onClick={() => setCartOpen(true)} className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-full bg-foreground px-5 py-3 text-background shadow-lift lg:hidden">
-          <ShoppingCart className="h-5 w-5" /> <span className="num">{t.units} · {money(t.net, currency)}</span>
+          <ShoppingCart className="h-5 w-5" /> <span className="num">{t.units} · {money(t.net)}</span>
         </button>
       )}
       <Drawer open={cartOpen} onOpenChange={setCartOpen}>
@@ -238,7 +238,7 @@ export default function Pos() {
         {done && (
           <div className="space-y-3 py-2 text-center">
             <CheckCircle2 className="mx-auto h-14 w-14 text-success animate-pop" />
-            <p className="num text-3xl font-bold">{money(done.sale.total, currency)}</p>
+            <p className="num text-3xl font-bold">{money(done.sale.total)}</p>
             <p className="text-sm text-muted-foreground">{done.sale.receipt_no} · {done.sale.payment_method === "credit" ? "on credit" : `paid by ${done.sale.payment_method}`}</p>
             {done.sale.customer && <p className="text-sm">{done.sale.customer.name}</p>}
             {done.sale.points_earned > 0 && <p className="inline-block rounded-full bg-points/15 px-4 py-1.5 font-semibold text-points">🌼 +{done.sale.points_earned} Loyalty Points</p>}

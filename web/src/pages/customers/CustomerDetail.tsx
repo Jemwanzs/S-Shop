@@ -33,7 +33,7 @@ interface LedgerRow { id: string; kind: string; points: number; receipt_no: stri
 
 export default function CustomerDetail() {
   const { id } = useParams();
-  const { currency, can, profile: session } = useSession();
+  const { can, profile: session } = useSession();
   const qc = useQueryClient();
   const [tab, setTab] = useState<"sales" | "orders" | "credit" | "points" | "referrals">("sales");
   const [editing, setEditing] = useState(false);
@@ -111,12 +111,12 @@ export default function CustomerDetail() {
       />
 
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Total spend" value={money(c.total_spend, currency)} tone="success" className="col-span-2 md:col-span-1" />
+        <StatCard label="Total spend" value={money(c.total_spend)} tone="success" className="col-span-2 md:col-span-1" />
         <StatCard label="Purchases" value={count(c.purchase_count)} hint={c.last_purchase_at ? `last ${date(c.last_purchase_at)}` : undefined} />
-        {loyalty && <StatCard label="Points available" value={count(c.points_available)} tone="primary" hint={`worth ${money(data.points_value, currency)}`} />}
+        {loyalty && <StatCard label="Points available" value={count(c.points_available)} tone="primary" hint={`worth ${money(data.points_value)}`} />}
         {loyalty && <StatCard label="Own | referral" value={`${count(c.own_points)} | ${count(c.referral_points)}`} />}
         {loyalty && <StatCard label="Redeemed · expired" value={`${count(c.points_redeemed)} · ${count(c.points_expired)}`} />}
-        {can("customers.view_credit") && <StatCard label="Owes" value={money(c.credit_balance, currency)} tone={toNum(c.credit_balance) > 0 ? "danger" : "default"} />}
+        {can("customers.view_credit") && <StatCard label="Owes" value={money(c.credit_balance)} tone={toNum(c.credit_balance) > 0 ? "danger" : "default"} />}
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -136,18 +136,18 @@ export default function CustomerDetail() {
             {tab === "sales" && (
               <List empty="No purchases yet">
                 {data.sales.map((s) => (
-                  <Row key={s.id} to={`/sales/${s.id}`} title={<span className="num">{s.receipt_no}</span>} sub={`${dateTime(s.created_at)} · ${s.branch_name} · ${methodLabel(s.payment_method)}`} value={money(s.total, currency)} meta={s.status !== "completed" ? <StatusBadge status={s.status} /> : s.points_earned ? `🌼 +${s.points_earned}` : undefined} />
+                  <Row key={s.id} to={`/sales/${s.id}`} title={<span className="num">{s.receipt_no}</span>} sub={`${dateTime(s.created_at)} · ${s.branch_name} · ${methodLabel(s.payment_method)}`} value={money(s.total)} meta={s.status !== "completed" ? <StatusBadge status={s.status} /> : s.points_earned ? `🌼 +${s.points_earned}` : undefined} />
                 ))}
               </List>
             )}
             {tab === "orders" && (
               <List empty="No orders yet">
-                {data.orders.map((o) => <Row key={o.id} to={`/orders/${o.id}`} title={<span className="num">{o.order_no}</span>} sub={dateTime(o.created_at)} value={money(o.total, currency)} meta={<StatusBadge status={o.status} />} />)}
+                {data.orders.map((o) => <Row key={o.id} to={`/orders/${o.id}`} title={<span className="num">{o.order_no}</span>} sub={dateTime(o.created_at)} value={money(o.total)} meta={<StatusBadge status={o.status} />} />)}
               </List>
             )}
             {tab === "credit" && (
               <List empty="No credit history">
-                {data.credit.map((cr) => <Row key={cr.id} to={`/credit/${cr.id}`} title={<span className="num">{cr.receipt_no}</span>} sub={`Due ${date(cr.due_date)} · paid ${money(cr.paid, currency)}`} value={money(cr.balance, currency)} meta={<StatusBadge status={cr.status} />} />)}
+                {data.credit.map((cr) => <Row key={cr.id} to={`/credit/${cr.id}`} title={<span className="num">{cr.receipt_no}</span>} sub={`Due ${date(cr.due_date)} · paid ${money(cr.paid)}`} value={money(cr.balance)} meta={<StatusBadge status={cr.status} />} />)}
               </List>
             )}
             {tab === "points" && (
@@ -207,7 +207,7 @@ export default function CustomerDetail() {
           <Field label={pointsAction === "redeem" ? "Points to redeem" : "Points (use − to remove)"}>
             <Input inputMode={pointsAction === "adjust" ? "text" : "numeric"} className="num" value={pts} onChange={(e) => setPts(e.target.value.replace(pointsAction === "adjust" ? /[^\d-]/g : /\D/g, ""))} autoFocus />
           </Field>
-          {pointsAction === "redeem" && pts && <p className="num text-sm text-muted-foreground">Worth {money(parseInt(pts) * toNum(session?.settings.loyalty.point_value), currency)}</p>}
+          {pointsAction === "redeem" && pts && <p className="num text-sm text-muted-foreground">Worth {money(parseInt(pts) * toNum(session?.settings.loyalty.point_value))}</p>}
           <Field label={pointsAction === "redeem" ? "What was given" : "Reason"} optional={pointsAction === "redeem"}><Input value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         </div>
       </ResponsiveDialog>

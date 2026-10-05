@@ -21,7 +21,7 @@ const MAX_LEVELS = 5;
 /** Maker-checker: the initiator needs the action's permission; each level must approve in order. */
 export function WorkflowSettings() {
   const qc = useQueryClient();
-  const { currency, profile } = useSession();
+  const { profile } = useSession();
   const { data, isLoading } = useSettings();
   const roles = useQuery({ queryKey: ["roles"], queryFn: () => api<Role[]>("/roles") });
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<UserRow[]>("/users") });
@@ -49,7 +49,7 @@ export function WorkflowSettings() {
     : APPROVER[l.approver_type];
   const conditionText = (w: WorkflowRow) => {
     const parts = [];
-    if (w.min_amount !== null && w.min_amount !== "") parts.push(`from ${money(w.min_amount, currency)}`);
+    if (w.min_amount !== null && w.min_amount !== "") parts.push(`from ${money(w.min_amount)}`);
     if (w.conditions.branch_ids?.length) parts.push(`${w.conditions.branch_ids.length} branch(es)`);
     if (w.conditions.role_ids?.length) parts.push(`${w.conditions.role_ids.length} role(s)`);
     if (w.conditions.category_ids?.length) parts.push(`${w.conditions.category_ids.length} categor(ies)`);

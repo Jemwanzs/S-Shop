@@ -1,6 +1,6 @@
 /** Client-side PDF generation (receipts and report tables). Loaded on demand. */
 import type { SaleDetail } from "./types";
-import { amount, dateTime, methodLabel, money, phone, toNum } from "./format";
+import { amount, dateTime, methodLabel, moneyDoc, phone, toNum } from "./format";
 
 async function load() {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
@@ -51,12 +51,12 @@ export async function receiptPdf(d: SaleDetail) {
     doc.text(v, w - 4, y, { align: "right" });
     y += bold ? 5.5 : 4.5;
   };
-  if (toNum(d.sale.discount_total) > 0) row("Discount", `-${money(d.sale.discount_total, c)}`);
-  if (toNum(d.sale.redeemed_value) > 0) row(`Points redeemed (${d.sale.redeemed_points})`, `-${money(d.sale.redeemed_value, c)}`);
-  row("TOTAL", money(d.sale.total, c), true);
+  if (toNum(d.sale.discount_total) > 0) row("Discount", `-${moneyDoc(d.sale.discount_total, c)}`);
+  if (toNum(d.sale.redeemed_value) > 0) row(`Points redeemed (${d.sale.redeemed_points})`, `-${moneyDoc(d.sale.redeemed_value, c)}`);
+  row("TOTAL", moneyDoc(d.sale.total, c), true);
   row("Payment", methodLabel(d.sale.payment_method));
-  row("Amount paid", money(d.sale.amount_paid, c));
-  if (d.credit) row("Balance", money(d.credit.balance, c));
+  row("Amount paid", moneyDoc(d.sale.amount_paid, c));
+  if (d.credit) row("Balance", moneyDoc(d.credit.balance, c));
   if (d.payments[0]?.reference) row("Reference", d.payments[0].reference);
   if (d.sale.points_earned > 0) row("Loyalty points earned", `+${d.sale.points_earned}`);
   row("Served by", d.sale.user_name ?? "");

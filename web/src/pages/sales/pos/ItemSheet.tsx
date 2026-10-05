@@ -38,7 +38,7 @@ export function ItemSheet({
   takenBarcodes: string[];
   initialBarcode?: string;
 }) {
-  const { profile, currency, can } = useSession();
+  const { profile, can } = useSession();
   const s = profile!.settings;
   const markedPrice = toNum(product?.marked_price);
   const [qty, setQty] = useState(1);
@@ -104,7 +104,7 @@ export function ItemSheet({
             disabled={!valid}
             onClick={() => onSave({ key: editing?.key, product, quantity: qty, unitPrice: unit, barcode })}
           >
-            {editing ? "Update item" : "Add to cart"} · <span className="num">{money(unit * qty, currency)}</span>
+            {editing ? "Update item" : "Add to cart"} · <span className="num">{money(unit * qty)}</span>
           </Button>
         }
       >
@@ -138,7 +138,7 @@ export function ItemSheet({
               </div>
             </Field>
             <Field label="Marked price">
-              <div className="num flex h-11 items-center rounded-lg bg-muted px-3 font-semibold text-muted-foreground">{money(markedPrice, currency)}</div>
+              <div className="num flex h-11 items-center rounded-lg bg-muted px-3 font-semibold text-muted-foreground">{money(markedPrice)}</div>
             </Field>
           </div>
 
@@ -176,7 +176,7 @@ export function ItemSheet({
 
           {overMax && (
             <p className="flex gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning">
-              <AlertTriangle className="h-4 w-4 shrink-0" /> Above the maximum discount of {money(product.max_discount, currency)}. A supervisor will need to approve at checkout.
+              <AlertTriangle className="h-4 w-4 shrink-0" /> Above the maximum discount of {money(product.max_discount)}. A supervisor will need to approve at checkout.
             </p>
           )}
           {belowMarkedBlocked && <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">You are not allowed to sell below the marked price.</p>}

@@ -16,7 +16,7 @@ import { ConfirmDialog, Field, NativeSelect, ToggleRow } from "@/components/Form
 
 export default function SaleDetail() {
   const { id } = useParams();
-  const { currency, can, profile } = useSession();
+  const { can, profile } = useSession();
   const qc = useQueryClient();
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["sale", id], queryFn: () => api<Detail>(`/sales/${id}`) });
   const [returning, setReturning] = useState(false);
@@ -115,13 +115,13 @@ export default function SaleDetail() {
             </tbody>
           </table>
           <div className="mt-3 space-y-1 border-t pt-3 text-sm">
-            <KV label="Marked total" className="py-0.5"><span className="num">{money(s.gross_total, currency)}</span></KV>
-            {toNum(s.discount_total) !== 0 && <KV label="Discount" className="py-0.5"><span className="num text-destructive">−{money(s.discount_total, currency)}</span></KV>}
-            {toNum(s.redeemed_value) > 0 && <KV label={`Points redeemed (${s.redeemed_points})`} className="py-0.5"><span className="num">−{money(s.redeemed_value, currency)}</span></KV>}
-            <div className="flex justify-between border-t pt-2 text-base font-semibold"><span>Total</span><span className="num">{money(s.total, currency)}</span></div>
+            <KV label="Marked total" className="py-0.5"><span className="num">{money(s.gross_total)}</span></KV>
+            {toNum(s.discount_total) !== 0 && <KV label="Discount" className="py-0.5"><span className="num text-destructive">−{money(s.discount_total)}</span></KV>}
+            {toNum(s.redeemed_value) > 0 && <KV label={`Points redeemed (${s.redeemed_points})`} className="py-0.5"><span className="num">−{money(s.redeemed_value)}</span></KV>}
+            <div className="flex justify-between border-t pt-2 text-base font-semibold"><span>Total</span><span className="num">{money(s.total)}</span></div>
             <KV label="Payment" className="py-0.5">{methodLabel(s.payment_method)}</KV>
-            <KV label="Amount paid" className="py-0.5"><span className="num">{money(s.amount_paid, currency)}</span></KV>
-            {data.credit && <KV label="Balance" className="py-0.5"><span className="num text-destructive">{money(data.credit.balance, currency)}</span></KV>}
+            <KV label="Amount paid" className="py-0.5"><span className="num">{money(s.amount_paid)}</span></KV>
+            {data.credit && <KV label="Balance" className="py-0.5"><span className="num text-destructive">{money(data.credit.balance)}</span></KV>}
             {data.payments.filter((p) => p.reference).map((p) => <KV key={p.id} label={toNum(p.amount) < 0 ? "Refund ref" : "Reference"} className="py-0.5"><span className="num">{p.reference}</span></KV>)}
             {s.points_earned > 0 && <KV label="Loyalty points earned" className="py-0.5"><span className="text-points">🌼 +{s.points_earned}</span></KV>}
             <KV label="Served by" className="py-0.5">{s.user_name ?? "—"}</KV>
@@ -145,7 +145,7 @@ export default function SaleDetail() {
               <ul className="space-y-3 text-sm">
                 {data.returns.map((r) => (
                   <li key={r.id}>
-                    <div className="flex justify-between font-medium"><span className="num">{r.return_no}</span><span className="num">{money(r.refund_amount, currency)}</span></div>
+                    <div className="flex justify-between font-medium"><span className="num">{r.return_no}</span><span className="num">{money(r.refund_amount)}</span></div>
                     <div className="text-xs text-muted-foreground">{r.kind} · {r.reason} · {r.user_name} · {dateTime(r.created_at)}{r.points_reversed > 0 && ` · −${r.points_reversed} pts`}</div>
                   </li>
                 ))}

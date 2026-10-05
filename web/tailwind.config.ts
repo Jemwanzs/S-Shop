@@ -10,7 +10,7 @@ export default {
     extend: {
       screens: { "3xl": "1920px" },
       fontFamily: {
-        sans: ["Outfit", "system-ui", "-apple-system", "sans-serif"],
+        sans: ["var(--app-font)", "Outfit", "system-ui", "-apple-system", "sans-serif"],
         mono: ["'JetBrains Mono'", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       colors: {

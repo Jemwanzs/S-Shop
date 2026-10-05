@@ -77,7 +77,7 @@ Added 2026-10-05 (owner request), delivered in this order before the remaining i
 - ✅ **7. Request access** ([module 18](modules/18-access-requests.md)) — no open signup. Sign-in shows *Interested in accessing S'Shop? Request Access*; the form
   stores the request for platform-admin review, emails `jamosammy@gmail.com`, and shows the confirmation with the
   support numbers 0798 993 404 / 0732 968 898. Nothing is activated until a platform admin approves it.
-- **8. User preferences** (per user) — font (Outfit default, Poppins, Inter, Roboto, Nunito) and display currency
+- ✅ **8. User preferences** (per user) — font (Outfit default, Poppins, Inter, Roboto, Nunito) and display currency
   (KES default, USD, EUR) with live exchange rates; the active currency is shown once in the profile and figures are
   shown without repeated currency symbols.
 - **9. Languages** — English, Swahili, French, Arabic (right-to-left), per user.

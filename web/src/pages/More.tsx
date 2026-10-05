@@ -1,15 +1,17 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ExternalLink, LogOut, Moon, Sun } from "lucide-react";
+import { ExternalLink, KeyRound, LogOut, Moon, Sun } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { initials } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { useTheme } from "@/components/layout/AppShell";
+import { ChangePin, useTheme } from "@/components/layout/AppShell";
 import { allowed, BOTTOM, NAV } from "@/components/layout/nav";
 
 /** Phone/tablet menu for everything not on the bottom bar. */
 export default function More() {
   const { profile, can, signOut, branch } = useSession();
   const { dark, toggle } = useTheme();
+  const [pinOpen, setPinOpen] = useState(false);
   const bottom = new Set(BOTTOM.map((b) => b.to));
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -45,7 +47,9 @@ export default function More() {
         </a>
       )}
       {(profile?.branches.length ?? 0) > 1 && <Button variant="outline" className="w-full" asChild><Link to="/select-branch">Switch branch</Link></Button>}
+      <Button variant="outline" className="w-full" onClick={() => setPinOpen(true)}><KeyRound /> Change PIN</Button>
       <Button variant="outline" className="w-full text-destructive" onClick={signOut}><LogOut /> Sign out</Button>
+      <ChangePin open={pinOpen} onOpenChange={setPinOpen} />
     </div>
   );
 }

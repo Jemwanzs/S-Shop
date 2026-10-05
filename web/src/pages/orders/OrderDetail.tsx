@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, MapPin, MessageCircle, Phone } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { api, errorMessage, photoUrl } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { count, dateTime, money, phone, titleCase } from "@/lib/format";

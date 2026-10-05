@@ -153,3 +153,10 @@
     display: block !important;
   }
 }
+
+/* Toasts: close button on the top-right corner (sonner places it top-left by default). */
+[data-sonner-toast] [data-close-button] {
+  left: auto;
+  right: 0;
+  transform: translate(35%, -35%);
+}

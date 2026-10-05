@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Paperclip, Plus, Wallet } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { api, errorMessage, saveBlob, session } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { date, methodLabel, money, todayIso, toNum } from "@/lib/format";

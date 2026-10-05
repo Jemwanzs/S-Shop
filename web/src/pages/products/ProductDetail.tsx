@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, ImagePlus, Loader2, PackagePlus, Pencil, Power, Star, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { optimizeImage } from "@/lib/image";

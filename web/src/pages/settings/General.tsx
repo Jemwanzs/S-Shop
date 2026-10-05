@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Copy, ExternalLink, ImagePlus, XCircle } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { api, errorMessage } from "@/lib/api";
 import { optimizeImage } from "@/lib/image";
 import { Button } from "@/components/ui/button";

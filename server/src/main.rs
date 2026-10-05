@@ -25,7 +25,7 @@ use sqlx::postgres::PgPoolOptions;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
-use tower_http::set_header::SetResponseHeaderLayer;
+use tower_http::set_header::{SetResponseHeader, SetResponseHeaderLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -97,8 +97,13 @@ async fn serve() -> anyhow::Result<()> {
     jobs::spawn(state.clone());
 
     // Single-page app: unknown paths fall back to index.html; hashed assets are cached forever.
+    // index.html must be revalidated so browsers pick up a new release instead of asking for old chunks.
     let index = format!("{web_dir}/index.html");
-    let spa = ServeDir::new(&web_dir).fallback(ServeFile::new(&index));
+    let spa = SetResponseHeader::overriding(
+        ServeDir::new(&web_dir).fallback(ServeFile::new(&index)),
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    );
     let assets = Router::new()
         .nest_service("/assets", ServeDir::new(format!("{web_dir}/assets")))
         .layer(SetResponseHeaderLayer::overriding(

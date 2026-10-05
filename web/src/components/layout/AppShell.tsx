@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Check, ChevronsUpDown, KeyRound, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
-import { toast } from "sonner";
+import { Bell, Check, ChevronsUpDown, Eye, EyeOff, KeyRound, Loader2, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -20,6 +20,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { Loading } from "@/components/Page";
 import { Field } from "@/components/Form";
 import { GlobalSearch } from "./GlobalSearch";
 import mark from "@/assets/sshop-mark.png";
@@ -90,20 +92,48 @@ function BranchSwitcher({ compact }: { compact?: boolean }) {
   );
 }
 
-function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function PinInput({ value, onChange, autoComplete, autoFocus }: { value: string; onChange: (v: string) => void; autoComplete: string; autoFocus?: boolean }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input type={show ? "text" : "password"} autoComplete={autoComplete} autoFocus={autoFocus} maxLength={12} value={value} onChange={(e) => onChange(e.target.value)} className="pr-11" />
+      <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground" aria-label={show ? "Hide PIN" : "Show PIN"}>
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+}
+
+export function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const { profile } = useSession();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
-  const save = async () => {
+  // Always open empty, so a browser-filled or half-typed PIN is never sent by mistake.
+  useEffect(() => {
+    if (open) {
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+    }
+  }, [open]);
+  const problem =
+    !current ? "Enter your current PIN"
+    : next.length < 4 || next.length > 12 ? "The new PIN needs 4–12 characters"
+    : next === current ? "The new PIN must be different from the current one"
+    : confirm !== next ? "The two new PINs do not match"
+    : null;
+  const save = async (e?: FormEvent) => {
+    e?.preventDefault();
+    if (problem || busy) return;
     setBusy(true);
     try {
       await api("/auth/change-pin", { body: { current_pin: current, new_pin: next } });
-      toast.success("PIN changed");
+      toast.success("PIN changed — use the new PIN next time you sign in");
       onOpenChange(false);
-      setCurrent("");
-      setNext("");
-    } catch (e) {
-      toast.error(errorMessage(e));
+    } catch (err) {
+      toast.error(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -113,12 +143,17 @@ function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange: (o: bo
       open={open}
       onOpenChange={onOpenChange}
       title="Change PIN"
-      footer={<Button className="w-full md:w-auto" disabled={busy || next.length < 4} onClick={save}>Save PIN</Button>}
+      description="Use the PIN you signed in with, then choose a new one."
+      footer={<Button type="submit" form="change-pin" className="w-full md:w-auto" disabled={!!problem || busy}>{busy ? <Loader2 className="animate-spin" /> : "Save PIN"}</Button>}
     >
-      <div className="space-y-4">
-        <Field label="Current PIN"><Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} /></Field>
-        <Field label="New PIN" hint="4–12 characters"><Input type="password" value={next} onChange={(e) => setNext(e.target.value)} /></Field>
-      </div>
+      <form id="change-pin" onSubmit={save} className="space-y-4">
+        {/* Lets password managers file the new PIN under the right account. */}
+        <input type="email" name="username" autoComplete="username" value={profile?.user.email ?? ""} readOnly hidden />
+        <Field label="Current PIN"><PinInput value={current} onChange={setCurrent} autoComplete="current-password" autoFocus /></Field>
+        <Field label="New PIN" hint="4–12 characters — letters, numbers and symbols allowed"><PinInput value={next} onChange={setNext} autoComplete="new-password" /></Field>
+        <Field label="Confirm new PIN"><PinInput value={confirm} onChange={setConfirm} autoComplete="new-password" /></Field>
+        {problem && (current || next || confirm) && <p className="text-sm text-muted-foreground">{problem}</p>}
+      </form>
     </ResponsiveDialog>
   );
 }
@@ -281,7 +316,10 @@ export function AppShell() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  useEffect(() => window.scrollTo(0, 0), [pathname]);
+  // Block body: newer browsers return a Promise from scrollTo, which React would treat as a cleanup function.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
 
   const unread = notes.data?.unread ?? 0;
   const approvals = notes.data?.pending_approvals ?? 0;
@@ -313,7 +351,11 @@ export function AppShell() {
           </div>
         </header>
         <main className="mx-auto w-full max-w-[1680px] px-4 pb-28 pt-5 md:px-6 lg:px-8 lg:pb-12 lg:pt-7">
-          <Outlet />
+          <ErrorBoundary key={pathname}>
+            <Suspense fallback={<Loading className="min-h-[50vh]" />}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
       <BottomNav />

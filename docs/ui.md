@@ -54,3 +54,18 @@ photos hidden on operational screens until “View photos”; the ordering porta
 (table ↔ cards from one column definition) + `Pager` · `ResponsiveDialog` (drawer ↔ dialog) · `PeriodFilter`,
 `Segments`, `SearchInput` · `StatCard` · `StatusBadge`, `PointsPill`, `Medal`, `StockIndicator` · `BarcodeScanner`
 · `PhotoGallery` · `Field`, `ToggleRow`, `NativeSelect`, `ConfirmDialog` · `ui/*` Radix primitives (shadcn).
+
+## Feedback & resilience
+- **Notifications** — import `toast` from `@/lib/toast` (never from `sonner` directly). `toast.success` / `toast.info`
+  are brief toasts at the top centre (5 s, close × on the right). `toast.error` opens a **centred alert** with an icon,
+  close × top-right and an OK button; it stays until dismissed, repeats are collapsed and several queue one after
+  another (`AlertHost`, mounted once in `App.tsx`).
+- **Page crashes** — each page renders inside an `ErrorBoundary` (keyed by path) in the app shell: a failing page
+  shows a "Reload" card while the menus keep working. Pages load inside the shell's `Suspense`, so navigation stays
+  visible while a page downloads.
+- **New releases** — `index.html` is served `Cache-Control: no-cache`; hashed `/assets` are immutable. If a tab still
+  running an older release requests a chunk that no longer exists, the app reloads once to pick up the new version.
+- **Effects** — `useEffect` callbacks must not return values other than a cleanup function. Use a block body for
+  one-liners (e.g. `window.scrollTo` returns a Promise in current Chrome; returning it crashed navigation).
+- **PIN fields** — PINs are 4–12 characters of any kind: PIN inputs never use a numeric keypad. Change PIN is in the
+  user menu (desktop) and on the More page (phones).

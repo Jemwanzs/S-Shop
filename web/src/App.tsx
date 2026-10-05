@@ -1,7 +1,8 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
+import { AlertHost } from "@/lib/toast";
 import { ApiError } from "@/lib/api";
 import { SessionProvider, useSession } from "@/lib/session";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -11,36 +12,57 @@ import LoginPage from "@/pages/auth/Login";
 import SelectBranchPage from "@/pages/auth/SelectBranch";
 
 // Route-level code splitting keeps the first load small on mobile data.
-const Dashboard = lazy(() => import("@/pages/Dashboard"));
-const More = lazy(() => import("@/pages/More"));
-const Notifications = lazy(() => import("@/pages/Notifications"));
-const Pos = lazy(() => import("@/pages/sales/Pos"));
-const SalesList = lazy(() => import("@/pages/sales/SalesList"));
-const SaleDetail = lazy(() => import("@/pages/sales/SaleDetail"));
-const CreditList = lazy(() => import("@/pages/credit/CreditList"));
-const CreditDetail = lazy(() => import("@/pages/credit/CreditDetail"));
-const OrdersList = lazy(() => import("@/pages/orders/OrdersList"));
-const OrderDetail = lazy(() => import("@/pages/orders/OrderDetail"));
-const ProductsList = lazy(() => import("@/pages/products/ProductsList"));
-const ProductDetail = lazy(() => import("@/pages/products/ProductDetail"));
-const ProductForm = lazy(() => import("@/pages/products/ProductForm"));
-const Stock = lazy(() => import("@/pages/stock/Stock"));
-const ReceiveStock = lazy(() => import("@/pages/stock/ReceiveStock"));
-const StockCount = lazy(() => import("@/pages/stock/StockCount"));
-const TransfersList = lazy(() => import("@/pages/transfers/TransfersList"));
-const TransferNew = lazy(() => import("@/pages/transfers/TransferNew"));
-const TransferDetail = lazy(() => import("@/pages/transfers/TransferDetail"));
-const CustomersList = lazy(() => import("@/pages/customers/CustomersList"));
-const CustomerDetail = lazy(() => import("@/pages/customers/CustomerDetail"));
-const Loyalty = lazy(() => import("@/pages/loyalty/Loyalty"));
-const Expenses = lazy(() => import("@/pages/expenses/Expenses"));
-const Reports = lazy(() => import("@/pages/reports/Reports"));
-const ReportView = lazy(() => import("@/pages/reports/ReportView"));
-const Approvals = lazy(() => import("@/pages/Approvals"));
-const Settings = lazy(() => import("@/pages/settings/Settings"));
-const Audit = lazy(() => import("@/pages/Audit"));
-const Portal = lazy(() => import("@/pages/portal/Portal"));
-const Track = lazy(() => import("@/pages/portal/Track"));
+// After a deploy, an open tab may ask for chunk files that no longer exist: reload once to pick up the new version.
+function page<T extends ComponentType<object>>(load: () => Promise<{ default: T }>) {
+  return lazy(() =>
+    load().catch((err) => {
+      const key = "sshop.chunk-reload";
+      let last = 0;
+      try {
+        last = Number(sessionStorage.getItem(key) ?? 0);
+        sessionStorage.setItem(key, String(Date.now()));
+      } catch {
+        /* storage unavailable */
+      }
+      if (Date.now() - last > 30_000) {
+        window.location.reload();
+        return new Promise<never>(() => {});
+      }
+      throw err;
+    }),
+  );
+}
+
+const Dashboard = page(() => import("@/pages/Dashboard"));
+const More = page(() => import("@/pages/More"));
+const Notifications = page(() => import("@/pages/Notifications"));
+const Pos = page(() => import("@/pages/sales/Pos"));
+const SalesList = page(() => import("@/pages/sales/SalesList"));
+const SaleDetail = page(() => import("@/pages/sales/SaleDetail"));
+const CreditList = page(() => import("@/pages/credit/CreditList"));
+const CreditDetail = page(() => import("@/pages/credit/CreditDetail"));
+const OrdersList = page(() => import("@/pages/orders/OrdersList"));
+const OrderDetail = page(() => import("@/pages/orders/OrderDetail"));
+const ProductsList = page(() => import("@/pages/products/ProductsList"));
+const ProductDetail = page(() => import("@/pages/products/ProductDetail"));
+const ProductForm = page(() => import("@/pages/products/ProductForm"));
+const Stock = page(() => import("@/pages/stock/Stock"));
+const ReceiveStock = page(() => import("@/pages/stock/ReceiveStock"));
+const StockCount = page(() => import("@/pages/stock/StockCount"));
+const TransfersList = page(() => import("@/pages/transfers/TransfersList"));
+const TransferNew = page(() => import("@/pages/transfers/TransferNew"));
+const TransferDetail = page(() => import("@/pages/transfers/TransferDetail"));
+const CustomersList = page(() => import("@/pages/customers/CustomersList"));
+const CustomerDetail = page(() => import("@/pages/customers/CustomerDetail"));
+const Loyalty = page(() => import("@/pages/loyalty/Loyalty"));
+const Expenses = page(() => import("@/pages/expenses/Expenses"));
+const Reports = page(() => import("@/pages/reports/Reports"));
+const ReportView = page(() => import("@/pages/reports/ReportView"));
+const Approvals = page(() => import("@/pages/Approvals"));
+const Settings = page(() => import("@/pages/settings/Settings"));
+const Audit = page(() => import("@/pages/Audit"));
+const Portal = page(() => import("@/pages/portal/Portal"));
+const Track = page(() => import("@/pages/portal/Track"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -109,7 +131,8 @@ export default function App() {
           </BrowserRouter>
         </SessionProvider>
       </TooltipProvider>
-      <Toaster position="top-center" richColors closeButton toastOptions={{ className: "font-sans" }} />
+      <Toaster position="top-center" richColors closeButton duration={5000} toastOptions={{ className: "font-sans" }} />
+      <AlertHost />
     </QueryClientProvider>
   );
 }

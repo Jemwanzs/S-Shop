@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Gift, MessageCircle, Pencil, Phone, SlidersHorizontal, UserPlus } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { count, date, dateTime, initials, methodLabel, money, phone, signed, titleCase, toNum } from "@/lib/format";

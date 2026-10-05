@@ -89,9 +89,24 @@
   * {
     @apply border-border;
   }
+  /* Compact, mobile-first scale: every rem-based size (text, inputs, buttons, spacing) follows the root. */
   html {
     -webkit-tap-highlight-color: transparent;
     text-size-adjust: 100%;
+    font-size: 14px;
+  }
+  @media (min-width: 768px) {
+    html {
+      font-size: 15px;
+    }
+  }
+  /* iOS zooms into inputs under 16px; keep them at 16px there only (pinch-zoom stays available). */
+  @supports (-webkit-touch-callout: none) {
+    input,
+    select,
+    textarea {
+      font-size: max(16px, 1rem) !important;
+    }
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;

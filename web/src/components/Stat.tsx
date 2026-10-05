@@ -29,16 +29,16 @@ export function StatCard({
     danger: "text-destructive bg-destructive/10",
   }[tone];
   return (
-    <div className={cn("surface flex min-w-0 flex-col gap-2 p-4 animate-fade-up", className)}>
+    <div className={cn("surface flex min-w-0 flex-col gap-1.5 p-3 animate-fade-up lg:gap-2 lg:p-4", className)}>
       <div className="flex items-center gap-2">
         {Icon && (
-          <span className={cn("rounded-lg p-1.5", iconTone)}>
-            <Icon className="h-4 w-4" />
+          <span className={cn("rounded-md p-1", iconTone)}>
+            <Icon className="h-3.5 w-3.5" />
           </span>
         )}
         <span className="label-caps truncate">{label}</span>
       </div>
-      <div className="num truncate text-xl font-semibold lg:text-2xl">{value}</div>
+      <div className="num truncate text-lg font-semibold lg:text-2xl">{value}</div>
       {(c !== null || hint) && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {c !== null && (

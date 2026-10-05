@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Field, NativeSelect, ToggleRow } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Card, SettingsPage } from "./shared";
 
 // ───────────────────────────── Branches ─────────────────────────────
@@ -81,6 +82,7 @@ export function UsersSettings() {
   const [edit, setEdit] = useState<UserForm | null>(null);
   const [resetFor, setResetFor] = useState<UserRow | null>(null);
   const [newPin, setNewPin] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
   const save = useMutation({
     mutationFn: (u: UserForm) => api(u.id ? `/users/${u.id}` : "/users", { method: u.id ? "PUT" : "POST", body: { ...u, pin: u.id ? undefined : u.pin } }),
     onSuccess: () => { toast.success("User saved"); setEdit(null); qc.invalidateQueries({ queryKey: ["users"] }); },
@@ -88,24 +90,24 @@ export function UsersSettings() {
   });
   const reset = useMutation({
     mutationFn: () => api(`/users/${resetFor!.id}/reset-pin`, { body: { pin: newPin } }),
-    onSuccess: () => { toast.success("PIN reset"); setResetFor(null); setNewPin(""); },
+    onSuccess: () => { toast.success("PIN reset"); setResetFor(null); },
     onError: (e) => toast.error(errorMessage(e)),
   });
   const branchName = (id: string) => branches.data?.find((b) => b.id === id)?.name ?? "";
 
   return (
     <SettingsPage title="Users" description="Staff sign in with email and PIN. Access comes from their role and branches." loading={isLoading}>
-      <Card action={<Button size="sm" onClick={() => setEdit({ name: "", email: "", phone: "", pin: "", role_id: roles.data?.find((r) => r.name === "Salesperson")?.id ?? "", all_branches: false, branch_ids: profile?.branches[0] ? [profile.branches[0].id] : [], is_active: true })}><Plus /> Add user</Button>}>
+      <Card action={<Button size="sm" onClick={() => { setPinConfirm(""); setEdit({ name: "", email: "", phone: "", pin: "", role_id: roles.data?.find((r) => r.name === "Salesperson")?.id ?? "", all_branches: false, branch_ids: profile?.branches[0] ? [profile.branches[0].id] : [], is_active: true }); }}><Plus /> Add user</Button>}>
         {data?.map((u) => (
           <div key={u.id} className="flex items-center gap-3 py-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/12 text-sm font-semibold text-primary">{initials(u.name)}</span>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">{initials(u.name)}</span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2 font-medium">{u.name} <Pill tone="primary">{u.role_name}</Pill>{!u.is_active && <Pill tone="danger">Inactive</Pill>}</div>
               <div className="truncate text-xs text-muted-foreground">
                 {u.email} · {u.all_branches ? "All branches" : u.branch_ids.map(branchName).join(", ")} · {u.last_login_at ? `active ${ago(u.last_login_at)}` : "never signed in"}
               </div>
             </div>
-            <Button variant="ghost" size="icon-sm" onClick={() => setResetFor(u)} aria-label="Reset PIN"><KeyRound /></Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => { setNewPin(""); setPinConfirm(""); setResetFor(u); }} aria-label="Reset PIN"><KeyRound /></Button>
             <Button variant="ghost" size="icon-sm" onClick={() => setEdit({ id: u.id, name: u.name, email: u.email, phone: u.phone, pin: "", role_id: u.role_id, all_branches: u.all_branches, branch_ids: u.branch_ids, is_active: u.is_active })} aria-label="Edit"><Pencil /></Button>
           </div>
         ))}
@@ -114,14 +116,15 @@ export function UsersSettings() {
         open={!!edit}
         onOpenChange={(o) => !o && setEdit(null)}
         title={edit?.id ? "Edit user" : "New user"}
-        footer={<Button className="w-full md:w-auto" disabled={!edit?.name || !edit?.email || !edit?.role_id || (!edit.id && edit.pin.length < 4) || save.isPending} onClick={() => edit && save.mutate(edit)}>Save user</Button>}
+        footer={<Button className="w-full md:w-auto" disabled={!edit?.name || !edit?.email || !edit?.role_id || (!edit.id && (edit.pin.length < 4 || edit.pin !== pinConfirm)) || save.isPending} onClick={() => edit && save.mutate(edit)}>Save user</Button>}
       >
         {edit && (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Name"><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
             <Field label="Email"><Input type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
             <Field label="Phone" optional><Input value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
-            {!edit.id && <Field label="Login PIN" hint="4–12 characters"><Input type="password" value={edit.pin} onChange={(e) => setEdit({ ...edit, pin: e.target.value })} /></Field>}
+            {!edit.id && <Field label="Login PIN" hint="4–12 characters"><PasswordInput autoComplete="new-password" maxLength={12} value={edit.pin} onChange={(e) => setEdit({ ...edit, pin: e.target.value })} /></Field>}
+            {!edit.id && <Field label="Confirm PIN" hint={pinConfirm && pinConfirm !== edit.pin ? "PINs do not match" : undefined}><PasswordInput autoComplete="new-password" maxLength={12} value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value)} /></Field>}
             <Field label="Role" className="sm:col-span-2">
               <NativeSelect value={edit.role_id} onChange={(v) => setEdit({ ...edit, role_id: v })}>
                 <option value="">Choose…</option>
@@ -145,8 +148,11 @@ export function UsersSettings() {
           </div>
         )}
       </ResponsiveDialog>
-      <ResponsiveDialog open={!!resetFor} onOpenChange={(o) => !o && setResetFor(null)} title={`Reset PIN for ${resetFor?.name}`} footer={<Button className="w-full md:w-auto" disabled={newPin.length < 4 || reset.isPending} onClick={() => reset.mutate()}>Reset PIN</Button>}>
-        <Field label="New PIN" hint="Share it with the user privately"><Input type="password" value={newPin} onChange={(e) => setNewPin(e.target.value)} autoFocus /></Field>
+      <ResponsiveDialog open={!!resetFor} onOpenChange={(o) => !o && setResetFor(null)} title={`Reset PIN for ${resetFor?.name}`} footer={<Button className="w-full md:w-auto" disabled={newPin.length < 4 || newPin !== pinConfirm || reset.isPending} onClick={() => reset.mutate()}>Reset PIN</Button>}>
+        <div className="space-y-4">
+          <Field label="New PIN" hint="4–12 characters. Share it with the user privately"><PasswordInput autoComplete="new-password" maxLength={12} value={newPin} onChange={(e) => setNewPin(e.target.value)} autoFocus /></Field>
+          <Field label="Confirm new PIN" hint={pinConfirm && pinConfirm !== newPin ? "PINs do not match" : undefined}><PasswordInput autoComplete="new-password" maxLength={12} value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value)} /></Field>
+        </div>
       </ResponsiveDialog>
     </SettingsPage>
   );

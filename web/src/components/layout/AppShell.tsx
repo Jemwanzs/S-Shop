@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Check, ChevronsUpDown, Eye, EyeOff, KeyRound, Loader2, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
+import { Bell, Check, ChevronsUpDown, KeyRound, Loader2, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { api, errorMessage } from "@/lib/api";
@@ -10,7 +10,6 @@ import { useLiveEvents } from "@/lib/events";
 import { initials } from "@/lib/format";
 import type { Notification } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Loading } from "@/components/Page";
 import { Field } from "@/components/Form";
 import { GlobalSearch } from "./GlobalSearch";
@@ -92,18 +92,6 @@ function BranchSwitcher({ compact }: { compact?: boolean }) {
   );
 }
 
-function PinInput({ value, onChange, autoComplete, autoFocus }: { value: string; onChange: (v: string) => void; autoComplete: string; autoFocus?: boolean }) {
-  const [show, setShow] = useState(false);
-  return (
-    <div className="relative">
-      <Input type={show ? "text" : "password"} autoComplete={autoComplete} autoFocus={autoFocus} maxLength={12} value={value} onChange={(e) => onChange(e.target.value)} className="pr-11" />
-      <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground" aria-label={show ? "Hide PIN" : "Show PIN"}>
-        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </button>
-    </div>
-  );
-}
-
 export function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const { profile } = useSession();
   const [current, setCurrent] = useState("");
@@ -149,9 +137,9 @@ export function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange:
       <form id="change-pin" onSubmit={save} className="space-y-4">
         {/* Lets password managers file the new PIN under the right account. */}
         <input type="email" name="username" autoComplete="username" value={profile?.user.email ?? ""} readOnly hidden />
-        <Field label="Current PIN"><PinInput value={current} onChange={setCurrent} autoComplete="current-password" autoFocus /></Field>
-        <Field label="New PIN" hint="4–12 characters — letters, numbers and symbols allowed"><PinInput value={next} onChange={setNext} autoComplete="new-password" /></Field>
-        <Field label="Confirm new PIN"><PinInput value={confirm} onChange={setConfirm} autoComplete="new-password" /></Field>
+        <Field label="Current PIN"><PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" maxLength={12} autoFocus /></Field>
+        <Field label="New PIN" hint="4–12 characters — letters, numbers and symbols allowed"><PasswordInput value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" maxLength={12} /></Field>
+        <Field label="Confirm new PIN"><PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" maxLength={12} /></Field>
         {problem && (current || next || confirm) && <p className="text-sm text-muted-foreground">{problem}</p>}
       </form>
     </ResponsiveDialog>
@@ -350,7 +338,7 @@ export function AppShell() {
             <div className="hidden lg:block"><UserMenu /></div>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1680px] px-4 pb-28 pt-5 md:px-6 lg:px-8 lg:pb-12 lg:pt-7">
+        <main className="mx-auto w-full max-w-[1680px] px-3.5 pb-28 pt-4 md:px-6 lg:px-8 lg:pb-12 lg:pt-6">
           <ErrorBoundary key={pathname}>
             <Suspense fallback={<Loading className="min-h-[50vh]" />}>
               <Outlet />

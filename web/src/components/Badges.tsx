@@ -4,9 +4,9 @@ import { count, titleCase } from "@/lib/format";
 const TONES = {
   neutral: "bg-muted text-muted-foreground",
   primary: "bg-primary/10 text-primary",
-  success: "bg-success/12 text-success",
+  success: "bg-success/15 text-success",
   warning: "bg-warning/15 text-warning",
-  danger: "bg-destructive/12 text-destructive",
+  danger: "bg-destructive/15 text-destructive",
   info: "bg-chart-2/12 text-chart-2",
 } as const;
 export type Tone = keyof typeof TONES;

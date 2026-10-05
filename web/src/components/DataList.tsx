@@ -82,11 +82,11 @@ export function DataList<T>({
         {rows.map((r) => (
           <li key={rowKey(r)}>
             {onRowClick ? (
-              <button type="button" onClick={() => onRowClick(r)} className="block w-full px-4 py-3 text-left active:bg-accent/50">
+              <button type="button" onClick={() => onRowClick(r)} className="block w-full px-3.5 py-2.5 text-left active:bg-accent/50">
                 {mobile(r)}
               </button>
             ) : (
-              <div className="px-4 py-3">{mobile(r)}</div>
+              <div className="px-3.5 py-2.5">{mobile(r)}</div>
             )}
           </li>
         ))}
@@ -124,7 +124,7 @@ export function CardRow({ title, subtitle, value, meta, leading }: { title: Reac
       {leading}
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{title}</div>
-        {subtitle && <div className="truncate text-sm text-muted-foreground">{subtitle}</div>}
+        {subtitle && <div className="truncate text-xs text-muted-foreground">{subtitle}</div>}
       </div>
       {(value || meta) && (
         <div className="shrink-0 text-right">

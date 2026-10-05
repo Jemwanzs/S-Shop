@@ -55,7 +55,7 @@ export default function CustomersList() {
             header: "Customer",
             cell: (r) => (
               <div className="flex items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/12 text-sm font-semibold text-primary">{initials(`${r.first_name} ${r.other_names}`)}</span>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">{initials(`${r.first_name} ${r.other_names}`)}</span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 truncate font-medium">{r.first_name} {r.other_names}{r.tier && <Medal tier={r.tier} />}</div>
                   <div className="num text-xs text-muted-foreground">{maskPhone(r.mobile)}{r.nickname && <span className="font-sans"> · “{r.nickname}”</span>}</div>
@@ -72,7 +72,7 @@ export default function CustomersList() {
         ]}
         mobile={(r) => (
           <CardRow
-            leading={<span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/12 text-sm font-semibold text-primary">{initials(`${r.first_name} ${r.other_names}`)}</span>}
+            leading={<span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">{initials(`${r.first_name} ${r.other_names}`)}</span>}
             title={<span className="flex items-center gap-1.5">{r.first_name} {r.other_names}{r.tier && <Medal tier={r.tier} />}</span>}
             subtitle={<span className="num">{maskPhone(r.mobile)}</span>}
             value={money(r.total_spend, currency)}

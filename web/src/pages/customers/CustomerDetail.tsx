@@ -95,7 +95,7 @@ export default function CustomerDetail() {
         eyebrow={`Customer since ${date(c.created_at)}`}
         title={
           <span className="flex items-center gap-3">
-            <span className="hidden h-12 w-12 items-center justify-center rounded-full bg-primary/12 text-lg font-semibold text-primary sm:flex">{initials(`${c.first_name} ${c.other_names}`)}</span>
+            <span className="hidden h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-lg font-semibold text-primary sm:flex">{initials(`${c.first_name} ${c.other_names}`)}</span>
             <span>{c.first_name} {c.other_names}</span>
             {c.tier && <Medal tier={c.tier} showLabel />}
           </span>

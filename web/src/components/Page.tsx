@@ -20,7 +20,7 @@ export function PageHeader({
   back?: string;
 }) {
   return (
-    <header className="mb-5 flex flex-wrap items-end justify-between gap-3 animate-fade-up lg:mb-7">
+    <header className="mb-4 flex flex-wrap items-end justify-between gap-3 animate-fade-up lg:mb-6">
       <div className="min-w-0">
         {back && (
           <Link to={back} className="mb-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
@@ -28,7 +28,7 @@ export function PageHeader({
           </Link>
         )}
         {eyebrow && <p className="label-caps mb-1">{eyebrow}</p>}
-        <h1 className="truncate text-2xl font-semibold tracking-tight lg:text-3xl">{title}</h1>
+        <h1 className="truncate text-xl font-semibold tracking-tight lg:text-2xl">{title}</h1>
         {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -38,7 +38,7 @@ export function PageHeader({
 
 export function Section({ title, action, children, className }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={cn("surface p-4 lg:p-5", className)}>
+    <section className={cn("surface p-3.5 lg:p-5", className)}>
       {(title || action) && (
         <div className="mb-3 flex items-center justify-between gap-2">
           {title && <h2 className="label-caps">{title}</h2>}

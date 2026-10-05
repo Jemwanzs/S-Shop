@@ -9,6 +9,7 @@ import type { Customer, SaleDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Field } from "@/components/Form";
 import { Chip } from "@/components/Filters";
 import { PointsPill } from "@/components/Badges";
@@ -290,7 +291,7 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
           <p className="flex items-center gap-2 text-sm font-medium text-warning"><ShieldCheck className="h-4 w-4" /> Supervisor approval for discount</p>
           <div className="grid grid-cols-2 gap-2">
             <Input type="email" placeholder="Supervisor email" value={supEmail} onChange={(e) => setSupEmail(e.target.value)} />
-            <Input type="password" placeholder="PIN" value={supPin} onChange={(e) => setSupPin(e.target.value)} />
+            <PasswordInput placeholder="PIN" autoComplete="off" value={supPin} onChange={(e) => setSupPin(e.target.value)} />
           </div>
         </section>
       )}

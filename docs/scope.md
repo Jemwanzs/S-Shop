@@ -67,5 +67,21 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 - ~~Custom product fields; configurable order statuses.~~ ✅ done (roadmap 1, 2026-10-03).
 - ~~Multi-level approval chains; expense approval rules by category/branch/role.~~ ✅ done (roadmap 2, 2026-10-03).
 - ~~Threshold-based medals for products and staff.~~ ✅ done (roadmap 3, 2026-10-03).
-- Deposits on credit sales; a combined exchange screen.
+- Deposits on credit sales ✅ (roadmap 4a, 2026-10-03); a combined exchange screen ⏳.
+
+Added 2026-10-05 (owner request), delivered in this order before the remaining items:
+
+- **5. Password visibility** — show/hide eye on every PIN/password field (sign-in, new, confirm, reset, supervisor).
+- **6. Compact mobile-first sizing** — tighter, consistent font, input, button, card and spacing sizes on phones,
+  scaling up on tablet/desktop; compact sign-in card; Outfit stays the default font.
+- **7. Request access** — no open signup. Sign-in shows *Interested in accessing S'Shop? Request Access*; the form
+  stores the request for platform-admin review, emails `jamosammy@gmail.com`, and shows the confirmation with the
+  support numbers 0798 993 404 / 0732 968 898. Nothing is activated until a platform admin approves it.
+- **8. User preferences** (per user) — font (Outfit default, Poppins, Inter, Roboto, Nunito) and display currency
+  (KES default, USD, EUR) with live exchange rates; the active currency is shown once in the profile and figures are
+  shown without repeated currency symbols.
+- **9. Languages** — English, Swahili, French, Arabic (right-to-left), per user.
+
+Then:
+- Combined exchange screen (rest of roadmap 4).
 - Offline queueing of sales on the POS (installable PWA).

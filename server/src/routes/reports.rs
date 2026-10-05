@@ -373,7 +373,10 @@ pub const REPORTS: &[Report] = &[
 
 async fn catalogue(ctx: Ctx) -> AppResult<Json<Value>> {
     ctx.require("reports.view")?;
-    let reports: Vec<&Report> = REPORTS.iter().filter(|r| ctx.can(r.permission)).collect();
+    let reports: Vec<&Report> = REPORTS
+        .iter()
+        .filter(|r| ctx.can(r.permission) && (ctx.sees_others() || !matches!(r.key, "sales_by_user" | "user_performance")))
+        .collect();
     Ok(Json(json!({ "reports": reports, "can_export": ctx.can("reports.export") })))
 }
 
@@ -392,6 +395,11 @@ struct RunQuery {
 
 async fn run(State(state): State<AppState>, ctx: Ctx, Path(key): Path<String>, Query(q): Query<RunQuery>) -> AppResult<Response> {
     ctx.require("reports.view")?;
+    // Per-employee reports need "view other employees"; otherwise every report is limited to the user's own records.
+    if matches!(key.as_str(), "sales_by_user" | "user_performance") && !ctx.sees_others() {
+        return Err(AppError::Forbidden("Viewing other employees' performance needs permission".into()));
+    }
+    let user_filter = if ctx.sees_others() { q.user_id } else { Some(ctx.user_id) };
     let report = REPORTS.iter().find(|r| r.key == key).ok_or(AppError::NotFound("Report"))?;
     ctx.require(report.permission)?;
     let branches = ctx.branch_scope(q.branch_id)?;
@@ -424,7 +432,7 @@ async fn run(State(state): State<AppState>, ctx: Ctx, Path(key): Path<String>, Q
             .bind(end)
             .bind(q.product_id)
             .bind(q.category_id)
-            .bind(q.user_id)
+            .bind(user_filter)
             .bind(from)
             .bind(to)
             .bind(ctx.tz.name())

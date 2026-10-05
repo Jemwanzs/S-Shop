@@ -307,7 +307,7 @@ struct CategoryBody {
 }
 
 async fn create_category(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CategoryBody>) -> AppResult<Json<Value>> {
-    ctx.require("settings.manage")?;
+    ctx.require("settings.expenses")?;
     if b.name.trim().is_empty() {
         return Err(bad("Category name is required"));
     }
@@ -320,7 +320,7 @@ async fn create_category(State(state): State<AppState>, ctx: Ctx, Json(b): Json<
 }
 
 async fn update_category(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<CategoryBody>) -> AppResult<Json<Value>> {
-    ctx.require("settings.manage")?;
+    ctx.require("settings.expenses")?;
     sqlx::query("UPDATE expense_categories SET name = $3, is_active = COALESCE($4, is_active) WHERE id = $1 AND tenant_id = $2")
         .bind(id)
         .bind(ctx.tenant_id)

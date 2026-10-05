@@ -67,7 +67,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [profile, branches, branchId]);
 
-  const can = useCallback((perm: string) => !!profile?.permissions.some((p) => p === "*" || p === perm), [profile]);
+  const can = useCallback(
+    (perm: string) => !!profile?.permissions.some((p) => p === "*" || p === perm || (p === "settings.manage" && perm.startsWith("settings."))),
+    [profile],
+  );
 
   // Preferences: font now; figures convert once exchange rates arrive (refreshed when the app opens).
   const signedIn = !!token && !!profile;

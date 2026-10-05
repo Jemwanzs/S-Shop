@@ -12,6 +12,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
+  UserRound,
   Users,
   Wallet,
   type LucideIcon,
@@ -26,7 +27,13 @@ export interface NavItem {
 }
 
 export const NAV: { group: string; items: NavItem[] }[] = [
-  { group: "Overview", items: [{ to: "/", label: "Dashboard", icon: LayoutGrid, perms: [] }] },
+  {
+    group: "Overview",
+    items: [
+      { to: "/", label: "Dashboard", icon: LayoutGrid, perms: [] },
+      { to: "/my", label: "My Dashboard", icon: UserRound, perms: ["sales.create", "sales.view", "orders.manage"] },
+    ],
+  },
   {
     group: "Sell",
     items: [

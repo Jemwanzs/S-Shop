@@ -786,7 +786,8 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .bind(&branches)
     .bind(start)
     .bind(end)
-    .bind(q.user_id)
+    // Without "view other employees" a user only ever sees their own sales.
+    .bind(if ctx.sees_others() { q.user_id } else { Some(ctx.user_id) })
     .bind(q.customer_id)
     .bind(&q.status)
     .bind(&q.payment_method)
@@ -888,8 +889,26 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
     }))
 }
 
+/// Own sales are always visible to their seller; other employees' sales need "view other employees".
+async fn ensure_sale_visible(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<()> {
+    if ctx.sees_others() {
+        return Ok(());
+    }
+    let seller: Option<Uuid> = sqlx::query_scalar("SELECT user_id FROM sales WHERE id = $1 AND tenant_id = $2")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&state.db)
+        .await?
+        .flatten();
+    if seller != Some(ctx.user_id) {
+        return Err(AppError::Forbidden("This sale was recorded by another employee".into()));
+    }
+    Ok(())
+}
+
 async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     ctx.require_any(&["sales.view", "sales.create"])?;
+    ensure_sale_visible(&state, &ctx, id).await?;
     Ok(Json(sale_detail(&state, &ctx, id).await?))
 }
 
@@ -935,7 +954,8 @@ async fn receipt_text(state: &AppState, sale_id: Uuid) -> AppResult<(Option<Stri
 }
 
 async fn share(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
-    ctx.require_any(&["sales.view", "sales.create"])?;
+    ctx.require("sales.print")?;
+    ensure_sale_visible(&state, &ctx, id).await?;
     sale_detail(&state, &ctx, id).await?; // access check
     let (phone, text) = receipt_text(&state, id).await?;
     let mut sent = false;

@@ -385,6 +385,7 @@ export interface Role {
   description: string;
   permissions: string[];
   is_system: boolean;
+  is_active: boolean;
   user_count: number;
 }
 

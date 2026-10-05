@@ -19,7 +19,7 @@ use crate::state::AppState;
 use crate::util::{local_range, today_in};
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/dashboard", get(dashboard))
+    Router::new().route("/dashboard", get(dashboard)).route("/dashboard/activity", get(activity))
 }
 
 #[derive(Deserialize, Default, Clone)]
@@ -30,6 +30,9 @@ pub struct Filters {
     pub product_id: Option<Uuid>,
     pub category_id: Option<Uuid>,
     pub user_id: Option<Uuid>,
+    /// My Dashboard: always the signed-in user's own figures.
+    #[serde(default, deserialize_with = "super::de::opt_bool")]
+    pub mine: Option<bool>,
 }
 
 /// Net sale lines (after returns) matching the filters.
@@ -87,8 +90,18 @@ fn pct_change(now: Decimal, before: Decimal) -> Option<Decimal> {
     (before > Decimal::ZERO).then(|| ((now - before) / before * Decimal::ONE_HUNDRED).round_dp(1))
 }
 
-async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(f): Query<Filters>) -> AppResult<Json<Value>> {
-    ctx.require("dashboard.view")?;
+async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<Filters>) -> AppResult<Json<Value>> {
+    let mine = f.mine.unwrap_or(false);
+    if mine {
+        // Everyone who sells or serves gets their own dashboard; the user filter cannot be changed.
+        ctx.require_any(&["dashboard.view", "sales.create", "sales.view", "orders.manage"])?;
+        f.user_id = Some(ctx.user_id);
+    } else {
+        ctx.require("dashboard.view")?;
+        if f.user_id.is_some_and(|u| u != ctx.user_id) && !ctx.sees_others() {
+            return Err(crate::error::AppError::Forbidden("Viewing other employees' figures needs permission".into()));
+        }
+    }
     let (from, to) = f.period.resolve(ctx.tz, "week");
     let scope = Scope { branches: ctx.branch_scope(f.branch_id)?, from, to };
     let (start, end) = local_range(from, to, ctx.tz);
@@ -103,12 +116,13 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(f): Query<Filt
 
     let expenses: Decimal = sqlx::query_scalar(
         "SELECT COALESCE(SUM(amount),0) FROM expenses WHERE tenant_id = $1 AND branch_id = ANY($2) AND status = 'approved'
-           AND expense_date BETWEEN $3 AND $4",
+           AND expense_date BETWEEN $3 AND $4 AND ($5::uuid IS NULL OR user_id = $5)",
     )
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
     .bind(scope.from)
     .bind(scope.to)
+    .bind(f.user_id)
     .fetch_one(&mut *conn)
     .await?;
 
@@ -116,12 +130,14 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(f): Query<Filt
         "SELECT COUNT(*) FILTER (WHERE created_at >= $3 AND created_at < $4),
                 COALESCE(SUM(total) FILTER (WHERE created_at >= $3 AND created_at < $4 AND status NOT IN ('cancelled','rejected')),0),
                 COUNT(*) FILTER (WHERE status NOT IN ('completed','delivered','cancelled','rejected','returned'))
-         FROM orders WHERE tenant_id = $1 AND branch_id = ANY($2)",
+         FROM orders o WHERE tenant_id = $1 AND branch_id = ANY($2)
+           AND ($5::uuid IS NULL OR o.created_by = $5 OR EXISTS (SELECT 1 FROM order_events e WHERE e.order_id = o.id AND e.user_id = $5))",
     )
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
     .bind(start)
     .bind(end)
+    .bind(f.user_id)
     .fetch_one(&mut *conn)
     .await?;
 
@@ -141,28 +157,32 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(f): Query<Filt
     .fetch_one(&mut *conn)
     .await?;
 
-    let new_customers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM customers WHERE tenant_id = $1 AND created_at >= $2 AND created_at < $3")
+    let new_customers: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM customers WHERE tenant_id = $1 AND created_at >= $2 AND created_at < $3 AND ($4::uuid IS NULL OR created_by = $4)")
         .bind(ctx.tenant_id)
         .bind(start)
         .bind(end)
+        .bind(f.user_id)
         .fetch_one(&mut *conn)
         .await?;
     let credit_outstanding: Decimal = sqlx::query_scalar(
         "SELECT COALESCE(SUM(original_amount - amount_paid - adjustments),0) FROM credit_sales
-         WHERE tenant_id = $1 AND branch_id = ANY($2) AND status IN ('outstanding','partially_paid')",
+         WHERE tenant_id = $1 AND branch_id = ANY($2) AND status IN ('outstanding','partially_paid') AND ($3::uuid IS NULL OR user_id = $3)",
     )
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
+    .bind(f.user_id)
     .fetch_one(&mut *conn)
     .await?;
     let (points_issued, points_redeemed): (i64, i64) = sqlx::query_as(
         "SELECT COALESCE(SUM(points) FILTER (WHERE kind IN ('earn','referral')),0)::bigint,
                 COALESCE(-SUM(points) FILTER (WHERE kind = 'redeem'),0)::bigint
-         FROM loyalty_ledger WHERE tenant_id = $1 AND created_at >= $2 AND created_at < $3",
+         FROM loyalty_ledger WHERE tenant_id = $1 AND created_at >= $2 AND created_at < $3 AND ($4::uuid IS NULL OR user_id = $4)",
     )
     .bind(ctx.tenant_id)
     .bind(start)
     .bind(end)
+    .bind(f.user_id)
     .fetch_one(&mut *conn)
     .await?;
 
@@ -309,6 +329,27 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(f): Query<Filt
     .fetch_all(&mut *conn)
     .await?;
 
+    // My position among sellers in this period (only the position — never colleagues' figures).
+    let my_rank: Option<(i64, i64)> = if mine {
+        sqlx::query_as(&format!(
+            "WITH {LINES}, ranked AS (SELECT user_id, RANK() OVER (ORDER BY SUM(revenue) DESC) AS r FROM lines GROUP BY user_id)
+             SELECT COALESCE((SELECT r FROM ranked WHERE user_id = $8), 0), (SELECT COUNT(*) FROM ranked)"
+        ))
+        .bind(ctx.tenant_id)
+        .bind(&scope.branches)
+        .bind(start)
+        .bind(end)
+        .bind(f.product_id)
+        .bind(f.category_id)
+        .bind(None::<Uuid>)
+        .bind(ctx.user_id)
+        .fetch_optional(&mut *conn)
+        .await?
+    } else {
+        None
+    };
+    let show_staff = !mine && ctx.sees_others();
+
     let avg = if now.transactions > 0 { (now.revenue / Decimal::from(now.transactions)).round_dp(2) } else { Decimal::ZERO };
     let gross_profit = fin.then_some(now.profit);
     Ok(Json(json!({
@@ -326,7 +367,7 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(f): Query<Filt
             "profit_coverage_pct": fin.then(|| if now.revenue > Decimal::ZERO { (now.costed_revenue / now.revenue * Decimal::ONE_HUNDRED).round_dp(0) } else { Decimal::ZERO }),
             "expenses": expenses,
             "net_performance": if fin { Some(now.profit - expenses) } else { None },
-            "stock_value": if fin || s.stock.valuation == Valuation::Selling { Some(stock_value) } else { None },
+            "stock_value": if !mine && (fin || s.stock.valuation == Valuation::Selling) { Some(stock_value) } else { None },
             "stock_units": stock_units,
             "customers": now.customers,
             "new_customers": new_customers,
@@ -349,9 +390,120 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(f): Query<Filt
             "tier": tier, "medal": settings::MEDALS.get(i),
         })).collect::<Vec<_>>(),
         "by_branch": by_branch.into_iter().map(|(id, name, rev, tx)| json!({ "branch_id": id, "name": name, "sales": rev, "transactions": tx })).collect::<Vec<_>>(),
-        "by_user": by_user.into_iter().enumerate().map(|(i, (id, name, rev, tx, units))| json!({
+        "mine": mine,
+        "my_rank": my_rank.filter(|(r, _)| *r > 0).map(|(rank, of)| json!({ "rank": rank, "of": of })),
+        "by_user": by_user.into_iter().filter(|_| show_staff).enumerate().map(|(i, (id, name, rev, tx, units))| json!({
             "user_id": id, "name": name, "sales": rev, "transactions": tx, "units": units,
             "medal": medals.award(&medals.staff, i, rev, units, days),
         })).collect::<Vec<_>>(),
     })))
+}
+
+#[derive(Deserialize)]
+struct ActivityQuery {
+    branch_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "super::de::opt_bool")]
+    mine: Option<bool>,
+}
+
+type ActivityRow = (String, Uuid, String, Option<String>, Option<Decimal>, chrono::DateTime<chrono::Utc>, Option<String>, Option<String>, String);
+
+/// Recent operational activity, newest first. Each kind appears only with the permission that guards it, only for
+/// the user's branches, and only the user's own actions without "view other employees" (or on My Dashboard).
+async fn activity(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ActivityQuery>) -> AppResult<Json<Vec<Value>>> {
+    let mine = q.mine.unwrap_or(false);
+    if !mine {
+        ctx.require("dashboard.view")?;
+    }
+    let branches = ctx.branch_scope(q.branch_id)?;
+    // Shared binds: $1 tenant, $2 branches, $3 user filter (NULL = everyone).
+    let user: Option<Uuid> = (mine || !ctx.sees_others()).then_some(ctx.user_id);
+    let mut parts: Vec<&str> = vec![];
+    if ctx.can("sales.view") || ctx.can("sales.create") {
+        parts.push(
+            "(SELECT 'sale' AS kind, s.id, 'Sale ' || s.receipt_no AS title,
+                     COALESCE(TRIM(c.first_name || ' ' || c.other_names), 'Walk-in') || ' · ' || s.payment_method AS detail,
+                     s.total AS amount, s.created_at AS at, b.name AS branch, u.name AS who, '/sales/' || s.id AS link
+              FROM sales s JOIN branches b ON b.id = s.branch_id LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN users u ON u.id = s.user_id
+              WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND ($3::uuid IS NULL OR s.user_id = $3) ORDER BY s.created_at DESC LIMIT 8)",
+        );
+        parts.push(
+            "(SELECT 'return', r.id, 'Return ' || r.return_no, r.reason, -r.refund_amount, r.created_at, b.name, u.name, '/sales/' || r.sale_id
+              FROM sale_returns r JOIN sales s ON s.id = r.sale_id JOIN branches b ON b.id = s.branch_id LEFT JOIN users u ON u.id = r.user_id
+              WHERE r.tenant_id = $1 AND s.branch_id = ANY($2) AND ($3::uuid IS NULL OR r.user_id = $3) ORDER BY r.created_at DESC LIMIT 4)",
+        );
+    }
+    if ctx.can("orders.view") {
+        parts.push(
+            "(SELECT 'order', o.id, 'Order ' || o.order_no, o.status, o.total, o.created_at, b.name, u.name, '/orders/' || o.id
+              FROM orders o JOIN branches b ON b.id = o.branch_id LEFT JOIN users u ON u.id = o.created_by
+              WHERE o.tenant_id = $1 AND o.branch_id = ANY($2) AND ($3::uuid IS NULL OR o.created_by = $3) ORDER BY o.created_at DESC LIMIT 5)",
+        );
+    }
+    if ctx.can("stock.view") {
+        parts.push(
+            "(SELECT 'stock_received', m.id, 'Received ' || m.quantity || ' × ' || p.name, COALESCE(NULLIF(m.notes, ''), m.kind), NULL::numeric,
+                     m.created_at, b.name, u.name, '/products/' || m.product_id
+              FROM stock_movements m JOIN products p ON p.id = m.product_id JOIN branches b ON b.id = m.branch_id LEFT JOIN users u ON u.id = m.user_id
+              WHERE m.tenant_id = $1 AND m.branch_id = ANY($2) AND m.kind IN ('received','opening') AND m.stock_item_id IS NULL
+                AND ($3::uuid IS NULL OR m.user_id = $3) ORDER BY m.created_at DESC LIMIT 4)",
+        );
+        parts.push(
+            "(SELECT 'transfer', t.id, 'Transfer ' || t.transfer_no, fb.name || ' → ' || tb.name || ' · ' || t.status, NULL::numeric,
+                     COALESCE(t.received_at, t.dispatched_at, t.approved_at, t.created_at), fb.name, u.name, '/transfers/' || t.id
+              FROM transfers t JOIN branches fb ON fb.id = t.from_branch_id JOIN branches tb ON tb.id = t.to_branch_id LEFT JOIN users u ON u.id = t.created_by
+              WHERE t.tenant_id = $1 AND (t.from_branch_id = ANY($2) OR t.to_branch_id = ANY($2)) AND ($3::uuid IS NULL OR t.created_by = $3)
+              ORDER BY COALESCE(t.received_at, t.dispatched_at, t.approved_at, t.created_at) DESC LIMIT 4)",
+        );
+        parts.push(
+            "(SELECT 'adjustment', a.id, 'Stock ' || replace(a.kind, '_', ' ') || ' · ' || p.name, a.reason, NULL::numeric, a.created_at, b.name, u.name,
+                     '/stock?tab=adjustments'
+              FROM stock_adjustments a JOIN products p ON p.id = a.product_id JOIN branches b ON b.id = a.branch_id LEFT JOIN users u ON u.id = a.created_by
+              WHERE a.tenant_id = $1 AND a.branch_id = ANY($2) AND ($3::uuid IS NULL OR a.created_by = $3) ORDER BY a.created_at DESC LIMIT 3)",
+        );
+    }
+    if ctx.can("expenses.view") {
+        parts.push(
+            "(SELECT 'expense', e.id, 'Expense · ' || ec.name, e.description, e.amount, e.created_at, b.name, u.name, '/expenses'
+              FROM expenses e JOIN expense_categories ec ON ec.id = e.category_id JOIN branches b ON b.id = e.branch_id LEFT JOIN users u ON u.id = e.user_id
+              WHERE e.tenant_id = $1 AND e.branch_id = ANY($2) AND e.status <> 'void' AND ($3::uuid IS NULL OR e.user_id = $3) ORDER BY e.created_at DESC LIMIT 4)",
+        );
+    }
+    if ctx.can("customers.view") {
+        parts.push(
+            "(SELECT 'customer', c.id, 'New customer · ' || TRIM(c.first_name || ' ' || c.other_names), NULL, NULL::numeric, c.created_at, NULL, u.name,
+                     '/customers/' || c.id
+              FROM customers c LEFT JOIN users u ON u.id = c.created_by
+              WHERE c.tenant_id = $1 AND ($3::uuid IS NULL OR c.created_by = $3) ORDER BY c.created_at DESC LIMIT 4)",
+        );
+    }
+    if ctx.can("credit.view") {
+        parts.push(
+            "(SELECT 'credit_payment', p.id, 'Credit payment · ' || TRIM(c.first_name || ' ' || c.other_names), p.method, p.amount, p.created_at, b.name, u.name,
+                     '/credit/' || p.credit_sale_id
+              FROM payments p JOIN credit_sales cs ON cs.id = p.credit_sale_id JOIN customers c ON c.id = cs.customer_id JOIN branches b ON b.id = p.branch_id
+              LEFT JOIN users u ON u.id = p.user_id
+              WHERE p.tenant_id = $1 AND p.branch_id = ANY($2) AND p.sale_id IS NULL AND ($3::uuid IS NULL OR p.user_id = $3) ORDER BY p.created_at DESC LIMIT 4)",
+        );
+    }
+    if ctx.can("approvals.approve") || ctx.can("dashboard.view") {
+        parts.push(
+            "(SELECT 'approval', a.id, 'Approval · ' || a.status, a.summary, a.amount, COALESCE(a.decided_at, a.created_at), b.name, u.name, '/approvals'
+              FROM approvals a LEFT JOIN branches b ON b.id = a.branch_id LEFT JOIN users u ON u.id = a.requested_by
+              WHERE a.tenant_id = $1 AND (a.branch_id IS NULL OR a.branch_id = ANY($2)) AND ($3::uuid IS NULL OR a.requested_by = $3)
+              ORDER BY COALESCE(a.decided_at, a.created_at) DESC LIMIT 4)",
+        );
+    }
+    if parts.is_empty() {
+        return Ok(Json(vec![]));
+    }
+    let sql = format!("SELECT kind, id, title, detail, amount, at, branch, who, link FROM ({}) x ORDER BY at DESC LIMIT 15", parts.join(" UNION ALL "));
+    let rows: Vec<ActivityRow> = sqlx::query_as(&sql).bind(ctx.tenant_id).bind(&branches).bind(user).fetch_all(&state.db).await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(kind, id, title, detail, amount, at, branch, who, link)| {
+                json!({ "kind": kind, "id": id, "title": title, "detail": detail, "amount": amount, "at": at, "branch": branch, "user": who, "link": link })
+            })
+            .collect(),
+    ))
 }

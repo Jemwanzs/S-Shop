@@ -128,7 +128,7 @@ export function UsersSettings() {
             <Field label="Role" className="sm:col-span-2">
               <NativeSelect value={edit.role_id} onChange={(v) => setEdit({ ...edit, role_id: v })}>
                 <option value="">Choose…</option>
-                {roles.data?.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                {roles.data?.filter((r) => r.is_active || r.id === edit.role_id).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
               </NativeSelect>
             </Field>
             <div className="sm:col-span-2">
@@ -166,7 +166,7 @@ export function RolesSettings() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["roles"], queryFn: () => api<Role[]>("/roles") });
   const catalogue = useQuery({ queryKey: ["permissions"], queryFn: () => api<PermGroup[]>("/permissions") });
-  const [edit, setEdit] = useState<{ id?: string; name: string; description: string; permissions: string[] } | null>(null);
+  const [edit, setEdit] = useState<{ id?: string; name: string; description: string; permissions: string[]; is_active: boolean; user_count: number } | null>(null);
   const save = useMutation({
     mutationFn: () => api(edit!.id ? `/roles/${edit!.id}` : "/roles", { method: edit!.id ? "PUT" : "POST", body: edit }),
     onSuccess: () => { toast.success("Role saved"); setEdit(null); qc.invalidateQueries({ queryKey: ["roles"] }); qc.invalidateQueries({ queryKey: ["me"] }); },
@@ -175,14 +175,14 @@ export function RolesSettings() {
   const toggle = (p: string, on: boolean) => edit && setEdit({ ...edit, permissions: on ? [...edit.permissions, p] : edit.permissions.filter((x) => x !== p) });
   return (
     <SettingsPage title="Roles & permissions" description="Permissions are granted per module and action. Users can additionally be restricted by branch." loading={isLoading}>
-      <Card action={<Button size="sm" onClick={() => setEdit({ name: "", description: "", permissions: [] })}><Plus /> New role</Button>}>
+      <Card action={<Button size="sm" onClick={() => setEdit({ name: "", description: "", permissions: [], is_active: true, user_count: 0 })}><Plus /> New role</Button>}>
         {data?.map((r) => (
           <div key={r.id} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 font-medium">{r.name}{r.is_system && <Pill tone="primary">Full access</Pill>}</div>
+              <div className="flex items-center gap-2 font-medium">{r.name}{r.is_system && <Pill tone="primary">Full access</Pill>}{!r.is_active && <Pill>Retired</Pill>}</div>
               <div className="truncate text-xs text-muted-foreground">{r.description} · {r.user_count} user{r.user_count === 1 ? "" : "s"} · {r.is_system ? "all" : r.permissions.length} permissions</div>
             </div>
-            {!r.is_system && <Button variant="ghost" size="icon-sm" onClick={() => setEdit({ id: r.id, name: r.name, description: r.description, permissions: r.permissions })} aria-label="Edit"><Pencil /></Button>}
+            {!r.is_system && <Button variant="ghost" size="icon-sm" onClick={() => setEdit({ id: r.id, name: r.name, description: r.description, permissions: r.permissions, is_active: r.is_active, user_count: r.user_count })} aria-label="Edit"><Pencil /></Button>}
           </div>
         ))}
       </Card>
@@ -193,6 +193,15 @@ export function RolesSettings() {
               <Field label="Role name"><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
               <Field label="Description" optional><Input value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} /></Field>
             </div>
+            {edit.id && (
+              <ToggleRow
+                label="Active"
+                hint={edit.is_active && edit.user_count > 0 ? `${edit.user_count} user(s) have this role — move them before retiring it` : "Retired roles stay on record but cannot be assigned"}
+                checked={edit.is_active}
+                disabled={edit.is_active && edit.user_count > 0}
+                onChange={(v) => setEdit({ ...edit, is_active: v })}
+              />
+            )}
             <div className="grid gap-3 md:grid-cols-2">
               {catalogue.data?.map((g) => (
                 <div key={g.module} className="rounded-xl border p-3">

@@ -131,7 +131,13 @@ pub struct Ctx {
 
 impl Ctx {
     pub fn can(&self, perm: &str) -> bool {
-        self.permissions.iter().any(|p| p == "*" || p == perm)
+        // "Manage all settings" implies every settings area.
+        self.permissions.iter().any(|p| p == "*" || p == perm || (p == "settings.manage" && perm.starts_with("settings.")))
+    }
+
+    /// May see sales, figures and performance of employees other than themselves.
+    pub fn sees_others(&self) -> bool {
+        self.can("staff.view_others")
     }
 
     pub fn is_admin(&self) -> bool {

@@ -35,6 +35,7 @@ function page<T extends ComponentType<object>>(load: () => Promise<{ default: T 
 }
 
 const Dashboard = page(() => import("@/pages/Dashboard"));
+const MyDashboard = page(() => import("@/pages/Dashboard").then((m) => ({ default: m.MyDashboard })));
 const More = page(() => import("@/pages/More"));
 const Notifications = page(() => import("@/pages/Notifications"));
 const Pos = page(() => import("@/pages/sales/Pos"));
@@ -98,6 +99,7 @@ export default function App() {
                 <Route path="/track/:token" element={<Track />} />
                 <Route element={<RequireStaff><AppShell /></RequireStaff>}>
                   <Route index element={<Dashboard />} />
+                  <Route path="my" element={<MyDashboard />} />
                   <Route path="more" element={<More />} />
                   <Route path="notifications" element={<Notifications />} />
                   <Route path="pos" element={<Pos />} />

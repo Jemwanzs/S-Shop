@@ -39,7 +39,7 @@ export function PageHeader({
 
 export function Section({ title, action, children, className }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={cn("surface card-body", className)}>
+    <section className={cn("surface card-body min-w-0", className)}>
       {(title || action) && (
         <div className="mb-3 flex items-center justify-between gap-2">
           {title && <h2 className="label-caps">{tx(title)}</h2>}

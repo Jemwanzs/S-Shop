@@ -219,7 +219,8 @@ List endpoints accept `limit` (≤500) and `offset`; period filters accept `peri
 
 | Method | Path |
 |---|---|
-| GET | `/api/dashboard` |
+| GET | `/api/dashboard` — `mine=true` for My Dashboard |
+| GET | `/api/dashboard/activity` — `branch_id`, `mine` |
 
 ## Reports
 

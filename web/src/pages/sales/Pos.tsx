@@ -273,7 +273,7 @@ export default function Pos() {
         footer={
           <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto">
             <Button variant="outline" onClick={() => navigate(`/sales/${done?.sale.id}`)}><Printer /> Receipt</Button>
-            <Button variant="outline" onClick={share}><MessageCircle /> WhatsApp</Button>
+            {can("sales.print") && <Button variant="outline" onClick={share}><MessageCircle /> WhatsApp</Button>}
             <Button className="col-span-2" onClick={() => setDone(null)}>New sale</Button>
           </div>
         }

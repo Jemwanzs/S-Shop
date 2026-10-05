@@ -43,20 +43,20 @@ interface SectionDef {
 }
 
 const SECTIONS: SectionDef[] = [
-  { path: "business", label: "Business profile", group: "Business", icon: Store, perm: "settings.manage", element: <BusinessSettings /> },
+  { path: "business", label: "Business profile", group: "Business", icon: Store, perm: "settings.business", element: <BusinessSettings /> },
   { path: "branches", label: "Branches", group: "Business", icon: Building2, perm: "branches.manage", element: <BranchesSettings /> },
   { path: "users", label: "Users", group: "Business", icon: Users, perm: "users.manage", element: <UsersSettings /> },
   { path: "roles", label: "Roles & permissions", group: "Business", icon: KeyRound, perm: "roles.manage", element: <RolesSettings /> },
-  { path: "products", label: "Products", group: "Configuration", icon: Package, perm: "settings.manage", element: <ProductSettings /> },
-  { path: "sales", label: "Sales & payments", group: "Configuration", icon: CreditCard, perm: "settings.manage", element: <SalesSettings /> },
-  { path: "stock", label: "Stock", group: "Configuration", icon: Warehouse, perm: "settings.manage", element: <StockSettings /> },
-  { path: "orders", label: "Orders & ordering link", group: "Configuration", icon: ClipboardList, perm: "settings.manage", element: <OrderSettings /> },
-  { path: "customers", label: "Customers", group: "Configuration", icon: UserSquare, perm: "settings.manage", element: <CustomerSettings /> },
-  { path: "loyalty", label: "Loyalty & rewards", group: "Configuration", icon: Award, perm: "settings.manage", element: <LoyaltySettings /> },
-  { path: "expenses", label: "Expenses", group: "Configuration", icon: Wallet, perm: "settings.manage", element: <ExpenseSettings /> },
-  { path: "reports", label: "Reports", group: "Configuration", icon: FileBarChart, perm: "settings.manage", element: <ReportSettings /> },
-  { path: "workflows", label: "Workflow engine", group: "Control", icon: ShieldCheck, perm: "settings.manage", element: <WorkflowSettings /> },
-  { path: "integrations", label: "M-Pesa & WhatsApp", group: "Control", icon: Plug, perm: "settings.manage", element: <IntegrationsSettings /> },
+  { path: "products", label: "Products", group: "Configuration", icon: Package, perm: "settings.products", element: <ProductSettings /> },
+  { path: "sales", label: "Sales & payments", group: "Configuration", icon: CreditCard, perm: "settings.sales", element: <SalesSettings /> },
+  { path: "stock", label: "Stock", group: "Configuration", icon: Warehouse, perm: "settings.stock", element: <StockSettings /> },
+  { path: "orders", label: "Orders & ordering link", group: "Configuration", icon: ClipboardList, perm: "settings.orders", element: <OrderSettings /> },
+  { path: "customers", label: "Customers", group: "Configuration", icon: UserSquare, perm: "settings.customers", element: <CustomerSettings /> },
+  { path: "loyalty", label: "Loyalty & rewards", group: "Configuration", icon: Award, perm: "settings.customers", element: <LoyaltySettings /> },
+  { path: "expenses", label: "Expenses", group: "Configuration", icon: Wallet, perm: "settings.expenses", element: <ExpenseSettings /> },
+  { path: "reports", label: "Reports", group: "Configuration", icon: FileBarChart, perm: "settings.reports", element: <ReportSettings /> },
+  { path: "workflows", label: "Workflow engine", group: "Control", icon: ShieldCheck, perm: "settings.workflows", element: <WorkflowSettings /> },
+  { path: "integrations", label: "M-Pesa & WhatsApp", group: "Control", icon: Plug, perm: "settings.integrations", element: <IntegrationsSettings /> },
   // Everyone: their own preferences.
   { path: "preferences", label: "User preferences", group: "Personal", icon: SlidersHorizontal, perm: "", element: <PreferencesSettings /> },
   // "platform": only platform administrators (PLATFORM_ADMIN_EMAILS) see this section.

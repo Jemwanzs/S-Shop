@@ -394,6 +394,64 @@ check("opening is in that business's audit trail", any(x.get("action") == "open_
 back = call("POST", f"/platform/tenants/{login['profile']['tenant']['id']}/open", token=acting, branch=other_branch)
 check("return gives a normal session", back["profile"]["acting"] is None and back["profile"]["tenant"]["id"] == login["profile"]["tenant"]["id"])
 
+step("Roadmap 14: own-data scoping, My Dashboard, activity, safe role management")
+roles14 = {r["name"]: r for r in call("GET", "/roles")}
+def make_user(tag, role_id):
+    mail = f"{tag}{suffix.lower()}@sshop.test"
+    call("POST", "/users", {"name": tag.title(), "email": mail, "pin": "4321", "role_id": role_id, "all_branches": True, "branch_ids": []})
+    return call("POST", "/auth/login", {"email": mail, "pin": "4321"})["token"]
+seller = make_user("seller", roles14["Salesperson"]["id"])
+mine_sale = call("POST", "/sales", {"items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, token=seller)
+seller_list = call("GET", "/sales?period=all&limit=200", token=seller)["items"]
+check("salesperson sees only own sales", seller_list and all(x["id"] == mine_sale["sale"]["id"] for x in seller_list), len(seller_list))
+call("GET", f"/sales/{s['id']}", token=seller, expect=403)
+check("salesperson cannot open a colleague's sale", True)
+call("GET", f"/sales/{mine_sale['sale']['id']}", token=seller)
+check("salesperson opens own sale", True)
+admin_id = login["profile"]["user"]["id"]
+md = call("GET", f"/dashboard?period=today&mine=true&user_id={admin_id}", token=seller)
+check("My Dashboard ignores another user id", float(md["kpis"]["sales"]) == 400 and md["mine"] is True, md["kpis"]["sales"])
+check("My Dashboard shows own rank only", md["my_rank"] is not None and md["by_user"] == [], md.get("my_rank"))
+mgr_dash = call("GET", f"/dashboard?period=today&user_id={admin_id}")
+check("manager can filter by another employee", mgr_dash["kpis"]["sales"] is not None)
+act = call("GET", "/dashboard/activity?mine=true", token=seller)
+check("activity feed shows own actions", act and all(x["user"] in ("Seller", None) for x in act), [x["title"] for x in act][:3])
+check("business activity feed for managers", len(call("GET", "/dashboard/activity")) > 0)
+
+repo_role = call("POST", "/roles", {"name": f"Reporter {suffix}", "permissions": ["reports.view", "sales.view"]})["id"]
+reporter = make_user("reporter", repo_role)
+cat_keys = [r["key"] for r in call("GET", "/reports", token=reporter)["reports"]]
+check("per-employee reports hidden without permission", "user_performance" not in cat_keys and "sales" in cat_keys, cat_keys)
+call("GET", "/reports/user_performance?period=today", token=reporter, expect=403)
+check("per-employee report refused without permission", True)
+
+lead_role = call("POST", "/roles", {"name": f"People lead {suffix}", "permissions": ["roles.manage", "users.manage", "sales.view"]})["id"]
+lead = make_user("lead", lead_role)
+call("POST", "/roles", {"name": f"Sneaky {suffix}", "permissions": ["settings.manage"]}, token=lead, expect=403)
+check("cannot create a role with permissions you lack", True)
+call("POST", "/users", {"name": "Promoted", "email": f"promo{suffix.lower()}@sshop.test", "pin": "4321", "role_id": roles14["Manager"]["id"], "all_branches": True, "branch_ids": []}, token=lead, expect=403)
+check("cannot assign a role more powerful than yours", True)
+call("PUT", f"/roles/{lead_role}", {"name": f"People lead {suffix}", "permissions": ["roles.manage", "users.manage", "sales.view", "approvals.approve"]}, token=lead, expect=403)
+check("cannot add permissions to a role beyond your own", True)
+
+stock_role = call("POST", "/roles", {"name": f"Stock settings {suffix}", "permissions": ["settings.stock"]})["id"]
+stocker = make_user("stocker", stock_role)
+cfg = call("GET", "/settings")["settings"]
+c2 = json.loads(json.dumps(cfg)); c2["stock"]["low_stock_threshold"] = cfg["stock"]["low_stock_threshold"] + 1
+call("PUT", "/settings", c2, token=stocker)
+check("area permission allows its own settings", True)
+c3 = json.loads(json.dumps(c2)); c3["loyalty"]["points_per"] = cfg["loyalty"]["points_per"] + 1
+call("PUT", "/settings", c3, token=stocker, expect=403)
+check("area permission cannot change other areas", True)
+call("PUT", "/settings", cfg)
+
+call("PUT", f"/roles/{repo_role}", {"name": f"Reporter {suffix}", "permissions": ["reports.view", "sales.view"], "is_active": False}, expect=422)
+check("role with users cannot be retired", True)
+spare = call("POST", "/roles", {"name": f"Spare {suffix}", "permissions": ["sales.view"]})["id"]
+call("PUT", f"/roles/{spare}", {"name": f"Spare {suffix}", "permissions": ["sales.view"], "is_active": False})
+call("POST", "/users", {"name": "Late", "email": f"late{suffix.lower()}@sshop.test", "pin": "4321", "role_id": spare, "all_branches": True, "branch_ids": []}, expect=400)
+check("retired role cannot be assigned", True)
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

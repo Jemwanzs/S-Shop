@@ -3,7 +3,9 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
+  Activity as ActivityIcon,
   AlertTriangle,
+  ArrowLeftRight,
   Boxes,
   ClipboardList,
   Coins,
@@ -11,17 +13,20 @@ import {
   Gift,
   HandCoins,
   Package,
+  PackagePlus,
   Receipt,
+  ShieldCheck,
   ShoppingBag,
   ShoppingCart,
   TrendingUp,
+  Undo2,
   UserPlus,
   Users,
   Wallet,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { compact, count, methodLabel, money, maskPhone, titleCase, toNum } from "@/lib/format";
+import { ago, compact, count, methodLabel, money, maskPhone, titleCase, toNum } from "@/lib/format";
 import type { Category, Money, UserRow } from "@/lib/types";
 import { PageHeader, Section, ErrorState, Loading, EmptyState } from "@/components/Page";
 import { StatCard } from "@/components/Stat";
@@ -44,6 +49,20 @@ interface DashboardData {
   top_customers: { customer_id: string; name: string; mobile: string; spend: Money; own_points: number; referral_points: number; tier: string; medal?: string }[];
   by_branch: { branch_id: string; name: string; sales: Money; transactions: number }[];
   by_user: { user_id: string; name: string; sales: Money; transactions: number; units: number; medal?: string | null }[];
+  mine: boolean;
+  my_rank: { rank: number; of: number } | null;
+}
+
+interface ActivityItem {
+  kind: string;
+  id: string;
+  title: string;
+  detail: string | null;
+  amount: Money | null;
+  at: string;
+  branch: string | null;
+  user: string | null;
+  link: string;
 }
 
 const CHART_COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
@@ -51,6 +70,11 @@ const CHART_COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--c
 export default function Dashboard() {
   const { can } = useSession();
   return can("dashboard.view") ? <Analytics /> : <QuickHome />;
+}
+
+/** My Dashboard: the signed-in user's own figures (the server always scopes it to them). */
+export function MyDashboard() {
+  return <Analytics mine />;
 }
 
 function QuickHome() {
@@ -62,6 +86,7 @@ function QuickHome() {
     { to: "/customers", label: "Customers", icon: Users, perm: "customers.view" },
     { to: "/credit", label: "Credit", icon: HandCoins, perm: "credit.view" },
     { to: "/sales", label: "My sales", icon: Receipt, perm: "sales.view" },
+    { to: "/my", label: "My dashboard", icon: TrendingUp, perm: "sales.create" },
   ].filter((t) => can(t.perm));
   return (
     <>
@@ -78,7 +103,7 @@ function QuickHome() {
   );
 }
 
-function Analytics() {
+function Analytics({ mine = false }: { mine?: boolean }) {
   const { profile, can } = useSession();
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -88,14 +113,19 @@ function Analytics() {
   const [userId, setUserId] = useState("");
   const productId = params.get("product") ?? "";
 
-  const query = { ...period, branch_id: branchId, category_id: categoryId, user_id: userId, product_id: productId };
+  const query = { ...period, branch_id: branchId, category_id: categoryId, user_id: mine ? "" : userId, product_id: productId, mine };
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["dashboard", query],
     queryFn: () => api<DashboardData>("/dashboard", { query }),
     placeholderData: (prev) => prev,
   });
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => api<Category[]>("/categories") });
-  const users = useQuery({ queryKey: ["users"], queryFn: () => api<UserRow[]>("/users"), enabled: can("users.manage") || can("approvals.approve") });
+  const users = useQuery({ queryKey: ["users"], queryFn: () => api<UserRow[]>("/users"), enabled: !mine && can("staff.view_others") });
+  const activity = useQuery({
+    queryKey: ["activity", branchId, mine],
+    queryFn: () => api<ActivityItem[]>("/dashboard/activity", { query: { branch_id: branchId, mine } }),
+    refetchInterval: 60_000,
+  });
 
   const k = data?.kpis ?? {};
   const m = (v: unknown) => money(v as Money);
@@ -104,8 +134,8 @@ function Analytics() {
   return (
     <>
       <PageHeader
-        eyebrow="Overview"
-        title="Dashboard"
+        eyebrow={mine ? profile?.user.name : "Overview"}
+        title={mine ? "My Dashboard" : "Dashboard"}
         description={data ? `${data.from === data.to ? data.from : `${data.from} → ${data.to}`}` : undefined}
       />
 
@@ -122,7 +152,7 @@ function Analytics() {
             <option value="">{t("All categories")}</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </NativeSelect>
-          {users.data && (
+          {!mine && users.data && (
             <NativeSelect value={userId} onChange={setUserId} className="sm:w-48">
               <option value="">{t("All staff")}</option>
               {users.data.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -138,6 +168,14 @@ function Analytics() {
         <Loading />
       ) : (
         <div className="space-y-5">
+          {mine && data.my_rank && (
+            <div className="surface card-body flex items-center gap-3 border-primary/30 bg-primary/5">
+              <Medal tier={["Gold", "Silver", "Bronze"][data.my_rank.rank - 1]} />
+              <p className="text-sm">
+                {t("Your position this period")}: <span className="num font-semibold">#{data.my_rank.rank}</span> {t("of")} <span className="num">{data.my_rank.of}</span> {t("sellers")}
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
             <StatCard label="Sales" value={m(k.sales)} icon={TrendingUp} tone="success" change={k.sales_change_pct as number | null} hint="vs previous period" className="col-span-2 md:col-span-1" />
             <StatCard label="Transactions" value={count(k.transactions as number)} icon={ShoppingBag} change={k.transactions_change_pct as number | null} />
@@ -213,8 +251,8 @@ function Analytics() {
           <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-4">
             <RankList title="Best sellers · revenue" rows={data.top_products_revenue.map((p) => ({ id: p.product_id, name: p.name, value: m(p.revenue), sub: `${count(p.units)} units`, medal: p.medal }))} onClick={(id) => navigate(`/products/${id}`)} />
             <RankList title="Best sellers · quantity" rows={data.top_products_units.map((p) => ({ id: p.product_id, name: p.name, value: `${count(p.units)} units`, sub: m(p.revenue), medal: p.medal }))} onClick={(id) => navigate(`/products/${id}`)} />
-            <RankList title="Slow movers" rows={data.slow_movers.map((p) => ({ id: p.product_id, name: p.name, value: `${count(p.units)} sold`, sub: `${count(p.on_hand)} in stock` }))} onClick={(id) => navigate(`/products/${id}`)} plain />
-            <Section title="Low stock" action={<Link to="/stock?status=low" className="text-xs text-primary">View all</Link>}>
+            {!mine && <RankList title="Slow movers" rows={data.slow_movers.map((p) => ({ id: p.product_id, name: p.name, value: `${count(p.units)} sold`, sub: `${count(p.on_hand)} in stock` }))} onClick={(id) => navigate(`/products/${id}`)} plain />}
+            {!mine && <Section title="Low stock" action={<Link to="/stock?status=low" className="text-xs text-primary">View all</Link>}>
               {data.low_stock.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">All stocked up ✨</p>
               ) : (
@@ -228,10 +266,11 @@ function Analytics() {
                   ))}
                 </ul>
               )}
-            </Section>
+            </Section>}
           </div>
 
           <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
+            <ActivityFeed items={activity.data} loading={activity.isLoading} />
             <Section title="Top customers" action={<Link to="/loyalty" className="text-xs text-primary">Loyalty</Link>}>
               {data.top_customers.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">No identified customers yet</p>
@@ -255,7 +294,7 @@ function Analytics() {
                 </ul>
               )}
             </Section>
-            <Section title="Staff performance">
+            {!mine && can("staff.view_others") && <Section title="Staff performance">
               {data.by_user.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">No sales yet</p>
               ) : (
@@ -271,8 +310,8 @@ function Analytics() {
                   ))}
                 </ul>
               )}
-            </Section>
-            {data.by_branch.length > 1 && (
+            </Section>}
+            {!mine && data.by_branch.length > 1 && (
               <Section title="Branches">
                 <ul className="space-y-3">
                   {(() => {
@@ -292,7 +331,7 @@ function Analytics() {
                 </ul>
               </Section>
             )}
-            {can("customers.create") && data.by_branch.length <= 1 && (
+            {!mine && can("customers.create") && data.by_branch.length <= 1 && (
               <Link to="/customers?new=1" className="surface card-body flex items-center gap-3 transition hover:shadow-lift">
                 <span className="rounded-xl bg-primary/10 p-3 text-primary"><UserPlus className="h-5 w-5" /></span>
                 <span>
@@ -327,6 +366,52 @@ function RankList({ title, rows, onClick, plain }: { title: string; rows: { id: 
               </button>
             </li>
           ))}
+        </ul>
+      )}
+    </Section>
+  );
+}
+
+const ACTIVITY_ICON: Record<string, typeof ShoppingBag> = {
+  sale: ShoppingBag,
+  return: Undo2,
+  order: ClipboardList,
+  stock_received: PackagePlus,
+  transfer: ArrowLeftRight,
+  adjustment: Boxes,
+  expense: Wallet,
+  customer: UserPlus,
+  credit_payment: HandCoins,
+  approval: ShieldCheck,
+};
+
+/** Compact, permission-aware feed of what just happened (the server only returns what this user may see). */
+function ActivityFeed({ items, loading }: { items?: ActivityItem[]; loading: boolean }) {
+  return (
+    <Section title="Recent activity">
+      {loading ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">{t("Loading…")}</p>
+      ) : !items?.length ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">{t("No recent activity")}</p>
+      ) : (
+        <ul className="divide-y">
+          {items.map((a) => {
+            const Icon = ACTIVITY_ICON[a.kind] ?? ActivityIcon;
+            return (
+              <li key={a.kind + a.id}>
+                <Link to={a.link} className="flex items-center gap-3 py-2.5">
+                  <span className="rounded-lg bg-muted p-1.5 text-muted-foreground"><Icon className="h-3.5 w-3.5" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{a.title}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {[a.detail, a.user, a.branch].filter(Boolean).join(" · ")} · {ago(a.at)}
+                    </span>
+                  </span>
+                  {a.amount !== null && <span className="num text-sm font-semibold">{money(a.amount)}</span>}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </Section>

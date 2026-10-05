@@ -22,6 +22,14 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// Settings area that manages this kind of field.
+    fn settings_permission(self) -> &'static str {
+        match self {
+            Kind::Customer => "settings.customers",
+            Kind::Product => "settings.products",
+        }
+    }
+
     fn table(self) -> &'static str {
         match self {
             Kind::Customer => "customer_fields",
@@ -149,7 +157,7 @@ fn validate(b: &FieldBody) -> AppResult<Vec<String>> {
 }
 
 async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<FieldBody>, kind: Kind) -> AppResult<Json<Value>> {
-    ctx.require("settings.manage")?;
+    ctx.require(kind.settings_permission())?;
     let options = validate(&b)?;
     let key = crate::util::slugify(&b.label).replace('-', "_");
     if kind.reserved().contains(&key.as_str()) {
@@ -177,7 +185,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<FieldBody
 }
 
 async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<FieldBody>, kind: Kind) -> AppResult<Json<Value>> {
-    ctx.require("settings.manage")?;
+    ctx.require(kind.settings_permission())?;
     let options = validate(&b)?;
     let mut tx = state.db.begin().await?;
     let n = sqlx::query(&format!(

@@ -38,3 +38,17 @@ it as `medal` on `top_products_*` and `by_user`.
 
 ## Permissions
 `dashboard.view`; financial KPIs `sales.view_financials`; credit KPI `credit.view`.
+
+## My Dashboard (`/my`)
+Every user who sells or serves has **My Dashboard**: the same panels computed only from their own work — sales,
+transactions, average sale, units, orders they created or progressed, customers they added, credit they gave, points
+issued on their sales, their best sellers and customers, their recent activity — plus their **position among sellers**
+for the period (position only, never colleagues' figures). The server always scopes it to the signed-in user.
+
+On the business dashboard, choosing a staff member needs *View other employees*, and every figure then follows that
+person (not only sales). The staff leaderboard is shown only with that permission.
+
+## Recent activity
+A compact feed of the latest sales, returns, orders, stock receipts, transfers, adjustments, expenses, new customers,
+credit payments and approvals — each kind only with the permission that guards it, only for the user's branches, and
+only the user's own actions without *View other employees* (always on My Dashboard).

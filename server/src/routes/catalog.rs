@@ -715,7 +715,7 @@ struct NamedBody {
 }
 
 async fn create_category(State(state): State<AppState>, ctx: Ctx, Json(b): Json<NamedBody>) -> AppResult<Json<Value>> {
-    ctx.require_any(&["products.create", "settings.manage"])?;
+    ctx.require_any(&["products.create", "settings.products"])?;
     if b.name.trim().is_empty() {
         return Err(bad("Category name is required"));
     }
@@ -728,7 +728,7 @@ async fn create_category(State(state): State<AppState>, ctx: Ctx, Json(b): Json<
 }
 
 async fn update_category(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<NamedBody>) -> AppResult<Json<Value>> {
-    ctx.require_any(&["products.edit", "settings.manage"])?;
+    ctx.require_any(&["products.edit", "settings.products"])?;
     sqlx::query("UPDATE categories SET name = $3, is_active = COALESCE($4, is_active) WHERE id = $1 AND tenant_id = $2")
         .bind(id)
         .bind(ctx.tenant_id)
@@ -767,7 +767,7 @@ struct SupplierBody {
 }
 
 async fn create_supplier(State(state): State<AppState>, ctx: Ctx, Json(b): Json<SupplierBody>) -> AppResult<Json<Value>> {
-    ctx.require_any(&["products.create", "stock.add", "settings.manage"])?;
+    ctx.require_any(&["products.create", "stock.add", "settings.products"])?;
     if b.name.trim().is_empty() {
         return Err(bad("Supplier name is required"));
     }
@@ -783,7 +783,7 @@ async fn create_supplier(State(state): State<AppState>, ctx: Ctx, Json(b): Json<
 }
 
 async fn update_supplier(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<SupplierBody>) -> AppResult<Json<Value>> {
-    ctx.require_any(&["products.edit", "settings.manage"])?;
+    ctx.require_any(&["products.edit", "settings.products"])?;
     sqlx::query(
         "UPDATE suppliers SET name=$3, phone=$4, email=$5, notes=$6, is_active=COALESCE($7, is_active) WHERE id=$1 AND tenant_id=$2",
     )

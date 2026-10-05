@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::audit::{self, Entry};
 use crate::auth::{hash_pin, validate_pin, Ctx};
-use crate::error::{bad, AppError, AppResult};
+use crate::error::{bad, rule, AppError, AppResult};
 use crate::perms;
 use crate::settings::TenantSettings;
 use crate::state::AppState;
@@ -86,7 +86,26 @@ async fn get_settings(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
 }
 
 async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(body): Json<TenantSettings>) -> AppResult<Json<TenantSettings>> {
-    ctx.require("settings.manage")?;
+    // One document, but each area needs its own permission: only changed areas are checked.
+    {
+        let mut conn = state.db.acquire().await?;
+        let current = serde_json::to_value(crate::settings::load(&mut conn, ctx.tenant_id).await?).unwrap_or_default();
+        let incoming = serde_json::to_value(&body).unwrap_or_default();
+        let mut changed = false;
+        for (section, perm) in [
+            ("product", "settings.products"), ("stock", "settings.stock"), ("sales", "settings.sales"), ("orders", "settings.orders"),
+            ("customers", "settings.customers"), ("loyalty", "settings.customers"), ("expenses", "settings.expenses"),
+            ("reports", "settings.reports"), ("notifications", "settings.integrations"), ("workspace", "settings.workspace"),
+        ] {
+            if current.get(section) != incoming.get(section) {
+                ctx.require(perm)?;
+                changed = true;
+            }
+        }
+        if !changed && !ctx.permissions.iter().any(|p| p == "*" || p.starts_with("settings.")) {
+            return Err(AppError::Forbidden("You do not have permission for this action".into()));
+        }
+    }
     if body.product.max_photos == 0 || body.product.max_photos > 20 {
         return Err(bad("Product photos must be between 1 and 20"));
     }
@@ -151,7 +170,7 @@ struct ProfileBody {
 }
 
 async fn put_profile(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<ProfileBody>) -> AppResult<Json<Value>> {
-    ctx.require("settings.manage")?;
+    ctx.require("settings.business")?;
     b.name = b.name.trim().to_string();
     b.slug = slugify(&b.slug);
     if b.name.is_empty() || b.slug.is_empty() {
@@ -181,7 +200,7 @@ async fn put_profile(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<
 }
 
 async fn upload_logo(State(state): State<AppState>, ctx: Ctx, mut mp: Multipart) -> AppResult<Json<Value>> {
-    ctx.require("settings.manage")?;
+    ctx.require("settings.business")?;
     let field = mp.next_field().await.map_err(|e| bad(e.to_string()))?.ok_or_else(|| bad("No file uploaded"))?;
     let mime = field.content_type().unwrap_or("image/png").to_string();
     if !mime.starts_with("image/") {
@@ -229,7 +248,7 @@ struct WorkflowBody {
 const MAX_LEVELS: usize = 5;
 
 async fn put_workflow(State(state): State<AppState>, ctx: Ctx, Path(action): Path<String>, Json(b): Json<WorkflowBody>) -> AppResult<Json<Value>> {
-    ctx.require("settings.manage")?;
+    ctx.require("settings.workflows")?;
     let Some(def) = workflow::ACTIONS.iter().find(|a| a.key == action) else { return Err(AppError::NotFound("Workflow")) };
     if b.levels.is_empty() || b.levels.len() > MAX_LEVELS {
         return Err(bad(format!("A workflow needs 1 to {MAX_LEVELS} approval levels")));
@@ -412,7 +431,7 @@ struct UserRow {
 }
 
 async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<UserRow>>> {
-    ctx.require_any(&["users.manage", "settings.manage", "approvals.approve"])?;
+    ctx.require_any(&["users.manage", "settings.manage", "approvals.approve", "staff.view_others"])?;
     let rows = sqlx::query_as(
         "SELECT u.id, u.name, u.email, u.phone, u.role_id, r.name AS role_name, u.is_active, u.all_branches,
                 COALESCE(ARRAY(SELECT branch_id FROM user_branches ub WHERE ub.user_id = u.id), '{}') AS branch_ids,
@@ -441,15 +460,20 @@ async fn validate_user(conn: &mut sqlx::PgConnection, ctx: &Ctx, b: &UserBody) -
     if b.name.trim().is_empty() || !b.email.contains('@') {
         return Err(bad("Name and a valid email are required"));
     }
-    let role_ok: Option<Vec<String>> = sqlx::query_scalar("SELECT permissions FROM roles WHERE id = $1 AND tenant_id = $2")
+    let role_ok: Option<(Vec<String>, bool)> = sqlx::query_as("SELECT permissions, is_active FROM roles WHERE id = $1 AND tenant_id = $2")
         .bind(b.role_id)
         .bind(ctx.tenant_id)
         .fetch_optional(&mut *conn)
         .await?;
-    let perms = role_ok.ok_or_else(|| bad("Unknown role"))?;
+    let (perms, role_active) = role_ok.ok_or_else(|| bad("Unknown role"))?;
+    if !role_active {
+        return Err(bad("This role has been retired — choose another"));
+    }
     if perms.iter().any(|p| p == "*") && !ctx.is_admin() {
         return Err(AppError::Forbidden("Only administrators can grant administrator access".into()));
     }
+    // Assigning a role is granting its permissions: never more than the assigner holds.
+    ensure_grantable(ctx, &perms, &[])?;
     if !b.all_branches && b.branch_ids.is_empty() {
         return Err(bad("Assign at least one branch"));
     }
@@ -595,13 +619,14 @@ struct Role {
     description: String,
     permissions: Vec<String>,
     is_system: bool,
+    is_active: bool,
     user_count: i64,
 }
 
 async fn list_roles(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<Role>>> {
     ctx.require_any(&["roles.manage", "users.manage", "settings.manage"])?;
     let rows = sqlx::query_as(
-        "SELECT r.id, r.name, r.description, r.permissions, r.is_system,
+        "SELECT r.id, r.name, r.description, r.permissions, r.is_system, r.is_active,
                 (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id AND u.is_active) AS user_count
          FROM roles r WHERE r.tenant_id = $1 ORDER BY r.is_system DESC, r.name",
     )
@@ -616,6 +641,20 @@ struct RoleBody {
     name: String,
     description: Option<String>,
     permissions: Vec<String>,
+    /// Retire a role (only once no active user holds it).
+    is_active: Option<bool>,
+}
+
+/// Only administrators may hand out permissions they do not hold themselves; anyone else can keep what a role
+/// already had but never add more than they have (no self-promotion through roles).
+fn ensure_grantable(ctx: &Ctx, permissions: &[String], already: &[String]) -> AppResult<()> {
+    if ctx.is_admin() {
+        return Ok(());
+    }
+    if let Some(p) = permissions.iter().find(|p| !already.contains(p) && !ctx.can(p)) {
+        return Err(AppError::Forbidden(format!("You cannot grant a permission you do not have yourself ({p})")));
+    }
+    Ok(())
 }
 
 fn validate_role(b: &RoleBody) -> AppResult<()> {
@@ -634,6 +673,7 @@ fn validate_role(b: &RoleBody) -> AppResult<()> {
 async fn create_role(State(state): State<AppState>, ctx: Ctx, Json(b): Json<RoleBody>) -> AppResult<Json<Value>> {
     ctx.require("roles.manage")?;
     validate_role(&b)?;
+    ensure_grantable(&ctx, &b.permissions, &[])?;
     let mut tx = state.db.begin().await?;
     let id: Uuid = sqlx::query_scalar("INSERT INTO roles (tenant_id, name, description, permissions) VALUES ($1,$2,$3,$4) RETURNING id")
         .bind(ctx.tenant_id)
@@ -650,22 +690,30 @@ async fn create_role(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Role
 async fn update_role(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<RoleBody>) -> AppResult<Json<Value>> {
     ctx.require("roles.manage")?;
     let mut tx = state.db.begin().await?;
-    let (is_system, before): (bool, Value) = sqlx::query_as("SELECT is_system, to_jsonb(r) FROM roles r WHERE id = $1 AND tenant_id = $2")
-        .bind(id)
-        .bind(ctx.tenant_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(AppError::NotFound("Role"))?;
+    let (is_system, before, current, users): (bool, Value, Vec<String>, i64) = sqlx::query_as(
+        "SELECT is_system, to_jsonb(r), permissions, (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id AND u.is_active)
+         FROM roles r WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+    )
+    .bind(id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("Role"))?;
     if is_system {
         return Err(bad("The Tenant Administrator role cannot be changed"));
     }
     validate_role(&b)?;
-    sqlx::query("UPDATE roles SET name=$3, description=$4, permissions=$5 WHERE id=$1 AND tenant_id=$2")
+    ensure_grantable(&ctx, &b.permissions, &current)?;
+    if b.is_active == Some(false) && users > 0 {
+        return Err(rule(format!("{users} active user(s) still have this role — move them to another role first")));
+    }
+    sqlx::query("UPDATE roles SET name=$3, description=$4, permissions=$5, is_active=COALESCE($6, is_active) WHERE id=$1 AND tenant_id=$2")
         .bind(id)
         .bind(ctx.tenant_id)
         .bind(b.name.trim())
         .bind(b.description.as_deref().unwrap_or(""))
         .bind(&b.permissions)
+        .bind(b.is_active)
         .execute(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("roles", "update", "role", id).before(before).after(&b)).await?;

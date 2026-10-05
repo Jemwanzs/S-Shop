@@ -93,9 +93,13 @@ export default function SaleDetail() {
         title={<span className="num">{s.receipt_no}</span>}
         actions={
           <div className="flex flex-wrap gap-2 no-print">
-            <Button variant="outline" onClick={() => window.print()}><Printer /> Print</Button>
-            <Button variant="outline" onClick={() => receiptPdf(data)}><Download /> PDF</Button>
-            <Button variant="outline" onClick={share}><MessageCircle /> Share</Button>
+            {can("sales.print") && (
+              <>
+                <Button variant="outline" onClick={() => window.print()}><Printer /> Print</Button>
+                <Button variant="outline" onClick={() => receiptPdf(data)}><Download /> PDF</Button>
+                <Button variant="outline" onClick={share}><MessageCircle /> Share</Button>
+              </>
+            )}
           </div>
         }
       />

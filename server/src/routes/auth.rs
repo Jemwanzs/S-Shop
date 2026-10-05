@@ -153,7 +153,10 @@ async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid) -> AppRe
     let settings: crate::settings::TenantSettings = serde_json::from_value(settings).unwrap_or_default();
 
     Ok(Profile {
-        user: serde_json::json!({ "id": user_id, "name": name, "email": email, "role": role, "all_branches": all_branches || is_admin }),
+        user: serde_json::json!({
+            "id": user_id, "name": name, "email": email, "role": role, "all_branches": all_branches || is_admin,
+            "platform_admin": super::access::is_platform_admin(state, &email, &permissions),
+        }),
         tenant: serde_json::json!({
             "id": tenant_id, "name": tname, "slug": slug, "tagline": tagline, "currency": currency,
             "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")),

@@ -292,6 +292,36 @@ check("remaining balance can be settled", r["status"] == "paid" and float(r["bal
 nd = call("POST", "/sales", {"customer_id": cust_id, "items": line, "payment": {"method": "credit"}})
 check("credit without deposit unchanged", nd["credit"]["status"] == "outstanding" and float(nd["credit"]["balance"]) == 400, nd["credit"])
 
+step("Roadmap 7: request access (no open signup)")
+req = {"business_name": f"Duka {suffix}", "contact_name": "Achieng", "email": f"duka{suffix.lower()}@sshop.test", "phone": "0711 222 333",
+       "location": "Kisumu", "business_type": "Retail shop", "branches": 2, "message": "Please onboard us"}
+call("POST", "/access-requests", {**req, "email": "not-an-email"}, token="none", expect=400)
+check("invalid email refused", True)
+call("POST", "/access-requests", {**req, "email": EMAIL}, token="none", expect=422)
+check("existing user email refused", True)
+r = call("POST", "/access-requests", req, token="none")
+check("request accepted with support numbers", r["ok"] and "0798 993 404" in r["support_phones"], r)
+call("POST", "/access-requests", req, token="none")
+call("POST", "/access-requests", {**req, "email": f"bot{suffix.lower()}@sshop.test", "website": "spam.example"}, token="none")
+pending = call("GET", "/platform/access-requests?status=pending")["items"]
+mine = [x for x in pending if x["business_name"] == req["business_name"]]
+check("stored once for review (duplicate ignored)", len(mine) == 1, len(mine))
+check("honeypot submission dropped", not any(x["email"].startswith("bot") for x in pending))
+call("GET", "/platform/access-requests", token=clerk, expect=403)
+check("non platform admin cannot review", True)
+ap = call("POST", f"/platform/access-requests/{mine[0]['id']}/approve")
+check("approval returns a one-time PIN", len(ap["temporary_pin"]) == 8 and ap["slug"].startswith("duka-"), ap)
+t2 = call("POST", "/auth/login", {"email": req["email"], "pin": ap["temporary_pin"]})
+me2 = t2["profile"]
+check("new business admin can sign in", me2["tenant"]["name"] == req["business_name"] and me2["user"]["role"] == "Tenant Administrator", me2["tenant"])
+check("new admin is not a platform admin", me2["user"]["platform_admin"] is False)
+call("POST", f"/platform/access-requests/{mine[0]['id']}/approve", expect=422)
+check("cannot approve twice", True)
+rq2 = call("POST", "/access-requests", {**req, "email": f"later{suffix.lower()}@sshop.test"}, token="none")
+other = next(x for x in call("GET", "/platform/access-requests?status=pending")["items"] if x["email"].startswith("later"))
+call("POST", f"/platform/access-requests/{other['id']}/reject", {"note": "Not a fit yet"})
+check("rejected request leaves pending list", all(x["id"] != other["id"] for x in call("GET", "/platform/access-requests?status=pending")["items"]))
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

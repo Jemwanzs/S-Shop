@@ -10,6 +10,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { Loading } from "@/components/Page";
 import LoginPage from "@/pages/auth/Login";
 import SelectBranchPage from "@/pages/auth/SelectBranch";
+import RequestAccessPage from "@/pages/auth/RequestAccess";
 
 // Route-level code splitting keeps the first load small on mobile data.
 // After a deploy, an open tab may ask for chunk files that no longer exist: reload once to pick up the new version.
@@ -92,6 +93,7 @@ export default function App() {
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/select-branch" element={<SelectBranchPage />} />
+                <Route path="/request-access" element={<RequestAccessPage />} />
                 <Route path="/order/:slug/*" element={<Portal />} />
                 <Route path="/track/:token" element={<Track />} />
                 <Route element={<RequireStaff><AppShell /></RequireStaff>}>

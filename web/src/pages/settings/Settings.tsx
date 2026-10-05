@@ -2,6 +2,7 @@ import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom"
 import {
   Award,
   Building2,
+  Inbox,
   ChevronRight,
   ClipboardList,
   CreditCard,
@@ -25,6 +26,7 @@ import { BusinessSettings, IntegrationsSettings } from "./General";
 import { BranchesSettings, RolesSettings, UsersSettings } from "./People";
 import { CustomerSettings, ExpenseSettings, LoyaltySettings, OrderSettings, ProductSettings, ReportSettings, SalesSettings, StockSettings } from "./Config";
 import { WorkflowSettings } from "./Workflows";
+import { AccessRequests } from "./AccessRequests";
 
 interface SectionDef {
   path: string;
@@ -50,12 +52,14 @@ const SECTIONS: SectionDef[] = [
   { path: "reports", label: "Reports", group: "Configuration", icon: FileBarChart, perm: "settings.manage", element: <ReportSettings /> },
   { path: "workflows", label: "Workflow engine", group: "Control", icon: ShieldCheck, perm: "settings.manage", element: <WorkflowSettings /> },
   { path: "integrations", label: "M-Pesa & WhatsApp", group: "Control", icon: Plug, perm: "settings.manage", element: <IntegrationsSettings /> },
+  // "platform": only platform administrators (PLATFORM_ADMIN_EMAILS) see this section.
+  { path: "access-requests", label: "Access requests", group: "Platform", icon: Inbox, perm: "platform", element: <AccessRequests /> },
 ];
 
 export default function Settings() {
-  const { can } = useSession();
+  const { can, profile } = useSession();
   const { pathname } = useLocation();
-  const sections = SECTIONS.filter((s) => can(s.perm));
+  const sections = SECTIONS.filter((s) => (s.perm === "platform" ? !!profile?.user.platform_admin : can(s.perm)));
   const groups = [...new Set(sections.map((s) => s.group))];
   const atIndex = /\/settings\/?$/.test(pathname);
 

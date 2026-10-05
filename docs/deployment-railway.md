@@ -26,8 +26,12 @@ S'Shop runs as **one service** (built from the repository `Dockerfile`) plus **o
 | `BOOTSTRAP_ADMIN_EMAIL` | First administrator email |
 | `BOOTSTRAP_ADMIN_PIN` | First administrator PIN — **set it yourself**, then change it in the app after first sign-in |
 | `PUBLIC_URL` | Optional; defaults to `https://$RAILWAY_PUBLIC_DOMAIN` |
+| `PLATFORM_ADMIN_EMAILS` | Comma-separated platform admins who review access requests (falls back to `BOOTSTRAP_ADMIN_EMAIL` — set it before removing the bootstrap variables) |
+| `RESEND_API_KEY` | Optional; enables email alerts for access requests ([module 18](modules/18-access-requests.md)) |
+| `MAIL_FROM` | Optional; sender, default `S'Shop <onboarding@resend.dev>` |
+| `ACCESS_REQUEST_NOTIFY_EMAILS` | Optional; who is emailed about requests (default: the platform admins) |
 
-Bootstrap runs only when the database is empty; the variables can be removed afterwards. Optional M-Pesa and WhatsApp
+Bootstrap runs only when the database is empty; the variables can be removed afterwards (set `PLATFORM_ADMIN_EMAILS` first). Optional M-Pesa and WhatsApp
 variables are listed in [`.env.example`](../.env.example) and explained in
 [integrations/mpesa.md](integrations/mpesa.md) and [integrations/whatsapp.md](integrations/whatsapp.md).
 

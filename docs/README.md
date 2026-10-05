@@ -33,6 +33,7 @@
 | 15 | Approval workflows (maker-checker) | [modules/15-approvals.md](modules/15-approvals.md) |
 | 16 | Settings | [modules/16-settings.md](modules/16-settings.md) |
 | 17 | Audit trail, notifications & search | [modules/17-audit-notifications-search.md](modules/17-audit-notifications-search.md) |
+| 18 | Access requests (no open signup) | [modules/18-access-requests.md](modules/18-access-requests.md) |
 
 ## Glossary
 

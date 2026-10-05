@@ -1,5 +1,6 @@
 //! HTTP API. Each module owns one functional area of the scope.
 
+pub mod access;
 pub mod admin;
 pub mod approvals;
 pub mod audit;
@@ -33,6 +34,7 @@ use crate::util::today_in;
 pub fn api() -> Router<AppState> {
     Router::new()
         .merge(auth::routes())
+        .merge(access::routes())
         .merge(admin::routes())
         .merge(catalog::routes())
         .merge(stock::routes())

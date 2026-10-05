@@ -84,7 +84,7 @@ export interface Settings {
 }
 
 export interface Profile {
-  user: { id: Id; name: string; email: string; role: string; all_branches: boolean };
+  user: { id: Id; name: string; email: string; role: string; all_branches: boolean; platform_admin: boolean };
   tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null };
   branches: Branch[];
   permissions: string[];

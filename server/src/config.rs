@@ -13,6 +13,18 @@ pub struct Config {
     pub bootstrap: Option<Bootstrap>,
     pub mpesa: Option<MpesaConfig>,
     pub whatsapp: Option<WhatsAppConfig>,
+    pub email: Option<EmailConfig>,
+    /// Platform admins (lower-case emails) review access requests and activate new businesses.
+    pub platform_admins: Vec<String>,
+    /// Who is emailed when a business requests access.
+    pub access_request_notify: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EmailConfig {
+    pub api_key: String,
+    /// e.g. "S'Shop <noreply@yourdomain.com>". Resend's test sender only delivers to the account owner.
+    pub from: String,
 }
 
 #[derive(Clone, Debug)]
@@ -119,6 +131,14 @@ impl Config {
             _ => None,
         };
 
+        let emails = |v: String| -> Vec<String> { v.split(',').map(|s| s.trim().to_lowercase()).filter(|s| s.contains('@')).collect() };
+        let platform_admins = var("PLATFORM_ADMIN_EMAILS").or_else(|| var("BOOTSTRAP_ADMIN_EMAIL")).map(emails).unwrap_or_default();
+        let access_request_notify = var("ACCESS_REQUEST_NOTIFY_EMAILS").map(emails).unwrap_or_else(|| platform_admins.clone());
+        let email = var("RESEND_API_KEY").map(|api_key| EmailConfig {
+            api_key,
+            from: var("MAIL_FROM").unwrap_or_else(|| "S'Shop <onboarding@resend.dev>".into()),
+        });
+
         Ok(Self {
             port: var("PORT").and_then(|p| p.parse().ok()).unwrap_or(8080),
             jwt_secret,
@@ -130,6 +150,9 @@ impl Config {
             bootstrap,
             mpesa,
             whatsapp,
+            email,
+            platform_admins,
+            access_request_notify,
         })
     }
 }

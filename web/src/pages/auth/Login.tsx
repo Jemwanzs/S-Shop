@@ -1,21 +1,19 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
+import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Loader2, Mail } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import type { Profile } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ThemeToggle } from "@/components/layout/AppShell";
-import mark from "@/assets/sshop-mark.png";
-import stacked from "@/assets/sshop-logo-stacked.png";
+import { PasswordInput } from "@/components/PasswordInput";
+import { AuthLabel, AuthLayout } from "./AuthLayout";
 
 export default function LoginPage() {
   const { profile, signIn } = useSession();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
-  const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -37,68 +35,31 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
-      {/* Brand panel (wide screens) */}
-      {/* Fixed light panel in both themes: the S'Shop logo lettering is dark. */}
-      <div className="relative hidden overflow-hidden bg-[#fffaf4] text-[#1c1410] lg:flex lg:flex-col lg:justify-between lg:p-12">
-        <div className="bg-brand absolute -right-28 -top-28 h-96 w-96 rounded-full opacity-25 blur-3xl" />
-        <div className="bg-brand absolute -bottom-36 -left-24 h-96 w-96 rounded-full opacity-15 blur-3xl" />
-        <img src={stacked} alt="S'Shop — Everything you love in one place" className="relative h-auto w-56 xl:w-64" />
-        <div className="relative max-w-lg space-y-4">
-          <h1 className="text-4xl font-semibold leading-tight xl:text-5xl">
-            Sell, stock and reward — <span className="text-brand">from one phone.</span>
-          </h1>
-          <p className="text-lg text-[#1c1410]/70">Inventory, point of sale, customer orders, credit and loyalty for every branch of your business.</p>
-        </div>
-        <p className="relative text-sm text-[#1c1410]/50">Inventory is the backbone. Customers are the heart.</p>
-      </div>
-
-      <div className="flex min-h-screen flex-col px-5 py-6">
-        <div className="flex justify-end"><ThemeToggle /></div>
-        <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center">
-          <div className="mb-8 text-center animate-fade-up">
-            <div className="mb-6 lg:hidden">
-              <img src={mark} alt="" className="mx-auto h-20 w-20" />
-              <p className="text-brand mt-1 text-3xl font-bold tracking-tight">S'Shop</p>
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Everything you love in one place</p>
-            </div>
-            <h2 className="text-2xl font-semibold">Welcome back</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Sign in with your email and PIN</p>
+    <AuthLayout title="S'Shop" subtitle="Sign in to continue">
+      <form onSubmit={submit} className="space-y-4">
+        <label className="block">
+          <AuthLabel>Email</AuthLabel>
+          <div className="relative">
+            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" className="pl-9" required />
           </div>
-          <form onSubmit={submit} className="space-y-4 animate-fade-up">
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Email</span>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@business.com" className="h-12 pl-9" required />
-              </div>
-            </label>
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">PIN</span>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  type={show ? "text" : "password"}
-                  autoComplete="current-password"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  placeholder="••••"
-                  className="num h-12 pl-9 pr-11 tracking-[0.3em]"
-                  required
-                />
-                <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground" aria-label={show ? "Hide PIN" : "Show PIN"}>
-                  {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </label>
-            {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-            <Button type="submit" size="lg" variant="ink" className="w-full" disabled={busy}>
-              {busy ? <Loader2 className="animate-spin" /> : "Sign in"}
-            </Button>
-            <p className="text-center text-xs text-muted-foreground">Forgot your PIN? Ask an administrator to reset it.</p>
-          </form>
-        </div>
+        </label>
+        <label className="block">
+          <AuthLabel>PIN</AuthLabel>
+          <PasswordInput withIcon autoComplete="current-password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter your PIN" maxLength={12} required />
+        </label>
+        {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
+        <Button type="submit" className="w-full" disabled={busy}>
+          {busy ? <Loader2 className="animate-spin" /> : "Sign in"}
+        </Button>
+        <p className="text-center text-xs text-muted-foreground">Forgot your PIN? Ask your administrator to reset it.</p>
+      </form>
+      <div className="mt-6 border-t pt-5 text-center">
+        <p className="text-xs text-muted-foreground">Interested in accessing S'Shop?</p>
+        <Button variant="outline" size="sm" className="mt-2 w-full" asChild>
+          <Link to="/request-access">Request Access</Link>
+        </Button>
       </div>
-    </div>
+    </AuthLayout>
   );
 }

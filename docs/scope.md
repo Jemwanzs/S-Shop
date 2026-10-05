@@ -71,10 +71,10 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 
 Added 2026-10-05 (owner request), delivered in this order before the remaining items:
 
-- **5. Password visibility** — show/hide eye on every PIN/password field (sign-in, new, confirm, reset, supervisor).
-- **6. Compact mobile-first sizing** — tighter, consistent font, input, button, card and spacing sizes on phones,
+- ✅ **5. Password visibility** — show/hide eye on every PIN/password field (sign-in, new, confirm, reset, supervisor).
+- ✅ **6. Compact mobile-first sizing** — tighter, consistent font, input, button, card and spacing sizes on phones,
   scaling up on tablet/desktop; compact sign-in card; Outfit stays the default font.
-- **7. Request access** — no open signup. Sign-in shows *Interested in accessing S'Shop? Request Access*; the form
+- ✅ **7. Request access** ([module 18](modules/18-access-requests.md)) — no open signup. Sign-in shows *Interested in accessing S'Shop? Request Access*; the form
   stores the request for platform-admin review, emails `jamosammy@gmail.com`, and shows the confirmation with the
   support numbers 0798 993 404 / 0732 968 898. Nothing is activated until a platform admin approves it.
 - **8. User preferences** (per user) — font (Outfit default, Poppins, Inter, Roboto, Nunito) and display currency

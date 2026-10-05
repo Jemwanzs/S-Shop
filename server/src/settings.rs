@@ -20,6 +20,7 @@ pub struct TenantSettings {
     pub expenses: ExpenseSettings,
     pub reports: ReportSettings,
     pub notifications: NotificationSettings,
+    pub workspace: WorkspaceSettings,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -347,6 +348,76 @@ impl Default for NotificationSettings {
     }
 }
 
+/// Working days and trading hours. Business-wide here; a branch may override `hours` (branches.hours).
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
+#[serde(default)]
+pub struct WorkspaceSettings {
+    pub hours: Hours,
+    /// What happens to a sale outside trading hours: `allow` (default) or `block` (unless `sales.outside_hours`).
+    pub outside_hours: OutsideHours,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OutsideHours {
+    #[default]
+    Allow,
+    Block,
+}
+
+/// Trading days Monday..Sunday with one opening and closing time ("HH:MM"). A closing time at or before the
+/// opening time runs past midnight: 06:00 → 02:00 trades until 2 a.m., and those hours belong to the day that opened.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Hours {
+    pub days: [bool; 7],
+    pub open: String,
+    pub close: String,
+}
+
+impl Default for Hours {
+    fn default() -> Self {
+        Self { days: [true; 7], open: "00:00".into(), close: "00:00".into() }
+    }
+}
+
+fn minutes(hhmm: &str) -> Option<i32> {
+    let (h, m) = hhmm.split_once(':')?;
+    let (h, m): (i32, i32) = (h.parse().ok()?, m.parse().ok()?);
+    ((0..24).contains(&h) && (0..60).contains(&m) && hhmm.len() == 5).then_some(h * 60 + m)
+}
+
+impl Hours {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if minutes(&self.open).is_none() || minutes(&self.close).is_none() {
+            return Err("Trading hours must be times like 08:00");
+        }
+        if !self.days.iter().any(|d| *d) {
+            return Err("Choose at least one working day");
+        }
+        Ok(())
+    }
+
+    /// Minutes after midnight that still belong to the previous business day.
+    pub fn day_shift(&self) -> i32 {
+        match (minutes(&self.open), minutes(&self.close)) {
+            (Some(o), Some(c)) if c <= o => c,
+            _ => 0,
+        }
+    }
+
+    /// Open at local time `now`? Days are judged by the business day, so 01:00 on Saturday after a Friday that
+    /// trades until 02:00 is still open even when Saturday is a day off.
+    pub fn is_open(&self, now: chrono::NaiveDateTime) -> bool {
+        use chrono::{Datelike, Timelike};
+        let (Some(o), Some(c)) = (minutes(&self.open), minutes(&self.close)) else { return true };
+        let t = (now.hour() * 60 + now.minute()) as i32;
+        let business_day = (now - chrono::Duration::minutes(self.day_shift() as i64)).date();
+        let in_hours = if c > o { t >= o && t < c } else { t >= o || t < c };
+        in_hours && self.days[business_day.weekday().num_days_from_monday() as usize]
+    }
+}
+
 impl TenantSettings {
     pub fn tier_for(&self, total_spend: Decimal) -> String {
         let mut tiers = self.loyalty.tiers.clone();
@@ -391,6 +462,44 @@ pub async fn load(conn: &mut PgConnection, tenant_id: Uuid) -> AppResult<TenantS
     Ok(serde_json::from_value(raw).unwrap_or_default())
 }
 
+/// A branch's trading hours: its own override, else the business hours.
+pub fn effective_hours(branch_hours: Option<&serde_json::Value>, s: &TenantSettings) -> Hours {
+    branch_hours.and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_else(|| s.workspace.hours.clone())
+}
+
+/// Trading hours of one branch (for the open/closed check at the till).
+pub async fn branch_hours(conn: &mut PgConnection, tenant_id: Uuid, branch_id: Uuid, s: &TenantSettings) -> AppResult<Hours> {
+    let v: Option<serde_json::Value> = sqlx::query_scalar("SELECT hours FROM branches WHERE id = $1 AND tenant_id = $2")
+        .bind(branch_id)
+        .bind(tenant_id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .flatten();
+    Ok(effective_hours(v.as_ref(), s))
+}
+
+/// Re-derive the business-day shift of the business and every branch after hours change. Only new records
+/// use it: business dates already stored are snapshots and never move.
+pub async fn apply_day_shifts(conn: &mut PgConnection, tenant_id: Uuid, s: &TenantSettings) -> AppResult<()> {
+    sqlx::query("UPDATE tenants SET day_shift_minutes = $2 WHERE id = $1")
+        .bind(tenant_id)
+        .bind(s.workspace.hours.day_shift())
+        .execute(&mut *conn)
+        .await?;
+    let branches: Vec<(Uuid, Option<serde_json::Value>)> = sqlx::query_as("SELECT id, hours FROM branches WHERE tenant_id = $1")
+        .bind(tenant_id)
+        .fetch_all(&mut *conn)
+        .await?;
+    for (id, hours) in branches {
+        sqlx::query("UPDATE branches SET day_shift_minutes = $2 WHERE id = $1 AND day_shift_minutes <> $2")
+            .bind(id)
+            .bind(effective_hours(hours.as_ref(), s).day_shift())
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -432,6 +541,27 @@ mod tests {
         let units = MedalTargets { basis: MedalBasis::Units, gold: Decimal::new(20, 0), ..Default::default() };
         assert_eq!(m.award(&units, 0, Decimal::new(1_000_000, 0), 19, 1), None);
         assert_eq!(m.award(&units, 0, Decimal::ZERO, 20, 1), Some("Gold"));
+    }
+
+    #[test]
+    fn trading_hours_and_business_day() {
+        let at = |d: u32, hm: (u32, u32)| chrono::NaiveDate::from_ymd_opt(2026, 10, d).unwrap().and_hms_opt(hm.0, hm.1, 0).unwrap();
+        // 2026-10-05 is a Monday.
+        let mut h = Hours { days: [true, true, true, true, true, false, false], open: "06:00".into(), close: "02:00".into() };
+        assert_eq!(h.day_shift(), 120);
+        assert!(h.is_open(at(5, (23, 0))));
+        assert!(h.is_open(at(6, (1, 30))), "01:30 Tuesday is Monday's late trade");
+        assert!(!h.is_open(at(6, (3, 0))), "closed between 02:00 and 06:00");
+        assert!(h.is_open(at(10, (1, 0))), "Saturday 01:00 still belongs to Friday");
+        assert!(!h.is_open(at(10, (9, 0))), "Saturday is a day off");
+        h = Hours { days: [true; 7], open: "08:00".into(), close: "20:00".into() };
+        assert_eq!(h.day_shift(), 0);
+        assert!(h.is_open(at(5, (8, 0))) && !h.is_open(at(5, (20, 0))) && !h.is_open(at(5, (7, 59))));
+        let all_day = Hours::default();
+        assert_eq!(all_day.day_shift(), 0);
+        assert!(all_day.is_open(at(5, (3, 0))));
+        assert!(Hours { open: "6:00".into(), ..Hours::default() }.validate().is_err());
+        assert!(Hours { days: [false; 7], ..Hours::default() }.validate().is_err());
     }
 
     #[test]

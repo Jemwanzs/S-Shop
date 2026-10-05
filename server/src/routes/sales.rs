@@ -21,7 +21,7 @@ use crate::notify;
 use crate::routes::approvals::ApprovalRow;
 use crate::settings::{self, QuantityEntry, TenantSettings};
 use crate::state::AppState;
-use crate::util::{local_range, money_str, next_doc_no, round2, today_in};
+use crate::util::{money_str, next_doc_no, round2};
 use crate::workflow;
 
 pub fn routes() -> Router<AppState> {
@@ -513,7 +513,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
 
     if method == "credit" {
         let customer = input.customer_id.expect("checked above");
-        let due = input.due_date.unwrap_or_else(|| today_in(ctx.tz) + Duration::days(s.sales.credit_default_days));
+        let due = input.due_date.unwrap_or_else(|| ctx.today() + Duration::days(s.sales.credit_default_days));
         let credit_id: Uuid = sqlx::query_scalar(
             "INSERT INTO credit_sales (tenant_id, branch_id, sale_id, customer_id, user_id, original_amount, due_date, amount_paid, status)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $8 > 0 THEN 'partially_paid' ELSE 'outstanding' END) RETURNING id",
@@ -567,7 +567,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
 
     if let Some(customer) = input.customer_id {
         loyalty::record_purchase(conn, s, customer, total, 1).await?;
-        loyalty::award_sale(conn, s, ctx.tenant_id, customer, sale_id, points, Some(ctx.user_id), today_in(ctx.tz)).await?;
+        loyalty::award_sale(conn, s, ctx.tenant_id, customer, sale_id, points, Some(ctx.user_id), ctx.today()).await?;
     }
 
     if let Some(approver) = input.approved_by {
@@ -620,6 +620,12 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
 
     let mut tx = state.db.begin().await?;
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
+    if s.workspace.outside_hours == settings::OutsideHours::Block && !ctx.can("sales.outside_hours") {
+        let hours = settings::branch_hours(&mut tx, ctx.tenant_id, branch, &s).await?;
+        if !hours.is_open(Utc::now().with_timezone(&ctx.tz).naive_local()) {
+            return Err(rule(format!("The branch is closed (trading hours {}–{}). Sales outside trading hours need permission.", hours.open, hours.close)));
+        }
+    }
 
     let customer_id = match (b.customer_id, &b.customer) {
         (Some(id), _) => {
@@ -722,6 +728,8 @@ struct SaleRow {
     id: Uuid,
     receipt_no: String,
     created_at: DateTime<Utc>,
+    /// Trading day the sale belongs to (differs from the calendar date after midnight on late hours).
+    business_date: NaiveDate,
     branch_name: String,
     customer_id: Option<Uuid>,
     customer_name: Option<String>,
@@ -763,10 +771,9 @@ struct SaleListRow {
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Value>> {
     ctx.require("sales.view")?;
     let branches = ctx.branch_scope(q.branch_id)?;
-    let (from, to) = q.period.resolve(ctx.tz, "today");
-    let (start, end) = local_range(from, to, ctx.tz);
+    let (from, to) = q.period.resolve(ctx.today(), "today");
     let rows: Vec<SaleListRow> = sqlx::query_as(
-        "SELECT s.id, s.receipt_no, s.created_at, b.name AS branch_name, s.customer_id,
+        "SELECT s.id, s.receipt_no, s.created_at, s.business_date, b.name AS branch_name, s.customer_id,
                 NULLIF(TRIM(c.first_name || ' ' || c.other_names), '') AS customer_name, c.mobile AS customer_mobile,
                 u.name AS user_name, s.status, s.total, s.discount_total, s.payment_method, s.points_earned,
                 (SELECT COALESCE(SUM(quantity),0) FROM sale_items si WHERE si.sale_id = s.id)::bigint AS item_count,
@@ -776,7 +783,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
                 COALESCE(SUM(s.discount_total) FILTER (WHERE s.status <> 'cancelled') OVER(), 0) AS sum_discount
          FROM sales s JOIN branches b ON b.id = s.branch_id
          LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN users u ON u.id = s.user_id LEFT JOIN orders o ON o.id = s.order_id
-         WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND s.created_at >= $3 AND s.created_at < $4
+         WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND s.business_date BETWEEN $3 AND $4
            AND ($5::uuid IS NULL OR s.user_id = $5) AND ($6::uuid IS NULL OR s.customer_id = $6)
            AND ($7::text IS NULL OR s.status = $7) AND ($8::text IS NULL OR s.payment_method = $8)
            AND ($9::text IS NULL OR s.receipt_no ILIKE $9 OR c.first_name ILIKE $9 OR c.mobile ILIKE $9)
@@ -784,8 +791,8 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     )
     .bind(ctx.tenant_id)
     .bind(&branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     // Without "view other employees" a user only ever sees their own sales.
     .bind(if ctx.sees_others() { q.user_id } else { Some(ctx.user_id) })
     .bind(q.customer_id)

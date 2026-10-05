@@ -22,7 +22,7 @@ use crate::inventory;
 use crate::notify::{self, Note};
 use crate::settings::{self, TenantSettings};
 use crate::state::AppState;
-use crate::util::{local_range, money_str, next_doc_no, parse_tz, round2};
+use crate::util::{money_str, next_doc_no, parse_tz, round2};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -83,8 +83,7 @@ struct ListQuery {
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Paged<OrderRow>>> {
     ctx.require("orders.view")?;
     let branches = ctx.branch_scope(q.branch_id)?;
-    let (from, to) = q.period.resolve(ctx.tz, "all");
-    let (start, end) = local_range(from, to, ctx.tz);
+    let (from, to) = q.period.resolve(ctx.today(), "all");
     let select = SELECT.replacen("SELECT", "SELECT COUNT(*) OVER() AS total_count,", 1);
     let rows: Vec<Counted<OrderRow>> = sqlx::query_as(&format!(
         "{select} WHERE o.tenant_id = $1 AND o.branch_id = ANY($2)
@@ -92,15 +91,15 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
                         WHEN 'active' THEN o.status NOT IN ('completed','cancelled','rejected','returned')
                         ELSE o.status = $3 END)
            AND ($4::text IS NULL OR o.order_no ILIKE $4 OR c.first_name ILIKE $4 OR c.mobile ILIKE $4)
-           AND o.created_at >= $5 AND o.created_at < $6
+           AND o.business_date BETWEEN $5 AND $6
          ORDER BY (o.status = 'new') DESC, o.created_at DESC LIMIT $7 OFFSET $8"
     ))
     .bind(ctx.tenant_id)
     .bind(&branches)
     .bind(q.status.as_deref().unwrap_or("active"))
     .bind(like(&q.q))
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(q.page.limit())
     .bind(q.page.offset())
     .fetch_all(&state.db)

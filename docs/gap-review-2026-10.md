@@ -25,6 +25,10 @@ Reviewed against the code, database and roadmap before building. ✅ complete ·
 areas, role retirement, My Dashboard, recent activity; plus a privilege-escalation fix (non-admins can no longer grant
 or assign permissions they do not hold) found during this review.
 Step 2 done (2026-10-05) — items 1 and 2 are now ✅: **Leaderboards** (`/leaderboards`).
+Step 3 done (2026-10-05) — items 10–13 are now ✅: **Settings → Workspace & hours** (working days, opening/closing time,
+allow/block outside hours with `sales.outside_hours`), **branch hours** override, and a **business date** stored with
+every sale, order, payment, credit sale, stock movement and return (database trigger, snapshot at the time of the
+transaction) that dashboards, reports, lists and leaderboards filter on.
 
 **Order of work** (each end-to-end: database → backend → permissions → UI → audit → reports, with demo data):
 1. Access: `staff.view_others` + data scoping, My Dashboard, recent activity, `sales.print`, settings areas, role deactivation.

@@ -16,6 +16,8 @@ import { Field, NativeSelect, ToggleRow } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { Card, SettingsPage, useSettingsDraft } from "./shared";
+import { HoursEditor, hoursLabel } from "@/components/Hours";
+import { t } from "@/lib/i18n";
 
 type Draft = ReturnType<typeof useSettingsDraft>;
 
@@ -353,6 +355,52 @@ export function LoyaltySettings() {
             <ToggleRow label="Show points on the ordering link" checked={s.loyalty.show_on_portal} onChange={(v) => d.update((x) => { x.loyalty.show_on_portal = v; })} />
             <ToggleRow label="Show the money value of points" checked={s.loyalty.show_value_on_portal} onChange={(v) => d.update((x) => { x.loyalty.show_value_on_portal = v; })} />
           </Card>
+        </>
+      )}
+    </Page>
+  );
+}
+
+export function WorkspaceSettings() {
+  const d = useSettingsDraft();
+  const { profile } = useSession();
+  const own = profile?.branches.filter((b) => b.own_hours) ?? [];
+  return (
+    <Page
+      d={d}
+      title="Workspace"
+      description="Working days and trading hours. Each sale, order, payment and stock movement also records the business day it belongs to, so late trading after midnight counts for the day that opened."
+    >
+      {(s) => (
+        <>
+          <Card title="Business hours">
+            <div className="py-3">
+              <HoursEditor value={s.workspace.hours} onChange={(h) => d.update((x) => { x.workspace.hours = h; })} />
+            </div>
+          </Card>
+          <Card title="Outside trading hours">
+            <Row label="Sales outside trading hours" hint="Blocking applies to counter sales; people with “Sell outside trading hours” can still sell.">
+              <NativeSelect value={s.workspace.outside_hours} onChange={(v) => d.update((x) => { x.workspace.outside_hours = v as "allow" | "block"; })}>
+                <option value="allow">{t("Allow")}</option>
+                <option value="block">{t("Block")}</option>
+              </NativeSelect>
+            </Row>
+          </Card>
+          <Card title="Branches with their own hours">
+            {own.length ? (
+              own.map((b) => (
+                <div key={b.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                  <span className="font-medium">{b.name}</span>
+                  <span className="text-xs text-muted-foreground">{b.hours && hoursLabel(b.hours)}</span>
+                </div>
+              ))
+            ) : (
+              <p className="py-3 text-sm text-muted-foreground">{t("All branches follow the business hours. Set a branch's own hours under Branches.")}</p>
+            )}
+          </Card>
+          <p className="text-xs text-muted-foreground">
+            {t("Changing hours applies to new transactions; business days already recorded never move.")}
+          </p>
         </>
       )}
     </Page>

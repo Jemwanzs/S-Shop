@@ -16,7 +16,7 @@ use crate::auth::Ctx;
 use crate::error::{bad, rule, AppError, AppResult};
 use crate::routes::approvals::ApprovalRow;
 use crate::state::AppState;
-use crate::util::{money_str, normalize_mobile, round2, today_in};
+use crate::util::{money_str, normalize_mobile, round2};
 use crate::workflow;
 
 pub fn routes() -> Router<AppState> {
@@ -73,7 +73,7 @@ struct ListQuery {
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Value>> {
     ctx.require("credit.view")?;
     let branches = ctx.branch_scope(q.branch_id)?;
-    let today = today_in(ctx.tz);
+    let today = ctx.today();
     let select = CREDIT_SELECT.replacen("SELECT", "SELECT COUNT(*) OVER() AS total_count,", 1);
     // status filter: open (default) | overdue | paid | written_off | all | outstanding | partially_paid
     let rows: Vec<Counted<CreditRow>> = sqlx::query_as(&format!(
@@ -115,7 +115,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
 async fn load(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<CreditRow> {
     let row: CreditRow = sqlx::query_as(&format!("{CREDIT_SELECT} WHERE cs.id = $1 AND cs.tenant_id = $4"))
         .bind(id)
-        .bind(today_in(ctx.tz))
+        .bind(ctx.today())
         .bind(ctx.tz.name())
         .bind(ctx.tenant_id)
         .fetch_optional(&mut *conn)
@@ -358,7 +358,7 @@ async fn aging(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuer
     )
     .bind(ctx.tenant_id)
     .bind(&branches)
-    .bind(today_in(ctx.tz))
+    .bind(ctx.today())
     .fetch_all(&state.db)
     .await?;
     let order = ["current", "1-30", "31-60", "61-90", "90+"];

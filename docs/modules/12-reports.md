@@ -17,7 +17,8 @@
 
 ## Filters (consistent across reports)
 Today · Yesterday · This week · This month · This year · specific date · date range · Branch · Category · Product ·
-User. Each report uses the filters that apply to it. Totals are calculated for every money and count column.
+User. Each report uses the filters that apply to it. Sales, orders, credit, stock movement and performance reports
+filter by **business day** (module 16) and show it next to the true time. Totals are calculated for every money and count column.
 
 ## Output
 On screen (table on desktop, cards on phones) with a totals bar, **PDF** (A4, landscape for wide reports, branded

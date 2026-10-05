@@ -2,6 +2,7 @@ import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom"
 import {
   Award,
   Building2,
+  CalendarClock,
   SlidersHorizontal,
   Inbox,
   Network,
@@ -26,7 +27,7 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/Page";
 import { BusinessSettings, IntegrationsSettings } from "./General";
 import { BranchesSettings, RolesSettings, UsersSettings } from "./People";
-import { CustomerSettings, ExpenseSettings, LoyaltySettings, OrderSettings, ProductSettings, ReportSettings, SalesSettings, StockSettings } from "./Config";
+import { CustomerSettings, ExpenseSettings, LoyaltySettings, OrderSettings, ProductSettings, ReportSettings, SalesSettings, StockSettings, WorkspaceSettings } from "./Config";
 import { WorkflowSettings } from "./Workflows";
 import { AccessRequests } from "./AccessRequests";
 import { PreferencesSettings } from "./Preferences";
@@ -46,6 +47,7 @@ const SECTIONS: SectionDef[] = [
   { path: "business", label: "Business profile", group: "Business", icon: Store, perm: "settings.business", element: <BusinessSettings /> },
   { path: "branches", label: "Branches", group: "Business", icon: Building2, perm: "branches.manage", element: <BranchesSettings /> },
   { path: "users", label: "Users", group: "Business", icon: Users, perm: "users.manage", element: <UsersSettings /> },
+  { path: "workspace", label: "Workspace & hours", group: "Business", icon: CalendarClock, perm: "settings.workspace", element: <WorkspaceSettings /> },
   { path: "roles", label: "Roles & permissions", group: "Business", icon: KeyRound, perm: "roles.manage", element: <RolesSettings /> },
   { path: "products", label: "Products", group: "Configuration", icon: Package, perm: "settings.products", element: <ProductSettings /> },
   { path: "sales", label: "Sales & payments", group: "Configuration", icon: CreditCard, perm: "settings.sales", element: <SalesSettings /> },

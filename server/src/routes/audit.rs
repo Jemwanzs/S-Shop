@@ -50,7 +50,7 @@ struct ListQuery {
 
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Paged<AuditRow>>> {
     ctx.require("audit.view")?;
-    let (from, to) = q.period.resolve(ctx.tz, "week");
+    let (from, to) = q.period.resolve(ctx.today(), "week");
     let (start, end) = local_range(from, to, ctx.tz);
     let rows: Vec<Counted<AuditRow>> = sqlx::query_as(
         "SELECT COUNT(*) OVER() AS total_count, a.id, a.created_at, u.name AS user_name, a.module, a.action, a.entity_type, a.entity_id,

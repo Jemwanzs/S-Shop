@@ -28,11 +28,9 @@ pub mod webhooks;
 
 use axum::Router;
 use chrono::{Datelike, Duration, NaiveDate};
-use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 
 use crate::state::AppState;
-use crate::util::today_in;
 
 pub fn api() -> Router<AppState> {
     Router::new()
@@ -74,8 +72,8 @@ pub struct Period {
 }
 
 impl Period {
-    pub fn resolve(&self, tz: Tz, default: &str) -> (NaiveDate, NaiveDate) {
-        let today = today_in(tz);
+    /// `today` is the business day (see `Ctx::today`), so "today" after midnight still means the open trading day.
+    pub fn resolve(&self, today: NaiveDate, default: &str) -> (NaiveDate, NaiveDate) {
         if let (Some(f), Some(t)) = (self.from, self.to) {
             return if f <= t { (f, t) } else { (t, f) };
         }

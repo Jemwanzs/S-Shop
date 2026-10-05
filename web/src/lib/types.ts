@@ -20,6 +20,16 @@ export interface Branch {
   name: string;
   code: string;
   location: string;
+  /** Effective trading hours (own override, else the business hours). */
+  hours?: Hours;
+  own_hours?: boolean;
+}
+
+/** Trading days Monday..Sunday and one opening/closing time ("HH:MM"); a close at or before the open runs past midnight. */
+export interface Hours {
+  days: boolean[];
+  open: string;
+  close: string;
 }
 
 export interface PaymentMethod {
@@ -82,11 +92,12 @@ export interface Settings {
   expenses: { require_attachment: boolean; require_description: boolean };
   reports: { hide_financials_without_permission: boolean; medals: MedalSettings };
   notifications: { whatsapp_receipts: boolean; whatsapp_credit_reminders: boolean; whatsapp_loyalty: boolean };
+  workspace: { hours: Hours; outside_hours: "allow" | "block" };
 }
 
 export interface Profile {
   user: { id: Id; name: string; email: string; role: string; all_branches: boolean; platform_admin: boolean; preferences: Preferences };
-  tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null; is_demo: boolean };
+  tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null; is_demo: boolean; timezone: string };
   branches: Branch[];
   permissions: string[];
   settings: Settings;
@@ -184,6 +195,8 @@ export interface SaleRow {
   id: Id;
   receipt_no: string;
   created_at: string;
+  /** Trading day the sale counts for (YYYY-MM-DD); differs from the calendar date for late trading after midnight. */
+  business_date: string;
   branch_name: string;
   customer_id: Id | null;
   customer_name: string | null;

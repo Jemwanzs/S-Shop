@@ -38,14 +38,14 @@ List endpoints accept `limit` (≤500) and `offset`; period filters accept `peri
 | Method | Path |
 |---|---|
 | GET | `/api/settings` |
-| PUT | `/api/settings` |
+| PUT | `/api/settings` — `workspace: {hours: {days, open, close}, outside_hours: allow\|block}` among the sections |
 | PUT | `/api/settings/profile` |
 | POST | `/api/settings/logo` |
 | PUT | `/api/settings/workflows/{action}` |
 | GET | `/api/public/{slug}/logo` |
 | GET | `/api/branches` |
 | POST | `/api/branches` |
-| PUT | `/api/branches/{id}` |
+| PUT | `/api/branches/{id}` — `hours`: omit = unchanged, `null` = follow the business, `{days[7], open, close}` = own hours (needs `settings.workspace`) |
 | GET | `/api/users` |
 | POST | `/api/users` |
 | PUT | `/api/users/{id}` |

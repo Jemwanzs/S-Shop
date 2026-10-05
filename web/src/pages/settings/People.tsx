@@ -5,7 +5,8 @@ import { toast } from "@/lib/toast";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { ago, initials } from "@/lib/format";
-import type { Role, UserRow } from "@/lib/types";
+import type { Hours, Role, UserRow } from "@/lib/types";
+import { HoursEditor, hoursLabel } from "@/components/Hours";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,19 +15,24 @@ import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { PasswordInput } from "@/components/PasswordInput";
 import { Card, SettingsPage } from "./shared";
+import { t } from "@/lib/i18n";
 
 // ───────────────────────────── Branches ─────────────────────────────
 
-interface BranchRow { id: string; name: string; code: string; location: string; phone: string; manager_id: string | null; manager_name: string | null; is_active: boolean; user_count: number }
+interface BranchRow { id: string; name: string; code: string; location: string; phone: string; manager_id: string | null; manager_name: string | null; is_active: boolean; user_count: number; hours: Hours | null }
 
 export function BranchesSettings() {
   const qc = useQueryClient();
+  const { can, profile } = useSession();
+  // Hours are only sent by people who may change them; otherwise the server keeps them as they are.
+  const canHours = can("settings.workspace");
+  const businessHours = profile?.settings.workspace.hours;
   const { data, isLoading } = useQuery({ queryKey: ["branches"], queryFn: () => api<BranchRow[]>("/branches") });
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<UserRow[]>("/users") });
   const [edit, setEdit] = useState<Partial<BranchRow> | null>(null);
   const save = useMutation({
     mutationFn: (b: Partial<BranchRow>) =>
-      api(b.id ? `/branches/${b.id}` : "/branches", { method: b.id ? "PUT" : "POST", body: { name: b.name, code: b.code, location: b.location, phone: b.phone, manager_id: b.manager_id || null, is_active: b.is_active } }),
+      api(b.id ? `/branches/${b.id}` : "/branches", { method: b.id ? "PUT" : "POST", body: { name: b.name, code: b.code, location: b.location, phone: b.phone, manager_id: b.manager_id || null, is_active: b.is_active, ...(canHours ? { hours: b.hours ?? null } : {}) } }),
     onSuccess: () => {
       toast.success("Branch saved");
       setEdit(null);
@@ -43,6 +49,7 @@ export function BranchesSettings() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 font-medium">{b.name} <Pill>{b.code}</Pill>{!b.is_active && <Pill tone="danger">Inactive</Pill>}</div>
               <div className="truncate text-xs text-muted-foreground">{[b.location, b.manager_name && `Manager: ${b.manager_name}`, `${b.user_count} users`].filter(Boolean).join(" · ")}</div>
+              {b.hours && <div className="truncate text-xs text-muted-foreground">{t("Own hours")}: {hoursLabel(b.hours)}</div>}
             </div>
             <Button variant="ghost" size="icon-sm" onClick={() => setEdit(b)} aria-label="Edit"><Pencil /></Button>
           </div>
@@ -61,6 +68,17 @@ export function BranchesSettings() {
                 {users.data?.filter((u) => u.is_active).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
               </NativeSelect>
             </Field>
+            {canHours && businessHours && (
+              <div className="space-y-3 sm:col-span-2">
+                <ToggleRow
+                  label="Own trading hours"
+                  hint={edit.hours ? "This branch keeps its own days and hours" : `Follows the business: ${hoursLabel(businessHours)}`}
+                  checked={!!edit.hours}
+                  onChange={(v) => setEdit({ ...edit, hours: v ? { ...businessHours, days: [...businessHours.days] } : null })}
+                />
+                {edit.hours && <HoursEditor value={edit.hours} onChange={(h) => setEdit({ ...edit, hours: h })} />}
+              </div>
+            )}
             {edit.id && <div className="sm:col-span-2"><ToggleRow label="Active" checked={!!edit.is_active} onChange={(v) => setEdit({ ...edit, is_active: v })} /></div>}
           </div>
         )}

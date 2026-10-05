@@ -5,7 +5,9 @@ import { Plus, Receipt } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
-import { count, dateTime, methodLabel, money, time } from "@/lib/format";
+import { count, date, dateTime, methodLabel, money, time } from "@/lib/format";
+import { lateTrade } from "@/components/Hours";
+import { t } from "@/lib/i18n";
 import type { SaleRow, UserRow } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { PageHeader, EmptyState } from "@/components/Page";
@@ -19,6 +21,7 @@ const LIMIT = 50;
 
 export default function SalesList() {
   const { profile, can } = useSession();
+  const late = (r: SaleRow) => lateTrade(r.created_at, r.business_date, profile?.tenant.timezone);
   const navigate = useNavigate();
   const [period, setPeriod] = useState<PeriodValue>({ period: "today" });
   const [q, setQ] = useState("");
@@ -90,7 +93,12 @@ export default function SalesList() {
         empty={<EmptyState icon={Receipt} title="No sales in this period" />}
         columns={[
           { key: "receipt", header: "Receipt", cell: (r) => <span className="num font-medium">{r.receipt_no}</span> },
-          { key: "date", header: "Date", cell: (r) => <span className="whitespace-nowrap text-muted-foreground">{dateTime(r.created_at)}</span> },
+          { key: "date", header: "Date", cell: (r) => (
+            <span className="whitespace-nowrap text-muted-foreground">
+              {dateTime(r.created_at)}
+              {late(r) && <span className="block text-xs text-warning">{t("Counts for")} {date(r.business_date)}</span>}
+            </span>
+          ) },
           { key: "customer", header: "Customer", cell: (r) => r.customer_name ?? <span className="text-muted-foreground">Walk-in</span> },
           { key: "branch", header: "Branch", cell: (r) => r.branch_name, hideBelow: "xl" },
           { key: "user", header: "Salesperson", cell: (r) => r.user_name ?? "—", hideBelow: "lg" },
@@ -102,7 +110,7 @@ export default function SalesList() {
         mobile={(r) => (
           <CardRow
             title={r.customer_name ?? "Walk-in customer"}
-            subtitle={<span className="num">{r.receipt_no} · {time(r.created_at)} · {methodLabel(r.payment_method)}</span>}
+            subtitle={<span className="num">{r.receipt_no} · {time(r.created_at)}{late(r) && <span className="text-warning"> ({t("counts for")} {date(r.business_date)})</span>} · {methodLabel(r.payment_method)}</span>}
             value={money(r.total)}
             meta={r.status !== "completed" ? <StatusBadge status={r.status} /> : r.points_earned > 0 ? `🌼 +${r.points_earned}` : undefined}
           />

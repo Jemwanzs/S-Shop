@@ -16,7 +16,6 @@ use crate::auth::Ctx;
 use crate::error::AppResult;
 use crate::settings::{self, Valuation};
 use crate::state::AppState;
-use crate::util::{local_range, today_in};
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/dashboard", get(dashboard)).route("/dashboard/activity", get(activity))
@@ -36,16 +35,17 @@ pub struct Filters {
 }
 
 /// Net sale lines (after returns) matching the filters.
-/// Binds: $1 tenant, $2 branches, $3 start, $4 end, $5 product, $6 category, $7 user.
+/// Binds: $1 tenant, $2 branches, $3 first business day, $4 last business day (dates, inclusive), $5 product,
+/// $6 category, $7 user. Sales are counted on their business date, not the calendar day of the timestamp.
 pub const LINES: &str = "lines AS (
-    SELECT s.id AS sale_id, s.branch_id, s.user_id, s.customer_id, s.created_at, s.payment_method, si.product_id,
+    SELECT s.id AS sale_id, s.branch_id, s.user_id, s.customer_id, s.created_at, s.business_date, s.payment_method, si.product_id,
            (si.quantity - si.returned_qty) AS qty,
            (si.quantity - si.returned_qty) * si.unit_price AS revenue,
            CASE WHEN si.unit_cost IS NOT NULL THEN (si.quantity - si.returned_qty) * (si.unit_price - si.unit_cost) END AS profit,
            CASE WHEN si.unit_cost IS NOT NULL THEN (si.quantity - si.returned_qty) * si.unit_price END AS costed_revenue,
            (si.quantity - si.returned_qty) * (si.marked_price - si.unit_price) AS discount
     FROM sales s JOIN sale_items si ON si.sale_id = s.id JOIN products p ON p.id = si.product_id
-    WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND s.created_at >= $3 AND s.created_at < $4 AND s.status <> 'cancelled'
+    WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND s.business_date BETWEEN $3 AND $4 AND s.status <> 'cancelled'
       AND ($5::uuid IS NULL OR si.product_id = $5) AND ($6::uuid IS NULL OR p.category_id = $6) AND ($7::uuid IS NULL OR s.user_id = $7))";
 
 struct Scope {
@@ -66,7 +66,6 @@ struct Totals {
 }
 
 async fn totals(conn: &mut PgConnection, ctx: &Ctx, f: &Filters, scope: &Scope, from: NaiveDate, to: NaiveDate) -> AppResult<Totals> {
-    let (start, end) = local_range(from, to, ctx.tz);
     Ok(sqlx::query_as(&format!(
         "WITH {LINES}
          SELECT COALESCE(SUM(revenue),0) AS revenue, COALESCE(SUM(profit),0) AS profit,
@@ -77,8 +76,8 @@ async fn totals(conn: &mut PgConnection, ctx: &Ctx, f: &Filters, scope: &Scope, 
     ))
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(f.product_id)
     .bind(f.category_id)
     .bind(f.user_id)
@@ -102,13 +101,11 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
             return Err(crate::error::AppError::Forbidden("Viewing other employees' figures needs permission".into()));
         }
     }
-    let (from, to) = f.period.resolve(ctx.tz, "week");
+    let (from, to) = f.period.resolve(ctx.today(), "week");
     let scope = Scope { branches: ctx.branch_scope(f.branch_id)?, from, to };
-    let (start, end) = local_range(from, to, ctx.tz);
     let mut conn = state.db.acquire().await?;
     let s = settings::load(&mut conn, ctx.tenant_id).await?;
     let fin = ctx.can("sales.view_financials");
-    let tz = ctx.tz.name();
 
     let now = totals(&mut conn, &ctx, &f, &scope, from, to).await?;
     let days = (to - from).num_days() + 1;
@@ -127,16 +124,16 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     .await?;
 
     let (orders, orders_value, open_orders): (i64, Decimal, i64) = sqlx::query_as(
-        "SELECT COUNT(*) FILTER (WHERE created_at >= $3 AND created_at < $4),
-                COALESCE(SUM(total) FILTER (WHERE created_at >= $3 AND created_at < $4 AND status NOT IN ('cancelled','rejected')),0),
+        "SELECT COUNT(*) FILTER (WHERE business_date BETWEEN $3 AND $4),
+                COALESCE(SUM(total) FILTER (WHERE business_date BETWEEN $3 AND $4 AND status NOT IN ('cancelled','rejected')),0),
                 COUNT(*) FILTER (WHERE status NOT IN ('completed','delivered','cancelled','rejected','returned'))
          FROM orders o WHERE tenant_id = $1 AND branch_id = ANY($2)
            AND ($5::uuid IS NULL OR o.created_by = $5 OR EXISTS (SELECT 1 FROM order_events e WHERE e.order_id = o.id AND e.user_id = $5))",
     )
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(f.user_id)
     .fetch_one(&mut *conn)
     .await?;
@@ -158,10 +155,10 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     .await?;
 
     let new_customers: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM customers WHERE tenant_id = $1 AND created_at >= $2 AND created_at < $3 AND ($4::uuid IS NULL OR created_by = $4)")
+        sqlx::query_scalar("SELECT COUNT(*) FROM customers WHERE tenant_id = $1 AND business_date_of(created_at, tenant_id, NULL) BETWEEN $2 AND $3 AND ($4::uuid IS NULL OR created_by = $4)")
         .bind(ctx.tenant_id)
-        .bind(start)
-        .bind(end)
+        .bind(from)
+        .bind(to)
         .bind(f.user_id)
         .fetch_one(&mut *conn)
         .await?;
@@ -177,11 +174,11 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     let (points_issued, points_redeemed): (i64, i64) = sqlx::query_as(
         "SELECT COALESCE(SUM(points) FILTER (WHERE kind IN ('earn','referral')),0)::bigint,
                 COALESCE(-SUM(points) FILTER (WHERE kind = 'redeem'),0)::bigint
-         FROM loyalty_ledger WHERE tenant_id = $1 AND created_at >= $2 AND created_at < $3 AND ($4::uuid IS NULL OR user_id = $4)",
+         FROM loyalty_ledger WHERE tenant_id = $1 AND business_date_of(created_at, tenant_id, NULL) BETWEEN $2 AND $3 AND ($4::uuid IS NULL OR user_id = $4)",
     )
     .bind(ctx.tenant_id)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(f.user_id)
     .fetch_one(&mut *conn)
     .await?;
@@ -190,18 +187,17 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     let bucket = if days <= 62 { "day" } else if days <= 366 { "week" } else { "month" };
     let series: Vec<(NaiveDate, Decimal, i64, Decimal)> = sqlx::query_as(&format!(
         "WITH {LINES}
-         SELECT date_trunc('{bucket}', created_at AT TIME ZONE $8)::date AS d, COALESCE(SUM(revenue),0), COUNT(DISTINCT sale_id),
+         SELECT date_trunc('{bucket}', business_date)::date AS d, COALESCE(SUM(revenue),0), COUNT(DISTINCT sale_id),
                 COALESCE(SUM(profit),0)
          FROM lines GROUP BY 1 ORDER BY 1"
     ))
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(f.product_id)
     .bind(f.category_id)
     .bind(f.user_id)
-    .bind(tz)
     .fetch_all(&mut *conn)
     .await?;
 
@@ -210,8 +206,8 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     ))
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(f.product_id)
     .bind(f.category_id)
     .bind(f.user_id)
@@ -225,8 +221,8 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     ))
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(f.product_id)
     .bind(f.category_id)
     .bind(f.user_id)
@@ -261,8 +257,8 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     ))
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(f.product_id)
     .bind(f.category_id)
     .bind(f.user_id)
@@ -290,8 +286,8 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     ))
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(f.product_id)
     .bind(f.category_id)
     .bind(f.user_id)
@@ -306,8 +302,8 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     ))
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(f.product_id)
     .bind(f.category_id)
     .bind(f.user_id)
@@ -321,8 +317,8 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     ))
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(f.product_id)
     .bind(f.category_id)
     .bind(f.user_id)
@@ -337,8 +333,8 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
         ))
         .bind(ctx.tenant_id)
         .bind(&scope.branches)
-        .bind(start)
-        .bind(end)
+        .bind(from)
+        .bind(to)
         .bind(f.product_id)
         .bind(f.category_id)
         .bind(None::<Uuid>)
@@ -353,7 +349,7 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     let avg = if now.transactions > 0 { (now.revenue / Decimal::from(now.transactions)).round_dp(2) } else { Decimal::ZERO };
     let gross_profit = fin.then_some(now.profit);
     Ok(Json(json!({
-        "from": scope.from, "to": scope.to, "today": today_in(ctx.tz), "bucket": bucket,
+        "from": scope.from, "to": scope.to, "today": ctx.today(), "bucket": bucket,
         "kpis": {
             "sales": now.revenue,
             "sales_change_pct": pct_change(now.revenue, prev.revenue),

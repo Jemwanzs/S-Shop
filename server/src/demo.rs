@@ -407,7 +407,14 @@ impl<'a> Seeder<'a> {
         settings["notifications"] = json!({ "whatsapp_receipts": false, "whatsapp_credit_reminders": false, "whatsapp_loyalty": false });
         settings["orders"]["portal_enabled"] = json!(true);
         settings["product"]["auto_code_prefix"] = json!("PN");
+        let every_day = [true; 7];
+        settings["workspace"] = json!({ "hours": { "days": every_day, "open": "09:00", "close": "20:00" }, "outside_hours": "allow" });
         self.api.call(a, None, Method::PUT, "/settings", Some(settings)).await?;
+        // The mall branch trades late: 10:00 → 01:00, so sales after midnight count for the day that opened.
+        let (name, code, location) = BRANCHES[2];
+        let late = json!({ "name": name, "code": code, "location": location, "is_active": true,
+                           "hours": { "days": every_day, "open": "10:00", "close": "01:00" } });
+        self.api.call(a, None, Method::PUT, &format!("/branches/{}", self.branches[3]), Some(late)).await?;
 
         // Staff: a manager and salespeople per branch (random PINs: platform admins open the business instead).
         let roles = self.api.call(a, None, Method::GET, "/roles", None).await?;

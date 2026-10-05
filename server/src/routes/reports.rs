@@ -4,6 +4,8 @@
 //! Every report SQL starts with a `params` CTE that types all bind parameters:
 //! $1 tenant, $2 branches, $3 start, $4 end, $5 product, $6 category, $7 user,
 //! $8 from-date, $9 to-date, $10 time zone, $11 customer, $12 low-stock default.
+//! Trading records (sales, orders, payments, credit, stock movements) filter on their business date
+//! (`fd`..`td`); other records (transfers, adjustments, loyalty) on the true timestamp (`ts`..`te`).
 
 use axum::extract::{Path, Query, State};
 use axum::http::header;
@@ -61,12 +63,12 @@ const PARAMS: &str = "WITH params AS (SELECT $1::uuid AS tid, $2::uuid[] AS br, 
     $12::int AS low)";
 
 const LINES: &str = "lines AS (
-    SELECT s.id AS sale_id, s.branch_id, s.user_id, s.customer_id, s.created_at, s.payment_method, si.product_id,
+    SELECT s.id AS sale_id, s.branch_id, s.user_id, s.customer_id, s.created_at, s.business_date, s.payment_method, si.product_id,
            si.quantity - si.returned_qty AS qty, (si.quantity - si.returned_qty) * si.unit_price AS revenue,
            (si.quantity - si.returned_qty) * (si.marked_price - si.unit_price) AS discount,
            CASE WHEN si.unit_cost IS NOT NULL THEN (si.quantity - si.returned_qty) * si.unit_cost END AS cost
     FROM sales s JOIN sale_items si ON si.sale_id = s.id JOIN products p ON p.id = si.product_id, params
-    WHERE s.tenant_id = params.tid AND s.branch_id = ANY(params.br) AND s.created_at >= params.ts AND s.created_at < params.te
+    WHERE s.tenant_id = params.tid AND s.branch_id = ANY(params.br) AND s.business_date BETWEEN params.fd AND params.td
       AND s.status <> 'cancelled' AND (params.pid IS NULL OR si.product_id = params.pid)
       AND (params.cid IS NULL OR p.category_id = params.cid) AND (params.uid IS NULL OR s.user_id = params.uid)
       AND (params.cust IS NULL OR s.customer_id = params.cust))";
@@ -75,16 +77,16 @@ pub const REPORTS: &[Report] = &[
     Report {
         key: "sales", title: "Sales Report", group: "Sales", permission: "sales.view",
         description: "Every sale in the period with totals, discounts and payment method",
-        columns: &[c("created_at", "Date", "datetime"), c("receipt_no", "Receipt", "text"), c("branch", "Branch", "text"),
+        columns: &[c("created_at", "Date", "datetime"), c("business_date", "Business day", "date"), c("receipt_no", "Receipt", "text"), c("branch", "Branch", "text"),
             c("customer", "Customer", "text"), c("salesperson", "Salesperson", "text"), c("items", "Items", "int"),
             c("gross", "Marked total", "money"), c("discount", "Discount", "money"), c("total", "Total", "money"),
             c("payment_method", "Payment", "text"), c("status", "Status", "text")],
-        sql: "SELECT s.created_at, s.receipt_no, b.name AS branch, NULLIF(TRIM(c.first_name || ' ' || c.other_names),'') AS customer,
+        sql: "SELECT s.created_at, s.business_date, s.receipt_no, b.name AS branch, NULLIF(TRIM(c.first_name || ' ' || c.other_names),'') AS customer,
                      u.name AS salesperson, (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = s.id) AS items,
                      s.gross_total AS gross, s.discount_total AS discount, s.total, s.payment_method, s.status
               FROM sales s JOIN branches b ON b.id = s.branch_id LEFT JOIN customers c ON c.id = s.customer_id
               LEFT JOIN users u ON u.id = s.user_id, params
-              WHERE s.tenant_id = params.tid AND s.branch_id = ANY(params.br) AND s.created_at >= params.ts AND s.created_at < params.te
+              WHERE s.tenant_id = params.tid AND s.branch_id = ANY(params.br) AND s.business_date BETWEEN params.fd AND params.td
                 AND (params.uid IS NULL OR s.user_id = params.uid) AND (params.cust IS NULL OR s.customer_id = params.cust)
                 AND (params.pid IS NULL OR EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.product_id = params.pid))
               ORDER BY s.created_at DESC",
@@ -125,14 +127,14 @@ pub const REPORTS: &[Report] = &[
     Report {
         key: "orders", title: "Order Report", group: "Orders", permission: "orders.view",
         description: "Orders placed in the period with status and value",
-        columns: &[c("created_at", "Date", "datetime"), c("order_no", "Order", "text"), c("branch", "Branch", "text"),
+        columns: &[c("created_at", "Date", "datetime"), c("business_date", "Business day", "date"), c("order_no", "Order", "text"), c("branch", "Branch", "text"),
             c("customer", "Customer", "text"), c("mobile", "Mobile", "text"), c("source", "Source", "text"), c("items", "Items", "int"),
             c("total", "Total", "money"), c("status", "Status", "text"), c("receipt_no", "Receipt", "text")],
-        sql: "SELECT o.created_at, o.order_no, b.name AS branch, TRIM(c.first_name || ' ' || c.other_names) AS customer, c.mobile, o.source,
+        sql: "SELECT o.created_at, o.business_date, o.order_no, b.name AS branch, TRIM(c.first_name || ' ' || c.other_names) AS customer, c.mobile, o.source,
                      (SELECT SUM(quantity) FROM order_items oi WHERE oi.order_id = o.id) AS items, o.total, o.status, s.receipt_no
               FROM orders o JOIN branches b ON b.id = o.branch_id JOIN customers c ON c.id = o.customer_id
               LEFT JOIN sales s ON s.id = o.sale_id, params
-              WHERE o.tenant_id = params.tid AND o.branch_id = ANY(params.br) AND o.created_at >= params.ts AND o.created_at < params.te
+              WHERE o.tenant_id = params.tid AND o.branch_id = ANY(params.br) AND o.business_date BETWEEN params.fd AND params.td
                 AND (params.cust IS NULL OR o.customer_id = params.cust)
               ORDER BY o.created_at DESC",
     },
@@ -148,13 +150,13 @@ pub const REPORTS: &[Report] = &[
     Report {
         key: "stock_movement", title: "Stock Movement", group: "Stock", permission: "stock.view",
         description: "Every ledger movement in the period",
-        columns: &[c("created_at", "Date", "datetime"), c("branch", "Branch", "text"), c("product", "Product", "text"),
+        columns: &[c("created_at", "Date", "datetime"), c("business_date", "Business day", "date"), c("branch", "Branch", "text"), c("product", "Product", "text"),
             c("kind", "Movement", "text"), c("quantity", "Qty", "int"), c("barcode", "Barcode", "text"), f("unit_cost", "Unit cost", "money"),
             c("unit_price", "Unit price", "money"), c("notes", "Notes", "text"), c("user", "User", "text")],
-        sql: "SELECT m.created_at, b.name AS branch, p.name AS product, m.kind, m.quantity, si.barcode, m.unit_cost, m.unit_price, m.notes, u.name AS user
+        sql: "SELECT m.created_at, m.business_date, b.name AS branch, p.name AS product, m.kind, m.quantity, si.barcode, m.unit_cost, m.unit_price, m.notes, u.name AS user
               FROM stock_movements m JOIN branches b ON b.id = m.branch_id JOIN products p ON p.id = m.product_id
               LEFT JOIN stock_items si ON si.id = m.stock_item_id LEFT JOIN users u ON u.id = m.user_id, params
-              WHERE m.tenant_id = params.tid AND m.branch_id = ANY(params.br) AND m.created_at >= params.ts AND m.created_at < params.te
+              WHERE m.tenant_id = params.tid AND m.branch_id = ANY(params.br) AND m.business_date BETWEEN params.fd AND params.td
                 AND (params.pid IS NULL OR m.product_id = params.pid) AND (params.cid IS NULL OR p.category_id = params.cid)
                 AND (params.uid IS NULL OR m.user_id = params.uid)
               ORDER BY m.created_at DESC",
@@ -307,7 +309,7 @@ pub const REPORTS: &[Report] = &[
                      CASE WHEN cs.status IN ('outstanding','partially_paid') AND cs.due_date < params.td THEN 'overdue' ELSE cs.status END AS status
               FROM credit_sales cs JOIN sales s ON s.id = cs.sale_id JOIN customers c ON c.id = cs.customer_id
               JOIN branches b ON b.id = cs.branch_id LEFT JOIN users u ON u.id = cs.user_id, params
-              WHERE cs.tenant_id = params.tid AND cs.branch_id = ANY(params.br) AND cs.created_at >= params.ts AND cs.created_at < params.te
+              WHERE cs.tenant_id = params.tid AND cs.branch_id = ANY(params.br) AND cs.business_date BETWEEN params.fd AND params.td
                 AND (params.cust IS NULL OR cs.customer_id = params.cust) AND (params.uid IS NULL OR cs.user_id = params.uid)
               ORDER BY cs.created_at DESC",
     },
@@ -361,12 +363,13 @@ pub const REPORTS: &[Report] = &[
                      COUNT(DISTINCT l.sale_id) AS transactions, ROUND(COALESCE(SUM(l.revenue),0) / NULLIF(COUNT(DISTINCT l.sale_id),0), 2) AS avg_ticket,
                      COALESCE(SUM(l.discount),0) AS discounts,
                      COALESCE(SUM(l.revenue) FILTER (WHERE l.payment_method = 'credit'),0) AS credit_sales,
-                     (SELECT COUNT(DISTINCT e.order_id) FROM order_events e WHERE e.user_id = u.id AND e.created_at >= params.ts AND e.created_at < params.te) AS orders_processed,
+                     (SELECT COUNT(DISTINCT e.order_id) FROM order_events e JOIN orders o ON o.id = e.order_id
+                        WHERE e.user_id = u.id AND business_date_of(e.created_at, o.tenant_id, o.branch_id) BETWEEN params.fd AND params.td) AS orders_processed,
                      COUNT(DISTINCT l.customer_id) AS customers_served,
-                     (SELECT COUNT(*) FROM customers c WHERE c.created_by = u.id AND c.created_at >= params.ts AND c.created_at < params.te) AS new_customers
+                     (SELECT COUNT(*) FROM customers c WHERE c.created_by = u.id AND business_date_of(c.created_at, params.tid, NULL) BETWEEN params.fd AND params.td) AS new_customers
               FROM users u CROSS JOIN params LEFT JOIN lines l ON l.user_id = u.id
               WHERE u.tenant_id = params.tid AND (params.uid IS NULL OR u.id = params.uid)
-              GROUP BY u.id, u.name, params.ts, params.te HAVING COUNT(l.sale_id) > 0 OR u.is_active
+              GROUP BY u.id, u.name, params.tid, params.fd, params.td HAVING COUNT(l.sale_id) > 0 OR u.is_active
               ORDER BY sales_value DESC",
     },
 ];
@@ -403,7 +406,7 @@ async fn run(State(state): State<AppState>, ctx: Ctx, Path(key): Path<String>, Q
     let report = REPORTS.iter().find(|r| r.key == key).ok_or(AppError::NotFound("Report"))?;
     ctx.require(report.permission)?;
     let branches = ctx.branch_scope(q.branch_id)?;
-    let (from, to) = q.period.resolve(ctx.tz, "month");
+    let (from, to) = q.period.resolve(ctx.today(), "month");
     let (start, end) = local_range(from, to, ctx.tz);
     let mut conn = state.db.acquire().await?;
     let s = settings::load(&mut conn, ctx.tenant_id).await?;

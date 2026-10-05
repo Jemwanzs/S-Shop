@@ -123,6 +123,8 @@ pub struct Ctx {
     /// Current Branch (X-Branch-Id header), validated against branch_ids.
     pub branch_id: Uuid,
     pub tz: Tz,
+    /// Minutes after midnight that still belong to the previous business day at the Current Branch.
+    pub day_shift: i32,
     pub ip: String,
     pub user_agent: String,
     /// The platform admin's own business when they have opened this one (full access, audited).
@@ -138,6 +140,11 @@ impl Ctx {
     /// May see sales, figures and performance of employees other than themselves.
     pub fn sees_others(&self) -> bool {
         self.can("staff.view_others")
+    }
+
+    /// Today's business date at the Current Branch (a sale at 01:30 with a 02:00 close belongs to yesterday).
+    pub fn today(&self) -> chrono::NaiveDate {
+        crate::util::business_today(self.tz, self.day_shift)
     }
 
     pub fn is_admin(&self) -> bool {
@@ -238,20 +245,21 @@ impl FromRequestParts<AppState> for Ctx {
         }
 
         let all_branches = row.all_branches || row.permissions.iter().any(|p| p == "*");
-        let branch_ids: Vec<Uuid> = if all_branches {
-            sqlx::query_scalar("SELECT id FROM branches WHERE tenant_id = $1 AND is_active ORDER BY created_at")
+        let branches: Vec<(Uuid, i32)> = if all_branches {
+            sqlx::query_as("SELECT id, day_shift_minutes FROM branches WHERE tenant_id = $1 AND is_active ORDER BY created_at")
                 .bind(claims.tid)
                 .fetch_all(&state.db)
                 .await?
         } else {
-            sqlx::query_scalar(
-                "SELECT b.id FROM user_branches ub JOIN branches b ON b.id = ub.branch_id
+            sqlx::query_as(
+                "SELECT b.id, b.day_shift_minutes FROM user_branches ub JOIN branches b ON b.id = ub.branch_id
                  WHERE ub.user_id = $1 AND b.is_active ORDER BY b.created_at",
             )
             .bind(claims.sub)
             .fetch_all(&state.db)
             .await?
         };
+        let branch_ids: Vec<Uuid> = branches.iter().map(|b| b.0).collect();
 
         let requested = parts
             .headers
@@ -275,6 +283,7 @@ impl FromRequestParts<AppState> for Ctx {
             branch_ids,
             branch_id,
             tz: parse_tz(&row.timezone),
+            day_shift: branches.iter().find(|b| b.0 == branch_id).map_or(0, |b| b.1),
             ip,
             user_agent,
             acting_from: claims.home,

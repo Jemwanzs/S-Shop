@@ -16,7 +16,6 @@ use crate::auth::Ctx;
 use crate::error::{bad, AppError, AppResult};
 use crate::settings::{self, MEDALS};
 use crate::state::AppState;
-use crate::util::local_range;
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/leaderboards/products", get(products)).route("/leaderboards/staff", get(staff))
@@ -62,8 +61,7 @@ async fn products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query
         return Err(AppError::Forbidden("Profit figures need permission".into()));
     }
     let branches = ctx.branch_scope(q.branch_id)?;
-    let (from, to) = q.period.resolve(ctx.tz, "month");
-    let (start, end) = local_range(from, to, ctx.tz);
+    let (from, to) = q.period.resolve(ctx.today(), "month");
     let order_by = match metric {
         "units" => "units",
         "sales" => "sales",
@@ -75,7 +73,7 @@ async fn products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query
     let rows: Vec<(Uuid, String, String, Option<String>, Decimal, i64, i64, i64, Option<Decimal>, Option<Decimal>)> = sqlx::query_as(&format!(
         "WITH {LINES},
          ord AS (SELECT oi.product_id, COUNT(DISTINCT o.id) AS n FROM order_items oi JOIN orders o ON o.id = oi.order_id
-                 WHERE o.tenant_id = $1 AND o.branch_id = ANY($2) AND o.created_at >= $3 AND o.created_at < $4
+                 WHERE o.tenant_id = $1 AND o.branch_id = ANY($2) AND o.business_date BETWEEN $3 AND $4
                    AND o.status NOT IN ('cancelled','rejected') GROUP BY oi.product_id),
          agg AS (SELECT product_id, SUM(revenue) AS revenue, SUM(qty)::bigint AS units, COUNT(DISTINCT sale_id) AS sales,
                         SUM(profit) AS profit,
@@ -91,8 +89,8 @@ async fn products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query
     ))
     .bind(ctx.tenant_id)
     .bind(&branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(None::<Uuid>)
     .bind(q.category_id)
     .bind(None::<Uuid>)
@@ -121,8 +119,7 @@ async fn staff(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query_>)
         return Err(bad("Unknown metric"));
     }
     let branches = ctx.branch_scope(q.branch_id)?;
-    let (from, to) = q.period.resolve(ctx.tz, "month");
-    let (start, end) = local_range(from, to, ctx.tz);
+    let (from, to) = q.period.resolve(ctx.today(), "month");
     let order_by = match metric {
         "units" => "units",
         "transactions" => "transactions",
@@ -142,9 +139,10 @@ async fn staff(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query_>)
                         COALESCE(SUM(revenue) FILTER (WHERE payment_method = 'credit'), 0) AS credit
                  FROM lines GROUP BY user_id),
          ord AS (SELECT e.user_id, COUNT(DISTINCT e.order_id) AS n FROM order_events e JOIN orders o ON o.id = e.order_id
-                 WHERE o.tenant_id = $1 AND o.branch_id = ANY($2) AND e.created_at >= $3 AND e.created_at < $4 GROUP BY e.user_id),
+                 WHERE o.tenant_id = $1 AND o.branch_id = ANY($2)
+                   AND business_date_of(e.created_at, o.tenant_id, o.branch_id) BETWEEN $3 AND $4 GROUP BY e.user_id),
          acq AS (SELECT created_by AS user_id, COUNT(*) AS n FROM customers
-                 WHERE tenant_id = $1 AND created_at >= $3 AND created_at < $4 GROUP BY created_by)
+                 WHERE tenant_id = $1 AND business_date_of(created_at, tenant_id, NULL) BETWEEN $3 AND $4 GROUP BY created_by)
          SELECT u.id, u.name, r.name, COALESCE(per.revenue, 0) AS revenue, COALESCE(per.units, 0) AS units,
                 COALESCE(per.transactions, 0) AS transactions,
                 ROUND(per.revenue / NULLIF(per.transactions, 0), 2) AS avg_sale,
@@ -157,8 +155,8 @@ async fn staff(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query_>)
     ))
     .bind(ctx.tenant_id)
     .bind(&branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(None::<Uuid>)
     .bind(q.category_id)
     .bind(None::<Uuid>)

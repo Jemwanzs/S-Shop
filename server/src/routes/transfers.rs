@@ -79,7 +79,7 @@ struct ListQuery {
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Paged<TransferRow>>> {
     ctx.require("stock.view")?;
     let branches = ctx.branch_scope(q.branch_id)?;
-    let (from, to) = q.period.resolve(ctx.tz, "all");
+    let (from, to) = q.period.resolve(ctx.today(), "all");
     let (start, end) = local_range(from, to, ctx.tz);
     let select = SELECT.replacen("SELECT", "SELECT COUNT(*) OVER() AS total_count,", 1);
     let rows: Vec<Counted<TransferRow>> = sqlx::query_as(&format!(

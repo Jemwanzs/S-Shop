@@ -106,7 +106,7 @@ Added 2026-10-05 after the analytics / access / operations gap review ([gap-revi
   **My Dashboard**; permission-aware **Recent activity**; `sales.print`; settings access per area; role deactivation.
 - ✅ **15. Leaderboards** — products (value, units, sales, orders, profit/margin) and staff (value, units, transactions,
   orders processed, average sale, customers served/acquired, discounts, credit) with period/branch filters and medals.
-- **16. Workspace** — working days and operating hours (business-wide, branch overrides), cross-midnight
+- ✅ **16. Workspace** — working days and operating hours (business-wide, branch overrides), cross-midnight
   **business date** stored with each transaction and used by dashboards, reports and performance.
 - **17. Geofencing** — branch coordinates and radius; *anywhere* (default) or *at the branch* for selected actions,
   enforced on the server, with a bypass permission and the location in the audit trail.

@@ -16,7 +16,7 @@ use crate::audit::{self, Entry};
 use crate::auth::{hash_pin, validate_pin, Ctx};
 use crate::error::{bad, rule, AppError, AppResult};
 use crate::perms;
-use crate::settings::TenantSettings;
+use crate::settings::{Hours, TenantSettings};
 use crate::state::AppState;
 use crate::util::slugify;
 use crate::workflow;
@@ -141,6 +141,7 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(body): Json<
     if let Some(b) = body.orders.default_branch_id {
         ctx.ensure_branch(b)?;
     }
+    body.workspace.hours.validate().map_err(bad)?;
     let mut tx = state.db.begin().await?;
     let before: Value = sqlx::query_scalar("SELECT settings FROM tenants WHERE id = $1 FOR UPDATE")
         .bind(ctx.tenant_id)
@@ -153,6 +154,7 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(body): Json<
         .execute(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("settings", "update", "tenant", ctx.tenant_id).before(before).after(&after)).await?;
+    crate::settings::apply_day_shifts(&mut tx, ctx.tenant_id, &body).await?;
     tx.commit().await?;
     Ok(Json(body))
 }
@@ -329,11 +331,13 @@ struct Branch {
     manager_name: Option<String>,
     is_active: bool,
     user_count: i64,
+    /// Own trading hours; null = follows the business hours.
+    hours: Option<Value>,
 }
 
 async fn list_branches(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<Branch>>> {
     let rows = sqlx::query_as(
-        "SELECT b.id, b.name, b.code, b.location, b.phone, b.manager_id, m.name AS manager_name, b.is_active,
+        "SELECT b.id, b.name, b.code, b.location, b.phone, b.manager_id, m.name AS manager_name, b.is_active, b.hours,
                 (SELECT COUNT(*) FROM users u WHERE u.tenant_id = b.tenant_id AND u.is_active
                    AND (u.all_branches OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = b.id))) AS user_count
          FROM branches b LEFT JOIN users m ON m.id = b.manager_id
@@ -353,6 +357,28 @@ struct BranchBody {
     phone: Option<String>,
     manager_id: Option<Uuid>,
     is_active: Option<bool>,
+    /// Own trading hours (overrides Settings → Workspace): absent = unchanged, null = follow the business.
+    #[serde(default, deserialize_with = "present")]
+    hours: Option<Option<Hours>>,
+}
+
+/// Distinguishes a field sent as `null` (Some(None)) from one left out (None).
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<Hours>>, D::Error> {
+    Option::<Hours>::deserialize(d).map(Some)
+}
+
+/// Branch hours change the business date of that branch, so changing them needs the workspace permission.
+/// Returns the value to store when the hours were sent.
+fn check_branch_hours(ctx: &Ctx, current: Option<&Value>, b: &BranchBody) -> AppResult<Option<Option<Value>>> {
+    let Some(hours) = &b.hours else { return Ok(None) };
+    if let Some(h) = hours {
+        h.validate().map_err(bad)?;
+    }
+    let incoming = hours.as_ref().map(|h| serde_json::to_value(h).unwrap_or_default());
+    if incoming.as_ref() != current {
+        ctx.require("settings.workspace")?;
+    }
+    Ok(Some(incoming))
 }
 
 async fn create_branch(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BranchBody>) -> AppResult<Json<Value>> {
@@ -360,9 +386,10 @@ async fn create_branch(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Br
     if b.name.trim().is_empty() || b.code.trim().is_empty() {
         return Err(bad("Branch name and code are required"));
     }
+    let hours = check_branch_hours(&ctx, None, &b)?.flatten();
     let mut tx = state.db.begin().await?;
     let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO branches (tenant_id, name, code, location, phone, manager_id) VALUES ($1,$2,upper($3),$4,$5,$6) RETURNING id",
+        "INSERT INTO branches (tenant_id, name, code, location, phone, manager_id, hours) VALUES ($1,$2,upper($3),$4,$5,$6,$7) RETURNING id",
     )
     .bind(ctx.tenant_id)
     .bind(b.name.trim())
@@ -370,8 +397,11 @@ async fn create_branch(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Br
     .bind(b.location.as_deref().unwrap_or("").trim())
     .bind(b.phone.as_deref().unwrap_or("").trim())
     .bind(b.manager_id)
+    .bind(hours)
     .fetch_one(&mut *tx)
     .await?;
+    let s = crate::settings::load(&mut tx, ctx.tenant_id).await?;
+    crate::settings::apply_day_shifts(&mut tx, ctx.tenant_id, &s).await?;
     audit::record(&mut tx, &ctx, Entry::new("branches", "create", "branch", id).after(&b)).await?;
     tx.commit().await?;
     Ok(Json(json!({ "id": id })))
@@ -380,6 +410,13 @@ async fn create_branch(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Br
 async fn update_branch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<BranchBody>) -> AppResult<Json<Value>> {
     ctx.require("branches.manage")?;
     let mut tx = state.db.begin().await?;
+    let current: Option<Option<Value>> = sqlx::query_scalar("SELECT hours FROM branches WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let Some(current) = current else { return Err(AppError::NotFound("Branch")) };
+    let hours = check_branch_hours(&ctx, current.as_ref(), &b)?;
     if b.is_active == Some(false) {
         let active: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM branches WHERE tenant_id = $1 AND is_active AND id <> $2")
             .bind(ctx.tenant_id)
@@ -391,7 +428,8 @@ async fn update_branch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
         }
     }
     let n = sqlx::query(
-        "UPDATE branches SET name=$3, code=upper($4), location=$5, phone=$6, manager_id=$7, is_active=COALESCE($8, is_active)
+        "UPDATE branches SET name=$3, code=upper($4), location=$5, phone=$6, manager_id=$7, is_active=COALESCE($8, is_active),
+                hours=CASE WHEN $10 THEN $9 ELSE hours END
          WHERE id=$1 AND tenant_id=$2",
     )
     .bind(id)
@@ -402,12 +440,16 @@ async fn update_branch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
     .bind(b.phone.as_deref().unwrap_or("").trim())
     .bind(b.manager_id)
     .bind(b.is_active)
+    .bind(hours.clone().flatten())
+    .bind(hours.is_some())
     .execute(&mut *tx)
     .await?
     .rows_affected();
     if n == 0 {
         return Err(AppError::NotFound("Branch"));
     }
+    let s = crate::settings::load(&mut tx, ctx.tenant_id).await?;
+    crate::settings::apply_day_shifts(&mut tx, ctx.tenant_id, &s).await?;
     audit::record(&mut tx, &ctx, Entry::new("branches", "update", "branch", id).after(&b)).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true })))

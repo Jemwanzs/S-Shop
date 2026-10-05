@@ -20,7 +20,7 @@ use crate::error::{bad, rule, AppError, AppResult};
 use crate::routes::approvals::ApprovalRow;
 use crate::settings;
 use crate::state::AppState;
-use crate::util::{money_str, round2, today_in};
+use crate::util::{money_str, round2};
 use crate::workflow;
 
 pub fn routes() -> Router<AppState> {
@@ -73,7 +73,7 @@ struct ListQuery {
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Value>> {
     ctx.require("expenses.view")?;
     let branches = ctx.branch_scope(q.branch_id)?;
-    let (from, to) = q.period.resolve(ctx.tz, "month");
+    let (from, to) = q.period.resolve(ctx.today(), "month");
     let rows: Vec<ExpenseListRow> = sqlx::query_as(
         "SELECT e.id, e.expense_date, e.branch_id, b.name AS branch_name, e.category_id, c.name AS category_name, e.amount,
                 e.description, e.payee, e.payment_method, e.attachment IS NOT NULL AS has_attachment, e.status, u.name AS user_name,
@@ -182,7 +182,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
     .bind(branch)
     .bind(b.category_id)
     .bind(round2(b.amount))
-    .bind(b.expense_date.unwrap_or_else(|| today_in(ctx.tz)))
+    .bind(b.expense_date.unwrap_or_else(|| ctx.today()))
     .bind(b.description.trim())
     .bind(b.payee.trim())
     .bind(if b.payment_method.is_empty() { "cash" } else { b.payment_method.as_str() })

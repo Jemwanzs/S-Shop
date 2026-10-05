@@ -132,14 +132,14 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
     .await?;
     let is_admin = permissions.iter().any(|p| p == "*");
 
-    let branches: Vec<(Uuid, String, String, String)> = if all_branches || is_admin {
-        sqlx::query_as("SELECT id, name, code, location FROM branches WHERE tenant_id = $1 AND is_active ORDER BY created_at")
+    let branches: Vec<(Uuid, String, String, String, Option<Value>)> = if all_branches || is_admin {
+        sqlx::query_as("SELECT id, name, code, location, hours FROM branches WHERE tenant_id = $1 AND is_active ORDER BY created_at")
             .bind(tenant_id)
             .fetch_all(&state.db)
             .await?
     } else {
         sqlx::query_as(
-            "SELECT b.id, b.name, b.code, b.location FROM user_branches ub JOIN branches b ON b.id = ub.branch_id
+            "SELECT b.id, b.name, b.code, b.location, b.hours FROM user_branches ub JOIN branches b ON b.id = ub.branch_id
              WHERE ub.user_id = $1 AND b.is_active ORDER BY b.created_at",
         )
         .bind(user_id)
@@ -147,8 +147,8 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         .await?
     };
 
-    let (tname, slug, tagline, currency, has_logo, settings, is_demo): (String, String, String, String, bool, Value, bool) = sqlx::query_as(
-        "SELECT name, slug, tagline, currency, logo IS NOT NULL, settings, is_demo FROM tenants WHERE id = $1",
+    let (tname, slug, tagline, currency, has_logo, settings, is_demo, timezone): (String, String, String, String, bool, Value, bool, String) = sqlx::query_as(
+        "SELECT name, slug, tagline, currency, logo IS NOT NULL, settings, is_demo, timezone FROM tenants WHERE id = $1",
     )
     .bind(tenant_id)
     .fetch_one(&state.db)
@@ -163,7 +163,7 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         }),
         tenant: serde_json::json!({
             "id": tenant_id, "name": tname, "slug": slug, "tagline": tagline, "currency": currency,
-            "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")), "is_demo": is_demo,
+            "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")), "is_demo": is_demo, "timezone": timezone,
         }),
         acting: match acting {
             Some(home) => {
@@ -174,7 +174,11 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         },
         branches: branches
             .into_iter()
-            .map(|(id, name, code, location)| serde_json::json!({ "id": id, "name": name, "code": code, "location": location }))
+            // Effective trading hours (own, else the business hours) for the open/closed banner at the till.
+            .map(|(id, name, code, location, hours)| serde_json::json!({
+                "id": id, "name": name, "code": code, "location": location,
+                "hours": crate::settings::effective_hours(hours.as_ref(), &settings), "own_hours": hours.is_some(),
+            }))
             .collect(),
         permissions,
         settings: serde_json::to_value(settings).unwrap_or_default(),

@@ -62,6 +62,11 @@ pub fn today_in(tz: Tz) -> NaiveDate {
     Utc::now().with_timezone(&tz).date_naive()
 }
 
+/// Business date now, for a day that runs `shift_minutes` past midnight (0 = calendar day).
+pub fn business_today(tz: Tz, shift_minutes: i32) -> NaiveDate {
+    (Utc::now().with_timezone(&tz).naive_local() - chrono::Duration::minutes(shift_minutes as i64)).date()
+}
+
 pub fn round2(d: Decimal) -> Decimal {
     d.round_dp(2)
 }

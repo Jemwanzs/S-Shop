@@ -18,7 +18,7 @@ use crate::integrations::whatsapp;
 use crate::loyalty;
 use crate::settings;
 use crate::state::AppState;
-use crate::util::{local_range, money_str, today_in};
+use crate::util::{local_range, money_str};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -317,7 +317,7 @@ async fn list_awards(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<
         .fetch_all(&mut *conn)
         .await?;
         let live = if status == "open" {
-            standings(&mut conn, &ctx, start, today_in(ctx.tz), 20).await?
+            standings(&mut conn, &ctx, start, ctx.today(), 20).await?
         } else {
             vec![]
         };
@@ -349,7 +349,7 @@ async fn open_period(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Open
     let id: Uuid = sqlx::query_scalar("INSERT INTO award_periods (tenant_id, name, start_date) VALUES ($1,$2,$3) RETURNING id")
         .bind(ctx.tenant_id)
         .bind(b.name.trim())
-        .bind(b.start_date.unwrap_or_else(|| today_in(ctx.tz)))
+        .bind(b.start_date.unwrap_or_else(|| ctx.today()))
         .fetch_one(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("loyalty", "open_award_period", "award_period", id).after(json!({ "name": b.name }))).await?;
@@ -373,7 +373,7 @@ async fn close_period(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
         return Err(rule("This award period is already closed"));
     }
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
-    let end = today_in(ctx.tz);
+    let end = ctx.today();
     let top = standings(&mut tx, &ctx, start, end, s.loyalty.award_winners.max(1) as i64).await?;
     let mut winners = Vec::new();
     for (i, st) in top.iter().enumerate() {

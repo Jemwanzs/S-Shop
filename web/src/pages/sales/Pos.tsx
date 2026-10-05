@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, MessageCircle, PackageSearch, Printer, ScanLine, ShoppingCart, Trash2 } from "lucide-react";
+import { CheckCircle2, Clock, MessageCircle, PackageSearch, Printer, ScanLine, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -16,6 +16,8 @@ import { EmptyState, Loading, PageHeader } from "@/components/Page";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { totals, type CartLine } from "./pos/cart";
+import { hoursLabel, useOpenNow } from "@/components/Hours";
+import { t as translate } from "@/lib/i18n";
 import { ItemSheet } from "./pos/ItemSheet";
 import { CartLines, Checkout } from "./pos/Checkout";
 
@@ -29,6 +31,8 @@ interface Lookup {
 
 export default function Pos() {
   const { profile, branch, can } = useSession();
+  const openNow = useOpenNow(branch?.hours, profile?.tenant.timezone);
+  const blocked = profile?.settings.workspace.outside_hours === "block" && !can("sales.outside_hours");
   const s = profile!.settings;
   const desktop = useIsDesktop();
   const qc = useQueryClient();
@@ -183,6 +187,14 @@ export default function Pos() {
           title="Record Sale"
           actions={<Button variant="ink" onClick={() => setScan(true)}><ScanLine /> Scan</Button>}
         />
+        {!openNow && branch?.hours && (
+          <div className={cn("mb-3 flex items-start gap-2 rounded-xl p-3 text-sm", blocked ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning")}>
+            <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              {blocked ? translate("Closed — sales are blocked outside trading hours.") : translate("Outside trading hours.")} {hoursLabel(branch.hours)}
+            </span>
+          </div>
+        )}
         <div className="sticky top-14 z-20 -mx-3.5 space-y-2 bg-background/90 px-3.5 pb-3 pt-1 backdrop-blur md:-mx-6 md:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
           <SearchInput value={q} onChange={setQ} placeholder="Search name, nickname, code or barcode" autoFocus={desktop} />
           {categories.length > 1 && (

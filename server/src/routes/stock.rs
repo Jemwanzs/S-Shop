@@ -366,6 +366,7 @@ async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, ap
 struct MovementRow {
     id: Uuid,
     created_at: DateTime<Utc>,
+    business_date: NaiveDate,
     occurred_on: NaiveDate,
     branch_name: String,
     product_id: Uuid,
@@ -395,23 +396,22 @@ struct MovementQuery {
 async fn movements(State(state): State<AppState>, ctx: Ctx, Query(q): Query<MovementQuery>) -> AppResult<Json<Paged<MovementRow>>> {
     ctx.require("stock.view")?;
     let branches = ctx.branch_scope(q.branch_id)?;
-    let (from, to) = q.period.resolve(ctx.tz, "month");
-    let (start, end) = local_range(from, to, ctx.tz);
+    let (from, to) = q.period.resolve(ctx.today(), "month");
     let mut rows: Vec<Counted<MovementRow>> = sqlx::query_as(
-        "SELECT COUNT(*) OVER() AS total_count, m.id, m.created_at, m.occurred_on, b.name AS branch_name, m.product_id,
+        "SELECT COUNT(*) OVER() AS total_count, m.id, m.created_at, m.business_date, m.occurred_on, b.name AS branch_name, m.product_id,
                 p.name AS product_name, m.kind, m.quantity, m.unit_cost, m.unit_price, si.barcode, m.ref_type, m.ref_id,
                 m.notes, u.name AS user_name
          FROM stock_movements m
          JOIN branches b ON b.id = m.branch_id JOIN products p ON p.id = m.product_id
          LEFT JOIN stock_items si ON si.id = m.stock_item_id LEFT JOIN users u ON u.id = m.user_id
-         WHERE m.tenant_id = $1 AND m.branch_id = ANY($2) AND m.created_at >= $3 AND m.created_at < $4
+         WHERE m.tenant_id = $1 AND m.branch_id = ANY($2) AND m.business_date BETWEEN $3 AND $4
            AND ($5::uuid IS NULL OR m.product_id = $5) AND ($6::text IS NULL OR m.kind = $6)
          ORDER BY m.created_at DESC LIMIT $7 OFFSET $8",
     )
     .bind(ctx.tenant_id)
     .bind(&branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(q.product_id)
     .bind(&q.kind)
     .bind(q.page.limit())
@@ -795,7 +795,7 @@ struct AdjListQuery {
 async fn list_adjustments(State(state): State<AppState>, ctx: Ctx, Query(q): Query<AdjListQuery>) -> AppResult<Json<Paged<AdjustmentRow>>> {
     ctx.require("stock.view")?;
     let branches = ctx.branch_scope(q.branch_id)?;
-    let (from, to) = q.period.resolve(ctx.tz, "month");
+    let (from, to) = q.period.resolve(ctx.today(), "month");
     let (start, end) = local_range(from, to, ctx.tz);
     let rows: Vec<Counted<AdjustmentRow>> = sqlx::query_as(
         "SELECT COUNT(*) OVER() AS total_count, a.id, a.created_at, b.name AS branch_name, p.name AS product_name, si.barcode,
@@ -879,22 +879,21 @@ pub struct PositionQuery {
 
 pub async fn position_rows(conn: &mut PgConnection, ctx: &Ctx, q: &PositionQuery) -> AppResult<(NaiveDate, NaiveDate, Vec<PositionRow>)> {
     let branches = ctx.branch_scope(q.branch_id)?;
-    let (from, to) = q.period.resolve(ctx.tz, "month");
-    let (start, end) = local_range(from, to, ctx.tz);
+    let (from, to) = q.period.resolve(ctx.today(), "month");
     let s = settings::load(conn, ctx.tenant_id).await?;
     let price = value_expr(s.stock.valuation);
     let rows = sqlx::query_as(&format!(
         "WITH m AS (
             SELECT product_id,
-              SUM(quantity) FILTER (WHERE created_at < $3) AS opening,
-              SUM(quantity) FILTER (WHERE created_at >= $3 AND created_at < $4 AND kind IN ('received','opening')) AS added,
-              SUM(quantity) FILTER (WHERE created_at >= $3 AND created_at < $4 AND kind = 'transfer_in') AS t_in,
-              -SUM(quantity) FILTER (WHERE created_at >= $3 AND created_at < $4 AND kind = 'transfer_out') AS t_out,
-              -SUM(quantity) FILTER (WHERE created_at >= $3 AND created_at < $4 AND kind IN ('sale','order_completion')) AS sold,
-              SUM(quantity) FILTER (WHERE created_at >= $3 AND created_at < $4 AND kind IN ('customer_return','sale_reversal')) AS returns,
-              SUM(quantity) FILTER (WHERE created_at >= $3 AND created_at < $4 AND kind IN ('adjustment','count_variance','supplier_return')) AS adj,
-              -SUM(quantity) FILTER (WHERE created_at >= $3 AND created_at < $4 AND kind IN ('damage','loss','write_off')) AS dmg,
-              SUM(quantity) FILTER (WHERE created_at < $4) AS closing
+              SUM(quantity) FILTER (WHERE business_date < $3) AS opening,
+              SUM(quantity) FILTER (WHERE business_date BETWEEN $3 AND $4 AND kind IN ('received','opening')) AS added,
+              SUM(quantity) FILTER (WHERE business_date BETWEEN $3 AND $4 AND kind = 'transfer_in') AS t_in,
+              -SUM(quantity) FILTER (WHERE business_date BETWEEN $3 AND $4 AND kind = 'transfer_out') AS t_out,
+              -SUM(quantity) FILTER (WHERE business_date BETWEEN $3 AND $4 AND kind IN ('sale','order_completion')) AS sold,
+              SUM(quantity) FILTER (WHERE business_date BETWEEN $3 AND $4 AND kind IN ('customer_return','sale_reversal')) AS returns,
+              SUM(quantity) FILTER (WHERE business_date BETWEEN $3 AND $4 AND kind IN ('adjustment','count_variance','supplier_return')) AS adj,
+              -SUM(quantity) FILTER (WHERE business_date BETWEEN $3 AND $4 AND kind IN ('damage','loss','write_off')) AS dmg,
+              SUM(quantity) FILTER (WHERE business_date <= $4) AS closing
             FROM stock_movements WHERE tenant_id = $1 AND branch_id = ANY($2) GROUP BY product_id),
          lv AS (SELECT product_id, SUM(reserved) AS reserved, SUM(on_hand - reserved) AS available
                 FROM stock_levels WHERE branch_id = ANY($2) GROUP BY product_id)
@@ -919,8 +918,8 @@ pub async fn position_rows(conn: &mut PgConnection, ctx: &Ctx, q: &PositionQuery
     ))
     .bind(ctx.tenant_id)
     .bind(&branches)
-    .bind(start)
-    .bind(end)
+    .bind(from)
+    .bind(to)
     .bind(s.stock.low_stock_threshold)
     .bind(q.category_id)
     .bind(q.product_id)

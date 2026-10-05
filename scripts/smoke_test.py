@@ -473,6 +473,63 @@ call("GET", "/leaderboards/products?period=today&metric=profit", token=reporter,
 rep_metrics = call("GET", "/leaderboards/products?period=today", token=reporter)["metrics"]
 check("profit metrics hidden without financial access", "profit" not in rep_metrics and "margin" not in rep_metrics, rep_metrics)
 
+step("Roadmap 16: working days, trading hours, business date")
+import datetime as _dt
+call("POST", "/stock/receive", {"product_id": nduma, "quantity": 10, "cost_price": 250})
+base_cfg = call("GET", "/settings")["settings"]
+check("workspace defaults: every day, calendar day", base_cfg["workspace"] == {"hours": {"days": [True] * 7, "open": "00:00", "close": "00:00"}, "outside_hours": "allow"}, base_cfg.get("workspace"))
+def put_ws(hours, outside="allow", expect=200, token=None):
+    c = json.loads(json.dumps(base_cfg)); c["workspace"] = {"hours": hours, "outside_hours": outside}
+    return call("PUT", "/settings", c, expect=expect, token=token)
+put_ws({"days": [True] * 7, "open": "25:00", "close": "02:00"}, expect=400)
+put_ws({"days": [False] * 7, "open": "08:00", "close": "20:00"}, expect=400)
+check("invalid hours refused", True)
+put_ws({"days": [True] * 7, "open": "08:00", "close": "20:00"}, token=stocker, expect=403)
+check("hours need the workspace permission", True)
+cal_today = call("GET", "/dashboard?period=today")["today"]
+# Day starts at 23:59 (open 24 h): right now still belongs to yesterday's business day.
+put_ws({"days": [True] * 7, "open": "23:59", "close": "23:59"})
+late = call("GET", "/dashboard?period=today")
+yesterday = str(_dt.date.fromisoformat(cal_today) - _dt.timedelta(days=1))
+check("business today follows the day start", late["today"] == yesterday, (cal_today, late["today"]))
+ls = call("POST", "/sales", {"items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+row = next(x for x in call("GET", "/sales?period=today&limit=200")["items"] if x["id"] == ls["sale"]["id"])
+check("late sale stored with the business date", row["business_date"] == yesterday, row["business_date"])
+check("late sale counted on its business day", any(x["id"] == ls["sale"]["id"] for x in call("GET", f"/sales?from={yesterday}&to={yesterday}&limit=200")["items"]))
+mv_bd = [m for m in call("GET", f"/stock/movements?from={yesterday}&to={yesterday}&limit=200")["items"] if m["ref_id"] == ls["sale"]["id"]]
+check("stock movement carries the same business date", mv_bd and all(m["business_date"] == yesterday for m in mv_bd), [m["business_date"] for m in mv_bd])
+rep = call("GET", f"/reports/sales?from={yesterday}&to={yesterday}")
+check("sales report includes the late sale", any(r["receipt_no"] == ls["sale"]["receipt_no"] for r in rep["rows"]))
+put_ws({"days": [True] * 7, "open": "00:00", "close": "00:00"})
+check("business dates already recorded never move", next(x for x in call("GET", f"/sales?from={yesterday}&to={yesterday}&limit=200")["items"] if x["id"] == ls["sale"]["id"])["business_date"] == yesterday)
+
+# Branch override: needs the workspace permission; omitting hours keeps them.
+br = next(b for b in call("GET", "/branches") if b["id"] == login["profile"]["branches"][0]["id"])
+br_body = {k: br[k] for k in ("name", "code", "location", "phone", "manager_id", "is_active")}
+call("PUT", f"/branches/{br['id']}", {**br_body, "hours": {"days": [True] * 6 + [False], "open": "06:00", "close": "02:00"}})
+me_br = next(b for b in call("GET", "/auth/me")["branches"] if b["id"] == br["id"])
+check("branch keeps its own hours", me_br["own_hours"] and me_br["hours"]["close"] == "02:00", me_br)
+bm_role = call("POST", "/roles", {"name": f"Branch admin {suffix}", "permissions": ["branches.manage"]})["id"]
+bm = make_user("brancher", bm_role)
+call("PUT", f"/branches/{br['id']}", {**br_body, "hours": None}, token=bm, expect=403)
+check("branch hours need the workspace permission", True)
+call("PUT", f"/branches/{br['id']}", {**br_body, "phone": "0700000000"}, token=bm)
+check("editing a branch without hours keeps them", next(b for b in call("GET", "/branches") if b["id"] == br["id"])["hours"]["close"] == "02:00")
+call("PUT", f"/branches/{br['id']}", {**br_body, "hours": None})
+check("branch back to the business hours", not next(b for b in call("GET", "/auth/me")["branches"] if b["id"] == br["id"])["own_hours"])
+
+# Blocking: today is a day off; a salesperson cannot sell, a manager with the bypass can.
+off = [True] * 7; off[_dt.date.fromisoformat(cal_today).weekday()] = False
+put_ws({"days": off, "open": "00:00", "close": "00:00"}, outside="block")
+call("POST", "/sales", {"items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, token=seller, expect=422)
+check("sale blocked outside trading hours", True)
+call("POST", "/sales", {"items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+check("bypass permission sells outside hours", True)
+check("supervising template can sell after hours", "sales.outside_hours" in roles14["Manager"]["permissions"] or "sales.outside_hours" in next(r for r in call("GET", "/roles") if r["name"] == "Manager")["permissions"])
+put_ws({"days": [True] * 7, "open": "00:00", "close": "00:00"}, outside="allow")
+call("POST", "/sales", {"items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, token=seller)
+check("allowed again after reopening", True)
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

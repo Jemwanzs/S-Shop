@@ -16,11 +16,11 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
         <img src={stacked} alt="S'Shop — Everything you love in one place" className="relative h-auto w-52 xl:w-60" />
         <div className="relative max-w-lg space-y-3">
           <h1 className="text-4xl font-semibold leading-tight">
-            Sell, stock and reward — <span className="text-brand">from one phone.</span>
+            {t("Sell, stock, and reward -")} <span className="text-brand">from one phone.</span>
           </h1>
           <p className="text-base text-[#1c1410]/70">Inventory, point of sale, customer orders, credit and loyalty for every branch of your business.</p>
         </div>
-        <p className="relative text-sm text-[#1c1410]/50">Inventory is the backbone. Customers are the heart.</p>
+        <p className="relative text-sm text-[#1c1410]/50">{t("Inventory is the backbone. Customers are the heart.")}</p>
       </div>
 
       <div className="relative flex min-h-screen flex-col items-center justify-center px-4 py-10">

@@ -15,6 +15,7 @@ import { StatusBadge } from "@/components/Badges";
 import { ConfirmDialog, Field } from "@/components/Form";
 import { Chip } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { t } from "@/lib/i18n";
 
 interface Detail {
   credit: CreditRow;
@@ -92,8 +93,8 @@ export default function CreditDetail() {
         actions={
           open && (
             <>
-              <Button variant="outline" onClick={remind}><MessageCircle /> Remind</Button>
-              {can("credit.collect") && <Button onClick={() => setPaying(true)}><Banknote /> Record payment</Button>}
+              <Button variant="outline" onClick={remind}><MessageCircle /> {t("Remind")}</Button>
+              {can("credit.collect") && <Button onClick={() => setPaying(true)}><Banknote /> {t("Record payment")}</Button>}
             </>
           )
         }
@@ -103,7 +104,7 @@ export default function CreditDetail() {
           <div className="surface card-body">
             <div className="flex items-end justify-between gap-4">
               <div>
-                <p className="label-caps">Outstanding balance</p>
+                <p className="label-caps">{t("Outstanding balance")}</p>
                 <p className="num mt-1 text-3xl font-bold">{money(c.balance)}</p>
               </div>
               <div className="flex flex-col items-end gap-1">
@@ -118,7 +119,7 @@ export default function CreditDetail() {
           </div>
           <Section title="Payment history">
             {data.payments.length === 0 ? (
-              <p className="py-4 text-sm text-muted-foreground">No repayments yet.</p>
+              <p className="py-4 text-sm text-muted-foreground">{t("No repayments yet.")}</p>
             ) : (
               <ul className="divide-y">
                 {data.payments.map((p) => (
@@ -148,7 +149,7 @@ export default function CreditDetail() {
                     </div>
                     {r.balance_before !== null && (
                       <div className="num text-xs text-muted-foreground">
-                        Balance {money(r.balance_before)} → {money(r.balance_after ?? 0)}
+                        {t("Balance")} {money(r.balance_before)} → {money(r.balance_after ?? 0)}
                         {toNum(r.customer_credit) > 0 && <span className="font-medium text-warning"> · customer credit {money(r.customer_credit)} (follow up)</span>}
                         {toNum(r.customer_credit) === 0 && r.refund_method && r.refund_method !== "customer_credit" && ` · refunded by ${methodLabel(r.refund_method)}`}
                       </div>
@@ -163,7 +164,7 @@ export default function CreditDetail() {
               {data.history.map((h, i) => (
                 <li key={i} className="flex gap-2"><span className="text-muted-foreground">{dateTime(h.created_at)}</span> {titleCase(h.action)} · {h.user_name}{h.comments && ` — ${h.comments}`}</li>
               ))}
-              {data.history.length === 0 && <li className="text-muted-foreground">Created with the sale.</li>}
+              {data.history.length === 0 && <li className="text-muted-foreground">{t("Created with the sale.")}</li>}
             </ul>
           </Section>
         </div>
@@ -176,13 +177,13 @@ export default function CreditDetail() {
             <KV label="Days outstanding"><span className="num">{c.days_outstanding}</span></KV>
             <KV label="Branch">{c.branch_name}</KV>
             <KV label="Salesperson">{c.salesperson ?? "—"}</KV>
-            <KV label="Customer"><Link to={`/customers/${c.customer_id}`} className="text-primary">View profile</Link></KV>
+            <KV label="Customer"><Link to={`/customers/${c.customer_id}`} className="text-primary">{t("View profile")}</Link></KV>
           </Section>
           {data.can_recall && (
-            <Button variant="outline" className="w-full" onClick={() => setRecalling(true)}><RotateCcw /> Recall sale</Button>
+            <Button variant="outline" className="w-full" onClick={() => setRecalling(true)}><RotateCcw /> {t("Recall sale")}</Button>
           )}
           {open && can("credit.write_off") && (
-            <Button variant="outline" className="w-full text-destructive" onClick={() => setWriting(true)}><Ban /> Write off balance</Button>
+            <Button variant="outline" className="w-full text-destructive" onClick={() => setWriting(true)}><Ban /> {t("Write off balance")}</Button>
           )}
         </div>
       </div>
@@ -193,13 +194,13 @@ export default function CreditDetail() {
         onOpenChange={setPaying}
         title="Record repayment"
         description={`Outstanding ${money(c.balance)}`}
-        footer={<Button className="w-full md:w-auto" disabled={pay.isPending || toNum(amountStr) <= 0 || (method === "mpesa" && reference.length < 8)} onClick={() => pay.mutate()}>Save payment</Button>}
+        footer={<Button className="w-full md:w-auto" disabled={pay.isPending || toNum(amountStr) <= 0 || (method === "mpesa" && reference.length < 8)} onClick={() => pay.mutate()}>{t("Save payment")}</Button>}
       >
         <div className="space-y-4">
           <Field label="Amount received">
             <div className="flex gap-2">
               <Input inputMode="decimal" className="num h-12 text-lg" value={amountStr} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} autoFocus />
-              <Button variant="outline" className="h-12" onClick={() => setAmount(String(toNum(c.balance)))}>Full</Button>
+              <Button variant="outline" className="h-12" onClick={() => setAmount(String(toNum(c.balance)))}>{t("Full")}</Button>
             </div>
           </Field>
           <div className="flex flex-wrap gap-2">

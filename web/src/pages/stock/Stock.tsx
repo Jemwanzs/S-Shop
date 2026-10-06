@@ -17,6 +17,7 @@ import { Pill, StatusBadge, StockIndicator } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { AdjustDialog } from "./AdjustDialog";
+import { t as tr } from "@/lib/i18n";
 
 type Tab = "levels" | "position" | "movements" | "adjustments" | "barcodes";
 const LIMIT = 50;
@@ -33,9 +34,9 @@ export default function Stock() {
         title="Stock & inventory"
         actions={
           <>
-            {can("stock.adjust") && <Button variant="outline" onClick={() => setAdjusting(true)}><SlidersHorizontal /> Adjust</Button>}
-            {can("stock.adjust") && <Button variant="outline" asChild><Link to="/stock/count"><ClipboardCheck /> Stock take</Link></Button>}
-            {can("stock.add") && <Button asChild><Link to="/stock/receive"><PackagePlus /> Receive stock</Link></Button>}
+            {can("stock.adjust") && <Button variant="outline" onClick={() => setAdjusting(true)}><SlidersHorizontal /> {tr("Adjust")}</Button>}
+            {can("stock.adjust") && <Button variant="outline" asChild><Link to="/stock/count"><ClipboardCheck /> {tr("Stock take")}</Link></Button>}
+            {can("stock.add") && <Button asChild><Link to="/stock/receive"><PackagePlus /> {tr("Receive stock")}</Link></Button>}
           </>
         }
       />
@@ -82,7 +83,7 @@ function Levels() {
         <div className="grid gap-2 sm:grid-cols-2 md:flex">
           <SearchInput value={q} onChange={(v) => { setQ(v); setOffset(0); }} placeholder="Search products" className="md:w-80" />
           <Select value={category} label="Category" onChange={(v) => { setCategory(v); setOffset(0); }} className="md:w-52">
-            <option value="">All categories</option>
+            <option value="">{tr("All categories")}</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
         </div>
@@ -138,7 +139,7 @@ function Position() {
         <PeriodFilter value={period} onChange={setPeriod} />
         <Segments value={status} onChange={setStatus} options={[{ value: "all", label: "All" }, { value: "low", label: "Low" }, { value: "out", label: "Out" }]} />
       </div>
-      {data && can("sales.view_financials") && <p className="mb-3 text-sm text-muted-foreground">Closing stock value: <span className="num font-semibold text-foreground">{money(data.total_value)}</span></p>}
+      {data && can("sales.view_financials") && <p className="mb-3 text-sm text-muted-foreground">{tr("Closing stock value:")} <span className="num font-semibold text-foreground">{money(data.total_value)}</span></p>}
       <DataList
         rows={data?.rows}
         loading={isLoading}
@@ -164,7 +165,7 @@ function Position() {
           <div>
             <div className="flex justify-between font-medium"><span className="truncate">{r.name}</span><span className="num">{count(r.closing)}</span></div>
             <div className="num mt-1 grid grid-cols-4 gap-1 text-[11px] text-muted-foreground">
-              <span>Open {r.opening}</span><span>+{r.added + r.transfers_in}</span><span>−{r.sold + r.transfers_out}</span><span>Adj {r.adjustments - r.damaged_written_off}</span>
+              <span>{tr("Open")} {r.opening}</span><span>+{r.added + r.transfers_in}</span><span>−{r.sold + r.transfers_out}</span><span>{tr("Adj")} {r.adjustments - r.damaged_written_off}</span>
             </div>
           </div>
         )}
@@ -194,7 +195,7 @@ function Movements({ productId }: { productId?: string }) {
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <PeriodFilter value={period} onChange={(v) => { setPeriod(v); setOffset(0); }} />
         <Select value={kind} onChange={(v) => { setKind(v); setOffset(0); }} className="md:w-52">
-          <option value="">All movements</option>
+          <option value="">{tr("All movements")}</option>
           {KINDS.map((k) => <option key={k} value={k}>{titleCase(k)}</option>)}
         </Select>
       </div>
@@ -275,7 +276,7 @@ function Barcodes({ productId }: { productId?: string }) {
         <Segments value={status} onChange={(v) => { setStatus(v); setOffset(0); }} options={[{ value: "in_stock", label: "In stock" }, { value: "reserved", label: "Reserved" }, { value: "in_transit", label: "In transit" }, { value: "sold", label: "Sold" }, { value: "written_off", label: "Written off" }, { value: "", label: "All" }]} />
         <div className="flex gap-2">
           <SearchInput value={q} onChange={(v) => { setQ(v); setOffset(0); }} placeholder="Search barcode" className="flex-1 md:max-w-sm" />
-          <Button variant="outline" onClick={() => setScan(true)}><ScanSearch /> Trace barcode</Button>
+          <Button variant="outline" onClick={() => setScan(true)}><ScanSearch /> {tr("Trace barcode")}</Button>
         </div>
       </div>
       <DataList
@@ -299,10 +300,10 @@ function Barcodes({ productId }: { productId?: string }) {
       <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={setLookup} title="Trace a barcode" />
       <ResponsiveDialog open={!!lookup} onOpenChange={(o) => !o && setLookup(null)} title={<span className="num">{lookup}</span>} description="Barcode history">
         {history.isLoading ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
+          <p className="py-6 text-center text-sm text-muted-foreground">{tr("Loading…")}</p>
         ) : history.data && (
           <div className="space-y-4">
-            {history.data.product_barcode_of && <p className="text-sm">Product barcode of <span className="font-medium">{history.data.product_barcode_of.name}</span></p>}
+            {history.data.product_barcode_of && <p className="text-sm">{tr("Product barcode of")} <span className="font-medium">{history.data.product_barcode_of.name}</span></p>}
             {history.data.items.map((i) => <p key={i.id} className="flex justify-between text-sm"><span>{i.product_name} · {i.branch_name}</span><StatusBadge status={i.status} /></p>)}
             <ol className="relative space-y-3 border-s ps-5">
               {history.data.history.map((m) => (
@@ -312,11 +313,11 @@ function Barcodes({ productId }: { productId?: string }) {
                   <div className="text-xs text-muted-foreground">{dateTime(m.created_at)} · {m.user_name}{m.notes && ` · ${m.notes}`}</div>
                 </li>
               ))}
-              {history.data.history.length === 0 && <li className="text-sm text-muted-foreground">No movements recorded for this barcode.</li>}
+              {history.data.history.length === 0 && <li className="text-sm text-muted-foreground">{tr("No movements recorded for this barcode.")}</li>}
             </ol>
           </div>
         )}
-        {history.error && <p className="text-sm text-destructive">Not found</p>}
+        {history.error && <p className="text-sm text-destructive">{tr("Not found")}</p>}
       </ResponsiveDialog>
     </>
   );

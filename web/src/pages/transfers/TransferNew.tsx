@@ -15,6 +15,7 @@ import { PageHeader, Section } from "@/components/Page";
 import { Field, Select } from "@/components/Form";
 import { SearchInput } from "@/components/Filters";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
+import { t } from "@/lib/i18n";
 
 interface Line {
   product: StockLevel;
@@ -95,7 +96,7 @@ export default function TransferNew() {
 
   return (
     <>
-      <PageHeader back="/transfers" eyebrow="Stock" title="New transfer" actions={<Button variant="ink" onClick={() => setScanFor("any")}><ScanLine /> Scan</Button>} />
+      <PageHeader back="/transfers" eyebrow="Stock" title="New transfer" actions={<Button variant="ink" onClick={() => setScanFor("any")}><ScanLine /> {t("Scan")}</Button>} />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <Section title="Products">
           <SearchInput value={q} onChange={setQ} placeholder="Add products with stock at this branch" />
@@ -119,7 +120,7 @@ export default function TransferNew() {
                     <div className="num text-xs text-muted-foreground">{count(l.product.available)} available</div>
                   </div>
                   {l.product.track_items ? (
-                    <Button variant="outline" size="sm" onClick={() => setScanFor(l.product.product_id)}><ScanLine /> Scan ({l.barcodes.length})</Button>
+                    <Button variant="outline" size="sm" onClick={() => setScanFor(l.product.product_id)}><ScanLine /> {t("Scan (")}{l.barcodes.length})</Button>
                   ) : (
                     <div className="flex items-center rounded-lg border">
                       <button className="p-2" onClick={() => update(l.product.product_id, (x) => ({ ...x, quantity: Math.max(1, x.quantity - 1) }))} aria-label="Less"><Minus className="h-3.5 w-3.5" /></button>
@@ -138,7 +139,7 @@ export default function TransferNew() {
                 )}
               </li>
             ))}
-            {!lines.length && <li className="py-8 text-center text-sm text-muted-foreground">Search above to add products.</li>}
+            {!lines.length && <li className="py-8 text-center text-sm text-muted-foreground">{t("Search above to add products.")}</li>}
           </ul>
         </Section>
         <div className="space-y-5">
@@ -158,7 +159,7 @@ export default function TransferNew() {
             </div>
           </Section>
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" disabled={!valid || save.isPending} onClick={() => save.mutate(false)}>Save draft</Button>
+            <Button variant="outline" disabled={!valid || save.isPending} onClick={() => save.mutate(false)}>{t("Save draft")}</Button>
             <Button disabled={!valid || save.isPending} onClick={() => save.mutate(true)}>{save.isPending ? <Loader2 className="animate-spin" /> : "Submit"}</Button>
           </div>
         </div>

@@ -7,6 +7,7 @@ import type { Notification } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EmptyState, Loading, PageHeader } from "@/components/Page";
+import { t } from "@/lib/i18n";
 
 const ICONS: Record<string, typeof Bell> = {
   low_stock: AlertTriangle,
@@ -39,7 +40,7 @@ export default function Notifications() {
       <PageHeader
         title="Notifications"
         description={data?.pending_approvals ? `${data.pending_approvals} request(s) awaiting approval` : undefined}
-        actions={data?.unread ? <Button variant="outline" onClick={() => readAll.mutate()}><CheckCheck /> Mark all read</Button> : undefined}
+        actions={data?.unread ? <Button variant="outline" onClick={() => readAll.mutate()}><CheckCheck /> {t("Mark all read")}</Button> : undefined}
       />
       {isLoading ? (
         <Loading />

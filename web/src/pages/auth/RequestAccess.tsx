@@ -57,22 +57,22 @@ export default function RequestAccessPage() {
   return (
     <AuthLayout title="Request Access" subtitle="Tell us about your business — we'll set you up">
       <form onSubmit={submit} className="space-y-3.5">
-        <label className="block"><AuthLabel>Business name</AuthLabel><Input value={f.business_name} onChange={(e) => set("business_name")(e.target.value)} required maxLength={120} /></label>
-        <label className="block"><AuthLabel>Your name</AuthLabel><Input autoComplete="name" value={f.contact_name} onChange={(e) => set("contact_name")(e.target.value)} required maxLength={120} /></label>
+        <label className="block"><AuthLabel>{t("Business name")}</AuthLabel><Input value={f.business_name} onChange={(e) => set("business_name")(e.target.value)} required maxLength={120} /></label>
+        <label className="block"><AuthLabel>{t("Your name")}</AuthLabel><Input autoComplete="name" value={f.contact_name} onChange={(e) => set("contact_name")(e.target.value)} required maxLength={120} /></label>
         <div className="grid grid-cols-2 gap-2.5">
-          <label className="block"><AuthLabel>Phone</AuthLabel><Input type="tel" autoComplete="tel" className="num" value={f.phone} onChange={(e) => set("phone")(e.target.value)} placeholder="07…" required /></label>
-          <label className="block"><AuthLabel>Branches</AuthLabel><Input inputMode="numeric" className="num" value={f.branches} onChange={(e) => set("branches")(e.target.value.replace(/\D/g, "").slice(0, 3))} placeholder="1" /></label>
+          <label className="block"><AuthLabel>{t("Phone")}</AuthLabel><Input type="tel" autoComplete="tel" className="num" value={f.phone} onChange={(e) => set("phone")(e.target.value)} placeholder="07…" required /></label>
+          <label className="block"><AuthLabel>{t("Branches")}</AuthLabel><Input inputMode="numeric" className="num" value={f.branches} onChange={(e) => set("branches")(e.target.value.replace(/\D/g, "").slice(0, 3))} placeholder="1" /></label>
         </div>
-        <label className="block"><AuthLabel>Email</AuthLabel><Input type="email" autoComplete="email" value={f.email} onChange={(e) => set("email")(e.target.value)} placeholder="your@email.com" required /></label>
+        <label className="block"><AuthLabel>{t("Email")}</AuthLabel><Input type="email" autoComplete="email" value={f.email} onChange={(e) => set("email")(e.target.value)} placeholder="your@email.com" required /></label>
         <label className="block">
-          <AuthLabel>Type of business</AuthLabel>
+          <AuthLabel>{t("Type of business")}</AuthLabel>
           <Select value={f.business_type} onChange={set("business_type")}>
             <option value="">{t("Choose…")}</option>
             {BUSINESS_TYPES.map((b) => <option key={b} value={b}>{t(b)}</option>)}
           </Select>
         </label>
-        <label className="block"><AuthLabel>Town / location</AuthLabel><Input value={f.location} onChange={(e) => set("location")(e.target.value)} maxLength={120} /></label>
-        <label className="block"><AuthLabel>Anything else? (optional)</AuthLabel><Textarea rows={3} value={f.message} onChange={(e) => set("message")(e.target.value)} maxLength={1000} /></label>
+        <label className="block"><AuthLabel>{t("Town / location")}</AuthLabel><Input value={f.location} onChange={(e) => set("location")(e.target.value)} maxLength={120} /></label>
+        <label className="block"><AuthLabel>{t("Anything else? (optional)")}</AuthLabel><Textarea rows={3} value={f.message} onChange={(e) => set("message")(e.target.value)} maxLength={1000} /></label>
         {/* Honeypot for bots: hidden from people and assistive tech. */}
         <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden value={f.website} onChange={(e) => set("website")(e.target.value)} className="absolute -left-[9999px] h-0 w-0 opacity-0" />
         {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}

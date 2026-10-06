@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Loading, PageHeader } from "@/components/Page";
 import { SearchInput } from "@/components/Filters";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
+import { t } from "@/lib/i18n";
 
 /** Physical stock take: enter counted quantities; variances become count adjustments (with approval if configured). */
 export default function StockCount() {
@@ -63,7 +64,7 @@ export default function StockCount() {
 
   return (
     <>
-      <PageHeader back="/stock" eyebrow={branch?.name} title="Stock take" description="Count what is physically on the shelf. Individually tracked items are adjusted by scanning from the Stock page." actions={<Button variant="ink" onClick={() => setScan(true)}><ScanLine /> Scan to count</Button>} />
+      <PageHeader back="/stock" eyebrow={branch?.name} title="Stock take" description="Count what is physically on the shelf. Individually tracked items are adjusted by scanning from the Stock page." actions={<Button variant="ink" onClick={() => setScan(true)}><ScanLine /> {t("Scan to count")}</Button>} />
       <div className="mb-4 grid gap-3 md:grid-cols-[1fr_320px]">
         <SearchInput value={q} onChange={setQ} placeholder="Filter products" />
         <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for the count" aria-label="Reason" />
@@ -73,7 +74,7 @@ export default function StockCount() {
       ) : (
         <div className="surface divide-y pb-2">
           <div className="hidden grid-cols-[1fr_100px_120px_100px] gap-3 px-4 py-3 md:grid">
-            <span className="label-caps">Product</span><span className="label-caps text-end">System</span><span className="label-caps text-end">Counted</span><span className="label-caps text-end">Variance</span>
+            <span className="label-caps">{t("Product")}</span><span className="label-caps text-end">{t("System")}</span><span className="label-caps text-end">{t("Counted")}</span><span className="label-caps text-end">{t("Variance")}</span>
           </div>
           {rows.map((r) => {
             const v = counts[r.product_id] ?? "";
@@ -82,7 +83,7 @@ export default function StockCount() {
               <div key={r.product_id} className="grid grid-cols-[1fr_96px] items-center gap-3 px-4 py-2.5 md:grid-cols-[1fr_100px_120px_100px]">
                 <div className="min-w-0">
                   <div className="truncate font-medium">{r.name}</div>
-                  <div className="num text-xs text-muted-foreground md:hidden">System {count(r.on_hand)}{variance !== null && variance !== 0 && <span className={variance > 0 ? "text-success" : "text-destructive"}> · {signed(variance)}</span>}</div>
+                  <div className="num text-xs text-muted-foreground md:hidden">{t("System")} {count(r.on_hand)}{variance !== null && variance !== 0 && <span className={variance > 0 ? "text-success" : "text-destructive"}> · {signed(variance)}</span>}</div>
                 </div>
                 <span className="num hidden text-end md:block">{count(r.on_hand)}</span>
                 <Input inputMode="numeric" className="num text-center" value={v} placeholder="—" onChange={(e) => setCounts({ ...counts, [r.product_id]: e.target.value.replace(/\D/g, "") })} />
@@ -96,7 +97,7 @@ export default function StockCount() {
       <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-sidebar">
         <div className="mx-auto flex max-w-[1680px] items-center justify-between gap-3 px-1 md:px-3 lg:px-5">
           <span className="text-sm text-muted-foreground"><span className="num font-semibold text-foreground">{entered.length}</span> counted · <span className="num font-semibold text-foreground">{variances.length}</span> variances</span>
-          <Button disabled={!entered.length || submit.isPending} onClick={() => submit.mutate()}>{submit.isPending ? <Loader2 className="animate-spin" /> : <><ClipboardCheck /> Submit count</>}</Button>
+          <Button disabled={!entered.length || submit.isPending} onClick={() => submit.mutate()}>{submit.isPending ? <Loader2 className="animate-spin" /> : <><ClipboardCheck /> {t("Submit count")}</>}</Button>
         </div>
       </div>
     </>

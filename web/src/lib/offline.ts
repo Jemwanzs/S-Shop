@@ -138,9 +138,9 @@ export function useOnline() {
 }
 
 /** Is this cart sellable offline? Only what needs no live check on the server. */
-export function offlineBlocker(o: { method: string; customerNew: boolean; redeem: number; deposit: boolean; supervisor: boolean; tracked: boolean; clearance: boolean }) {
+export function offlineBlocker(o: { method: string; stk: boolean; customerNew: boolean; redeem: number; deposit: boolean; supervisor: boolean; tracked: boolean; clearance: boolean }) {
   if (o.method === "credit") return "Credit sales need a connection";
-  if (o.method === "mpesa") return "M-Pesa needs a connection — take cash or wait";
+  if (o.method === "mpesa" && o.stk) return "Push STK needs a connection — record the M-Pesa payment manually";
   if (o.customerNew) return "Adding a new customer needs a connection";
   if (o.redeem > 0) return "Redeeming points needs a connection";
   if (o.deposit) return "Deposits need a connection";

@@ -10,6 +10,7 @@ import { PeriodFilter, type PeriodValue } from "@/components/Filters";
 import { Select } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { t } from "@/lib/i18n";
 
 interface AuditRow {
   id: string; created_at: string; user_name: string | null; module: string; action: string; entity_type: string; entity_id: string | null;
@@ -32,7 +33,7 @@ export default function Audit() {
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <PeriodFilter value={period} onChange={(v) => { setPeriod(v); setOffset(0); }} />
         <Select value={module} onChange={(v) => { setModule(v); setOffset(0); }} className="md:w-48">
-          <option value="">All modules</option>
+          <option value="">{t("All modules")}</option>
           {MODULES.map((m) => <option key={m} value={m}>{titleCase(m)}</option>)}
         </Select>
       </div>
@@ -62,13 +63,13 @@ export default function Audit() {
           <div className="space-y-4 text-sm">
             {open.comments && <p className="rounded-lg bg-muted p-3">{open.comments}</p>}
             <div className="grid gap-3 md:grid-cols-2">
-              <div><p className="label-caps mb-1">Before</p><pre className="max-h-72 overflow-auto rounded-lg bg-muted p-3 text-xs">{open.before ? JSON.stringify(open.before, null, 2) : "—"}</pre></div>
-              <div><p className="label-caps mb-1">After</p><pre className="max-h-72 overflow-auto rounded-lg bg-muted p-3 text-xs">{open.after ? JSON.stringify(open.after, null, 2) : "—"}</pre></div>
+              <div><p className="label-caps mb-1">{t("Before")}</p><pre className="max-h-72 overflow-auto rounded-lg bg-muted p-3 text-xs">{open.before ? JSON.stringify(open.before, null, 2) : "—"}</pre></div>
+              <div><p className="label-caps mb-1">{t("After")}</p><pre className="max-h-72 overflow-auto rounded-lg bg-muted p-3 text-xs">{open.after ? JSON.stringify(open.after, null, 2) : "—"}</pre></div>
             </div>
-            <p className="text-xs text-muted-foreground">Device: {open.user_agent || "—"} · IP {open.ip || "—"}{open.entity_id && ` · Record ${open.entity_id}`}</p>
+            <p className="text-xs text-muted-foreground">{t("Device:")} {open.user_agent || "—"} · IP {open.ip || "—"}{open.entity_id && ` · Record ${open.entity_id}`}</p>
             {open.location && (
               <p className="text-xs text-muted-foreground">
-                Location:{" "}
+                {t("Location:")}{" "}
                 <a className="text-primary underline" target="_blank" rel="noreferrer" href={`https://www.openstreetmap.org/?mlat=${open.location.lat}&mlon=${open.location.lng}#map=18/${open.location.lat}/${open.location.lng}`}>
                   {open.location.lat.toFixed(5)}, {open.location.lng.toFixed(5)}
                 </a>{" "}

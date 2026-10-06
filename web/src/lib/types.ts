@@ -72,6 +72,7 @@ export interface Settings {
     sale_on_status: "delivered" | "completed";
     verify_with_otp: boolean;
     show_out_of_stock: boolean;
+    show_prices: boolean;
     notify_customer_whatsapp: boolean;
     statuses: { key: string; label: string; enabled: boolean }[];
   };

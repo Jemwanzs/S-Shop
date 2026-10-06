@@ -74,6 +74,26 @@ fn otp_hash(tenant: Uuid, mobile: &str, code: &str) -> String {
     hex::encode(Sha256::digest(format!("{tenant}:{mobile}:{code}").as_bytes()))
 }
 
+/// With "Show product prices" off, no price leaves the server for the ordering link (not just hidden in the page).
+fn priced(st: &TenantSettings, mut v: Value) -> Value {
+    fn strip(v: &mut Value) {
+        match v {
+            Value::Object(m) => {
+                for k in ["price", "unit_price", "line_total", "total", "marked_price"] {
+                    m.remove(k);
+                }
+                m.values_mut().for_each(strip);
+            }
+            Value::Array(a) => a.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
+    if !st.orders.show_prices {
+        strip(&mut v);
+    }
+    v
+}
+
 async fn business(State(state): State<AppState>, Path(slug): Path<String>) -> AppResult<Json<Value>> {
     let t = tenant(&state, &slug).await?;
     let (tagline, phone, currency, has_logo): (String, String, String, bool) =
@@ -90,6 +110,7 @@ async fn business(State(state): State<AppState>, Path(slug): Path<String>) -> Ap
         "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")),
         "otp_required": otp_required(&state, &t),
         "show_loyalty": t.settings.loyalty.enabled && t.settings.loyalty.show_on_portal,
+        "show_prices": t.settings.orders.show_prices,
     })))
 }
 
@@ -289,7 +310,8 @@ async fn my_orders(State(state): State<AppState>, Path(slug): Path<String>, c: P
         .bind(c.customer_id)
         .fetch_one(&state.db)
         .await?;
-    Ok(Json(json!({ "total_orders": total, "orders": load_orders(&state, &t.settings, c.customer_id, 3).await? })))
+    let orders = serde_json::to_value(load_orders(&state, &t.settings, c.customer_id, 3).await?).unwrap_or_default();
+    Ok(Json(json!({ "total_orders": total, "orders": priced(&t.settings, orders) })))
 }
 
 #[derive(Deserialize)]
@@ -338,10 +360,10 @@ async fn catalogue(State(state): State<AppState>, Path(slug): Path<String>, Quer
     .bind(t.id)
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(json!({
+    Ok(Json(priced(&t.settings, json!({
         "products": items,
         "categories": categories.into_iter().map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
-    })))
+    }))))
 }
 
 async fn product(State(state): State<AppState>, Path((slug, id)): Path<(String, Uuid)>) -> AppResult<Json<Value>> {
@@ -364,7 +386,7 @@ async fn product(State(state): State<AppState>, Path((slug, id)): Path<(String, 
         .bind(id)
         .fetch_all(&state.db)
         .await?;
-    Ok(Json(json!({ "product": item, "photos": photos.into_iter().map(|p| format!("/api/photos/{p}")).collect::<Vec<_>>() })))
+    Ok(Json(priced(&t.settings, json!({ "product": item, "photos": photos.into_iter().map(|p| format!("/api/photos/{p}")).collect::<Vec<_>>() }))))
 }
 
 #[derive(Deserialize)]
@@ -405,7 +427,7 @@ async fn place_order(State(state): State<AppState>, headers: HeaderMap, Path(slu
             ),
         );
     }
-    Ok(Json(json!({ "id": id, "order_no": order_no, "track_token": track_token, "total": total })))
+    Ok(Json(priced(&t.settings, json!({ "id": id, "order_no": order_no, "track_token": track_token, "total": total }))))
 }
 
 /// Public tracking by unguessable token — no account needed.
@@ -427,8 +449,8 @@ async fn track(State(state): State<AppState>, headers: HeaderMap, Path(token): P
         .map(|(_, name, qty, price, line, _)| json!({ "name": name, "quantity": qty, "unit_price": price, "line_total": line }))
         .collect();
     let events = order_events(&mut conn, &st, id).await?;
-    Ok(Json(json!({
-        "business": { "name": business, "slug": slug, "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")) },
+    Ok(Json(priced(&st, json!({
+        "business": { "name": business, "slug": slug, "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")), "show_prices": st.orders.show_prices },
         "order": {
             "order_no": order_no, "status": status, "status_label": st.order_label(&status), "total": total,
             "created_at": created_at, "delivery_location": location,
@@ -437,5 +459,5 @@ async fn track(State(state): State<AppState>, headers: HeaderMap, Path(token): P
         "steps": steps(&st, &status),
         "items": items,
         "events": events.into_iter().map(|mut e| { e.as_object_mut().map(|o| o.remove("user_name")); e }).collect::<Vec<_>>(),
-    })))
+    }))))
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ResponsiveDialog } from "./ResponsiveDialog";
+import { t } from "@/lib/i18n";
 
 /** Swipeable photo viewer (photos stay hidden in operational screens until opened). */
 export function PhotoGallery({ open, onOpenChange, title, urls }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; urls: string[] }) {
@@ -11,7 +12,7 @@ export function PhotoGallery({ open, onOpenChange, title, urls }: { open: boolea
     <ResponsiveDialog open={open} onOpenChange={(o) => { if (!o) setI(0); onOpenChange(o); }} title={title} wide>
       {urls.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-          <ImageOff className="h-8 w-8" /> No photos yet
+          <ImageOff className="h-8 w-8" /> {t("No photos yet")}
         </div>
       ) : (
         <div className="space-y-3">

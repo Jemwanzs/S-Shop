@@ -17,6 +17,7 @@ import { ConfirmDialog, Field, Select } from "@/components/Form";
 import { StatusBadge } from "@/components/Badges";
 import { StatCard } from "@/components/Stat";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { t } from "@/lib/i18n";
 
 interface Expense {
   id: string; expense_date: string; branch_name: string; category_id: string; category_name: string; amount: Money; description: string;
@@ -56,11 +57,11 @@ export default function Expenses() {
 
   return (
     <>
-      <PageHeader eyebrow="Finance" title="Expenses" actions={can("expenses.create") && <Button onClick={() => setAdding(true)}><Plus /> Record expense</Button>} />
+      <PageHeader eyebrow="Finance" title="Expenses" actions={can("expenses.create") && <Button onClick={() => setAdding(true)}><Plus /> {t("Record expense")}</Button>} />
       <div className="mb-4 space-y-3">
         <PeriodFilter value={period} onChange={(v) => { setPeriod(v); setOffset(0); }} />
         <Select value={category} label="Category" onChange={(v) => { setCategory(v); setOffset(0); }} className="sm:w-56">
-          <option value="">All categories</option>
+          <option value="">{t("All categories")}</option>
           {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
       </div>
@@ -74,7 +75,7 @@ export default function Expenses() {
                 <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-warning" style={{ width: `${total ? (toNum(c.amount) / total) * 100 : 0}%` }} /></div>
               </div>
             ))}
-            {!data?.summary.by_category.length && <p className="text-sm text-muted-foreground">Nothing yet</p>}
+            {!data?.summary.by_category.length && <p className="text-sm text-muted-foreground">{t("Nothing yet")}</p>}
           </div>
         </Section>
       </div>
@@ -150,11 +151,11 @@ function NewExpense({ open, onOpenChange, categories, methods }: { open: boolean
   });
   const valid = categoryId && toNum(amount) > 0 && (!s.require_description || description.trim()) && (!s.require_attachment || file);
   return (
-    <ResponsiveDialog open={open} onOpenChange={onOpenChange} title="Record expense" footer={<Button className="w-full md:w-auto" disabled={!valid || save.isPending} onClick={() => save.mutate()}>Save expense</Button>}>
+    <ResponsiveDialog open={open} onOpenChange={onOpenChange} title="Record expense" footer={<Button className="w-full md:w-auto" disabled={!valid || save.isPending} onClick={() => save.mutate()}>{t("Save expense")}</Button>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Category">
           <Select value={categoryId} onChange={setCategoryId}>
-            <option value="">Choose…</option>
+            <option value="">{t("Choose…")}</option>
             {categories.filter((c) => c.is_active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
         </Field>
@@ -163,7 +164,7 @@ function NewExpense({ open, onOpenChange, categories, methods }: { open: boolean
         <Field label="Supplier / payee" optional><Input value={payee} onChange={(e) => setPayee(e.target.value)} /></Field>
         <Field label="Description" optional={!s.require_description} className="sm:col-span-2"><Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} /></Field>
         <div className="space-y-2 sm:col-span-2">
-          <span className="text-sm font-medium">Paid by</span>
+          <span className="text-sm font-medium">{t("Paid by")}</span>
           <div className="flex flex-wrap gap-2">{methods.map((m) => <Chip key={m.key} active={method === m.key} onClick={() => setMethod(m.key)}>{m.label}</Chip>)}</div>
         </div>
         <Field label="Receipt / attachment" optional={!s.require_attachment} className="sm:col-span-2">

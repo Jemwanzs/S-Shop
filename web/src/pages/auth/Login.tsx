@@ -39,14 +39,14 @@ export default function LoginPage() {
     <AuthLayout title="S'Shop" subtitle="Sign in to continue">
       <form onSubmit={submit} className="space-y-4">
         <label className="block">
-          <AuthLabel>Email</AuthLabel>
+          <AuthLabel>{t("Email")}</AuthLabel>
           <div className="relative">
             <Mail className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" className="ps-9" required />
           </div>
         </label>
         <label className="block">
-          <AuthLabel>PIN</AuthLabel>
+          <AuthLabel>{t("PIN")}</AuthLabel>
           <PasswordInput withIcon autoComplete="current-password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={t("Enter your PIN")} maxLength={12} required />
         </label>
         {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}

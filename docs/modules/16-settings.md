@@ -14,7 +14,7 @@ one document with a sticky *Save changes* bar; every save is audited (before/aft
 | Configuration | Products | Photos per product (default 5), auto code prefix, **product fields**, categories, suppliers |
 | | Sales & payments | Quantity entry, barcode clearance, payment methods (add custom), manual M-Pesa, credit on/off & default days, receipt footer |
 | | Stock | Barcode requirement, quantity entry, capture cost, valuation, low-stock default, transfer receipt control, allow negative stock |
-| | Orders & ordering link | Link open, fulfilling branch, reserve stock, sale stage (Delivered/Completed), WhatsApp verification, show out-of-stock, **order status names & optional steps** |
+| | Orders & ordering link | Link open, fulfilling branch, reserve stock, sale stage (Delivered/Completed), WhatsApp verification, show out-of-stock, show product prices, **order status names & optional steps** |
 | | Customers | Require email, custom fields |
 | | Loyalty & rewards | Earning, referral %, expiry, redemption, tiers, award winners, portal visibility |
 | | Expenses | Required description/attachment, categories |

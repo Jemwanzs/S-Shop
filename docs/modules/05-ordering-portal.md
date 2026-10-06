@@ -29,5 +29,5 @@ The business's logo, name and tagline lead every screen; a subtle “Powered by 
 - New orders notify staff with `orders.manage` instantly; the customer gets a WhatsApp confirmation when configured.
 
 ## Settings
-Orders → ordering link open, fulfilling branch, reserve stock, sale stage, WhatsApp verification, show out-of-stock,
+Orders → ordering link open, fulfilling branch, reserve stock, sale stage, WhatsApp verification, show out-of-stock, **show product prices** (on by default; when off no price is sent to or shown on the ordering link — catalogue, product, cart, order history, tracking — staff screens unaffected),
 customer notifications. Loyalty → show points / value on the portal. Business profile → slug, logo, tagline.

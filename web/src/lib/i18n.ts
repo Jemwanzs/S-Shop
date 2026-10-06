@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Children, type ReactNode } from "react";
 import { DICT } from "@/i18n/dict";
 
 /** Interface languages. Arabic switches the layout to right-to-left. */
@@ -23,6 +23,22 @@ export function setLanguage(code: string) {
 export function t(text: string): string {
   if (current === "en") return text;
   return DICT[text]?.[COLUMN[current]] ?? text;
+}
+
+/**
+ * Translate the plain-text parts of children (e.g. a button's "<Icon /> Save"), keeping surrounding spaces.
+ * Unknown text passes through unchanged, so only dictionary entries change.
+ */
+export function tChildren(children: ReactNode): ReactNode {
+  if (current === "en") return children;
+  const one = (c: ReactNode) => {
+    if (typeof c !== "string") return c;
+    const core = c.trim();
+    if (!core) return c;
+    const tr = t(core);
+    return tr === core ? c : c.replace(core, tr);
+  };
+  return Array.isArray(children) ? Children.map(children, one) : one(children);
 }
 
 /** Translate a component prop when it is plain text (elements pass through untouched). */

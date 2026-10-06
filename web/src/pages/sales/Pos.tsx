@@ -111,7 +111,7 @@ export default function Pos() {
     }
     const p = { ...(r.product as unknown as PosProduct), ...products.data?.find((x) => x.id === r.product.id) };
     const where = r.other_branches.length ? (
-      <span>Available at {r.other_branches.map((b) => `${b.branch_name} (${b.available})`).join(" · ")} — change branch or request a transfer.</span>
+      <span>{translate("Available at")} {r.other_branches.map((b) => `${b.branch_name} (${b.available})`).join(" · ")} — change branch or request a transfer.</span>
     ) : "Not available at any other branch either.";
     if (!r.product.is_active) return { tone: "error", title: `${p.name} is not active for sale` };
     const lines = cartRef.current.lines;
@@ -184,10 +184,10 @@ export default function Pos() {
   const cartPanel = (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-semibold">Cart <span className="num text-muted-foreground">· {count(t.units)}</span></h2>
+        <h2 className="font-semibold">{translate("Cart")} <span className="num text-muted-foreground">· {count(t.units)}</span></h2>
         {cart.lines.length > 0 && (
           <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setCart({ lines: [], ref: newRef() })}>
-            <Trash2 /> Clear
+            <Trash2 /> {translate("Clear")}
           </Button>
         )}
       </div>
@@ -208,7 +208,7 @@ export default function Pos() {
         <PageHeader
           eyebrow={branch?.name}
           title="Record Sale"
-          actions={<Button variant="ink" onClick={() => setScan(true)}><ScanLine /> Scan</Button>}
+          actions={<Button variant="ink" onClick={() => setScan(true)}><ScanLine /> {translate("Scan")}</Button>}
         />
         {snapshotAt && (
           <div className="mb-3 flex items-start gap-2 rounded-xl bg-warning/10 p-3 text-sm text-warning">
@@ -228,7 +228,7 @@ export default function Pos() {
           <SearchInput value={q} onChange={setQ} placeholder="Search name, nickname, code or barcode" autoFocus={desktop} />
           {categories.length > 1 && (
             <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:px-0">
-              <Chip active={!category} onClick={() => setCategory(null)}>All</Chip>
+              <Chip active={!category} onClick={() => setCategory(null)}>{translate("All")}</Chip>
               {categories.map((c) => <Chip key={c} active={category === c} onClick={() => setCategory(c)}>{c}</Chip>)}
             </div>
           )}
@@ -281,7 +281,7 @@ export default function Pos() {
             <ShoppingCart className="h-5 w-5" />
             <span className="num absolute -end-2.5 -top-2.5 rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">{t.units}</span>
           </span>
-          <span className="flex-1 text-start font-medium">View cart & checkout</span>
+          <span className="flex-1 text-start font-medium">{translate("View cart & checkout")}</span>
           <span className="num font-semibold">{money(t.net)}</span>
         </button>
       )}
@@ -292,7 +292,7 @@ export default function Pos() {
       )}
       <Drawer open={cartOpen} onOpenChange={setCartOpen}>
         <DrawerContent className="max-h-[94vh]">
-          <DrawerHeader className="sr-only"><DrawerTitle>Cart</DrawerTitle><DrawerDescription>Review items and take payment</DrawerDescription></DrawerHeader>
+          <DrawerHeader className="sr-only"><DrawerTitle>{translate("Cart")}</DrawerTitle><DrawerDescription>{translate("Review items and take payment")}</DrawerDescription></DrawerHeader>
           <div className="overflow-y-auto px-4 pb-8 pt-2">{cartPanel}</div>
         </DrawerContent>
       </Drawer>
@@ -311,7 +311,7 @@ export default function Pos() {
         open={!!queued}
         onOpenChange={(o) => !o && setQueued(null)}
         title="Saved offline"
-        footer={<Button className="w-full md:w-auto" onClick={() => setQueued(null)}>New sale</Button>}
+        footer={<Button className="w-full md:w-auto" onClick={() => setQueued(null)}>{translate("New sale")}</Button>}
       >
         {queued && (
           <div className="space-y-3 py-2 text-center">
@@ -320,7 +320,7 @@ export default function Pos() {
             <p className="text-sm text-muted-foreground">
               {translate("Kept on this device and sent automatically when the connection is back. The receipt number is given then.")}
             </p>
-            <p className="num text-xs text-muted-foreground">Ref {queued.client_ref.slice(0, 8).toUpperCase()}</p>
+            <p className="num text-xs text-muted-foreground">{translate("Ref")} {queued.client_ref.slice(0, 8).toUpperCase()}</p>
           </div>
         )}
       </ResponsiveDialog>
@@ -330,9 +330,9 @@ export default function Pos() {
         title="Sale complete"
         footer={
           <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto">
-            <Button variant="outline" onClick={() => navigate(`/sales/${done?.sale.id}`)}><Printer /> Receipt</Button>
-            {can("sales.print") && <Button variant="outline" onClick={share}><MessageCircle /> WhatsApp</Button>}
-            <Button className="col-span-2" onClick={() => setDone(null)}>New sale</Button>
+            <Button variant="outline" onClick={() => navigate(`/sales/${done?.sale.id}`)}><Printer /> {translate("Receipt")}</Button>
+            {can("sales.print") && <Button variant="outline" onClick={share}><MessageCircle /> {translate("WhatsApp")}</Button>}
+            <Button className="col-span-2" onClick={() => setDone(null)}>{translate("New sale")}</Button>
           </div>
         }
       >

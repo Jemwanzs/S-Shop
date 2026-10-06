@@ -74,7 +74,7 @@ export function ConfirmDialog({
       footer={
         <div className="flex w-full gap-2 md:w-auto">
           <Button variant="outline" className="flex-1 md:flex-none" onClick={() => onOpenChange(false)}>
-            Back
+            {t("Back")}
           </Button>
           <Button
             variant={destructive ? "destructive" : "default"}
@@ -82,7 +82,7 @@ export function ConfirmDialog({
             disabled={busy || (requireReason && !reason.trim())}
             onClick={() => onConfirm(reason.trim())}
           >
-            {busy ? "Working…" : confirmLabel}
+            {busy ? t("Working…") : t(confirmLabel)}
           </Button>
         </div>
       }

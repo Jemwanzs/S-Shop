@@ -330,13 +330,29 @@ async fn confirm_mpesa(
     consumer: Uuid,
 ) -> AppResult<(String, Option<Uuid>)> {
     let Some(req_id) = request else {
+        // Manual M-Pesa: the confirmation code is optional; when given it must look like one and be unused.
         if !s.sales.mpesa_manual_confirmation {
-            return Err(rule("Use Push STK to collect M-Pesa payments"));
+            return Err(refused("Use Push STK", "This business collects M-Pesa payments with Push STK only."));
         }
-        if reference.len() < 8 || !reference.chars().all(|c| c.is_ascii_alphanumeric()) {
-            return Err(rule("Enter the M-Pesa confirmation code (e.g. QFT1ABC2DE)"));
+        let code = reference.trim().to_uppercase();
+        if code.is_empty() {
+            return Ok((String::new(), None));
         }
-        return Ok((reference, None));
+        if !(8..=12).contains(&code.len()) || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(refused("Check the M-Pesa code", "An M-Pesa confirmation code has 8 to 12 letters and digits (e.g. QFT1ABC2DE). Leave it empty if you don't have it."));
+        }
+        let used: Option<String> = sqlx::query_scalar(
+            "SELECT s.receipt_no FROM payments p JOIN sales s ON s.id = p.sale_id
+             WHERE p.tenant_id = $1 AND p.method = 'mpesa' AND upper(p.reference) = $2 AND p.amount > 0 LIMIT 1",
+        )
+        .bind(ctx.tenant_id)
+        .bind(&code)
+        .fetch_optional(&mut *conn)
+        .await?;
+        if let Some(receipt) = used {
+            return Err(refused("M-Pesa code already used", format!("{code} was already recorded on sale {receipt}.")));
+        }
+        return Ok((code, None));
     };
     let (status, paid, receipt, consumed): (String, Decimal, Option<String>, Option<Uuid>) = sqlx::query_as(
         "SELECT status, amount, mpesa_receipt, consumed_by FROM mpesa_requests WHERE id = $1 AND tenant_id = $2 FOR UPDATE",

@@ -16,6 +16,7 @@ import { Field } from "@/components/Form";
 import { Chip } from "@/components/Filters";
 import { PointsPill } from "@/components/Badges";
 import { exceedsMax, lineTotal, linePoints, marked, totals, type CartLine } from "./cart";
+import { t as tr } from "@/lib/i18n";
 
 interface MpesaReq {
   id: string;
@@ -96,6 +97,8 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
   const [deposit, setDeposit] = useState("");
   const [depositMethod, setDepositMethod] = useState(depositMethods[0]?.key ?? "cash");
   const [stk, setStk] = useState<MpesaReq | null>(null);
+  // Push STK is available only when the M-Pesa STK integration is configured and active.
+  const stkReady = !!profile?.integrations.mpesa_stk;
   const [supEmail, setSupEmail] = useState("");
   const [supPin, setSupPin] = useState("");
   const [needSupervisor, setNeedSupervisor] = useState(false);
@@ -141,6 +144,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
   const queueOffline = async (body: Record<string, unknown>): Promise<{ queued: QueuedSale }> => {
     const blocker = offlineBlocker({
       method,
+      stk: !!stk,
       customerNew: isNew && digits.length >= 9,
       redeem: redeemPts,
       deposit: takingDeposit,
@@ -210,7 +214,10 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
   if (method === "credit" && !customer && !(isNew && firstName.trim())) blockers.push("Credit needs a customer");
   if (isNew && digits.length >= 9 && !firstName.trim()) blockers.push("Enter the customer's first name");
   if (takingDeposit && depositAmount >= t.payable) blockers.push("A deposit must be less than the total");
-  if (collecting && payMethod === "mpesa" && stk?.status !== "success" && reference.trim().length < 8) blockers.push(s.sales.mpesa_manual_confirmation ? "Push STK or enter the M-Pesa code" : "Push STK to collect payment");
+  if (collecting && payMethod === "mpesa" && stk?.status === "pending") blockers.push("Waiting for the M-Pesa payment");
+  if (collecting && payMethod === "mpesa" && !s.sales.mpesa_manual_confirmation && stk?.status !== "success")
+    blockers.push(stkReady ? "Push STK to collect payment" : "M-Pesa needs Push STK, which is not configured");
+  if (collecting && payMethod === "mpesa" && reference && (reference.length < 8 || reference.length > 12)) blockers.push("Check the M-Pesa code (8–12 characters) or clear it");
   if (showSupervisor && (!supEmail || !supPin)) blockers.push("Supervisor approval needed");
   if (redeemPts > 0 && customer && redeemPts > customer.points_available) blockers.push("Not enough points");
 
@@ -218,7 +225,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
     <div className="space-y-5">
       {/* Customer */}
       <section className="space-y-2">
-        <p className="label-caps">Customer {method === "credit" ? "" : "· optional"}</p>
+        <p className="label-caps">{tr("Customer")} {method === "credit" ? "" : "· optional"}</p>
         <div className="relative">
           <UserRound className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input inputMode="tel" placeholder="Mobile number, e.g. 0712 345 678" value={mobile} onChange={(e) => setMobile(e.target.value)} className="num ps-9 pe-9" />
@@ -246,7 +253,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
 
       {/* Payment */}
       <section className="space-y-3">
-        <p className="label-caps">Payment</p>
+        <p className="label-caps">{tr("Payment")}</p>
         <div className="flex flex-wrap gap-2">
           {methods.map((m) => (
             <Chip key={m.key} active={method === m.key} onClick={() => setMethod(m.key)} className="h-10">{m.label}</Chip>
@@ -271,31 +278,40 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
         )}
         {collecting && payMethod === "mpesa" && (
           <div className="space-y-3 rounded-xl border p-3">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Smartphone className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input inputMode="tel" placeholder="M-Pesa number (optional)" value={payPhone} onChange={(e) => setPayPhone(e.target.value)} className="num ps-9" />
-              </div>
-              {profile!.integrations.mpesa_stk && (
-                <Button variant="success" disabled={push.isPending || payPhone.replace(/\D/g, "").length < 9 || payAmount <= 0 || stk?.status === "pending"} onClick={() => push.mutate()}>
+            {/* Number: optional for a manual M-Pesa sale, required only to push an STK prompt. */}
+            <Field label="M-Pesa number" optional hint={stkReady ? "Needed only for Push STK" : undefined}>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Smartphone className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input inputMode="tel" placeholder="07XXXXXXXX" value={payPhone} onChange={(e) => setPayPhone(e.target.value)} className="num ps-9" disabled={stk?.status === "pending"} />
+                </div>
+                <Button
+                  type="button"
+                  variant="success"
+                  disabled={!stkReady || push.isPending || payPhone.replace(/\D/g, "").length < 9 || payAmount <= 0 || stk?.status === "pending" || stk?.status === "success"}
+                  onClick={() => push.mutate()}
+                  title={stkReady ? undefined : tr("STK not configured")}
+                >
                   {push.isPending ? <Loader2 className="animate-spin" /> : "Push STK"}
                 </Button>
-              )}
-            </div>
+              </div>
+            </Field>
+            {!stkReady && <p className="-mt-1 text-xs text-muted-foreground">{tr("STK not configured — record the M-Pesa payment manually.")}</p>}
             {stk && (
               <div className={cn("flex items-center gap-2 rounded-lg p-2.5 text-sm", stk.status === "success" ? "bg-success/10 text-success" : stk.status === "pending" ? "bg-muted" : "bg-destructive/10 text-destructive")}>
                 {stk.status === "pending" ? <Loader2 className="h-4 w-4 animate-spin" /> : stk.status === "success" ? <CheckCircle2 className="h-4 w-4" /> : <X className="h-4 w-4" />}
                 <span className="flex-1">
-                  {stk.status === "pending" && "Waiting for the customer to enter their M-Pesa PIN…"}
-                  {stk.status === "success" && <>Paid · <span className="num font-semibold">{stk.mpesa_receipt}</span></>}
-                  {["failed", "cancelled", "timeout"].includes(stk.status) && (stk.result_desc || "Payment not completed")}
+                  {stk.status === "pending" && tr("Waiting for the customer to enter their M-Pesa PIN…")}
+                  {stk.status === "success" && <>{tr("Paid")} · <span className="num font-semibold">{stk.mpesa_receipt}</span></>}
+                  {["failed", "cancelled", "timeout"].includes(stk.status) && (stk.result_desc || tr("Payment not completed"))}
                 </span>
-                {stk.status !== "pending" && stk.status !== "success" && <button className="underline" onClick={() => setStk(null)}>Retry</button>}
+                {stk.status !== "pending" && stk.status !== "success" && <button className="underline" onClick={() => setStk(null)}>{tr("Retry")}</button>}
               </div>
             )}
-            {s.sales.mpesa_manual_confirmation && stk?.status !== "success" && (
-              <Field label="M-Pesa confirmation code" hint="Or confirm manually from the M-Pesa message">
-                <Input value={reference} onChange={(e) => setReference(e.target.value.toUpperCase())} placeholder="e.g. QFT1ABC2DE" className="num uppercase" />
+            {/* Manual M-Pesa: the confirmation code is optional. */}
+            {s.sales.mpesa_manual_confirmation && stk?.status !== "success" && stk?.status !== "pending" && (
+              <Field label="M-Pesa confirmation code" optional hint="From the customer's M-Pesa message, if available">
+                <Input value={reference} onChange={(e) => setReference(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="e.g. QFT1ABC2DE" className="num uppercase placeholder:normal-case" maxLength={12} />
               </Field>
             )}
           </div>
@@ -304,7 +320,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
           <div className="grid grid-cols-2 items-end gap-3">
             <Field label="Cash received" optional><Input inputMode="decimal" className="num" value={tendered} onChange={(e) => setTendered(e.target.value.replace(/[^\d.]/g, ""))} placeholder={String(payAmount)} /></Field>
             <div className="pb-2 text-end text-sm">
-              {tendered && <>Change <span className={cn("num block text-lg font-semibold", change < 0 && "text-destructive")}>{money(change)}</span></>}
+              {tendered && <>{tr("Change")} <span className={cn("num block text-lg font-semibold", change < 0 && "text-destructive")}>{money(change)}</span></>}
             </div>
           </div>
         )}
@@ -313,17 +329,17 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
       {canRedeem && (
         <section className="space-y-2 rounded-xl border border-points/30 bg-points/5 p-3">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-medium">Redeem points</span>
-            <button className="text-xs text-points underline" onClick={() => setRedeem(String(Math.min(customer!.points_available, Math.floor(t.net / Math.max(toNum(s.loyalty.point_value), 0.0001)))))}>Use max</button>
+            <span className="font-medium">{tr("Redeem points")}</span>
+            <button className="text-xs text-points underline" onClick={() => setRedeem(String(Math.min(customer!.points_available, Math.floor(t.net / Math.max(toNum(s.loyalty.point_value), 0.0001)))))}>{tr("Use max")}</button>
           </div>
           <Input inputMode="numeric" className="num" placeholder={`Up to ${count(customer!.points_available)} points`} value={redeem} onChange={(e) => setRedeem(e.target.value.replace(/\D/g, ""))} />
-          {redeemPts > 0 && <p className="num text-xs text-muted-foreground">Worth {money(t.redeemValue)}</p>}
+          {redeemPts > 0 && <p className="num text-xs text-muted-foreground">{tr("Worth")} {money(t.redeemValue)}</p>}
         </section>
       )}
 
       {showSupervisor && (
         <section className="space-y-2 rounded-xl border border-warning/40 bg-warning/5 p-3">
-          <p className="flex items-center gap-2 text-sm font-medium text-warning"><ShieldCheck className="h-4 w-4" /> Supervisor approval for discount</p>
+          <p className="flex items-center gap-2 text-sm font-medium text-warning"><ShieldCheck className="h-4 w-4" /> {tr("Supervisor approval for discount")}</p>
           <div className="grid grid-cols-2 gap-2">
             <Input type="email" placeholder="Supervisor email" value={supEmail} onChange={(e) => setSupEmail(e.target.value)} />
             <PasswordInput placeholder="PIN" autoComplete="off" value={supPin} onChange={(e) => setSupPin(e.target.value)} />
@@ -337,7 +353,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
         {t.discount !== 0 && <Row label={t.discount > 0 ? "Discounts" : "Above marked price"} value={`${t.discount > 0 ? "−" : "+"}${money(Math.abs(t.discount))}`} tone={t.discount > 0 ? "text-destructive" : "text-success"} />}
         {t.redeemValue > 0 && <Row label={`Points redeemed (${count(redeemPts)})`} value={`−${money(t.redeemValue)}`} tone="text-points" />}
         <div className="flex items-baseline justify-between border-t pt-2">
-          <span className="font-semibold">Total payable</span>
+          <span className="font-semibold">{tr("Total payable")}</span>
           <span className="num text-2xl font-bold">{money(t.payable)}</span>
         </div>
         {isCredit && (

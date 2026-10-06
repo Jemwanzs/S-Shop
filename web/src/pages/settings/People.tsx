@@ -54,11 +54,11 @@ export function BranchesSettings() {
   });
   return (
     <SettingsPage title="Branches" description="Each branch keeps its own stock, sales, orders and expenses." loading={isLoading}>
-      <Card action={<Button size="sm" onClick={() => setEdit({ is_active: true })}><Plus /> Add branch</Button>}>
+      <Card action={<Button size="sm" onClick={() => setEdit({ is_active: true })}><Plus /> {t("Add branch")}</Button>}>
         {data?.map((b) => (
           <div key={b.id} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 font-medium">{b.name} <Pill>{b.code}</Pill>{!b.is_active && <Pill tone="danger">Inactive</Pill>}{b.geofence_enabled && <Pill tone="success">{t("Geofenced")} · {b.geofence_radius_m} m</Pill>}</div>
+              <div className="flex items-center gap-2 font-medium">{b.name} <Pill>{b.code}</Pill>{!b.is_active && <Pill tone="danger">{t("Inactive")}</Pill>}{b.geofence_enabled && <Pill tone="success">{t("Geofenced")} · {b.geofence_radius_m} m</Pill>}</div>
               <div className="truncate text-xs text-muted-foreground">{[b.location, b.manager_name && `Manager: ${b.manager_name}`, `${b.user_count} users`].filter(Boolean).join(" · ")}</div>
               {b.hours && <div className="truncate text-xs text-muted-foreground">{t("Own hours")}: {hoursLabel(b.hours)}</div>}
             </div>
@@ -66,7 +66,7 @@ export function BranchesSettings() {
           </div>
         ))}
       </Card>
-      <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? "Edit branch" : "New branch"} footer={<Button className="w-full md:w-auto" disabled={!edit?.name || !edit?.code || save.isPending} onClick={() => edit && save.mutate(edit)}>Save</Button>}>
+      <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? "Edit branch" : "New branch"} footer={<Button className="w-full md:w-auto" disabled={!edit?.name || !edit?.code || save.isPending} onClick={() => edit && save.mutate(edit)}>{t("Save")}</Button>}>
         {edit && (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Name"><Input value={edit.name ?? ""} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
@@ -162,12 +162,12 @@ export function UsersSettings() {
 
   return (
     <SettingsPage title="Users" description="Staff sign in with email and PIN. Access comes from their role and branches." loading={isLoading}>
-      <Card action={<Button size="sm" onClick={() => { setPinConfirm(""); setEdit({ name: "", email: "", phone: "", pin: "", role_id: roles.data?.find((r) => r.name === "Salesperson")?.id ?? "", all_branches: false, branch_ids: profile?.branches[0] ? [profile.branches[0].id] : [], is_active: true }); }}><Plus /> Add user</Button>}>
+      <Card action={<Button size="sm" onClick={() => { setPinConfirm(""); setEdit({ name: "", email: "", phone: "", pin: "", role_id: roles.data?.find((r) => r.name === "Salesperson")?.id ?? "", all_branches: false, branch_ids: profile?.branches[0] ? [profile.branches[0].id] : [], is_active: true }); }}><Plus /> {t("Add user")}</Button>}>
         {data?.map((u) => (
           <div key={u.id} className="flex items-center gap-3 py-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">{initials(u.name)}</span>
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2 font-medium">{u.name} <Pill tone="primary">{u.role_name}</Pill>{!u.is_active && <Pill tone="danger">Inactive</Pill>}</div>
+              <div className="flex flex-wrap items-center gap-2 font-medium">{u.name} <Pill tone="primary">{u.role_name}</Pill>{!u.is_active && <Pill tone="danger">{t("Inactive")}</Pill>}</div>
               <div className="truncate text-xs text-muted-foreground">
                 {u.email} · {u.all_branches ? "All branches" : u.branch_ids.map(branchName).join(", ")} · {u.last_login_at ? `active ${ago(u.last_login_at)}` : "never signed in"}
               </div>
@@ -181,7 +181,7 @@ export function UsersSettings() {
         open={!!edit}
         onOpenChange={(o) => !o && setEdit(null)}
         title={edit?.id ? "Edit user" : "New user"}
-        footer={<Button className="w-full md:w-auto" disabled={!edit?.name || !edit?.email || !edit?.role_id || (!edit.id && (edit.pin.length < 4 || edit.pin !== pinConfirm)) || save.isPending} onClick={() => edit && save.mutate(edit)}>Save user</Button>}
+        footer={<Button className="w-full md:w-auto" disabled={!edit?.name || !edit?.email || !edit?.role_id || (!edit.id && (edit.pin.length < 4 || edit.pin !== pinConfirm)) || save.isPending} onClick={() => edit && save.mutate(edit)}>{t("Save user")}</Button>}
       >
         {edit && (
           <div className="grid gap-4 sm:grid-cols-2">
@@ -192,7 +192,7 @@ export function UsersSettings() {
             {!edit.id && <Field label="Confirm PIN" hint={pinConfirm && pinConfirm !== edit.pin ? "PINs do not match" : undefined}><PasswordInput autoComplete="new-password" maxLength={12} value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value)} /></Field>}
             <Field label="Role" className="sm:col-span-2">
               <Select value={edit.role_id} onChange={(v) => setEdit({ ...edit, role_id: v })}>
-                <option value="">Choose…</option>
+                <option value="">{t("Choose…")}</option>
                 {roles.data?.filter((r) => r.is_active || r.id === edit.role_id).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
               </Select>
             </Field>
@@ -213,7 +213,7 @@ export function UsersSettings() {
           </div>
         )}
       </ResponsiveDialog>
-      <ResponsiveDialog open={!!resetFor} onOpenChange={(o) => !o && setResetFor(null)} title={`Reset PIN for ${resetFor?.name}`} footer={<Button className="w-full md:w-auto" disabled={newPin.length < 4 || newPin !== pinConfirm || reset.isPending} onClick={() => reset.mutate()}>Reset PIN</Button>}>
+      <ResponsiveDialog open={!!resetFor} onOpenChange={(o) => !o && setResetFor(null)} title={`Reset PIN for ${resetFor?.name}`} footer={<Button className="w-full md:w-auto" disabled={newPin.length < 4 || newPin !== pinConfirm || reset.isPending} onClick={() => reset.mutate()}>{t("Reset PIN")}</Button>}>
         <div className="space-y-4">
           <Field label="New PIN" hint="4–12 characters. Share it with the user privately"><PasswordInput autoComplete="new-password" maxLength={12} value={newPin} onChange={(e) => setNewPin(e.target.value)} autoFocus /></Field>
           <Field label="Confirm new PIN" hint={pinConfirm && pinConfirm !== newPin ? "PINs do not match" : undefined}><PasswordInput autoComplete="new-password" maxLength={12} value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value)} /></Field>
@@ -240,18 +240,18 @@ export function RolesSettings() {
   const toggle = (p: string, on: boolean) => edit && setEdit({ ...edit, permissions: on ? [...edit.permissions, p] : edit.permissions.filter((x) => x !== p) });
   return (
     <SettingsPage title="Roles & permissions" description="Permissions are granted per module and action. Users can additionally be restricted by branch." loading={isLoading}>
-      <Card action={<Button size="sm" onClick={() => setEdit({ name: "", description: "", permissions: [], is_active: true, user_count: 0 })}><Plus /> New role</Button>}>
+      <Card action={<Button size="sm" onClick={() => setEdit({ name: "", description: "", permissions: [], is_active: true, user_count: 0 })}><Plus /> {t("New role")}</Button>}>
         {data?.map((r) => (
           <div key={r.id} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 font-medium">{r.name}{r.is_system && <Pill tone="primary">Full access</Pill>}{!r.is_active && <Pill>Retired</Pill>}</div>
+              <div className="flex items-center gap-2 font-medium">{r.name}{r.is_system && <Pill tone="primary">{t("Full access")}</Pill>}{!r.is_active && <Pill>{t("Retired")}</Pill>}</div>
               <div className="truncate text-xs text-muted-foreground">{r.description} · {r.user_count} user{r.user_count === 1 ? "" : "s"} · {r.is_system ? "all" : r.permissions.length} permissions</div>
             </div>
             {!r.is_system && <Button variant="ghost" size="icon-sm" onClick={() => setEdit({ id: r.id, name: r.name, description: r.description, permissions: r.permissions, is_active: r.is_active, user_count: r.user_count })} aria-label="Edit"><Pencil /></Button>}
           </div>
         ))}
       </Card>
-      <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : "New role"} wide footer={<Button className="w-full md:w-auto" disabled={!edit?.name.trim() || save.isPending} onClick={() => save.mutate()}>Save role</Button>}>
+      <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : "New role"} wide footer={<Button className="w-full md:w-auto" disabled={!edit?.name.trim() || save.isPending} onClick={() => save.mutate()}>{t("Save role")}</Button>}>
         {edit && (
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -275,7 +275,7 @@ export function RolesSettings() {
                     <button className="text-xs text-primary" onClick={() => {
                       const all = g.permissions.every(([k]) => edit.permissions.includes(k));
                       setEdit({ ...edit, permissions: all ? edit.permissions.filter((p) => !g.permissions.some(([k]) => k === p)) : [...new Set([...edit.permissions, ...g.permissions.map(([k]) => k)])] });
-                    }}>Toggle all</button>
+                    }}>{t("Toggle all")}</button>
                   </div>
                   <div className="space-y-2">
                     {g.permissions.map(([key, label]) => (

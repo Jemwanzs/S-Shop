@@ -134,7 +134,7 @@ export function ItemSheet({
             {product.reserved > 0 && <span className="text-xs text-muted-foreground">{count(product.reserved)} reserved for orders</span>}
             {product.photo_count > 0 && (
               <Button variant="outline" size="sm" className="ms-auto" onClick={() => setPhotos(true)}>
-                <Images /> View photos
+                <Images /> {t("View photos")}
               </Button>
             )}
           </div>
@@ -176,7 +176,7 @@ export function ItemSheet({
               onFocus={(e) => e.target.select()}
             />
             <span className={cn("num block text-sm font-medium", diff < 0 ? "text-destructive" : diff > 0 ? "text-success" : "text-muted-foreground")}>
-              Difference from marked price: {signed(diff)}
+              {t("Difference from marked price:")} {signed(diff)}
             </span>
           </Field>
 
@@ -196,10 +196,10 @@ export function ItemSheet({
 
           {overMax && (
             <p className="flex gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning">
-              <AlertTriangle className="h-4 w-4 shrink-0" /> Above the maximum discount of {money(product.max_discount)}. A supervisor will need to approve at checkout.
+              <AlertTriangle className="h-4 w-4 shrink-0" /> {t("Above the maximum discount of")} {money(product.max_discount)}. A supervisor will need to approve at checkout.
             </p>
           )}
-          {belowMarkedBlocked && <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">You are not allowed to sell below the marked price.</p>}
+          {belowMarkedBlocked && <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{t("You are not allowed to sell below the marked price.")}</p>}
 
           {needsBarcode && (
             <div className={cn("flex items-center gap-3 rounded-xl border-2 border-dashed p-3", barcodeOk ? "border-success/50 bg-success/5" : "border-primary/40")}>
@@ -214,7 +214,7 @@ export function ItemSheet({
 
           <div className="rounded-xl border">
             <button type="button" onClick={() => setShowOther(!showOther)} className="flex w-full items-center gap-2 px-3 py-2.5 text-sm font-medium">
-              <Store className="h-4 w-4 text-muted-foreground" /> View stock in other branches
+              <Store className="h-4 w-4 text-muted-foreground" /> {t("View stock in other branches")}
               <ChevronDown className={cn("ms-auto h-4 w-4 transition", showOther && "rotate-180")} />
             </button>
             {showOther && (
@@ -225,8 +225,8 @@ export function ItemSheet({
                     <span className={cn("num font-medium", a.available <= 0 && "text-destructive")}>{a.available > 0 ? `${count(a.available)} available` : "Out of stock"}</span>
                   </li>
                 ))}
-                {availability.isLoading && <li className="px-3 py-2 text-muted-foreground">Loading…</li>}
-                <li className="px-3 py-2 text-xs text-muted-foreground">Stock in another branch is never deducted here — switch branch or request a transfer.</li>
+                {availability.isLoading && <li className="px-3 py-2 text-muted-foreground">{t("Loading…")}</li>}
+                <li className="px-3 py-2 text-xs text-muted-foreground">{t("Stock in another branch is never deducted here — switch branch or request a transfer.")}</li>
               </ul>
             )}
           </div>

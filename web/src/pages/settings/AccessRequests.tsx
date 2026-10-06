@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/Badges";
 import { EmptyState, Loading } from "@/components/Page";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { SettingsPage } from "./shared";
+import { t } from "@/lib/i18n";
 
 interface AccessRequest {
   id: string;
@@ -109,8 +110,8 @@ export function AccessRequests() {
               )}
               {r.status === "pending" && (
                 <div className="flex gap-2 pt-1">
-                  <Button size="sm" variant="outline" className="text-destructive" onClick={() => setRejecting(r)}><X /> Reject</Button>
-                  <Button size="sm" variant="success" className="ms-auto" disabled={approve.isPending} onClick={() => approve.mutate(r)}><Check /> Approve & create</Button>
+                  <Button size="sm" variant="outline" className="text-destructive" onClick={() => setRejecting(r)}><X /> {t("Reject")}</Button>
+                  <Button size="sm" variant="success" className="ms-auto" disabled={approve.isPending} onClick={() => approve.mutate(r)}><Check /> {t("Approve & create")}</Button>
                 </div>
               )}
             </div>
@@ -123,7 +124,7 @@ export function AccessRequests() {
         onOpenChange={(o) => !o && setRejecting(null)}
         title="Reject request"
         description={rejecting?.business_name}
-        footer={<Button variant="destructive" className="w-full md:w-auto" disabled={reject.isPending} onClick={() => reject.mutate()}>Reject</Button>}
+        footer={<Button variant="destructive" className="w-full md:w-auto" disabled={reject.isPending} onClick={() => reject.mutate()}>{t("Reject")}</Button>}
       >
         <Field label="Reason" optional><Textarea value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       </ResponsiveDialog>
@@ -131,15 +132,15 @@ export function AccessRequests() {
       <ResponsiveDialog open={!!approved} onOpenChange={(o) => !o && setApproved(null)} title="Business activated" description={approved?.business}>
         {approved && (
           <div className="space-y-3 text-sm">
-            <p>Send these sign-in details to the new administrator. <b>The temporary PIN is shown only once.</b></p>
+            <p>{t("Send these sign-in details to the new administrator.")} <b>{t("The temporary PIN is shown only once.")}</b></p>
             <div className="space-y-1 rounded-xl bg-muted/60 p-3">
-              <div className="flex justify-between gap-3"><span className="text-muted-foreground">Email</span><span className="truncate">{approved.email}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-muted-foreground">Temporary PIN</span><span className="num font-semibold tracking-wider">{approved.temporary_pin}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-muted-foreground">Sign in</span><span className="truncate">{approved.sign_in_url}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("Email")}</span><span className="truncate">{approved.email}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("Temporary PIN")}</span><span className="num font-semibold tracking-wider">{approved.temporary_pin}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("Sign in")}</span><span className="truncate">{approved.sign_in_url}</span></div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" onClick={() => copy(approved.message)}><Copy /> Copy message</Button>
-              <Button variant="success" asChild><a href={waLink(approved)} target="_blank" rel="noreferrer"><MessageCircle /> WhatsApp</a></Button>
+              <Button variant="outline" onClick={() => copy(approved.message)}><Copy /> {t("Copy message")}</Button>
+              <Button variant="success" asChild><a href={waLink(approved)} target="_blank" rel="noreferrer"><MessageCircle /> {t("WhatsApp")}</a></Button>
             </div>
           </div>
         )}

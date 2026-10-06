@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useDebounced } from "@/lib/hooks";
 import { money } from "@/lib/format";
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { t } from "@/lib/i18n";
 
 interface Result {
   type: "product" | "customer" | "order" | "sale";
@@ -39,7 +40,7 @@ export function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChan
     <CommandDialog open={open} onOpenChange={(o) => { if (!o) setQ(""); onOpenChange(o); }}>
       <CommandInput value={q} onValueChange={setQ} placeholder="Name, mobile, barcode, ORD-…, RCP-…" />
       <CommandList className="max-h-[60vh]">
-        {term.length >= 2 && !isFetching && <CommandEmpty>No matches</CommandEmpty>}
+        {term.length >= 2 && !isFetching && <CommandEmpty>{t("No matches")}</CommandEmpty>}
         {GROUPS.map((g) => {
           const rows = results.filter((r) => r.type === g.type);
           if (!rows.length) return null;

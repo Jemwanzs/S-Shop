@@ -839,6 +839,42 @@ call("POST", "/sales", {k: v for k, v in off_body.items() if k != "client_ref"},
 check("offline sales need a client reference", True)
 check("sync is audited", any(x["action"] == "offline_sync" for x in call("GET", f"/audit?period=all&entity_id={o1['sale']['id']}&limit=20")["items"]))
 
+step("Record Sale: manual M-Pesa (code optional) and STK separation")
+call("POST", "/stock/receive", {"product_id": nduma, "quantity": 6, "cost_price": 250})
+def mp(ref="", expect=200):
+    return call("POST", "/sales", {"items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}],
+                                   "payment": {"method": "mpesa", "reference": ref, "phone": ""}, "client_ref": str(uuid.uuid4())}, expect=expect)
+check("M-Pesa sale without number or code", mp()["sale"]["payment_method"] == "mpesa")
+check("malformed code refused", mp("BAD", 422)["error"]["title"] == "Check the M-Pesa code")
+code = ("QF" + uuid.uuid4().hex[:8]).upper()
+mp(code)
+check("valid code accepted once", True)
+check("same code cannot be used twice", mp(code.lower(), 422)["error"]["title"] == "M-Pesa code already used")
+off_mp = {"items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "mpesa", "reference": ""},
+          "client_ref": str(uuid.uuid4()), "offline_at": iso(_dt2.datetime.now(_dt2.timezone.utc) - _dt2.timedelta(minutes=10))}
+check("manual M-Pesa can be recorded offline", call("POST", "/sales", off_mp)["sale"]["payment_method"] == "mpesa")
+
+step("Ordering link: show product prices")
+pcfg = call("GET", "/settings")["settings"]
+check("prices shown by default", pcfg["orders"]["show_prices"] is True and call("GET", f"/portal/{slug}", token="none")["show_prices"] is True)
+def has_price(v):
+    if isinstance(v, dict):
+        return any(k in ("price", "unit_price", "line_total", "total", "marked_price") for k in v) or any(has_price(x) for x in v.values())
+    if isinstance(v, list):
+        return any(has_price(x) for x in v)
+    return False
+pc = json.loads(json.dumps(pcfg)); pc["orders"]["show_prices"] = False
+call("PUT", "/settings", pc)
+cat_np = call("GET", f"/portal/{slug}/catalogue", token=ptoken)
+check("catalogue sends no prices", not has_price(cat_np) and len(cat_np["products"]) > 0)
+check("product detail sends no prices", not has_price(call("GET", f"/portal/{slug}/products/{nduma}", token=ptoken)))
+tr_np = call("GET", f"/portal/track/{o2['track_token']}", token="none")
+check("tracking sends no prices", not has_price(tr_np) and tr_np["business"]["show_prices"] is False)
+check("staff screens keep prices", call("GET", f"/products/{nduma}")["product"]["marked_price"] is not None)
+pc["orders"]["show_prices"] = True
+call("PUT", "/settings", pc)
+check("prices back when switched on", has_price(call("GET", f"/portal/{slug}/catalogue", token=ptoken)))
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

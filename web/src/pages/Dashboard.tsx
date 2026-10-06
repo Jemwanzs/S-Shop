@@ -34,6 +34,7 @@ import { PeriodFilter, type PeriodValue } from "@/components/Filters";
 import { Select } from "@/components/Form";
 import { Medal, PointsPill, Pill } from "@/components/Badges";
 import { t } from "@/lib/i18n";
+import { t as tr } from "@/lib/i18n";
 
 interface DashboardData {
   from: string;
@@ -185,7 +186,7 @@ function Analytics({ mine = false }: { mine?: boolean }) {
             {k.gross_profit !== null && <StatCard label="Gross profit" value={m(k.gross_profit)} icon={Coins} tone="success" hint={k.profit_coverage_pct !== null ? `${k.profit_coverage_pct}% ${t("of sales costed")}` : undefined} />}
             <StatCard label="Expenses" value={m(k.expenses)} icon={Wallet} tone="warning" />
             {k.net_performance !== null && <StatCard label="Net performance" value={m(k.net_performance)} icon={TrendingUp} tone={toNum(k.net_performance as Money) >= 0 ? "success" : "danger"} />}
-            {k.stock_value !== null && <StatCard label="Stock value" value={m(k.stock_value)} icon={Boxes} hint={`${count(k.stock_units as number)} units`} />}
+            {k.stock_value !== null && <StatCard label="Stock value" value={m(k.stock_value)} icon={Boxes} hint={`${count(k.stock_units as number)} ${tr("units")}`} />}
             <StatCard label="Customers" value={count(k.customers as number)} icon={Users} hint={`${count(k.new_customers as number)} new`} />
             {k.credit_outstanding !== null && <StatCard label="Credit outstanding" value={m(k.credit_outstanding)} icon={HandCoins} tone="danger" />}
             <StatCard label="Points issued" value={count(k.points_issued as number)} icon={Gift} tone="primary" hint={`${count(k.points_redeemed as number)} redeemed`} />
@@ -249,10 +250,10 @@ function Analytics({ mine = false }: { mine?: boolean }) {
           </div>
 
           <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-4">
-            <RankList title="Best sellers · revenue" rows={data.top_products_revenue.map((p) => ({ id: p.product_id, name: p.name, value: m(p.revenue), sub: `${count(p.units)} units`, medal: p.medal }))} onClick={(id) => navigate(`/products/${id}`)} />
-            <RankList title="Best sellers · quantity" rows={data.top_products_units.map((p) => ({ id: p.product_id, name: p.name, value: `${count(p.units)} units`, sub: m(p.revenue), medal: p.medal }))} onClick={(id) => navigate(`/products/${id}`)} />
+            <RankList title="Best sellers · revenue" rows={data.top_products_revenue.map((p) => ({ id: p.product_id, name: p.name, value: m(p.revenue), sub: `${count(p.units)} ${tr("units")}`, medal: p.medal }))} onClick={(id) => navigate(`/products/${id}`)} />
+            <RankList title="Best sellers · quantity" rows={data.top_products_units.map((p) => ({ id: p.product_id, name: p.name, value: `${count(p.units)} ${tr("units")}`, sub: m(p.revenue), medal: p.medal }))} onClick={(id) => navigate(`/products/${id}`)} />
             {!mine && <RankList title="Slow movers" rows={data.slow_movers.map((p) => ({ id: p.product_id, name: p.name, value: `${count(p.units)} sold`, sub: `${count(p.on_hand)} in stock` }))} onClick={(id) => navigate(`/products/${id}`)} plain />}
-            {!mine && <Section title="Low stock" action={<Link to="/stock?status=low" className="text-xs text-primary">View all</Link>}>
+            {!mine && <Section title="Low stock" action={<Link to="/stock?status=low" className="text-xs text-primary">{tr("View all")}</Link>}>
               {data.low_stock.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">All stocked up ✨</p>
               ) : (
@@ -271,9 +272,9 @@ function Analytics({ mine = false }: { mine?: boolean }) {
 
           <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
             <ActivityFeed items={activity.data} loading={activity.isLoading} />
-            <Section title="Top customers" action={<Link to="/loyalty" className="text-xs text-primary">Loyalty</Link>}>
+            <Section title="Top customers" action={<Link to="/loyalty" className="text-xs text-primary">{tr("Loyalty")}</Link>}>
               {data.top_customers.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">No identified customers yet</p>
+                <p className="py-6 text-center text-sm text-muted-foreground">{tr("No identified customers yet")}</p>
               ) : (
                 <ul className="divide-y">
                   {data.top_customers.map((c, i) => (
@@ -296,14 +297,14 @@ function Analytics({ mine = false }: { mine?: boolean }) {
             </Section>
             {!mine && can("staff.view_others") && <Section title="Staff performance">
               {data.by_user.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">No sales yet</p>
+                <p className="py-6 text-center text-sm text-muted-foreground">{tr("No sales yet")}</p>
               ) : (
                 <ul className="divide-y">
                   {data.by_user.map((u) => (
                     <li key={u.user_id} className="flex items-center gap-3 py-3">
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5 truncate font-medium">{u.name} <Medal tier={u.medal} /></span>
-                        <span className="text-xs text-muted-foreground">{count(u.transactions)} sales · {count(u.units)} units</span>
+                        <span className="text-xs text-muted-foreground">{count(u.transactions)} {tr("sales")} · {count(u.units)} {tr("units")}</span>
                       </span>
                       <span className="num font-semibold">{m(u.sales)}</span>
                     </li>
@@ -335,8 +336,8 @@ function Analytics({ mine = false }: { mine?: boolean }) {
               <Link to="/customers?new=1" className="surface card-body flex items-center gap-3 transition hover:shadow-lift">
                 <span className="rounded-xl bg-primary/10 p-3 text-primary"><UserPlus className="h-5 w-5" /></span>
                 <span>
-                  <span className="block font-semibold">Grow your customer book</span>
-                  <span className="text-sm text-muted-foreground">Every identified sale earns loyalty points.</span>
+                  <span className="block font-semibold">{tr("Grow your customer book")}</span>
+                  <span className="text-sm text-muted-foreground">{tr("Every identified sale earns loyalty points.")}</span>
                 </span>
               </Link>
             )}
@@ -351,7 +352,7 @@ function RankList({ title, rows, onClick, plain }: { title: string; rows: { id: 
   return (
     <Section title={title}>
       {rows.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">Nothing yet</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">{tr("Nothing yet")}</p>
       ) : (
         <ul className="divide-y">
           {rows.map((r, i) => (

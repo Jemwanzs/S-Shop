@@ -14,6 +14,7 @@ import { Field, Select } from "@/components/Form";
 import { SearchInput } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { t } from "@/lib/i18n";
 
 const KINDS = [
   ["damage", "Damaged"],
@@ -79,7 +80,7 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
         onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}
         title="Adjust stock"
         description="Sensitive adjustments may need approval."
-        footer={<Button className="w-full md:w-auto" disabled={!valid || save.isPending} onClick={() => save.mutate()}>Save adjustment</Button>}
+        footer={<Button className="w-full md:w-auto" disabled={!valid || save.isPending} onClick={() => save.mutate()}>{t("Save adjustment")}</Button>}
       >
         <div className="space-y-4">
           {current ? (
@@ -88,7 +89,7 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
                 <div className="font-medium">{current.name}</div>
                 <div className="num text-xs text-muted-foreground">{count(current.on_hand)} on hand · {count(current.reserved)} reserved</div>
               </div>
-              {!initial && <Button variant="ghost" size="sm" onClick={() => setProduct(null)}>Change</Button>}
+              {!initial && <Button variant="ghost" size="sm" onClick={() => setProduct(null)}>{t("Change")}</Button>}
             </div>
           ) : (
             <div className="space-y-2">
@@ -109,7 +110,7 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
             <Field label="Item barcode">
               <div className="flex gap-2">
                 <Input className="num" value={barcode} onChange={(e) => setBarcode(e.target.value)} />
-                <Button variant="outline" onClick={() => setScan(true)}><ScanLine /> Scan</Button>
+                <Button variant="outline" onClick={() => setScan(true)}><ScanLine /> {t("Scan")}</Button>
               </div>
             </Field>
           ) : (

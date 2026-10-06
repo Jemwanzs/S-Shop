@@ -79,7 +79,7 @@ export function ErrorState({ error, retry }: { error: unknown; retry?: () => voi
       <p className="text-sm text-muted-foreground">{errorMessage(error)}</p>
       {retry && (
         <Button variant="outline" size="sm" onClick={retry}>
-          Try again
+          {t("Try again")}
         </Button>
       )}
     </div>

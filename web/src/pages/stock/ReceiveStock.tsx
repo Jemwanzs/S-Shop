@@ -17,6 +17,7 @@ import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { AddPhotosDialog } from "@/components/PhotoPicker";
 import { Pill } from "@/components/Badges";
+import { t } from "@/lib/i18n";
 
 interface ProductDetail {
   product: Product;
@@ -150,14 +151,14 @@ export default function ReceiveStock() {
               <div className="space-y-2">
                 <div className="flex gap-2">
                   <SearchInput value={q} onChange={setQ} placeholder="Search product name or code" className="flex-1" autoFocus />
-                  {barcodesOn && <Button variant="ink" onClick={() => setScan("find")}><ScanLine /> Scan</Button>}
+                  {barcodesOn && <Button variant="ink" onClick={() => setScan("find")}><ScanLine /> {t("Scan")}</Button>}
                 </div>
-                {detail.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+                {detail.isLoading && <p className="text-sm text-muted-foreground">{t("Loading…")}</p>}
                 <ul className="divide-y rounded-lg border empty:hidden">
                   {results.data?.items.map((r) => (
                     <li key={r.id}>
                       <button className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-start text-sm hover:bg-accent" onClick={() => setProductId(r.id)}>
-                        <span>{r.name} <span className="text-muted-foreground">· {r.code}</span>{!r.is_active && <Pill tone="danger" className="ms-2">Inactive</Pill>}</span>
+                        <span>{r.name} <span className="text-muted-foreground">· {r.code}</span>{!r.is_active && <Pill tone="danger" className="ms-2">{t("Inactive")}</Pill>}</span>
                         <span className="num text-muted-foreground">{count(r.on_hand)}</span>
                       </button>
                     </li>
@@ -171,7 +172,7 @@ export default function ReceiveStock() {
                     <div className="text-lg font-semibold">{p.name}</div>
                     <div className="text-sm text-muted-foreground">{p.code}{p.track_items ? " · tracked per item" : p.barcode ? ` · ${p.barcode}` : ""}</div>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => { setProductId(null); setQ(""); }}><X /> Change</Button>
+                  <Button variant="ghost" size="sm" onClick={() => { setProductId(null); setQ(""); }}><X /> {t("Change")}</Button>
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Mini label="On hand" value={count(onHand)} />
@@ -180,8 +181,8 @@ export default function ReceiveStock() {
                   <Mini label="Branch" value={profile?.branches.find((b) => b.id === branchId)?.name ?? ""} />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {!p.is_active && <Pill tone="danger">Inactive product</Pill>}
-                  {p.photo_count > 0 && <Button variant="outline" size="sm" onClick={() => setGallery(true)}><Images /> View photos</Button>}
+                  {!p.is_active && <Pill tone="danger">{t("Inactive product")}</Pill>}
+                  {p.photo_count > 0 && <Button variant="outline" size="sm" onClick={() => setGallery(true)}><Images /> {t("View photos")}</Button>}
                   {(can("products.edit") || can("products.create")) && p.photo_count < maxPhotos && (
                     <Button variant="outline" size="sm" onClick={() => setAddingPhotos(true)}><ImagePlus /> {p.photo_count ? "Add photos" : "Add photos (none yet)"}</Button>
                   )}
@@ -194,8 +195,8 @@ export default function ReceiveStock() {
             <Section title="Quantity & barcodes">
               {tracked ? (
                 <div className="space-y-3">
-                  <Button className="w-full" variant="ink" size="lg" onClick={() => setScan("items")}><ScanLine /> Scan items ({barcodes.length})</Button>
-                  <p className="text-xs text-muted-foreground">Each physical item gets its own barcode. Scanned: {barcodes.length}.</p>
+                  <Button className="w-full" variant="ink" size="lg" onClick={() => setScan("items")}><ScanLine /> {t("Scan items (")}{barcodes.length})</Button>
+                  <p className="text-xs text-muted-foreground">{t("Each physical item gets its own barcode. Scanned:")} {barcodes.length}.</p>
                   <div className="flex flex-wrap gap-2">
                     {barcodes.map((b) => (
                       <span key={b} className="num inline-flex items-center gap-1 rounded-full bg-success/10 px-2.5 py-1 text-xs text-success">
@@ -252,9 +253,9 @@ export default function ReceiveStock() {
               </div>
             </Section>
             <Button size="lg" className="h-14 w-full text-base" disabled={!valid || save.isPending} onClick={() => save.mutate()}>
-              {save.isPending ? <Loader2 className="animate-spin" /> : <><PackagePlus /> Receive {count(quantity)} item{quantity === 1 ? "" : "s"}</>}
+              {save.isPending ? <Loader2 className="animate-spin" /> : <><PackagePlus /> {t("Receive")} {count(quantity)} item{quantity === 1 ? "" : "s"}</>}
             </Button>
-            {save.isSuccess && !save.isPending && <p className="flex items-center justify-center gap-1.5 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> Saved — ready for the next delivery</p>}
+            {save.isSuccess && !save.isPending && <p className="flex items-center justify-center gap-1.5 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> {t("Saved — ready for the next delivery")}</p>}
           </div>
         )}
       </div>

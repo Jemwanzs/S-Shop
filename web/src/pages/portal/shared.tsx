@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import mark from "@/assets/sshop-mark.png";
+import { t } from "@/lib/i18n";
 
 export function PortalHeader({ name, tagline, logo }: { name: string; tagline?: string; logo?: string | null }) {
   return (
@@ -50,7 +51,7 @@ export function Steps({ steps, compact }: { steps: Step[]; compact?: boolean }) 
 export function PoweredBy() {
   return (
     <a href="/" className="mx-auto flex w-fit items-center gap-1.5 py-6 text-xs text-muted-foreground hover:text-foreground">
-      <img src={mark} alt="" className="h-4 w-4" /> Powered by <span className="text-brand font-semibold">S'Shop</span>
+      <img src={mark} alt="" className="h-4 w-4" /> {t("Powered by")} <span className="text-brand font-semibold">{t("S'Shop")}</span>
     </a>
   );
 }

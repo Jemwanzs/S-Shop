@@ -5,7 +5,7 @@ import { todayIso } from "@/lib/format";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { t, tx } from "@/lib/i18n";
+import { t, tChildren, tx } from "@/lib/i18n";
 
 export interface PeriodValue {
   period?: string;
@@ -52,10 +52,10 @@ export function PeriodFilter({ value, onChange, presets = PRESETS.map((p) => p[0
           </label>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => { onChange({ from, to: from }); setOpen(false); }}>
-              Single day
+              {t("Single day")}
             </Button>
             <Button className="flex-1" onClick={() => { onChange({ from, to }); setOpen(false); }}>
-              Apply
+              {t("Apply")}
             </Button>
           </div>
         </PopoverContent>
@@ -79,7 +79,7 @@ export const Chip = forwardRef<HTMLButtonElement, { active?: boolean; children: 
         className,
       )}
     >
-      {children}
+      {tChildren(children)}
     </button>
   );
 });

@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { t, tChildren } from "@/lib/i18n";
 import { count, titleCase } from "@/lib/format";
 
 const TONES = {
@@ -14,7 +15,7 @@ export type Tone = keyof typeof TONES;
 export function Pill({ tone = "neutral", children, className }: { tone?: Tone; children: React.ReactNode; className?: string }) {
   return (
     <span className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium", TONES[tone], className)}>
-      {children}
+      {tChildren(children)}
     </span>
   );
 }
@@ -70,7 +71,7 @@ const LABELS: Record<string, string> = {
 export function StatusBadge({ status, label, className }: { status: string; label?: string; className?: string }) {
   return (
     <Pill tone={STATUS_TONE[status] ?? "neutral"} className={className}>
-      {label ?? LABELS[status] ?? titleCase(status)}
+      {t(label ?? LABELS[status] ?? titleCase(status))}
     </Pill>
   );
 }
@@ -103,7 +104,7 @@ export function Medal({ tier, showLabel = false }: { tier?: string | null; showL
 }
 
 export function StockIndicator({ available, threshold = 3 }: { available: number; threshold?: number }) {
-  if (available <= 0) return <Pill tone="danger">Out of stock</Pill>;
+  if (available <= 0) return <Pill tone="danger">{t("Out of stock")}</Pill>;
   if (available <= threshold) return <Pill tone="warning">{count(available)} left</Pill>;
   return <Pill tone="success">{count(available)} in stock</Pill>;
 }

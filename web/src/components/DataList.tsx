@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { tx } from "@/lib/i18n";
 import { count } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Loading } from "./Page";
@@ -57,7 +58,7 @@ export function DataList<T>({
             <tr>
               {columns.map((c) => (
                 <th key={c.key} className={cn("label-caps whitespace-nowrap px-4 py-3 font-semibold", align(c.align), c.hideBelow && HIDE[c.hideBelow])}>
-                  {c.header}
+                  {tx(c.header)}
                 </th>
               ))}
             </tr>

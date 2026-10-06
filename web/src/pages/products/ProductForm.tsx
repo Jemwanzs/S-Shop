@@ -15,6 +15,7 @@ import { Loading, PageHeader, Section } from "@/components/Page";
 import { Field, Select, ToggleRow } from "@/components/Form";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { CustomFieldInputs } from "@/components/CustomFields";
+import { t } from "@/lib/i18n";
 
 interface FormState {
   code: string;
@@ -167,7 +168,7 @@ export default function ProductForm() {
                 {newCategory === null ? (
                   <div className="flex gap-2">
                     <Select value={f.category_id} onChange={(v) => set("category_id", v)}>
-                      <option value="">No category</option>
+                      <option value="">{t("No category")}</option>
                       {categories.data?.filter((c) => c.is_active || c.id === f.category_id).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </Select>
                     <Button type="button" variant="outline" size="icon" onClick={() => setNewCategory("")} aria-label="New category"><Plus /></Button>
@@ -175,7 +176,7 @@ export default function ProductForm() {
                 ) : (
                   <div className="flex gap-2">
                     <Input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="New category name" autoFocus />
-                    <Button type="button" onClick={() => newCategory.trim() && quickAdd("categories", newCategory.trim())}>Add</Button>
+                    <Button type="button" onClick={() => newCategory.trim() && quickAdd("categories", newCategory.trim())}>{t("Add")}</Button>
                     <Button type="button" variant="ghost" size="icon" onClick={() => setNewCategory(null)} aria-label="Cancel"><X /></Button>
                   </div>
                 )}
@@ -184,7 +185,7 @@ export default function ProductForm() {
                 {newSupplier === null ? (
                   <div className="flex gap-2">
                     <Select value={f.supplier_id} onChange={(v) => set("supplier_id", v)}>
-                      <option value="">No supplier</option>
+                      <option value="">{t("No supplier")}</option>
                       {suppliers.data?.filter((s) => s.is_active || s.id === f.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </Select>
                     <Button type="button" variant="outline" size="icon" onClick={() => setNewSupplier("")} aria-label="New supplier"><Plus /></Button>
@@ -192,7 +193,7 @@ export default function ProductForm() {
                 ) : (
                   <div className="flex gap-2">
                     <Input value={newSupplier} onChange={(e) => setNewSupplier(e.target.value)} placeholder="Supplier name" autoFocus />
-                    <Button type="button" onClick={() => newSupplier.trim() && quickAdd("suppliers", newSupplier.trim())}>Add</Button>
+                    <Button type="button" onClick={() => newSupplier.trim() && quickAdd("suppliers", newSupplier.trim())}>{t("Add")}</Button>
                     <Button type="button" variant="ghost" size="icon" onClick={() => setNewSupplier(null)} aria-label="Cancel"><X /></Button>
                   </div>
                 )}
@@ -217,8 +218,8 @@ export default function ProductForm() {
               {assignBarcode && (
                 <p className="mb-2 rounded-lg bg-primary/10 p-2.5 text-xs">
                   {f.track_items
-                    ? <>This product is tracked per item, so <span className="num font-semibold">{assignBarcode}</span> should be captured as an item barcode when receiving stock.</>
-                    : <>Assigning scanned barcode <span className="num font-semibold">{assignBarcode}</span>{existing.data?.product.barcode && existing.data.product.barcode !== assignBarcode ? <> — it replaces <span className="num">{existing.data.product.barcode}</span></> : null}. Save to apply.</>}
+                    ? <>{t("This product is tracked per item, so")} <span className="num font-semibold">{assignBarcode}</span> should be captured as an item barcode when receiving stock.</>
+                    : <>{t("Assigning scanned barcode")} <span className="num font-semibold">{assignBarcode}</span>{existing.data?.product.barcode && existing.data.product.barcode !== assignBarcode ? <> — it replaces <span className="num">{existing.data.product.barcode}</span></> : null}. Save to apply.</>}
                 </p>
               )}
               <ToggleRow
@@ -231,7 +232,7 @@ export default function ProductForm() {
                 <Field label="Product barcode" optional hint="Manufacturer barcode shared by all units">
                   <div className="flex gap-2">
                     <Input className="num" value={f.barcode} onChange={(e) => set("barcode", e.target.value)} />
-                    <Button type="button" variant="outline" onClick={() => setScan(true)}><ScanLine /> Scan</Button>
+                    <Button type="button" variant="outline" onClick={() => setScan(true)}><ScanLine /> {t("Scan")}</Button>
                   </div>
                 </Field>
               )}
@@ -281,7 +282,7 @@ export default function ProductForm() {
 
         <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-sidebar">
           <div className="mx-auto flex max-w-[1680px] justify-end gap-2 px-1 md:px-3 lg:px-5">
-            <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => navigate(-1)}>{t("Cancel")}</Button>
             <Button type="submit" disabled={!valid || save.isPending || (!editing && !photosValid(photos.items, maxPhotos))} className="min-w-32">
               {save.isPending ? (
                 <>

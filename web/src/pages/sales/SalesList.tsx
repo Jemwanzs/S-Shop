@@ -45,32 +45,32 @@ export default function SalesList() {
       <PageHeader
         eyebrow="Sales"
         title="Sales history"
-        actions={can("sales.create") && <Button asChild><Link to="/pos"><Plus /> New sale</Link></Button>}
+        actions={can("sales.create") && <Button asChild><Link to="/pos"><Plus /> {t("New sale")}</Link></Button>}
       />
       <div className="mb-4 space-y-3">
         <PeriodFilter value={period} onChange={reset(setPeriod)} />
         <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap">
           <SearchInput value={q} onChange={reset(setQ)} placeholder="Receipt, customer or mobile" className="col-span-2 md:w-72" />
           <Select value={method} onChange={reset(setMethod)} className="md:w-40">
-            <option value="">All payments</option>
+            <option value="">{t("All payments")}</option>
             {profile?.settings.sales.payment_methods.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
           </Select>
           <Select value={status} onChange={reset(setStatus)} className="md:w-44">
-            <option value="">All statuses</option>
-            <option value="completed">Completed</option>
-            <option value="partially_returned">Part returned</option>
-            <option value="returned">Returned</option>
-            <option value="cancelled">Cancelled</option>
+            <option value="">{t("All statuses")}</option>
+            <option value="completed">{t("Completed")}</option>
+            <option value="partially_returned">{t("Part returned")}</option>
+            <option value="returned">{t("Returned")}</option>
+            <option value="cancelled">{t("Cancelled")}</option>
           </Select>
           {(profile?.branches.length ?? 0) > 1 && (
             <Select value={branchId} onChange={reset(setBranchId)} className="md:w-44" label="Branch">
-              <option value="">All my branches</option>
+              <option value="">{t("All my branches")}</option>
               {profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </Select>
           )}
           {users.data && (
             <Select value={userId} onChange={reset(setUserId)} className="md:w-44" label="Staff">
-              <option value="">All staff</option>
+              <option value="">{t("All staff")}</option>
               {users.data.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </Select>
           )}
@@ -99,7 +99,7 @@ export default function SalesList() {
               {late(r) && <span className="block text-xs text-warning">{t("Counts for")} {date(r.business_date)}</span>}
             </span>
           ) },
-          { key: "customer", header: "Customer", cell: (r) => r.customer_name ?? <span className="text-muted-foreground">Walk-in</span> },
+          { key: "customer", header: "Customer", cell: (r) => r.customer_name ?? <span className="text-muted-foreground">{t("Walk-in")}</span> },
           { key: "branch", header: "Branch", cell: (r) => r.branch_name, hideBelow: "xl" },
           { key: "user", header: "Salesperson", cell: (r) => r.user_name ?? "—", hideBelow: "lg" },
           { key: "items", header: "Items", align: "right", cell: (r) => <span className="num">{count(r.item_count)}</span>, hideBelow: "xl" },

@@ -13,6 +13,7 @@ import { DataList, Pager, CardRow } from "@/components/DataList";
 import { SearchInput, Segments } from "@/components/Filters";
 import { Select } from "@/components/Form";
 import { Pill, StockIndicator } from "@/components/Badges";
+import { t } from "@/lib/i18n";
 
 const LIMIT = 50;
 
@@ -42,15 +43,15 @@ export default function ProductsList() {
         eyebrow="Catalogue"
         title="Products"
         description={data ? `${count(data.total)} products` : undefined}
-        actions={can("products.create") && <Button asChild><Link to="/products/new"><Plus /> New product</Link></Button>}
+        actions={can("products.create") && <Button asChild><Link to="/products/new"><Plus /> {t("New product")}</Link></Button>}
       />
       {assign && (
         <div className="surface card-body mb-4 flex flex-wrap items-center gap-3 border-primary/40 bg-primary/5">
           <ScanBarcode className="h-5 w-5 shrink-0 text-primary" />
-          <p className="min-w-0 flex-1 text-sm">Choose the product for barcode <span className="num font-semibold">{assign}</span>, or create a new product with it.</p>
+          <p className="min-w-0 flex-1 text-sm">{t("Choose the product for barcode")} <span className="num font-semibold">{assign}</span>, or create a new product with it.</p>
           <div className="flex gap-2">
-            {can("products.create") && <Button size="sm" asChild><Link to={`/products/new?barcode=${encodeURIComponent(assign)}`}><Plus /> New product</Link></Button>}
-            <Button size="sm" variant="ghost" asChild><Link to="/products">Cancel</Link></Button>
+            {can("products.create") && <Button size="sm" asChild><Link to={`/products/new?barcode=${encodeURIComponent(assign)}`}><Plus /> {t("New product")}</Link></Button>}
+            <Button size="sm" variant="ghost" asChild><Link to="/products">{t("Cancel")}</Link></Button>
           </div>
         </div>
       )}
@@ -59,7 +60,7 @@ export default function ProductsList() {
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:flex">
           <SearchInput value={q} onChange={(v) => { setQ(v); setOffset(0); }} placeholder="Name, nickname, code or barcode" className="md:w-80" />
           <Select value={category} label="Category" onChange={(v) => { setCategory(v); setOffset(0); }} className="md:w-52">
-            <option value="">All categories</option>
+            <option value="">{t("All categories")}</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
         </div>
@@ -71,7 +72,7 @@ export default function ProductsList() {
         retry={refetch}
         rowKey={(r) => r.id}
         onRowClick={(r) => navigate(assign ? `/products/${r.id}/edit?barcode=${encodeURIComponent(assign)}` : `/products/${r.id}`)}
-        empty={<EmptyState icon={Package} title="No products yet" action={can("products.create") && <Button asChild><Link to="/products/new"><Plus /> Add your first product</Link></Button>} />}
+        empty={<EmptyState icon={Package} title="No products yet" action={can("products.create") && <Button asChild><Link to="/products/new"><Plus /> {t("Add your first product")}</Link></Button>} />}
         columns={[
           {
             key: "name",
@@ -86,15 +87,15 @@ export default function ProductsList() {
           { key: "category", header: "Category", cell: (r) => r.category_name ?? "—", hideBelow: "lg" },
           { key: "price", header: "Price", align: "right", cell: (r) => <span className="num font-medium">{money(r.marked_price)}</span> },
           { key: "stock", header: "Here", cell: (r) => <StockIndicator available={r.available} threshold={r.low_stock_threshold ?? low} /> },
-          { key: "orders", header: "Online", cell: (r) => (r.available_for_orders ? <Pill tone="success">Yes</Pill> : <Pill>No</Pill>), hideBelow: "xl" },
-          { key: "status", header: "Status", cell: (r) => (r.is_active ? <Pill tone="success">Active</Pill> : <Pill tone="danger">Inactive</Pill>) },
+          { key: "orders", header: "Online", cell: (r) => (r.available_for_orders ? <Pill tone="success">{t("Yes")}</Pill> : <Pill>No</Pill>), hideBelow: "xl" },
+          { key: "status", header: "Status", cell: (r) => (r.is_active ? <Pill tone="success">{t("Active")}</Pill> : <Pill tone="danger">{t("Inactive")}</Pill>) },
         ]}
         mobile={(r) => (
           <CardRow
             title={r.name}
             subtitle={`${r.code}${r.category_name ? ` · ${r.category_name}` : ""}`}
             value={money(r.marked_price)}
-            meta={r.is_active ? <span className={r.available > 0 ? "text-success" : "text-destructive"}>{r.available > 0 ? `${count(r.available)} here` : "Out of stock"}</span> : <span className="text-destructive">Inactive</span>}
+            meta={r.is_active ? <span className={r.available > 0 ? "text-success" : "text-destructive"}>{r.available > 0 ? `${count(r.available)} here` : "Out of stock"}</span> : <span className="text-destructive">{t("Inactive")}</span>}
           />
         )}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}

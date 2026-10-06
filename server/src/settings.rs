@@ -138,6 +138,8 @@ pub struct OrderSettings {
     /// Verify customers with a one-time code (sent over WhatsApp) before showing orders.
     pub verify_with_otp: bool,
     pub show_out_of_stock: bool,
+    /// Show product prices on the customer ordering link (staff screens always show them).
+    pub show_prices: bool,
     pub notify_customer_whatsapp: bool,
     /// Order status names and which optional steps the business uses.
     pub statuses: Vec<OrderStatus>,
@@ -179,6 +181,7 @@ impl Default for OrderSettings {
             sale_on_status: "delivered".into(),
             verify_with_otp: false,
             show_out_of_stock: true,
+            show_prices: true,
             notify_customer_whatsapp: true,
             statuses: ORDER_STATUSES
                 .iter()

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, ToggleRow } from "@/components/Form";
 import { Card, SettingsPage, useSettings, useSettingsDraft } from "./shared";
+import { t } from "@/lib/i18n";
 
 type ProfileForm = { name: string; slug: string; tagline: string; phone: string; email: string; address: string; currency: string; timezone: string };
 const pickProfile = (p: ProfileForm): ProfileForm => ({
@@ -54,7 +55,7 @@ export function BusinessSettings() {
         <div className="flex items-center gap-4 py-3">
           {data?.profile.logo_url ? <img src={`${data.profile.logo_url}?v=${logoVersion}`} alt="" className="h-20 w-20 rounded-2xl object-cover" /> : <div className="h-20 w-20 rounded-2xl bg-muted" />}
           <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-primary">
-            <ImagePlus className="h-4 w-4" /> Upload logo
+            <ImagePlus className="h-4 w-4" /> {t("Upload logo")}
             <input type="file" accept="image/*" className="hidden" onChange={(e) => uploadLogo(e.target.files?.[0])} />
           </label>
         </div>
@@ -73,8 +74,8 @@ export function BusinessSettings() {
         <Card title="Customer ordering link">
           <div className="flex flex-wrap items-center gap-2 py-3">
             <code className="num min-w-0 flex-1 truncate rounded-lg bg-muted px-3 py-2 text-sm">{location.origin}/order/{data.profile.slug}</code>
-            <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(`${location.origin}/order/${data.profile.slug}`); toast.success("Link copied"); }}><Copy /> Copy</Button>
-            <Button variant="outline" size="sm" asChild><a href={`/order/${data.profile.slug}`} target="_blank" rel="noreferrer"><ExternalLink /> Open</a></Button>
+            <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(`${location.origin}/order/${data.profile.slug}`); toast.success("Link copied"); }}><Copy /> {t("Copy")}</Button>
+            <Button variant="outline" size="sm" asChild><a href={`/order/${data.profile.slug}`} target="_blank" rel="noreferrer"><ExternalLink /> {t("Open")}</a></Button>
           </div>
         </Card>
       )}
@@ -86,7 +87,7 @@ export function IntegrationsSettings() {
   const d = useSettingsDraft();
   const i = d.query.data?.integrations;
   const Status = ({ ok }: { ok?: boolean }) =>
-    ok ? <span className="inline-flex items-center gap-1 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> Connected</span> : <span className="inline-flex items-center gap-1 text-sm text-muted-foreground"><XCircle className="h-4 w-4" /> Not configured</span>;
+    ok ? <span className="inline-flex items-center gap-1 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> {t("Connected")}</span> : <span className="inline-flex items-center gap-1 text-sm text-muted-foreground"><XCircle className="h-4 w-4" /> {t("Not configured")}</span>;
   return (
     <SettingsPage
       title="M-Pesa & WhatsApp"
@@ -105,7 +106,7 @@ export function IntegrationsSettings() {
       <Card title="WhatsApp Cloud API" action={<Status ok={i?.whatsapp} />}>
         <div className="space-y-2 py-3 text-sm text-muted-foreground">
           <p>{i?.whatsapp ? "Messages are sent automatically. Customers can reply with an order number to get its status." : "Without the API, WhatsApp buttons open a pre-filled chat (wa.me) instead."}</p>
-          {i && <p>Webhook URL: <code className="num break-all rounded bg-muted px-1.5">{i.whatsapp_webhook_url}</code></p>}
+          {i && <p>{t("Webhook URL:")} <code className="num break-all rounded bg-muted px-1.5">{i.whatsapp_webhook_url}</code></p>}
         </div>
         {d.draft && (
           <>

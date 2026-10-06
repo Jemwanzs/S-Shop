@@ -18,6 +18,7 @@ import { Field } from "@/components/Form";
 import { Chip } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
+import { t } from "@/lib/i18n";
 
 interface Detail {
   order: OrderRow;
@@ -106,7 +107,7 @@ export default function OrderDetail() {
         back="/orders"
         eyebrow={dateTime(o.created_at)}
         title={<span className="num">{o.order_no}</span>}
-        actions={<div className="flex gap-2"><StatusBadge status={o.status} label={orderLabel(profile?.settings, o.status)} />{o.reserved && <Pill tone="info">Stock reserved</Pill>}</div>}
+        actions={<div className="flex gap-2"><StatusBadge status={o.status} label={orderLabel(profile?.settings, o.status)} />{o.reserved && <Pill tone="info">{t("Stock reserved")}</Pill>}</div>}
       />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
@@ -131,7 +132,7 @@ export default function OrderDetail() {
 
           {forward.length > 0 && (
             <div className="surface card-body flex flex-wrap items-center gap-2">
-              <span className="label-caps me-auto">Next step</span>
+              <span className="label-caps me-auto">{t("Next step")}</span>
               {forward.slice(0, 3).map((s, i) => (
                 <Button key={s} variant={i === 0 ? "default" : "outline"} onClick={() => setTarget(s)}>{label(s)}</Button>
               ))}
@@ -142,7 +143,7 @@ export default function OrderDetail() {
           )}
           {short.length > 0 && (
             <div className="rounded-xl bg-warning/10 p-4 text-sm text-warning">
-              Not enough stock for: {short.map((i) => `${i.product_name} (${i.available} available)`).join(", ")}. Receive stock or request a transfer before confirming.
+              {t("Not enough stock for:")} {short.map((i) => `${i.product_name} (${i.available} available)`).join(", ")}. Receive stock or request a transfer before confirming.
             </div>
           )}
 
@@ -159,7 +160,7 @@ export default function OrderDetail() {
                 </li>
               ))}
             </ul>
-            <div className="flex justify-between border-t pt-3 text-base font-semibold"><span>Total</span><span className="num">{money(o.total)}</span></div>
+            <div className="flex justify-between border-t pt-3 text-base font-semibold"><span>{t("Total")}</span><span className="num">{money(o.total)}</span></div>
           </Section>
 
           <Section title="Timeline">
@@ -185,8 +186,8 @@ export default function OrderDetail() {
               {o.notes && <p className="rounded-lg bg-muted p-2.5">{o.notes}</p>}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <Button variant="outline" size="sm" onClick={() => window.open(`https://wa.me/${o.customer_mobile}?text=${encodeURIComponent(waText)}`, "_blank")}><MessageCircle /> WhatsApp</Button>
-              <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(data.track_url); toast.success("Tracking link copied"); }}><Copy /> Track link</Button>
+              <Button variant="outline" size="sm" onClick={() => window.open(`https://wa.me/${o.customer_mobile}?text=${encodeURIComponent(waText)}`, "_blank")}><MessageCircle /> {t("WhatsApp")}</Button>
+              <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(data.track_url); toast.success("Tracking link copied"); }}><Copy /> {t("Track link")}</Button>
             </div>
           </Section>
           <Section title="Fulfilment">
@@ -211,7 +212,7 @@ export default function OrderDetail() {
             disabled={move.isPending || unitsMissing || (needsPayment && method === "mpesa" && reference.length < 8)}
             onClick={() => move.mutate()}
           >
-            Confirm
+            {t("Confirm")}
           </Button>
         }
       >
@@ -225,7 +226,7 @@ export default function OrderDetail() {
               {method === "mpesa" && <Field label="M-Pesa confirmation code"><Input className="num uppercase" value={reference} onChange={(e) => setReference(e.target.value.toUpperCase())} /></Field>}
               {trackedItems.length > 0 && (
                 <div className="space-y-2 rounded-xl border p-3">
-                  <p className="text-sm font-medium">Scan each item handed over</p>
+                  <p className="text-sm font-medium">{t("Scan each item handed over")}</p>
                   {trackedItems.map((i) => {
                     const n = units[i.product_id]?.length ?? 0;
                     return (
@@ -235,7 +236,7 @@ export default function OrderDetail() {
                       </div>
                     );
                   })}
-                  <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setScanUnits(true)}><ScanLine /> Scan items</Button>
+                  <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setScanUnits(true)}><ScanLine /> {t("Scan items")}</Button>
                 </div>
               )}
             </>

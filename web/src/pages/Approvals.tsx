@@ -13,6 +13,7 @@ import { Segments } from "@/components/Filters";
 import { Pill, StatusBadge } from "@/components/Badges";
 import { Field } from "@/components/Form";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { t } from "@/lib/i18n";
 
 const ACTION_LABEL: Record<string, string> = {
   "product.create": "New product",
@@ -96,7 +97,7 @@ export default function Approvals() {
                 <div className="flex items-start justify-between gap-2">
                   <Pill tone="primary">{ACTION_LABEL[a.action] ?? a.action}</Pill>
                   <span className="flex items-center gap-1.5">
-                    {a.status === "pending" && a.levels > 1 && <Pill tone="info">Level {a.level} of {a.levels}</Pill>}
+                    {a.status === "pending" && a.levels > 1 && <Pill tone="info">{t("Level")} {a.level} of {a.levels}</Pill>}
                     <StatusBadge status={a.status} />
                   </span>
                 </div>
@@ -112,21 +113,21 @@ export default function Approvals() {
                   <ol className="space-y-1 border-s-2 ps-3 text-xs">
                     {a.decisions.map((d, n) => (
                       <li key={n} className={d.decision === "approved" ? "text-success" : "text-destructive"}>
-                        Level {d.level} {d.decision} by {d.user_name} · {ago(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
+                        {t("Level")} {d.level} {d.decision} by {d.user_name} · {ago(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
                       </li>
                     ))}
                   </ol>
                 )}
                 <div className="mt-auto flex flex-wrap gap-2">
-                  {link && <Button variant="ghost" size="sm" asChild><Link to={link}>View</Link></Button>}
+                  {link && <Button variant="ghost" size="sm" asChild><Link to={link}>{t("View")}</Link></Button>}
                   {a.can_decide && (
                     <>
-                      <Button size="sm" variant="outline" className="ms-auto text-destructive" onClick={() => setDeciding({ approval: a, approve: false })}><X /> Reject</Button>
-                      <Button size="sm" variant="success" onClick={() => setDeciding({ approval: a, approve: true })}><Check /> Approve</Button>
+                      <Button size="sm" variant="outline" className="ms-auto text-destructive" onClick={() => setDeciding({ approval: a, approve: false })}><X /> {t("Reject")}</Button>
+                      <Button size="sm" variant="success" onClick={() => setDeciding({ approval: a, approve: true })}><Check /> {t("Approve")}</Button>
                     </>
                   )}
                   {status === "mine" && a.status === "pending" && (
-                    <Button size="sm" variant="outline" className="ms-auto" onClick={() => withdraw.mutate(a.id)}><Undo2 /> Withdraw</Button>
+                    <Button size="sm" variant="outline" className="ms-auto" onClick={() => withdraw.mutate(a.id)}><Undo2 /> {t("Withdraw")}</Button>
                   )}
                 </div>
               </div>

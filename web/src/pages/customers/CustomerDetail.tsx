@@ -18,6 +18,7 @@ import { Field } from "@/components/Form";
 import { Segments } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { CustomerForm } from "./CustomerForm";
+import { t } from "@/lib/i18n";
 
 interface Profile {
   customer: Customer;
@@ -100,12 +101,12 @@ export default function CustomerDetail() {
             {c.tier && <Medal tier={c.tier} showLabel />}
           </span>
         }
-        description={<span className="flex flex-wrap items-center gap-2"><span className="num">{phone(c.mobile)}</span>{c.nickname && <span>· “{c.nickname}”</span>}{!c.is_active && <Pill tone="danger">Inactive</Pill>}</span>}
+        description={<span className="flex flex-wrap items-center gap-2"><span className="num">{phone(c.mobile)}</span>{c.nickname && <span>· “{c.nickname}”</span>}{!c.is_active && <Pill tone="danger">{t("Inactive")}</Pill>}</span>}
         actions={
           <>
-            <Button variant="outline" asChild><a href={`tel:+${c.mobile}`}><Phone /> Call</a></Button>
-            {loyalty && <Button variant="outline" onClick={message}><MessageCircle /> WhatsApp</Button>}
-            {can("customers.edit") && <Button onClick={() => setEditing(true)}><Pencil /> Edit</Button>}
+            <Button variant="outline" asChild><a href={`tel:+${c.mobile}`}><Phone /> {t("Call")}</a></Button>
+            {loyalty && <Button variant="outline" onClick={message}><MessageCircle /> {t("WhatsApp")}</Button>}
+            {can("customers.edit") && <Button onClick={() => setEditing(true)}><Pencil /> {t("Edit")}</Button>}
           </>
         }
       />
@@ -165,11 +166,11 @@ export default function CustomerDetail() {
             )}
             {tab === "referrals" && (
               <div className="space-y-3 p-2">
-                {data.referred_by && <p className="text-sm">Referred by <Link to={`/customers/${data.referred_by.id}`} className="font-medium text-primary">{data.referred_by.name}</Link></p>}
+                {data.referred_by && <p className="text-sm">{t("Referred by")} <Link to={`/customers/${data.referred_by.id}`} className="font-medium text-primary">{data.referred_by.name}</Link></p>}
                 <List empty="Has not referred anyone yet">
                   {data.referrals.map((r) => <Row key={r.id} to={`/customers/${r.id}`} title={r.name} sub="Referred customer" value={`+${count(r.bonus_points)} pts`} />)}
                 </List>
-                {(can("loyalty.manage") || can("customers.create")) && <Button variant="outline" onClick={() => setReferring(true)}><UserPlus /> Record a referral</Button>}
+                {(can("loyalty.manage") || can("customers.create")) && <Button variant="outline" onClick={() => setReferring(true)}><UserPlus /> {t("Record a referral")}</Button>}
               </div>
             )}
           </div>
@@ -180,10 +181,10 @@ export default function CustomerDetail() {
             <Section title="Loyalty">
               <div className="flex flex-col gap-2">
                 {can("customers.redeem_points") && (
-                  <Button variant="outline" disabled={c.points_available < minRedeem} onClick={() => setPointsAction("redeem")}><Gift /> Redeem points</Button>
+                  <Button variant="outline" disabled={c.points_available < minRedeem} onClick={() => setPointsAction("redeem")}><Gift /> {t("Redeem points")}</Button>
                 )}
-                {can("loyalty.manage") && <Button variant="outline" onClick={() => setPointsAction("adjust")}><SlidersHorizontal /> Adjust points</Button>}
-                {c.points_available < minRedeem && <p className="text-xs text-muted-foreground">Redemption from {count(minRedeem)} points.</p>}
+                {can("loyalty.manage") && <Button variant="outline" onClick={() => setPointsAction("adjust")}><SlidersHorizontal /> {t("Adjust points")}</Button>}
+                {c.points_available < minRedeem && <p className="text-xs text-muted-foreground">{t("Redemption from")} {count(minRedeem)} points.</p>}
               </div>
             </Section>
           )}
@@ -201,13 +202,13 @@ export default function CustomerDetail() {
         onOpenChange={(o) => !o && setPointsAction(null)}
         title={pointsAction === "redeem" ? "Redeem points" : "Adjust points"}
         description={`${count(c.points_available)} points available`}
-        footer={<Button className="w-full md:w-auto" disabled={!pts || parseInt(pts) === 0 || (pointsAction === "adjust" && !notes.trim()) || points.isPending} onClick={() => points.mutate()}>Save</Button>}
+        footer={<Button className="w-full md:w-auto" disabled={!pts || parseInt(pts) === 0 || (pointsAction === "adjust" && !notes.trim()) || points.isPending} onClick={() => points.mutate()}>{t("Save")}</Button>}
       >
         <div className="space-y-4">
           <Field label={pointsAction === "redeem" ? "Points to redeem" : "Points (use − to remove)"}>
             <Input inputMode={pointsAction === "adjust" ? "text" : "numeric"} className="num" value={pts} onChange={(e) => setPts(e.target.value.replace(pointsAction === "adjust" ? /[^\d-]/g : /\D/g, ""))} autoFocus />
           </Field>
-          {pointsAction === "redeem" && pts && <p className="num text-sm text-muted-foreground">Worth {money(parseInt(pts) * toNum(session?.settings.loyalty.point_value))}</p>}
+          {pointsAction === "redeem" && pts && <p className="num text-sm text-muted-foreground">{t("Worth")} {money(parseInt(pts) * toNum(session?.settings.loyalty.point_value))}</p>}
           <Field label={pointsAction === "redeem" ? "What was given" : "Reason"} optional={pointsAction === "redeem"}><Input value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         </div>
       </ResponsiveDialog>

@@ -17,6 +17,7 @@ import { SearchInput, Segments } from "@/components/Filters";
 import { StatusBadge, Pill } from "@/components/Badges";
 import { Field } from "@/components/Form";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { t as tr } from "@/lib/i18n";
 
 const LIMIT = 50;
 const TABS = ["active", "new", "confirmed", "preparing", "dispatched", "on_delivery", "delivered", "completed", "cancelled", "all"] as const;
@@ -45,8 +46,8 @@ export default function OrdersList() {
       <PageHeader
         eyebrow="Orders"
         title="Customer orders"
-        description={profile && <>Ordering link: <a className="text-primary underline" href={`/order/${profile.tenant.slug}`} target="_blank" rel="noreferrer">/order/{profile.tenant.slug}</a></>}
-        actions={can("orders.manage") && <Button onClick={() => setCreating(true)}><Plus /> Phone order</Button>}
+        description={profile && <>{tr("Ordering link:")} <a className="text-primary underline" href={`/order/${profile.tenant.slug}`} target="_blank" rel="noreferrer">/order/{profile.tenant.slug}</a></>}
+        actions={can("orders.manage") && <Button onClick={() => setCreating(true)}><Plus /> {tr("Phone order")}</Button>}
       />
       <div className="mb-4 space-y-3">
         <Segments
@@ -155,7 +156,7 @@ function NewOrder({ open, onOpenChange, onCreated }: { open: boolean; onOpenChan
                 <button className="p-1 text-muted-foreground" onClick={() => setItems(items.filter((x) => x !== i))} aria-label="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
               </li>
             ))}
-            {!items.length && <li className="px-3 py-4 text-center text-sm text-muted-foreground">No products yet</li>}
+            {!items.length && <li className="px-3 py-4 text-center text-sm text-muted-foreground">{tr("No products yet")}</li>}
           </ul>
         </div>
       </div>

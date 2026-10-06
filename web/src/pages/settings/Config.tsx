@@ -19,6 +19,7 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { Card, SettingsPage, useSettingsDraft } from "./shared";
 import { HoursEditor, hoursLabel } from "@/components/Hours";
 import { t } from "@/lib/i18n";
+import { t as tr } from "@/lib/i18n";
 
 type Draft = ReturnType<typeof useSettingsDraft>;
 
@@ -81,14 +82,14 @@ function NamedList({ endpoint, queryKey, title, extra }: { endpoint: string; que
     <Card title={title}>
       <form className="flex gap-2 py-3" onSubmit={(e) => { e.preventDefault(); if (name.trim()) add.mutate(); }}>
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`Add ${title.toLowerCase().replace(/s$/, "")}`} />
-        <Button type="submit" variant="outline" disabled={!name.trim()}><Plus /> Add</Button>
+        <Button type="submit" variant="outline" disabled={!name.trim()}><Plus /> {tr("Add")}</Button>
       </form>
       {data?.map((c) => (
         <div key={c.id} className="flex items-center gap-3 py-2.5 text-sm">
           {editing?.id === c.id ? (
             <form className="flex flex-1 gap-2" onSubmit={(e) => { e.preventDefault(); save.mutate({ id: c.id, name: editing.name }); }}>
               <Input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} autoFocus />
-              <Button type="submit" size="sm">Save</Button>
+              <Button type="submit" size="sm">{tr("Save")}</Button>
             </form>
           ) : (
             <>
@@ -135,7 +136,7 @@ export function SalesSettings() {
           <Card title="Sale entry">
             <Row label="Quantity entry" hint="Locked = every item captured individually">
               <Select value={s.sales.quantity_entry} onChange={(v) => d.update((x) => { x.sales.quantity_entry = v as "editable"; })}>
-                <option value="editable">Editable</option><option value="locked">Locked to 1</option>
+                <option value="editable">{tr("Editable")}</option><option value="locked">Locked to 1</option>
               </Select>
             </Row>
             <ToggleRow label="Require barcode clearance" hint="Products with a barcode must be scanned before they can be sold" checked={s.sales.require_barcode_clearance} onChange={(v) => d.update((x) => { x.sales.require_barcode_clearance = v; })} />
@@ -160,7 +161,7 @@ export function SalesSettings() {
               setNewMethod("");
             }}>
               <Input value={newMethod} onChange={(e) => setNewMethod(e.target.value)} placeholder="Add a method, e.g. Bank transfer, Card" />
-              <Button type="submit" variant="outline"><Plus /> Add</Button>
+              <Button type="submit" variant="outline"><Plus /> {tr("Add")}</Button>
             </form>
             <ToggleRow label="Allow manual M-Pesa confirmation" hint="Cashier types the M-Pesa code when STK Push is unavailable" checked={s.sales.mpesa_manual_confirmation} onChange={(v) => d.update((x) => { x.sales.mpesa_manual_confirmation = v; })} />
           </Card>
@@ -182,18 +183,18 @@ export function StockSettings() {
         <Card>
           <Row label="Barcode requirement">
             <Select value={s.stock.barcode_requirement} onChange={(v) => d.update((x) => { x.stock.barcode_requirement = v as "optional"; })}>
-              <option value="required">Required</option><option value="optional">Optional</option><option value="disabled">Disabled</option>
+              <option value="required">{tr("Required")}</option><option value="optional">{tr("Optional")}</option><option value="disabled">{tr("Disabled")}</option>
             </Select>
           </Row>
           <Row label="Quantity entry when receiving" hint="Locked = capture each physical item individually">
             <Select value={s.stock.quantity_entry} onChange={(v) => d.update((x) => { x.stock.quantity_entry = v as "editable"; })}>
-              <option value="editable">Editable</option><option value="locked">Locked to 1</option>
+              <option value="editable">{tr("Editable")}</option><option value="locked">Locked to 1</option>
             </Select>
           </Row>
           <ToggleRow label="Capture cost price" hint="Enables profit and cost valuation" checked={s.stock.capture_cost} onChange={(v) => d.update((x) => { x.stock.capture_cost = v; })} />
           <Row label="Stock valuation">
             <Select value={s.stock.valuation} onChange={(v) => d.update((x) => { x.stock.valuation = v as "cost"; })}>
-              <option value="cost">At cost</option><option value="selling">At selling price</option>
+              <option value="cost">{tr("At cost")}</option><option value="selling">{tr("At selling price")}</option>
             </Select>
           </Row>
           <Row label="Default low-stock alert">{numInput(s.stock.low_stock_threshold, (n) => d.update((x) => { x.stock.low_stock_threshold = n; }))}</Row>
@@ -216,18 +217,19 @@ export function OrderSettings() {
           <ToggleRow label="Ordering link open" hint="Customers can place orders online" checked={s.orders.portal_enabled} onChange={(v) => d.update((x) => { x.orders.portal_enabled = v; })} />
           <Row label="Fulfilling branch">
             <Select value={s.orders.default_branch_id ?? ""} onChange={(v) => d.update((x) => { x.orders.default_branch_id = v || null; })}>
-              <option value="">First active branch</option>
+              <option value="">{tr("First active branch")}</option>
               {profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </Select>
           </Row>
           <ToggleRow label="Reserve stock for confirmed orders" hint="Available to sell = physical − reserved" checked={s.orders.reserve_stock} onChange={(v) => d.update((x) => { x.orders.reserve_stock = v; })} />
           <Row label="Order becomes a sale at">
             <Select value={s.orders.sale_on_status} onChange={(v) => d.update((x) => { x.orders.sale_on_status = v as "delivered"; })}>
-              <option value="delivered">Delivered</option><option value="completed">Completed</option>
+              <option value="delivered">{tr("Delivered")}</option><option value="completed">{tr("Completed")}</option>
             </Select>
           </Row>
           <ToggleRow label="Verify customers with a WhatsApp code" hint="Requires the WhatsApp integration" checked={s.orders.verify_with_otp} onChange={(v) => d.update((x) => { x.orders.verify_with_otp = v; })} />
           <ToggleRow label="Show out-of-stock products" checked={s.orders.show_out_of_stock} onChange={(v) => d.update((x) => { x.orders.show_out_of_stock = v; })} />
+          <ToggleRow label="Show product prices" hint="When off, customers see no prices anywhere on the ordering link; staff screens are not affected" checked={s.orders.show_prices} onChange={(v) => d.update((x) => { x.orders.show_prices = v; })} />
         </Card>
         <Card title="Order statuses">
           <p className="py-2 text-xs text-muted-foreground">Rename any status (customers see these names). Optional steps can be switched off; core steps and the stage at which an order becomes a sale are always on.</p>
@@ -240,7 +242,7 @@ export function OrderSettings() {
                 {optional ? (
                   <Switch checked={st.enabled} onCheckedChange={(v) => d.update((x) => { x.orders.statuses[i].enabled = v; })} aria-label={`Use ${st.label}`} />
                 ) : (
-                  <span className="w-11 text-center text-xs text-muted-foreground">Core</span>
+                  <span className="w-11 text-center text-xs text-muted-foreground">{tr("Core")}</span>
                 )}
               </div>
             );
@@ -268,12 +270,12 @@ function FieldsCard({ kind, empty }: { kind: FieldKind; empty: string }) {
   });
   return (
     <>
-      <Card title={kind === "product" ? "Product fields" : "Custom fields"} action={<Button size="sm" variant="outline" onClick={() => setEditing({ field_type: "text", is_active: true, options: [] })}><Plus /> Add field</Button>}>
+      <Card title={kind === "product" ? "Product fields" : "Custom fields"} action={<Button size="sm" variant="outline" onClick={() => setEditing({ field_type: "text", is_active: true, options: [] })}><Plus /> {tr("Add field")}</Button>}>
         {fields.data?.map((f) => (
           <div key={f.id} className="flex items-center gap-3 py-2.5 text-sm">
             <span className={f.is_active ? "flex-1 font-medium" : "flex-1 text-muted-foreground line-through"}>{f.label}</span>
             <Pill>{titleCase(f.field_type)}</Pill>
-            {f.required && <Pill tone="warning">Required</Pill>}
+            {f.required && <Pill tone="warning">{tr("Required")}</Pill>}
             <Button variant="ghost" size="icon-sm" onClick={() => setEditing(f)} aria-label="Edit"><Pencil /></Button>
           </div>
         ))}
@@ -283,7 +285,7 @@ function FieldsCard({ kind, empty }: { kind: FieldKind; empty: string }) {
         open={!!editing}
         onOpenChange={(o) => !o && setEditing(null)}
         title={editing?.id ? "Edit field" : "New field"}
-        footer={<Button className="w-full md:w-auto" disabled={!editing?.label?.trim() || save.isPending} onClick={() => editing && save.mutate(editing)}>Save</Button>}
+        footer={<Button className="w-full md:w-auto" disabled={!editing?.label?.trim() || save.isPending} onClick={() => editing && save.mutate(editing)}>{tr("Save")}</Button>}
       >
         {editing && (
           <div className="space-y-4">
@@ -341,7 +343,7 @@ export function LoyaltySettings() {
             <Row label="Value of 1 point">{numInput(s.loyalty.point_value, (n) => d.update((x) => { x.loyalty.point_value = n; }), true)}</Row>
             <Row label="Minimum balance to redeem">{numInput(s.loyalty.min_redemption_points, (n) => d.update((x) => { x.loyalty.min_redemption_points = n; }))}</Row>
           </Card>
-          <Card title="Tiers" action={<Button size="sm" variant="outline" onClick={() => d.update((x) => { x.loyalty.tiers.push({ name: "", min_spend: 0 }); })}><Plus /> Add tier</Button>}>
+          <Card title="Tiers" action={<Button size="sm" variant="outline" onClick={() => d.update((x) => { x.loyalty.tiers.push({ name: "", min_spend: 0 }); })}><Plus /> {tr("Add tier")}</Button>}>
             {s.loyalty.tiers.map((t, i) => (
               <div key={i} className="flex items-center gap-2 py-2.5">
                 <Input value={t.name} onChange={(e) => d.update((x) => { x.loyalty.tiers[i].name = e.target.value; })} placeholder="Tier name, e.g. Gold" />
@@ -472,8 +474,8 @@ export function ReportSettings() {
           <Card title={title}>
             <Row label="Measured by">
               <Select value={t.basis} onChange={(v) => d.update((x) => { x.reports.medals[key].basis = v as MedalTargets["basis"]; })}>
-                <option value="revenue">Sales value ({currency})</option>
-                <option value="units">Units sold</option>
+                <option value="revenue">{tr("Sales value (")}{currency})</option>
+                <option value="units">{tr("Units sold")}</option>
               </Select>
             </Row>
             {(["gold", "silver", "bronze"] as const).map((level) => (
@@ -496,8 +498,8 @@ export function ReportSettings() {
             <Card title="Medals on dashboard leaderboards">
               <Row label="Best sellers & staff earn medals by" hint={targets ? "Anyone reaching a target, scaled to the period viewed (a week needs 7× the daily target)" : "Position: 1st Gold, 2nd Silver, 3rd Bronze"}>
                 <Select value={s.reports.medals.mode} onChange={(v) => d.update((x) => { x.reports.medals.mode = v as "rank" | "targets"; })}>
-                  <option value="rank">Rank (top three)</option>
-                  <option value="targets">Targets</option>
+                  <option value="rank">{tr("Rank (top three)")}</option>
+                  <option value="targets">{tr("Targets")}</option>
                 </Select>
               </Row>
             </Card>

@@ -11,6 +11,7 @@ import { PageHeader, EmptyState } from "@/components/Page";
 import { DataList, Pager, CardRow } from "@/components/DataList";
 import { Segments } from "@/components/Filters";
 import { StatusBadge } from "@/components/Badges";
+import { t } from "@/lib/i18n";
 
 export interface TransferRow {
   id: string;
@@ -47,7 +48,7 @@ export default function TransfersList() {
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["transfers", query], queryFn: () => api<Paged<TransferRow>>("/transfers", { query }), placeholderData: (p) => p });
   return (
     <>
-      <PageHeader eyebrow="Stock" title="Transfers" description="Move stock safely between branches." actions={can("stock.transfer") && <Button asChild><Link to="/transfers/new"><Plus /> New transfer</Link></Button>} />
+      <PageHeader eyebrow="Stock" title="Transfers" description="Move stock safely between branches." actions={can("stock.transfer") && <Button asChild><Link to="/transfers/new"><Plus /> {t("New transfer")}</Link></Button>} />
       <div className="mb-4">
         <Segments
           value={status}
@@ -78,7 +79,7 @@ export default function TransfersList() {
           { key: "date", header: "Created", cell: (r) => <span className="whitespace-nowrap text-muted-foreground">{dateTime(r.created_at)}</span>, hideBelow: "lg" },
           { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status === "dispatched" ? "in_transit" : r.status} /> },
         ]}
-        mobile={(r) => <CardRow title={`${r.from_branch_name} → ${r.to_branch_name}`} subtitle={<span className="num">{r.transfer_no} · {count(r.total_units)} units</span>} meta={<StatusBadge status={r.status === "dispatched" ? "in_transit" : r.status} />} />}
+        mobile={(r) => <CardRow title={`${r.from_branch_name} → ${r.to_branch_name}`} subtitle={<span className="num">{r.transfer_no} · {count(r.total_units)} {t("units")}</span>} meta={<StatusBadge status={r.status === "dispatched" ? "in_transit" : r.status} />} />}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}
       />
     </>

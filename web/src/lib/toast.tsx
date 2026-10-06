@@ -27,13 +27,14 @@ function showError(error: ReactNode | unknown, data?: ExternalToast) {
   let message: ReactNode;
   let description = data?.description as ReactNode;
   if (error instanceof ApiError && error.title) {
-    message = error.title;
-    description ??= error.message;
+    message = t(error.title);
+    description ??= t(error.message);
   } else if (error instanceof Error) {
-    message = error.message;
+    message = t(error.message);
   } else {
-    message = error as ReactNode;
+    message = tr(error as ReactNode);
   }
+  if (typeof description === "string") description = t(description);
   // The same message twice in a row (e.g. a retried request) is shown once.
   if (queue.some((a) => a.message === message && a.description === description)) return 0;
   const alert = { id: nextId++, message, description };
@@ -47,7 +48,11 @@ function dismiss(id: number) {
   emit();
 }
 
-export const toast = Object.assign(((message: ReactNode, data?: ExternalToast) => sonner(message, data)) as typeof sonner, sonner, {
+const tr = (m: ReactNode) => (typeof m === "string" ? t(m) : m);
+const trData = (d?: ExternalToast) => (d && typeof d.description === "string" ? { ...d, description: t(d.description) } : d);
+export const toast = Object.assign(((message: ReactNode, data?: ExternalToast) => sonner(tr(message), trData(data))) as typeof sonner, sonner, {
+  success: (message: ReactNode, data?: ExternalToast) => sonner.success(tr(message), trData(data)),
+  info: (message: ReactNode, data?: ExternalToast) => sonner.info(tr(message), trData(data)),
   error: showError,
 });
 
@@ -72,7 +77,7 @@ export function AlertHost() {
             {current.description ? (
               <DialogDescription>{current.description}</DialogDescription>
             ) : (
-              <DialogDescription className="sr-only">Error</DialogDescription>
+              <DialogDescription className="sr-only">{t("Error")}</DialogDescription>
             )}
           </div>
           <div className="border-t p-3">

@@ -19,13 +19,24 @@
 Phone: floating cart bar → checkout sheet. Desktop: product grid with a sticky cart/checkout panel. The cart survives
 navigation and is kept per branch.
 
+## M-Pesa at the till
+Two separate flows inside the M-Pesa payment section:
+- **Manual M-Pesa** — *M-Pesa number* and *M-Pesa confirmation code* are both **optional**; the sale completes with
+  M-Pesa as the method either way. A code, when entered, must look like one (8–12 letters/digits) and must not have
+  been used on another sale (*M-Pesa code already used*). Allowed when Settings → Sales → *Allow manual M-Pesa
+  confirmation* is on (default); also works offline.
+- **Push STK** — always shown; enabled only when the M-Pesa STK integration is configured and active (otherwise
+  greyed out with *STK not configured*, never blocking a manual sale). The number is required for the push; the till
+  waits for the confirmed result (completing the sale is held while the prompt is pending) and records the M-Pesa
+  receipt from the confirmed payment, which can be used once.
+
 ## Offline selling (installable app)
 The app installs to the home screen and opens without a connection (service worker: app shell and build files only —
 never business data or API responses). While offline:
 - The till sells from this branch's product list kept on the device (*Offline — stock as of …*).
 - Walk-in **cash-style sales** of products that need no scan verification are saved on the device with their time,
   location and `client_ref` (*Saved offline*; the receipt number is given when it syncs).
-- Anything needing a live check waits for the connection, with a clear reason: credit, M-Pesa, new customers,
+- Anything needing a live check waits for the connection, with a clear reason: credit, Push STK, new customers,
   points, deposits, supervisor approval, tracked/barcode-cleared items.
 - Saved sales sync automatically when the connection returns (and every 30 s): the server records each once
   (`client_ref`), at the **moment it was made** (`offline_at` → sale, stock movement and payment times, so the business

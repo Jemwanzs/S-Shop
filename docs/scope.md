@@ -129,7 +129,14 @@ Added 2026-10-06 (owner requests and the [production readiness audit](production
 Then, in this order:
 - ✅ **25. Offline POS** — installable app shell; cash-style sales saved on the device and synced at their real time
   (idempotent `client_ref`), refusals listed for retry/discard ([module 02](modules/02-sales-pos.md)).
-- ⏳ **26. Languages** — finish roadmap 9 (screen text, toasts, server messages).
+- ✅ **26. Languages** — finish roadmap 9: buttons, chips, badges, placeholders, list headers, toasts and error titles
+  translate centrally; screen text wrapped; Swahili, French and Arabic for every visible string.
+- ⏳ **32. M-Pesa at Record Sale** (owner request 2026-10-06) — two separate flows: *manual* (number and confirmation
+  code both optional) and *STK Push* (number required → push → confirmed result). Push STK shown always, disabled with
+  *STK not configured* when the integration is not active; never blocks a manual M-Pesa sale. **Next.**
+- ⏳ **33. Ordering link — Show product prices** (owner request 2026-10-06) — Settings → Orders & ordering link, ON by
+  default; when OFF, prices are hidden (and not sent) everywhere on the customer ordering link — cards, details, cart,
+  checkout, order history and tracking; staff screens unaffected.
 - ⏳ **27. Combined exchange screen** (rest of roadmap 4).
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):

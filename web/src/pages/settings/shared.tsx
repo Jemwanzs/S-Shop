@@ -7,6 +7,7 @@ import type { Money, Settings } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/Page";
 import { tx } from "@/lib/i18n";
+import { t } from "@/lib/i18n";
 
 export interface WorkflowLevel {
   approver_type: "admin" | "role" | "user" | "branch_manager";
@@ -85,8 +86,8 @@ export function SettingsPage({ title, description, children, dirty, saving, onSa
       {onSave && dirty && (
         <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur animate-fade-up lg:bottom-0 lg:start-sidebar">
           <div className="mx-auto flex max-w-[1680px] items-center justify-end gap-2 px-1 md:px-3 lg:px-5">
-            <span className="me-auto text-sm text-muted-foreground">Unsaved changes</span>
-            <Button variant="outline" onClick={onReset}>Discard</Button>
+            <span className="me-auto text-sm text-muted-foreground">{t("Unsaved changes")}</span>
+            <Button variant="outline" onClick={onReset}>{t("Discard")}</Button>
             <Button onClick={onSave} disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : "Save changes"}</Button>
           </div>
         </div>

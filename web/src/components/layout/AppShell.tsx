@@ -84,7 +84,7 @@ function BranchSwitcher({ compact }: { compact?: boolean }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuLabel>Current branch</DropdownMenuLabel>
+        <DropdownMenuLabel>{t("Current branch")}</DropdownMenuLabel>
         {profile.branches.map((b) => (
           <DropdownMenuItem key={b.id} onClick={() => { selectBranch(b.id); toast.success(`Now operating from ${b.name}`); }} className="gap-2">
             <Check className={cn("h-4 w-4", b.id === branch.id ? "opacity-100" : "opacity-0")} />
@@ -203,7 +203,7 @@ function Brand() {
           <span className="truncate font-semibold leading-tight">{profile?.tenant.name ?? "S'Shop"}</span>
           {profile?.tenant.is_demo && <span className="shrink-0 rounded bg-chart-2/15 px-1 text-[0.6rem] font-bold uppercase tracking-wide text-chart-2">{t("Demo")}</span>}
         </span>
-        <span className="text-brand block text-[11px] font-semibold leading-tight">S'Shop</span>
+        <span className="text-brand block text-[11px] font-semibold leading-tight">{t("S'Shop")}</span>
       </span>
     </Link>
   );
@@ -391,7 +391,7 @@ export function AppShell() {
                 className="hidden h-10 w-full max-w-md items-center gap-2 rounded-lg border bg-card px-3 text-sm text-muted-foreground hover:border-primary/40 lg:flex"
               >
                 <Search className="h-4 w-4" /> {t("Search products, customers, receipts, orders…")}
-                <kbd className="ms-auto rounded border bg-muted px-1.5 text-[11px]">Ctrl K</kbd>
+                <kbd className="ms-auto rounded border bg-muted px-1.5 text-[11px]">{t("Ctrl K")}</kbd>
               </button>
               <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSearchOpen(true)} aria-label="Search"><Search /></Button>
             </div>

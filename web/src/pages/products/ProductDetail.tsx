@@ -15,6 +15,7 @@ import { Pill, StockIndicator } from "@/components/Badges";
 import { ConfirmDialog } from "@/components/Form";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { CustomFieldValues } from "@/components/CustomFields";
+import { t } from "@/lib/i18n";
 
 interface Detail {
   product: Product;
@@ -87,34 +88,34 @@ export default function ProductDetail() {
         description={p.nickname && `“${p.nickname}”`}
         actions={
           <>
-            {can("dashboard.view") && <Button variant="outline" asChild><Link to={`/?product=${p.id}`}><BarChart3 /> Performance</Link></Button>}
-            {can("stock.add") && <Button variant="outline" asChild><Link to={`/stock/receive?product=${p.id}`}><PackagePlus /> Receive stock</Link></Button>}
-            {can("products.edit") && <Button asChild><Link to={`/products/${p.id}/edit`}><Pencil /> Edit</Link></Button>}
+            {can("dashboard.view") && <Button variant="outline" asChild><Link to={`/?product=${p.id}`}><BarChart3 /> {t("Performance")}</Link></Button>}
+            {can("stock.add") && <Button variant="outline" asChild><Link to={`/stock/receive?product=${p.id}`}><PackagePlus /> {t("Receive stock")}</Link></Button>}
+            {can("products.edit") && <Button asChild><Link to={`/products/${p.id}/edit`}><Pencil /> {t("Edit")}</Link></Button>}
           </>
         }
       />
-      {data.pending_approval_id && <div className="mb-5 rounded-xl bg-warning/10 p-4 text-sm text-warning">A change to this product is awaiting approval.</div>}
+      {data.pending_approval_id && <div className="mb-5 rounded-xl bg-warning/10 p-4 text-sm text-warning">{t("A change to this product is awaiting approval.")}</div>}
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="surface card-body"><p className="label-caps">Marked price</p><p className="num mt-1 text-2xl font-semibold">{money(p.marked_price)}</p></div>
-            <div className="surface card-body"><p className="label-caps">Here now</p><p className="num mt-1 text-2xl font-semibold">{count(p.available)}</p><p className="num text-xs text-muted-foreground">{count(p.reserved)} reserved</p></div>
-            <div className="surface card-body"><p className="label-caps">All branches</p><p className="num mt-1 text-2xl font-semibold">{count(totalOnHand)}</p></div>
+            <div className="surface card-body"><p className="label-caps">{t("Marked price")}</p><p className="num mt-1 text-2xl font-semibold">{money(p.marked_price)}</p></div>
+            <div className="surface card-body"><p className="label-caps">{t("Here now")}</p><p className="num mt-1 text-2xl font-semibold">{count(p.available)}</p><p className="num text-xs text-muted-foreground">{count(p.reserved)} reserved</p></div>
+            <div className="surface card-body"><p className="label-caps">{t("All branches")}</p><p className="num mt-1 text-2xl font-semibold">{count(totalOnHand)}</p></div>
           </div>
 
           <Section title={`Photos · ${data.photos.length}/${maxPhotos}`} action={canPhotos && data.photos.length < maxPhotos && (
             <button type="button" className="inline-flex items-center gap-1.5 text-sm text-primary" onClick={() => setAdding(true)}>
-              <ImagePlus className="h-4 w-4" /> Add
+              <ImagePlus className="h-4 w-4" /> {t("Add")}
             </button>
           )}>
             {data.photos.length === 0 ? (
-              <p className="py-4 text-sm text-muted-foreground">No photos. The primary photo is shown on the ordering link.</p>
+              <p className="py-4 text-sm text-muted-foreground">{t("No photos. The primary photo is shown on the ordering link.")}</p>
             ) : (
               <div className="flex flex-wrap gap-3">
                 {data.photos.map((ph) => (
                   <div key={ph.id} className={cn("group relative h-28 w-28 overflow-hidden rounded-xl border-2", ph.is_primary ? "border-primary" : "border-transparent")}>
                     <button className="h-full w-full" onClick={() => setGallery(true)}><img src={ph.url} alt="" className="h-full w-full object-cover" loading="lazy" /></button>
-                    {ph.is_primary && <span className="absolute start-1 top-1 rounded bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">Primary</span>}
+                    {ph.is_primary && <span className="absolute start-1 top-1 rounded bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">{t("Primary")}</span>}
                     {canPhotos && (
                       <div className="absolute inset-x-1 bottom-1 flex justify-end gap-1">
                         {!ph.is_primary && <button className="rounded-full bg-black/60 p-1.5 text-white" onClick={() => photoAction(ph.id, "primary")} aria-label="Make primary"><Star className="h-3 w-3" /></button>}
@@ -128,7 +129,7 @@ export default function ProductDetail() {
           </Section>
 
           {can("stock.view") && (
-            <Section title="Recent stock movements" action={<Link to={`/stock?tab=movements&product=${p.id}`} className="text-xs text-primary">All</Link>}>
+            <Section title="Recent stock movements" action={<Link to={`/stock?tab=movements&product=${p.id}`} className="text-xs text-primary">{t("All")}</Link>}>
               {movements.data?.items.length ? (
                 <ul className="divide-y text-sm">
                   {movements.data.items.map((m) => (
@@ -142,7 +143,7 @@ export default function ProductDetail() {
                   ))}
                 </ul>
               ) : (
-                <p className="py-4 text-sm text-muted-foreground">No stock received yet.</p>
+                <p className="py-4 text-sm text-muted-foreground">{t("No stock received yet.")}</p>
               )}
             </Section>
           )}
@@ -160,7 +161,7 @@ export default function ProductDetail() {
             </ul>
           </Section>
           <Section title="Details">
-            <KV label="Status">{p.is_active ? <Pill tone="success">Active</Pill> : <Pill tone="danger">Inactive</Pill>}</KV>
+            <KV label="Status">{p.is_active ? <Pill tone="success">{t("Active")}</Pill> : <Pill tone="danger">{t("Inactive")}</Pill>}</KV>
             {p.max_discount !== null && <KV label="Max discount"><span className="num">{money(p.max_discount)}</span></KV>}
             {p.cost_price !== null && can("sales.view_financials") && <KV label="Cost price"><span className="num">{money(p.cost_price)}</span></KV>}
             <KV label="Barcode">{p.track_items ? "Per item" : p.barcode ? <span className="num">{p.barcode}</span> : "—"}</KV>
@@ -177,7 +178,7 @@ export default function ProductDetail() {
             {p.description && <p className="mt-2 rounded-lg bg-muted p-3 text-sm">{p.description}</p>}
           </Section>
           {p.track_items && (
-            <Button variant="outline" className="w-full" asChild><Link to={`/stock?tab=barcodes&product=${p.id}`}>View barcoded items</Link></Button>
+            <Button variant="outline" className="w-full" asChild><Link to={`/stock?tab=barcodes&product=${p.id}`}>{t("View barcoded items")}</Link></Button>
           )}
           {can("products.deactivate") && !data.pending_approval_id && (
             <Button variant="outline" className={cn("w-full", p.is_active && "text-destructive")} onClick={() => setToggling(true)}>

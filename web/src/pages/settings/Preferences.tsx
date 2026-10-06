@@ -58,7 +58,7 @@ export function PreferencesSettings() {
             </Choice>
           ))}
         </div>
-        {fx && <p className="pt-1 text-[11px] text-muted-foreground">Rates: {fx.source}{fx.updated_at ? ` · ${fx.updated_at.replace(/ \+0000$/, " UTC")}` : ""}{fx.stale ? " · last known rates" : ""}</p>}
+        {fx && <p className="pt-1 text-[11px] text-muted-foreground">{t("Rates:")} {fx.source}{fx.updated_at ? ` · ${fx.updated_at.replace(/ \+0000$/, " UTC")}` : ""}{fx.stale ? " · last known rates" : ""}</p>}
       </Card>
 
       <Card title="Font">

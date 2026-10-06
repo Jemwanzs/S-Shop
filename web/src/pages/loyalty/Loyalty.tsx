@@ -16,6 +16,7 @@ import { StatCard } from "@/components/Stat";
 import { SearchInput, Segments } from "@/components/Filters";
 import { ConfirmDialog, Field } from "@/components/Form";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { t as tr } from "@/lib/i18n";
 
 type Tab = "overview" | "referrals" | "awards";
 
@@ -78,7 +79,7 @@ function Overview() {
           </ul>
         </Section>
         <div className="space-y-5">
-          <Section title="How points work" action={can("settings.manage") && <Link to="/settings/loyalty" className="text-xs text-primary">Configure</Link>}>
+          <Section title="How points work" action={can("settings.manage") && <Link to="/settings/loyalty" className="text-xs text-primary">{tr("Configure")}</Link>}>
             {r.enabled ? (
               <ul className="space-y-2 text-sm">
                 <li>🌼 <span className="num font-medium">{r.points_per}</span> point{r.points_per === 1 ? "" : "s"} for every <span className="num font-medium">{money(r.threshold)}</span> spent</li>
@@ -87,7 +88,7 @@ function Overview() {
                 <li>⏳ {r.expiry_days > 0 ? `Points expire after ${r.expiry_days} days` : "Points never expire"}</li>
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">Loyalty is turned off.</p>
+              <p className="text-sm text-muted-foreground">{tr("Loyalty is turned off.")}</p>
             )}
           </Section>
           <Section title="Tiers">
@@ -114,7 +115,7 @@ function CustomerPicker({ label, value, onPick, exclude }: { label: string; valu
       {value ? (
         <div className="flex items-center justify-between rounded-lg border bg-accent/40 px-3 py-2.5 text-sm">
           <span>{value.first_name} {value.other_names} <span className="num text-muted-foreground">· {phone(value.mobile)}</span></span>
-          <button className="text-primary" onClick={() => onPick(null)}>Change</button>
+          <button className="text-primary" onClick={() => onPick(null)}>{tr("Change")}</button>
         </div>
       ) : (
         <>
@@ -172,7 +173,7 @@ function Referrals() {
       </div>
       <div className="flex flex-col gap-2 sm:flex-row">
         <SearchInput value={q} onChange={setQ} placeholder="Filter referrals" className="sm:w-80" />
-        {(can("loyalty.manage") || can("customers.create")) && <Button onClick={() => setAdding(true)}><Plus /> Record referral</Button>}
+        {(can("loyalty.manage") || can("customers.create")) && <Button onClick={() => setAdding(true)}><Plus /> {tr("Record referral")}</Button>}
       </div>
       {isLoading ? <Loading /> : groups.size === 0 ? (
         <div className="surface"><EmptyState icon={UserPlus} title="No referrals yet" hint="Referrers earn bonus points every time the people they bring in shop." /></div>
@@ -181,7 +182,7 @@ function Referrals() {
           {[...groups.values()].map((rs) => (
             <div key={rs[0].referrer_id} className="surface overflow-hidden">
               <Link to={`/customers/${rs[0].referrer_id}`} className="flex items-center justify-between gap-2 bg-primary/5 px-4 py-3">
-                <div className="min-w-0"><div className="truncate font-semibold">{rs[0].referrer_name}</div><div className="text-xs text-muted-foreground">Referred {rs.length} customer{rs.length === 1 ? "" : "s"}</div></div>
+                <div className="min-w-0"><div className="truncate font-semibold">{rs[0].referrer_name}</div><div className="text-xs text-muted-foreground">{tr("Referred")} {rs.length} customer{rs.length === 1 ? "" : "s"}</div></div>
                 <PointsPill own={rs.reduce((a, r) => a + r.bonus_points_earned, 0)} />
               </Link>
               <ul className="divide-y">
@@ -190,7 +191,7 @@ function Referrals() {
                     <div><Link to={`/customers/${r.referred_id}`} className="font-medium hover:underline">→ {r.referred_name}</Link><div className="text-xs text-muted-foreground">{date(r.created_at)}</div></div>
                     <div className="flex items-center gap-2">
                       <span className="num text-points">+{count(r.bonus_points_earned)}</span>
-                      {can("loyalty.manage") && <button className="text-xs text-muted-foreground hover:text-destructive" onClick={() => setRemoving(r)}>Remove</button>}
+                      {can("loyalty.manage") && <button className="text-xs text-muted-foreground hover:text-destructive" onClick={() => setRemoving(r)}>{tr("Remove")}</button>}
                     </div>
                   </li>
                 ))}
@@ -203,7 +204,7 @@ function Referrals() {
         open={adding}
         onOpenChange={setAdding}
         title="Record a referral"
-        footer={<Button className="w-full md:w-auto" disabled={!referrer || !referred || create.isPending} onClick={() => create.mutate()}>Save referral</Button>}
+        footer={<Button className="w-full md:w-auto" disabled={!referrer || !referred || create.isPending} onClick={() => create.mutate()}>{tr("Save referral")}</Button>}
       >
         <div className="space-y-4">
           <CustomerPicker label="Who referred? (referrer)" value={referrer} onPick={setReferrer} exclude={referred?.id} />
@@ -270,10 +271,10 @@ function Awards() {
       {current ? (
         <Section
           title={`${current.name} · since ${date(current.start_date)}`}
-          action={can("loyalty.manage") && <Button size="sm" variant="outline" onClick={() => setClosing(current)}><Trophy /> Close & award</Button>}
+          action={can("loyalty.manage") && <Button size="sm" variant="outline" onClick={() => setClosing(current)}><Trophy /> {tr("Close & award")}</Button>}
         >
           {current.standings.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">No identified purchases in this period yet.</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">{tr("No identified purchases in this period yet.")}</p>
           ) : (
             <ul className="divide-y">
               {current.standings.map((s, i) => (
@@ -296,8 +297,8 @@ function Awards() {
       ) : (
         <div className="surface flex flex-col items-center gap-3 p-8 text-center">
           <Trophy className="h-8 w-8 text-gold" />
-          <p className="font-medium">No award period is running</p>
-          {can("loyalty.manage") && <Button onClick={() => setOpening(true)}><Plus /> Open a new period</Button>}
+          <p className="font-medium">{tr("No award period is running")}</p>
+          {can("loyalty.manage") && <Button onClick={() => setOpening(true)}><Plus /> {tr("Open a new period")}</Button>}
         </div>
       )}
       <p className="text-xs text-muted-foreground">Standings rank customers by spend within the period. Closing a period records winners — balances and sales history are never reset.</p>
@@ -312,7 +313,7 @@ function Awards() {
                     <span className="num">{money(w.total_spend)}</span>
                   </li>
                 ))}
-                {p.winners.length === 0 && <li className="text-sm text-muted-foreground">No winners</li>}
+                {p.winners.length === 0 && <li className="text-sm text-muted-foreground">{tr("No winners")}</li>}
               </ul>
             </Section>
           ))}
@@ -327,7 +328,7 @@ function Awards() {
         busy={close.isPending}
         onConfirm={() => closing && close.mutate(closing.id)}
       />
-      <ResponsiveDialog open={opening} onOpenChange={setOpening} title="Open award period" footer={<Button className="w-full md:w-auto" disabled={!name.trim() || open.isPending} onClick={() => open.mutate()}>Open period</Button>}>
+      <ResponsiveDialog open={opening} onOpenChange={setOpening} title="Open award period" footer={<Button className="w-full md:w-auto" disabled={!name.trim() || open.isPending} onClick={() => open.mutate()}>{tr("Open period")}</Button>}>
         <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Q4 2026 Awards" autoFocus /></Field>
       </ResponsiveDialog>
     </div>

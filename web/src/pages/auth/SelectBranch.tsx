@@ -3,6 +3,7 @@ import { ChevronRight, LogOut, MapPin, Store } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/Page";
+import { t } from "@/lib/i18n";
 
 /** Users assigned to several branches choose their Current Branch after signing in. */
 export default function SelectBranchPage() {
@@ -13,9 +14,9 @@ export default function SelectBranchPage() {
   return (
     <div className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-5 py-10">
       <div className="mb-6 animate-fade-up">
-        <p className="label-caps">Hi {profile.user.name.split(" ")[0]} 👋</p>
-        <h1 className="mt-1 text-2xl font-semibold">Where are you working today?</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Sales, stock and expenses will default to this branch. You can switch any time.</p>
+        <p className="label-caps">{t("Hi")} {profile.user.name.split(" ")[0]} 👋</p>
+        <h1 className="mt-1 text-2xl font-semibold">{t("Where are you working today?")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t("Sales, stock and expenses will default to this branch. You can switch any time.")}</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {profile.branches.map((b) => (
@@ -39,7 +40,7 @@ export default function SelectBranchPage() {
         ))}
       </div>
       <Button variant="ghost" className="mt-8 self-center text-muted-foreground" onClick={signOut}>
-        <LogOut /> Sign out
+        <LogOut /> {t("Sign out")}
       </Button>
     </div>
   );

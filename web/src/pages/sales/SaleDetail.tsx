@@ -14,6 +14,7 @@ import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page"
 import { Pill, StatusBadge } from "@/components/Badges";
 import { ConfirmDialog, Field, Select, ToggleRow } from "@/components/Form";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
+import { t } from "@/lib/i18n";
 
 export default function SaleDetail() {
   const { id } = useParams();
@@ -95,9 +96,9 @@ export default function SaleDetail() {
           <div className="flex flex-wrap gap-2 no-print">
             {can("sales.print") && (
               <>
-                <Button variant="outline" onClick={() => window.print()}><Printer /> Print</Button>
-                <Button variant="outline" onClick={() => receiptPdf(data)}><Download /> PDF</Button>
-                <Button variant="outline" onClick={share}><MessageCircle /> Share</Button>
+                <Button variant="outline" onClick={() => window.print()}><Printer /> {t("Print")}</Button>
+                <Button variant="outline" onClick={() => receiptPdf(data)}><Download /> {t("PDF")}</Button>
+                <Button variant="outline" onClick={share}><MessageCircle /> {t("Share")}</Button>
               </>
             )}
           </div>
@@ -111,7 +112,7 @@ export default function SaleDetail() {
             <h2 className="text-lg font-semibold">{data.business.name}</h2>
             <p className="text-sm text-muted-foreground">{s.branch_name}{s.branch_location && ` · ${s.branch_location}`}</p>
             {(s.branch_phone || data.business.phone) && <p className="text-sm text-muted-foreground">{s.branch_phone || data.business.phone}</p>}
-            <div className="mt-2 flex justify-center gap-2"><StatusBadge status={s.status} />{s.is_legacy && <Pill>Imported</Pill>}</div>
+            <div className="mt-2 flex justify-center gap-2"><StatusBadge status={s.status} />{s.is_legacy && <Pill>{t("Imported")}</Pill>}</div>
           </div>
           {s.customer && (
             <p className="mb-3 text-center text-sm">
@@ -120,7 +121,7 @@ export default function SaleDetail() {
           )}
           <table className="w-full text-sm">
             <thead className="border-b text-xs text-muted-foreground">
-              <tr><th className="py-2 text-start font-medium">Item</th><th className="text-end font-medium">Qty</th><th className="text-end font-medium">Price</th><th className="text-end font-medium">Total</th></tr>
+              <tr><th className="py-2 text-start font-medium">{t("Item")}</th><th className="text-end font-medium">{t("Qty")}</th><th className="text-end font-medium">{t("Price")}</th><th className="text-end font-medium">{t("Total")}</th></tr>
             </thead>
             <tbody className="divide-y">
               {data.items.map((i) => (
@@ -144,7 +145,7 @@ export default function SaleDetail() {
             <KV label="Marked total" className="py-0.5"><span className="num">{money(s.gross_total)}</span></KV>
             {toNum(s.discount_total) !== 0 && <KV label="Discount" className="py-0.5"><span className="num text-destructive">−{money(s.discount_total)}</span></KV>}
             {toNum(s.redeemed_value) > 0 && <KV label={`Points redeemed (${s.redeemed_points})`} className="py-0.5"><span className="num">−{money(s.redeemed_value)}</span></KV>}
-            <div className="flex justify-between border-t pt-2 text-base font-semibold"><span>Total</span><span className="num">{money(s.total)}</span></div>
+            <div className="flex justify-between border-t pt-2 text-base font-semibold"><span>{t("Total")}</span><span className="num">{money(s.total)}</span></div>
             <KV label="Payment" className="py-0.5">{methodLabel(s.payment_method)}</KV>
             <KV label="Amount paid" className="py-0.5"><span className="num">{money(s.amount_paid)}</span></KV>
             {data.credit && <KV label="Balance" className="py-0.5"><span className="num text-destructive">{money(data.credit.balance)}</span></KV>}
@@ -157,11 +158,11 @@ export default function SaleDetail() {
 
         {/* Side panel */}
         <div className="space-y-5 no-print">
-          {data.pending_approval_id && <div className="rounded-xl bg-warning/10 p-4 text-sm text-warning">A return or cancellation for this sale is awaiting approval.</div>}
+          {data.pending_approval_id && <div className="rounded-xl bg-warning/10 p-4 text-sm text-warning">{t("A return or cancellation for this sale is awaiting approval.")}</div>}
           {s.order_no && <Section title="Order"><Link to={`/orders/${s.order_id}`} className="num text-primary">{s.order_no}</Link></Section>}
-          {s.approved_by_name && <Section title="Discount approval"><p className="text-sm">Approved by {s.approved_by_name}</p></Section>}
+          {s.approved_by_name && <Section title="Discount approval"><p className="text-sm">{t("Approved by")} {s.approved_by_name}</p></Section>}
           {data.credit && (
-            <Section title="Credit" action={<Link to={`/credit/${data.credit.id}`} className="text-xs text-primary">Open</Link>}>
+            <Section title="Credit" action={<Link to={`/credit/${data.credit.id}`} className="text-xs text-primary">{t("Open")}</Link>}>
               <KV label="Due">{data.credit.due_date}</KV>
               <KV label="Status"><StatusBadge status={data.credit.status} /></KV>
             </Section>
@@ -181,10 +182,10 @@ export default function SaleDetail() {
           {reversible && (can("sales.return") || can("sales.cancel")) && (
             <Section title="Corrections">
               <div className="flex flex-col gap-2">
-                {can("sales.return") && returnable.length > 0 && <Button variant="outline" onClick={() => setReturning(true)}><RotateCcw /> Return items / refund</Button>}
-                {can("sales.cancel") && s.status === "completed" && <Button variant="outline" className="text-destructive" onClick={() => setCancelling(true)}><Ban /> Cancel sale</Button>}
+                {can("sales.return") && returnable.length > 0 && <Button variant="outline" onClick={() => setReturning(true)}><RotateCcw /> {t("Return items / refund")}</Button>}
+                {can("sales.cancel") && s.status === "completed" && <Button variant="outline" className="text-destructive" onClick={() => setCancelling(true)}><Ban /> {t("Cancel sale")}</Button>}
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">Stock, loyalty points, customer totals and credit are reversed automatically.</p>
+              <p className="mt-2 text-xs text-muted-foreground">{t("Stock, loyalty points, customer totals and credit are reversed automatically.")}</p>
             </Section>
           )}
         </div>
@@ -200,7 +201,7 @@ export default function SaleDetail() {
         busy={ret.isPending}
         onConfirm={(reason) => ret.mutate(reason)}
       >
-        <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setScanReturn(true)}><ScanLine /> Scan returned items</Button>
+        <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setScanReturn(true)}><ScanLine /> {t("Scan returned items")}</Button>
         <ul className="divide-y rounded-xl border">
           {returnable.map((i) => (
             <li key={i.id} className="flex items-center gap-3 p-3">
@@ -243,7 +244,7 @@ function RefundMethod({ value, onChange, methods }: { value: string; onChange: (
   return (
     <Field label="Refund via" hint="Credit sales reduce the outstanding balance first">
       <Select value={value} onChange={onChange}>
-        <option value="">Same as original payment</option>
+        <option value="">{t("Same as original payment")}</option>
         {methods.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
       </Select>
     </Field>

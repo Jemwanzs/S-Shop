@@ -13,6 +13,7 @@ import { ErrorState, Loading, PageHeader, EmptyState } from "@/components/Page";
 import { PeriodFilter, type PeriodValue } from "@/components/Filters";
 import { Select } from "@/components/Form";
 import { DataList, type Column } from "@/components/DataList";
+import { t } from "@/lib/i18n";
 
 interface Col {
   key: string;
@@ -129,23 +130,23 @@ export default function ReportView() {
         <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap">
           {(profile?.branches.length ?? 0) > 1 && (
             <Select value={branchId} onChange={setBranchId} className="md:w-48" label="Branch">
-              <option value="">All my branches</option>
+              <option value="">{t("All my branches")}</option>
               {profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </Select>
           )}
           <Select value={categoryId} onChange={setCategoryId} className="md:w-48" label="Category">
-            <option value="">All categories</option>
+            <option value="">{t("All categories")}</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
           {products.data && (
             <Select value={productId} onChange={setProductId} className="md:w-56">
-              <option value="">All products</option>
+              <option value="">{t("All products")}</option>
               {products.data.items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </Select>
           )}
           {users.data && (
             <Select value={userId} onChange={setUserId} className="md:w-48">
-              <option value="">All users</option>
+              <option value="">{t("All users")}</option>
               {users.data.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </Select>
           )}
@@ -171,7 +172,7 @@ export default function ReportView() {
         footer={
           Object.keys(data.totals).length > 0 && (
             <div className="flex flex-wrap gap-x-6 gap-y-1 border-t bg-muted/40 px-4 py-3 text-sm">
-              <span className="font-semibold">Totals</span>
+              <span className="font-semibold">{t("Totals")}</span>
               {data.columns.filter((c) => data.totals[c.key] !== undefined).map((c) => (
                 <span key={c.key} className="text-muted-foreground">{c.label}: <span className="font-semibold text-foreground">{cell(c.kind, data.totals[c.key])}</span></span>
               ))}

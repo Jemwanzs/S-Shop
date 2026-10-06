@@ -14,6 +14,7 @@ import { Field, Select } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { Card, SettingsPage, useSettings, type WorkflowLevel, type WorkflowRow } from "./shared";
+import { t } from "@/lib/i18n";
 
 const APPROVER: Record<string, string> = { admin: "Administrator", role: "Role", user: "Specific user", branch_manager: "Branch manager" };
 const MAX_LEVELS = 5;
@@ -89,14 +90,14 @@ export function WorkflowSettings() {
         onOpenChange={(o) => !o && setEdit(null)}
         title={edit?.label ?? ""}
         wide
-        footer={<Button className="w-full md:w-auto" disabled={save.isPending} onClick={() => edit && save.mutate(edit)}>Save</Button>}
+        footer={<Button className="w-full md:w-auto" disabled={save.isPending} onClick={() => edit && save.mutate(edit)}>{t("Save")}</Button>}
       >
         {edit && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between"><span className="text-sm font-medium">Require approval</span><Switch checked={edit.enabled} onCheckedChange={(v) => setEdit({ ...edit, enabled: v })} /></div>
+            <div className="flex items-center justify-between"><span className="text-sm font-medium">{t("Require approval")}</span><Switch checked={edit.enabled} onCheckedChange={(v) => setEdit({ ...edit, enabled: v })} /></div>
 
             <section className="space-y-2">
-              <p className="label-caps">Approval levels (in order)</p>
+              <p className="label-caps">{t("Approval levels (in order)")}</p>
               {edit.levels.map((l, i) => (
                 <div key={i}>
                   {i > 0 && <ArrowDown className="mx-auto my-1 h-4 w-4 text-muted-foreground" />}
@@ -110,7 +111,7 @@ export function WorkflowSettings() {
                     {l.approver_type === "role" && (
                       <Field label="Role" className="min-w-40 flex-1">
                         <Select value={l.approver_role_id ?? ""} onChange={(v) => setLevel(i, { approver_role_id: v || null })}>
-                          <option value="">Choose…</option>
+                          <option value="">{t("Choose…")}</option>
                           {roles.data?.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                         </Select>
                       </Field>
@@ -118,7 +119,7 @@ export function WorkflowSettings() {
                     {l.approver_type === "user" && (
                       <Field label="User" className="min-w-40 flex-1">
                         <Select value={l.approver_user_id ?? ""} onChange={(v) => setLevel(i, { approver_user_id: v || null })}>
-                          <option value="">Choose…</option>
+                          <option value="">{t("Choose…")}</option>
                           {users.data?.filter((u) => u.is_active).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                         </Select>
                       </Field>
@@ -133,13 +134,13 @@ export function WorkflowSettings() {
                 <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">Discount approval happens at the counter: one supervisor enters their email and PIN at checkout.</p>
               ) : (
                 edit.levels.length < MAX_LEVELS && (
-                  <Button variant="outline" size="sm" onClick={() => setEdit({ ...edit, levels: [...edit.levels, { approver_type: "admin" }] })}><Plus /> Add level</Button>
+                  <Button variant="outline" size="sm" onClick={() => setEdit({ ...edit, levels: [...edit.levels, { approver_type: "admin" }] })}><Plus /> {t("Add level")}</Button>
                 )
               )}
             </section>
 
             <section className="space-y-4">
-              <p className="label-caps">Applies when (leave empty for always)</p>
+              <p className="label-caps">{t("Applies when (leave empty for always)")}</p>
               {edit.uses_amount && (
                 <Field label="Amount is at least" optional>
                   <Input inputMode="decimal" className="num" value={edit.min_amount ?? ""} onChange={(e) => setEdit({ ...edit, min_amount: e.target.value.replace(/[^\d.]/g, "") })} />

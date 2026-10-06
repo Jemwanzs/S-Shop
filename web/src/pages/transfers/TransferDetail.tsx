@@ -82,7 +82,7 @@ export default function TransferDetail() {
         </div>
       )}
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <Section title={`Items · ${count(t.total_units)} units`}>
+        <Section title={`Items · ${count(t.total_units)} ${tr("units")}`}>
           <ul className="divide-y">
             {data.items.map((i) => (
               <li key={i.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
@@ -126,11 +126,11 @@ export default function TransferDetail() {
             )}
           </Section>
           <div className="flex flex-col gap-2">
-            {data.can.submit && <Button onClick={() => act.mutate({ action: "submit" })} disabled={act.isPending}><Send /> Submit</Button>}
-            {data.can.dispatch && <Button onClick={() => act.mutate({ action: "dispatch" })} disabled={act.isPending}><Truck /> Dispatch</Button>}
-            {data.can.receive && <Button variant="success" onClick={() => setReceiving(true)} disabled={act.isPending}><PackageCheck /> Confirm receipt</Button>}
-            {data.can.cancel && <Button variant="outline" className="text-destructive" onClick={() => setCancelling(true)}><X /> Cancel transfer</Button>}
-            {t.status === "dispatched" && !data.can.receive && <p className="text-center text-sm text-muted-foreground">Waiting for {t.to_branch_name} to confirm receipt.</p>}
+            {data.can.submit && <Button onClick={() => act.mutate({ action: "submit" })} disabled={act.isPending}><Send /> {tr("Submit")}</Button>}
+            {data.can.dispatch && <Button onClick={() => act.mutate({ action: "dispatch" })} disabled={act.isPending}><Truck /> {tr("Dispatch")}</Button>}
+            {data.can.receive && <Button variant="success" onClick={() => setReceiving(true)} disabled={act.isPending}><PackageCheck /> {tr("Confirm receipt")}</Button>}
+            {data.can.cancel && <Button variant="outline" className="text-destructive" onClick={() => setCancelling(true)}><X /> {tr("Cancel transfer")}</Button>}
+            {t.status === "dispatched" && !data.can.receive && <p className="text-center text-sm text-muted-foreground">{tr("Waiting for")} {t.to_branch_name} to confirm receipt.</p>}
           </div>
         </div>
       </div>

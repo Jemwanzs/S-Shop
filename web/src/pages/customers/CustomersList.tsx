@@ -13,6 +13,7 @@ import { DataList, Pager, CardRow } from "@/components/DataList";
 import { SearchInput, Segments } from "@/components/Filters";
 import { Medal, Pill, PointsPill } from "@/components/Badges";
 import { CustomerForm } from "./CustomerForm";
+import { t } from "@/lib/i18n";
 
 const LIMIT = 50;
 
@@ -35,7 +36,7 @@ export default function CustomersList() {
         eyebrow="Customers"
         title="Customer book"
         description={data ? `${count(data.total)} customers` : undefined}
-        actions={can("customers.create") && <Button onClick={() => setParams({ new: "1" })}><UserPlus /> New customer</Button>}
+        actions={can("customers.create") && <Button onClick={() => setParams({ new: "1" })}><UserPlus /> {t("New customer")}</Button>}
       />
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center">
         <SearchInput value={q} onChange={(v) => { setQ(v); setOffset(0); }} placeholder="Name, nickname or mobile" className="md:w-80" />

@@ -3,6 +3,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { CameraOff, Check, Flashlight, FlashlightOff, Keyboard, Loader2, RefreshCw, SwitchCamera, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
+import { ApiError } from "@/lib/api";
 import { cameraProblemText, scanFeedback, startScanning, type CameraProblem, type CameraSession } from "@/lib/scanner";
 import { useIsDesktop } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
@@ -82,7 +83,10 @@ export function BarcodeScanner({
       try {
         result = await handler.current(code);
       } catch (e) {
-        result = { tone: "error", title: e instanceof Error ? e.message : String(e) };
+        result =
+          e instanceof ApiError && e.title
+            ? { tone: "error", title: e.title, detail: e.message }
+            : { tone: "error", title: e instanceof Error ? e.message : String(e) };
       }
       setBusy(false);
       if (result && result.tone === "error") {

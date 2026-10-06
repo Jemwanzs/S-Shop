@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardList, Minus, Plus, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { orderLabel, orderStepEnabled } from "@/lib/orders";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
@@ -113,7 +113,7 @@ function NewOrder({ open, onOpenChange, onCreated }: { open: boolean; onOpenChan
       setItems([]);
       onCreated(r.id);
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const setQty = (id: string, qty: number) => setItems((all) => all.map((i) => (i.product.id === id ? { ...i, quantity: Math.max(1, Math.min(qty, i.product.available)) } : i)));
 

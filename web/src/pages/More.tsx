@@ -16,7 +16,7 @@ export default function More() {
   const [pinOpen, setPinOpen] = useState(false);
   const bottom = new Set(BOTTOM.map((b) => b.to));
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-2xl space-y-5">
       <div className="surface card-body flex items-center gap-3">
         <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 font-semibold text-primary">{initials(profile?.user.name)}</span>
         <div className="min-w-0 flex-1">
@@ -31,11 +31,11 @@ export default function More() {
         if (!items.length) return null;
         return (
           <section key={g.group}>
-            <p className="label-caps mb-2 px-1">{t(g.group)}</p>
+            <p className="label-caps mb-1.5 px-1">{t(g.group)}</p>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {items.map((i) => (
-                <Link key={i.to} to={i.to} className="surface flex h-[5.75rem] flex-col items-center justify-center gap-1.5 p-2 text-center text-xs font-medium transition active:scale-95">
-                  <span className="rounded-xl bg-primary/10 p-2.5 text-primary"><i.icon className="h-5 w-5" /></span>
+                <Link key={i.to} to={i.to} className="surface flex h-[4.75rem] flex-col items-center justify-center gap-1 p-2 text-center text-xs font-medium leading-tight transition active:scale-95">
+                  <span className="rounded-lg bg-primary/10 p-2 text-primary"><i.icon className="h-5 w-5" /></span>
                   {t(i.label)}
                 </Link>
               ))}

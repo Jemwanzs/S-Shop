@@ -3,6 +3,7 @@
 //! Stock leaves the source on dispatch and only becomes sellable at the
 //! destination once receipt is confirmed (when receipt control is enabled).
 
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -54,13 +55,20 @@ struct TransferRow {
     dispatched_at: Option<DateTime<Utc>>,
     received_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
+    /// Units recorded on receipt as not arrived / arrived damaged, and why.
+    short_units: i64,
+    damaged_units: i64,
+    discrepancy_reason: String,
 }
 
 const SELECT: &str = "SELECT t.id, t.transfer_no, t.from_branch_id, fb.name AS from_branch_name, t.to_branch_id, tb.name AS to_branch_name,
         t.status, t.transfer_date, t.notes,
         (SELECT COALESCE(SUM(quantity),0) FROM transfer_items ti WHERE ti.transfer_id = t.id)::bigint AS total_units,
         cu.name AS created_by_name, au.name AS approved_by_name, du.name AS dispatched_by_name, ru.name AS received_by_name,
-        t.approved_at, t.dispatched_at, t.received_at, t.created_at
+        t.approved_at, t.dispatched_at, t.received_at, t.created_at,
+        (SELECT COALESCE(SUM(short_qty),0) FROM transfer_items ti WHERE ti.transfer_id = t.id)::bigint AS short_units,
+        (SELECT COALESCE(SUM(damaged_qty),0) FROM transfer_items ti WHERE ti.transfer_id = t.id)::bigint AS damaged_units,
+        t.discrepancy_reason
     FROM transfers t
     JOIN branches fb ON fb.id = t.from_branch_id JOIN branches tb ON tb.id = t.to_branch_id
     LEFT JOIN users cu ON cu.id = t.created_by LEFT JOIN users au ON au.id = t.approved_by
@@ -118,8 +126,8 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     ctx.require("stock.view")?;
     let mut conn = state.db.acquire().await?;
     let t = load(&mut conn, &ctx, id, false).await?;
-    let items: Vec<(Uuid, Uuid, String, String, i32, Option<String>)> = sqlx::query_as(
-        "SELECT ti.id, ti.product_id, p.name, p.code, ti.quantity, si.barcode FROM transfer_items ti
+    let items: Vec<(Uuid, Uuid, String, String, i32, Option<String>, i32, i32)> = sqlx::query_as(
+        "SELECT ti.id, ti.product_id, p.name, p.code, ti.quantity, si.barcode, ti.short_qty, ti.damaged_qty FROM transfer_items ti
          JOIN products p ON p.id = ti.product_id LEFT JOIN stock_items si ON si.id = ti.stock_item_id
          WHERE ti.transfer_id = $1 ORDER BY p.name",
     )
@@ -134,8 +142,9 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     });
     Ok(Json(json!({
         "transfer": t,
-        "items": items.into_iter().map(|(id, pid, name, code, qty, barcode)| json!({
+        "items": items.into_iter().map(|(id, pid, name, code, qty, barcode, short, damaged)| json!({
             "id": id, "product_id": pid, "product_name": name, "product_code": code, "quantity": qty, "barcode": barcode,
+            "short_qty": short, "damaged_qty": damaged, "received_qty": qty - short - damaged,
         })).collect::<Vec<_>>(),
         "can": can,
     })))
@@ -319,8 +328,9 @@ async fn submit(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     Ok(Json(json!({ "status": status, "approval_id": approval })))
 }
 
-async fn transfer_items(conn: &mut PgConnection, id: Uuid) -> AppResult<Vec<(Uuid, Option<Uuid>, i32)>> {
-    Ok(sqlx::query_as("SELECT product_id, stock_item_id, quantity FROM transfer_items WHERE transfer_id = $1")
+/// (line id, product, tracked unit, quantity)
+async fn transfer_items(conn: &mut PgConnection, id: Uuid) -> AppResult<Vec<(Uuid, Uuid, Option<Uuid>, i32)>> {
+    Ok(sqlx::query_as("SELECT id, product_id, stock_item_id, quantity FROM transfer_items WHERE transfer_id = $1")
         .bind(id)
         .fetch_all(&mut *conn)
         .await?)
@@ -338,7 +348,7 @@ async fn dispatch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
     let items = transfer_items(&mut tx, id).await?;
     let note = format!("Transfer {} → {}", t.transfer_no, t.to_branch_name);
-    for (product_id, item_id, qty) in &items {
+    for (_, product_id, item_id, qty) in &items {
         if let Some(si) = item_id {
             let n = sqlx::query("UPDATE stock_items SET status='in_transit', updated_at=now() WHERE id=$1 AND status='in_stock' AND branch_id=$2")
                 .bind(si)
@@ -362,7 +372,7 @@ async fn dispatch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
 
     let mut status = "dispatched";
     if !s.stock.transfer_receipt_control {
-        receive_inner(&mut tx, &ctx, &t, &items).await?;
+        receive_inner(&mut tx, &ctx, &t, &items, &Receipt::default()).await?;
         status = "received";
     }
     tx.commit().await?;
@@ -382,36 +392,99 @@ async fn dispatch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
         )
         .await;
     }
-    let products: Vec<Uuid> = items.iter().map(|i| i.0).collect();
+    let products: Vec<Uuid> = items.iter().map(|i| i.1).collect();
     super::stock::alert_levels(&state, ctx.tenant_id, t.from_branch_id, &products).await;
     state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": t.from_branch_id }));
     Ok(Json(json!({ "status": status })))
 }
 
-async fn receive_inner(conn: &mut PgConnection, ctx: &Ctx, t: &TransferRow, items: &[(Uuid, Option<Uuid>, i32)]) -> AppResult<()> {
+/// What the receiving branch found: per transfer line, units that did not arrive and units that arrived damaged.
+#[derive(Deserialize, Serialize, Default)]
+struct Receipt {
+    #[serde(default)]
+    lines: Vec<ReceiptLine>,
+    #[serde(default)]
+    reason: String,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+struct ReceiptLine {
+    id: Uuid,
+    #[serde(default)]
+    short: i32,
+    #[serde(default)]
+    damaged: i32,
+}
+
+/// Brings a dispatched transfer into the destination. Every dispatched unit is booked in (transfer_in); short and
+/// damaged units are then booked out at the destination as loss / damage with the reason, so the ledger explains
+/// every unit and only what arrived in good condition becomes sellable. Tracked units short or damaged are written off.
+async fn receive_inner(conn: &mut PgConnection, ctx: &Ctx, t: &TransferRow, items: &[(Uuid, Uuid, Option<Uuid>, i32)], r: &Receipt) -> AppResult<()> {
     let note = format!("Transfer {} from {}", t.transfer_no, t.from_branch_name);
-    for (product_id, item_id, qty) in items {
+    let reason = r.reason.trim();
+    for line in &r.lines {
+        let Some((_, _, _, qty)) = items.iter().find(|i| i.0 == line.id) else {
+            return Err(bad("A receipt line does not belong to this transfer"));
+        };
+        if line.short < 0 || line.damaged < 0 || line.short + line.damaged > *qty {
+            return Err(bad("Short and damaged units cannot exceed the quantity sent"));
+        }
+    }
+    let discrepancy = r.lines.iter().any(|l| l.short + l.damaged > 0);
+    if discrepancy && reason.chars().count() < 3 {
+        return Err(bad("Explain what was short or damaged"));
+    }
+    for (line_id, product_id, item_id, qty) in items {
+        let (short, damaged) = r.lines.iter().find(|l| l.id == *line_id).map_or((0, 0), |l| (l.short, l.damaged));
         if let Some(si) = item_id {
-            sqlx::query("UPDATE stock_items SET status='in_stock', branch_id=$2, updated_at=now() WHERE id=$1 AND status='in_transit'")
+            let status = if short + damaged > 0 { "written_off" } else { "in_stock" };
+            sqlx::query("UPDATE stock_items SET status=$3, branch_id=$2, updated_at=now() WHERE id=$1 AND status='in_transit'")
                 .bind(si)
                 .bind(t.to_branch_id)
+                .bind(status)
                 .execute(&mut *conn)
                 .await?;
         }
         let m = Movement::new(t.to_branch_id, *product_id, "transfer_in", *qty).item(*item_id).reference("transfer", t.id).notes(&note);
         inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), true, Check::None, m).await?;
+        for (kind, n, label) in [("loss", short, "Short on arrival"), ("damage", damaged, "Damaged on arrival")] {
+            if n > 0 {
+                let why = format!("{label} — {} ({reason})", t.transfer_no);
+                let m = Movement::new(t.to_branch_id, *product_id, kind, -n).item(*item_id).reference("transfer", t.id).notes(&why);
+                inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), true, Check::None, m).await?;
+            }
+        }
+        if short + damaged > 0 {
+            sqlx::query("UPDATE transfer_items SET short_qty = $2, damaged_qty = $3 WHERE id = $1")
+                .bind(line_id)
+                .bind(short)
+                .bind(damaged)
+                .execute(&mut *conn)
+                .await?;
+        }
     }
-    sqlx::query("UPDATE transfers SET status='received', received_by=$2, received_at=now() WHERE id=$1")
+    sqlx::query("UPDATE transfers SET status='received', received_by=$2, received_at=now(), discrepancy_reason=$3 WHERE id=$1")
         .bind(t.id)
         .bind(ctx.user_id)
+        .bind(if discrepancy { reason } else { "" })
         .execute(&mut *conn)
         .await?;
-    audit::record(conn, ctx, Entry::new("transfers", "receive", "transfer", t.id).branch(t.to_branch_id)).await
+    let mut e = Entry::new("transfers", "receive", "transfer", t.id).branch(t.to_branch_id);
+    if discrepancy {
+        e = e.after(r).comments(reason);
+    }
+    audit::record(conn, ctx, e).await
 }
 
-async fn receive(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+async fn receive(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, body: Bytes) -> AppResult<Json<Value>> {
     ctx.require("stock.receive_transfer")?;
     crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "transfers").await?;
+    // No body = everything arrived as sent.
+    let receipt: Receipt = if body.iter().all(u8::is_ascii_whitespace) {
+        Receipt::default()
+    } else {
+        serde_json::from_slice(&body).map_err(|_| bad("Invalid receipt"))?
+    };
     let mut tx = state.db.begin().await?;
     let t = load(&mut tx, &ctx, id, true).await?;
     ctx.ensure_branch(t.to_branch_id)?;
@@ -419,23 +492,35 @@ async fn receive(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) 
         return Err(rule("Only dispatched transfers can be received"));
     }
     let items = transfer_items(&mut tx, id).await?;
-    receive_inner(&mut tx, &ctx, &t, &items).await?;
+    receive_inner(&mut tx, &ctx, &t, &items, &receipt).await?;
     tx.commit().await?;
-    if let Some(creator) = sqlx::query_scalar::<_, Option<Uuid>>("SELECT created_by FROM transfers WHERE id = $1")
+    let (short, damaged): (i32, i32) = receipt.lines.iter().fold((0, 0), |a, l| (a.0 + l.short, a.1 + l.damaged));
+    let people: Vec<Uuid> = sqlx::query_scalar::<_, Option<Uuid>>("SELECT unnest(ARRAY[created_by, dispatched_by]) FROM transfers WHERE id = $1")
         .bind(id)
-        .fetch_one(&state.db)
+        .fetch_all(&state.db)
         .await?
-    {
-        notify::to_users(
-            &state,
-            ctx.tenant_id,
-            &[creator],
-            Note::new("transfer_received", format!("Transfer {} received", t.transfer_no), format!("Confirmed by {} at {}", ctx.name, t.to_branch_name), format!("/transfers/{id}")),
-        )
-        .await;
+        .into_iter()
+        .flatten()
+        .fold(vec![], |mut v, u| {
+            if !v.contains(&u) {
+                v.push(u);
+            }
+            v
+        });
+    if !people.is_empty() {
+        let (kind, title, body) = if short + damaged > 0 {
+            (
+                "transfer_discrepancy",
+                format!("Transfer {} received with discrepancies", t.transfer_no),
+                format!("{} at {}: {short} short, {damaged} damaged — {}", ctx.name, t.to_branch_name, receipt.reason.trim()),
+            )
+        } else {
+            ("transfer_received", format!("Transfer {} received", t.transfer_no), format!("Confirmed by {} at {}", ctx.name, t.to_branch_name))
+        };
+        notify::to_users(&state, ctx.tenant_id, &people, Note::new(kind, title, body, format!("/transfers/{id}"))).await;
     }
     state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": t.to_branch_id }));
-    Ok(Json(json!({ "status": "received" })))
+    Ok(Json(json!({ "status": "received", "short": short, "damaged": damaged })))
 }
 
 #[derive(Deserialize, Default)]

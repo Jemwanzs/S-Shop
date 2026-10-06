@@ -154,7 +154,7 @@ export default function Pos() {
       else if (r.link) window.open(r.link, "_blank");
       else toast.info("Add the customer's mobile to share receipts");
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     }
   };
 

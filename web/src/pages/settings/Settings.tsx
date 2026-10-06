@@ -74,10 +74,10 @@ export default function Settings() {
   const atIndex = /\/settings\/?$/.test(pathname);
 
   const nav = (
-    <nav className="space-y-5">
+    <nav className="space-y-4">
       {groups.map((g) => (
         <div key={g}>
-          <p className="label-caps mb-1.5 px-3">{t(g)}</p>
+          <p className="label-caps mb-1 px-3">{t(g)}</p>
           <div className="surface overflow-hidden lg:border-0 lg:bg-transparent lg:shadow-none">
             {sections.filter((s) => s.group === g).map((s) => (
               <NavLink
@@ -85,7 +85,7 @@ export default function Settings() {
                 to={`/settings/${s.path}`}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-3 border-b px-3 py-3 text-sm last:border-0 lg:rounded-lg lg:border-0 lg:py-2",
+                    "flex items-center gap-2.5 border-b px-3 py-2.5 text-sm last:border-0 lg:h-8 lg:rounded-md lg:border-0 lg:py-0",
                     isActive ? "bg-primary/10 font-medium text-primary" : "hover:bg-accent/50",
                   )
                 }

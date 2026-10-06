@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Copy, ExternalLink, ImagePlus, XCircle } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { optimizeImage } from "@/lib/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,7 @@ export function BusinessSettings() {
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["me"] });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const uploadLogo = async (file?: File) => {
     if (!file) return;
@@ -42,7 +42,7 @@ export function BusinessSettings() {
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["me"] });
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     }
   };
   const dirty = !!data && JSON.stringify(f) !== JSON.stringify(pickProfile(data.profile));

@@ -58,7 +58,7 @@ export default function StockCount() {
       qc.invalidateQueries({ queryKey: ["stock"] });
       navigate("/stock?tab=adjustments");
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   return (

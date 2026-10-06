@@ -1,20 +1,28 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Check, PackageCheck, Send, Truck, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, PackageCheck, Send, Truck, X } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { count, date, dateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page";
 import { StatusBadge } from "@/components/Badges";
-import { ConfirmDialog } from "@/components/Form";
+import { ConfirmDialog, Field } from "@/components/Form";
+import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Segments } from "@/components/Filters";
+import { t as tr } from "@/lib/i18n";
 import type { TransferRow } from "./TransfersList";
 
 interface Detail {
   transfer: TransferRow;
-  items: { id: string; product_id: string; product_name: string; product_code: string; quantity: number; barcode: string | null }[];
+  items: {
+    id: string; product_id: string; product_name: string; product_code: string; quantity: number; barcode: string | null;
+    short_qty: number; damaged_qty: number; received_qty: number;
+  }[];
   can: { submit: boolean; dispatch: boolean; receive: boolean; cancel: boolean };
 }
 
@@ -30,17 +38,19 @@ export default function TransferDetail() {
   const { id } = useParams();
   const qc = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
+  const [receiving, setReceiving] = useState(false);
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["transfer", id], queryFn: () => api<Detail>(`/transfers/${id}`) });
   const act = useMutation({
     mutationFn: ({ action, body }: { action: string; body?: unknown }) => api<{ status: string }>(`/transfers/${id}/${action}`, { method: "POST", body }),
     onSuccess: (r) => {
       toast.success(`Transfer ${r.status.replace("_", " ")}`);
       setCancelling(false);
+      setReceiving(false);
       qc.invalidateQueries({ queryKey: ["transfer", id] });
       qc.invalidateQueries({ queryKey: ["transfers"] });
       qc.invalidateQueries({ queryKey: ["stock"] });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   if (error) return <ErrorState error={error} retry={refetch} />;
@@ -80,7 +90,16 @@ export default function TransferDetail() {
                   <div className="font-medium">{i.product_name}</div>
                   <div className="num text-xs text-muted-foreground">{i.product_code}{i.barcode && ` · ${i.barcode}`}</div>
                 </div>
-                <span className="num font-semibold">{count(i.quantity)}</span>
+                <div className="text-end">
+                  <span className="num font-semibold">{count(i.quantity)}</span>
+                  {i.short_qty + i.damaged_qty > 0 && (
+                    <div className="num text-xs text-warning">
+                      {count(i.received_qty)} {tr("received")}
+                      {i.short_qty > 0 && ` · ${count(i.short_qty)} ${tr("short")}`}
+                      {i.damaged_qty > 0 && ` · ${count(i.damaged_qty)} ${tr("damaged")}`}
+                    </div>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -94,16 +113,34 @@ export default function TransferDetail() {
             {t.dispatched_at && <KV label="Dispatched">{t.dispatched_by_name} · {dateTime(t.dispatched_at)}</KV>}
             {t.received_at && <KV label="Received">{t.received_by_name} · {dateTime(t.received_at)}</KV>}
             {t.notes && <p className="mt-2 rounded-lg bg-muted p-3 text-sm">{t.notes}</p>}
+            {t.short_units + t.damaged_units > 0 && (
+              <div className="mt-2 flex gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <div className="font-medium">
+                    {tr("Received with discrepancies")}: {count(t.short_units)} {tr("short")}, {count(t.damaged_units)} {tr("damaged")}
+                  </div>
+                  <div className="text-xs">{t.discrepancy_reason}</div>
+                </div>
+              </div>
+            )}
           </Section>
           <div className="flex flex-col gap-2">
             {data.can.submit && <Button onClick={() => act.mutate({ action: "submit" })} disabled={act.isPending}><Send /> Submit</Button>}
             {data.can.dispatch && <Button onClick={() => act.mutate({ action: "dispatch" })} disabled={act.isPending}><Truck /> Dispatch</Button>}
-            {data.can.receive && <Button variant="success" onClick={() => act.mutate({ action: "receive" })} disabled={act.isPending}><PackageCheck /> Confirm receipt</Button>}
+            {data.can.receive && <Button variant="success" onClick={() => setReceiving(true)} disabled={act.isPending}><PackageCheck /> Confirm receipt</Button>}
             {data.can.cancel && <Button variant="outline" className="text-destructive" onClick={() => setCancelling(true)}><X /> Cancel transfer</Button>}
             {t.status === "dispatched" && !data.can.receive && <p className="text-center text-sm text-muted-foreground">Waiting for {t.to_branch_name} to confirm receipt.</p>}
           </div>
         </div>
       </div>
+      <ReceiveDialog
+        open={receiving}
+        onOpenChange={setReceiving}
+        items={data.items}
+        busy={act.isPending}
+        onConfirm={(body) => act.mutate({ action: "receive", body })}
+      />
       <ConfirmDialog
         open={cancelling}
         onOpenChange={setCancelling}
@@ -116,5 +153,93 @@ export default function TransferDetail() {
         onConfirm={(reason) => act.mutate({ action: "cancel", body: { reason } })}
       />
     </>
+  );
+}
+
+type Line = { short: number; damaged: number };
+
+/** Receipt check: what arrived, what is short and what is damaged — only good units become sellable. */
+function ReceiveDialog({ open, onOpenChange, items, busy, onConfirm }: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  items: Detail["items"];
+  busy: boolean;
+  onConfirm: (body: { lines: { id: string; short: number; damaged: number }[]; reason: string }) => void;
+}) {
+  const [lines, setLines] = useState<Record<string, Line>>({});
+  const [reason, setReason] = useState("");
+  const get = (id: string) => lines[id] ?? { short: 0, damaged: 0 };
+  const set = (id: string, patch: Partial<Line>, max: number) => {
+    const next = { ...get(id), ...patch };
+    next.short = Math.max(0, Math.min(next.short, max));
+    next.damaged = Math.max(0, Math.min(next.damaged, max - next.short));
+    setLines({ ...lines, [id]: next });
+  };
+  const sent = items.reduce((a, i) => a + i.quantity, 0);
+  const short = items.reduce((a, i) => a + get(i.id).short, 0);
+  const damaged = items.reduce((a, i) => a + get(i.id).damaged, 0);
+  const off = short + damaged > 0;
+  const valid = !off || reason.trim().length >= 3;
+  const num = (v: string) => Number(v.replace(/\D/g, "")) || 0;
+
+  return (
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) { setLines({}); setReason(""); }
+        onOpenChange(o);
+      }}
+      title="Confirm receipt"
+      description="Check what arrived. Short or damaged units are recorded against this transfer and are not added to sellable stock."
+      footer={
+        <Button
+          variant="success"
+          className="w-full md:w-auto"
+          disabled={!valid || busy}
+          onClick={() => onConfirm({ lines: items.map((i) => ({ id: i.id, ...get(i.id) })).filter((l) => l.short + l.damaged > 0), reason: reason.trim() })}
+        >
+          <PackageCheck /> {off ? tr("Receive with discrepancies") : tr("Everything arrived")}
+        </Button>
+      }
+    >
+      <ul className="divide-y">
+        {items.map((i) => {
+          const l = get(i.id);
+          return (
+            <li key={i.id} className="space-y-2 py-3">
+              <div className="flex items-start justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{i.product_name}</div>
+                  <div className="num truncate text-xs text-muted-foreground">{i.product_code}{i.barcode && ` · ${i.barcode}`}</div>
+                </div>
+                <span className="num shrink-0 text-xs text-muted-foreground">{tr("Sent")} {count(i.quantity)}</span>
+              </div>
+              {i.barcode ? (
+                <Segments
+                  value={l.short ? "short" : l.damaged ? "damaged" : "ok"}
+                  onChange={(v) => set(i.id, { short: v === "short" ? 1 : 0, damaged: v === "damaged" ? 1 : 0 }, 1)}
+                  options={[{ value: "ok", label: "Received" }, { value: "short", label: "Missing" }, { value: "damaged", label: "Damaged" }]}
+                />
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Received"><Input readOnly className="num bg-muted" value={count(i.quantity - l.short - l.damaged)} /></Field>
+                  <Field label="Short"><Input inputMode="numeric" className="num" value={l.short || ""} placeholder="0" onChange={(e) => set(i.id, { short: num(e.target.value) }, i.quantity)} /></Field>
+                  <Field label="Damaged"><Input inputMode="numeric" className="num" value={l.damaged || ""} placeholder="0" onChange={(e) => set(i.id, { damaged: num(e.target.value) }, i.quantity)} /></Field>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <div className={cn("mt-2 rounded-lg p-3 text-sm", off ? "bg-warning/10 text-warning" : "bg-success/10 text-success")}>
+        <span className="num font-medium">{count(sent - short - damaged)}</span> {tr("of")} <span className="num">{count(sent)}</span> {tr("units go into stock")}
+        {off && <span className="num"> · {count(short)} {tr("short")} · {count(damaged)} {tr("damaged")}</span>}
+      </div>
+      {off && (
+        <Field label="What happened?" className="mt-3" hint="Required — saved with the transfer, the stock record and the audit trail">
+          <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={tr("e.g. 1 bottle broken in the box, 2 not in the carton")} />
+        </Field>
+      )}
+    </ResponsiveDialog>
   );
 }

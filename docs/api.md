@@ -114,7 +114,7 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | GET | `/api/transfers/{id}` |
 | POST | `/api/transfers/{id}/submit` |
 | POST | `/api/transfers/{id}/dispatch` |
-| POST | `/api/transfers/{id}/receive` |
+| POST | `/api/transfers/{id}/receive` — optional `{lines: [{id, short, damaged}], reason}` (no body = all arrived) |
 | POST | `/api/transfers/{id}/cancel` |
 
 ## Customers
@@ -151,6 +151,7 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | GET | `/api/sales` |
 | POST | `/api/sales` |
 | GET | `/api/sales/{id}` |
+| POST | `/api/sales/check-barcode` — `{product_id, barcode, branch_id?}`: same rules as checkout; refusals are 422 with `error.title` |
 | POST | `/api/sales/{id}/return` |
 | POST | `/api/sales/{id}/cancel` |
 | POST | `/api/sales/{id}/share` |

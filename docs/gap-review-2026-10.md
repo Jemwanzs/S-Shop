@@ -31,6 +31,8 @@ every sale, order, payment, credit sale, stock movement and return (database tri
 transaction) that dashboards, reports, lists and leaderboards filter on.
 Step 4 done (2026-10-06) — item 14 is now ✅: **geofencing** (branch location, radius, on/off; *anywhere* or *at the
 branch* for chosen areas; server-side distance check; `location.bypass`; device location in the audit trail).
+Step 5 done (2026-10-06) — items 15–16 ✅: **transfer receipt with discrepancies** (short / damaged per line with a
+reason, written to the ledger at the destination as loss / damage, audited, sender notified).
 
 **Order of work** (each end-to-end: database → backend → permissions → UI → audit → reports, with demo data):
 1. Access: `staff.view_others` + data scoping, My Dashboard, recent activity, `sales.print`, settings areas, role deactivation.

@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Gift, MessageCircle, Pencil, Phone, SlidersHorizontal, UserPlus } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { count, date, dateTime, initials, methodLabel, money, phone, signed, titleCase, toNum } from "@/lib/format";
 import type { Customer, Money, Paged } from "@/lib/types";
@@ -60,7 +60,7 @@ export default function CustomerDetail() {
       setNotes("");
       qc.invalidateQueries({ queryKey: ["customer", id] });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const refer = useMutation({
     mutationFn: (referredId: string) => api("/referrals", { body: { referrer_id: id, referred_id: referredId } }),
@@ -70,7 +70,7 @@ export default function CustomerDetail() {
       setReferred("");
       qc.invalidateQueries({ queryKey: ["customer", id] });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const message = async () => {
     try {
@@ -78,7 +78,7 @@ export default function CustomerDetail() {
       if (r.sent) toast.success("Message sent on WhatsApp");
       else window.open(r.link, "_blank");
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     }
   };
 

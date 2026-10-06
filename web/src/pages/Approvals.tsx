@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ShieldCheck, Undo2, X } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { ago, dateTime, money } from "@/lib/format";
 import type { Approval, Paged } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -69,12 +69,12 @@ export default function Approvals() {
       setComments("");
       refresh();
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const withdraw = useMutation({
     mutationFn: (id: string) => api(`/approvals/${id}/withdraw`, { method: "POST" }),
     onSuccess: () => { toast.success("Request withdrawn"); refresh(); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   return (

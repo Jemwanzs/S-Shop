@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRightLeft, Building2, FlaskConical, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { ago, count } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -54,12 +54,12 @@ export function BusinessesSettings() {
       toast.success(`${t("Now in")} ${r.profile.tenant.name}`);
       navigate(r.profile.branches.length > 1 ? "/select-branch" : "/", { replace: true });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const build = useMutation({
     mutationFn: (reset: boolean) => api("/platform/demo", { body: { reset } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["platform-demo"] }),
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   const st = demo.data?.status;

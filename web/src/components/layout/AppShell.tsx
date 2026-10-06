@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, Loader2, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useLiveEvents } from "@/lib/events";
 import { initials } from "@/lib/format";
@@ -125,7 +125,7 @@ export function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange:
       toast.success("PIN changed — use the new PIN next time you sign in");
       onOpenChange(false);
     } catch (err) {
-      toast.error(errorMessage(err));
+      toast.error(err);
     } finally {
       setBusy(false);
     }
@@ -221,7 +221,7 @@ function ActingBanner() {
       switchBusiness(r.token, r.profile);
       navigate(r.profile.branches.length > 1 ? "/select-branch" : "/settings/businesses", { replace: true });
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     } finally {
       setBusy(false);
     }
@@ -245,13 +245,13 @@ function Sidebar({ approvals }: { approvals: number }) {
         <Brand />
         <BranchSwitcher />
       </div>
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+      <nav className="scroll-thin flex-1 space-y-4 overflow-y-auto px-3 pb-4">
         {NAV.map((g) => {
           const items = g.items.filter((i) => allowed(i, can));
           if (!items.length) return null;
           return (
             <div key={g.group}>
-              <p className="label-caps px-3 pb-1.5">{t(g.group)}</p>
+              <p className="label-caps px-3 pb-1">{t(g.group)}</p>
               {items.map((i) => (
                 <NavLink
                   key={i.to}
@@ -259,12 +259,12 @@ function Sidebar({ approvals }: { approvals: number }) {
                   end={i.to === "/"}
                   className={({ isActive }) =>
                     cn(
-                      "group flex h-10 items-center gap-3 rounded-lg px-3 text-sm transition-colors",
+                      "group flex h-8 items-center gap-2.5 rounded-md px-3 text-sm transition-colors",
                       isActive ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
                     )
                   }
                 >
-                  <i.icon className="h-[18px] w-[18px]" />
+                  <i.icon className="h-4 w-4 shrink-0" />
                   <span className="flex-1 truncate">{t(i.label)}</span>
                   {i.to === "/approvals" && approvals > 0 && (
                     <span className="num rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{approvals}</span>

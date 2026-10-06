@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Banknote, MessageCircle } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { date, dateTime, methodLabel, money, phone, titleCase, toNum } from "@/lib/format";
 import type { CreditRow, Money, Outcome } from "@/lib/types";
@@ -45,7 +45,7 @@ export default function CreditDetail() {
       setReference("");
       refresh();
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const writeOff = useMutation({
     mutationFn: (reason: string) => api<Outcome<unknown>>(`/credit/${id}/write-off`, { body: { reason } }),
@@ -54,7 +54,7 @@ export default function CreditDetail() {
       setWriting(false);
       refresh();
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const remind = async () => {
     try {
@@ -62,7 +62,7 @@ export default function CreditDetail() {
       if (r.sent) toast.success("Reminder sent on WhatsApp");
       else window.open(r.link, "_blank");
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     }
   };
 

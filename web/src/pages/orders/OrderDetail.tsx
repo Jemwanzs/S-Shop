@@ -62,7 +62,7 @@ export default function OrderDetail() {
       qc.invalidateQueries({ queryKey: ["order", id] });
       qc.invalidateQueries({ queryKey: ["orders"] });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   if (error) return <ErrorState error={error} retry={refetch} />;

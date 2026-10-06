@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FileDown, FileSpreadsheet, Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, download, errorMessage } from "@/lib/api";
+import { api, download } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { amount, date, dateTime, titleCase } from "@/lib/format";
 import { tablePdf } from "@/lib/pdf";
@@ -90,7 +90,7 @@ export default function ReportView() {
     try {
       await download(`/reports/${key}`, { ...query, format: "xlsx" }, `${data.report.key}-${data.from}-${data.to}.xlsx`);
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     } finally {
       setExporting(null);
     }

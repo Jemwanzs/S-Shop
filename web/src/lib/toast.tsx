@@ -4,6 +4,7 @@ import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
+import { ApiError } from "@/lib/api";
 
 /**
  * App-wide notifications. Confirmations (success/info) are brief toasts at the top centre;
@@ -21,10 +22,21 @@ let nextId = 1;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
-function showError(message: ReactNode, data?: ExternalToast) {
+/** Accepts a message or an error: a titled API error shows its title with the explanation beneath. */
+function showError(error: ReactNode | unknown, data?: ExternalToast) {
+  let message: ReactNode;
+  let description = data?.description as ReactNode;
+  if (error instanceof ApiError && error.title) {
+    message = error.title;
+    description ??= error.message;
+  } else if (error instanceof Error) {
+    message = error.message;
+  } else {
+    message = error as ReactNode;
+  }
   // The same message twice in a row (e.g. a retried request) is shown once.
-  if (queue.some((a) => a.message === message)) return 0;
-  const alert = { id: nextId++, message, description: data?.description as ReactNode };
+  if (queue.some((a) => a.message === message && a.description === description)) return 0;
+  const alert = { id: nextId++, message, description };
   queue = [...queue, alert];
   emit();
   return alert.id;

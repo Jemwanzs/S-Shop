@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, ImagePlus, Loader2, PackagePlus, Pencil, Power, Star, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { optimizeImage } from "@/lib/image";
 import { count, dateTime, money, signed, titleCase } from "@/lib/format";
@@ -60,7 +60,7 @@ export default function ProductDetail() {
       setToggling(false);
       refresh();
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const upload = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -74,7 +74,7 @@ export default function ProductDetail() {
       toast.success("Photos added");
       refresh();
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     } finally {
       setUploading(false);
     }
@@ -84,7 +84,7 @@ export default function ProductDetail() {
       await api(`/products/${id}/photos/${photoId}${action === "primary" ? "/primary" : ""}`, { method: action === "primary" ? "POST" : "DELETE" });
       refresh();
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     }
   };
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { titleCase, toNum } from "@/lib/format";
 import type { CustomField, MedalTargets, Settings } from "@/lib/types";
@@ -71,11 +71,11 @@ function NamedList({ endpoint, queryKey, title, extra }: { endpoint: string; que
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const done = () => qc.invalidateQueries({ queryKey: [queryKey] });
-  const add = useMutation({ mutationFn: () => api(endpoint, { body: { name } }), onSuccess: () => { setName(""); done(); }, onError: (e) => toast.error(errorMessage(e)) });
+  const add = useMutation({ mutationFn: () => api(endpoint, { body: { name } }), onSuccess: () => { setName(""); done(); }, onError: (e) => toast.error(e) });
   const save = useMutation({
     mutationFn: (b: { id: string; name: string; is_active?: boolean }) => api(`${endpoint}/${b.id}`, { method: "PUT", body: b }),
     onSuccess: () => { setEditing(null); done(); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   return (
     <Card title={title}>
@@ -264,7 +264,7 @@ function FieldsCard({ kind, empty }: { kind: FieldKind; empty: string }) {
         body: { label: f.label, field_type: f.field_type, options: f.options ?? [], required: !!f.required, is_active: f.is_active ?? true, display_order: f.display_order ?? 0 },
       }),
     onSuccess: () => { setEditing(null); qc.invalidateQueries({ queryKey: [`${kind}-fields`] }); toast.success("Field saved"); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   return (
     <>

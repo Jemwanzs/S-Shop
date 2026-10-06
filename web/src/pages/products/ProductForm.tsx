@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImagePlus, Loader2, Plus, ScanLine, X } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { optimizeImage } from "@/lib/image";
 import type { Category, Outcome, Product, Supplier } from "@/lib/types";
@@ -84,7 +84,7 @@ export default function ProductForm() {
       custom_fields: p.custom_fields ?? {},
       ...(assignBarcode && !p.track_items ? { barcode: assignBarcode } : {}),
     });
-  }, [existing.data]);
+  }, [existing.data, assignBarcode]);
 
   const quickAdd = async (kind: "categories" | "suppliers", name: string) => {
     try {
@@ -94,7 +94,7 @@ export default function ProductForm() {
       if (kind === "categories") setNewCategory(null);
       else setNewSupplier(null);
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     }
   };
 
@@ -136,7 +136,7 @@ export default function ProductForm() {
         navigate(`/products/${productId}`);
       }
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   if (editing && existing.isLoading) return <Loading />;

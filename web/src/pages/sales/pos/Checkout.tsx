@@ -132,7 +132,7 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
       setStk({ id: r.id, status: "pending", result_desc: r.message, mpesa_receipt: null, amount: String(payAmount) });
       toast.success(r.message);
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   const complete = useMutation({
@@ -165,7 +165,7 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
     onSuccess: onDone,
     onError: (e) => {
       if (e instanceof ApiError && /supervisor/i.test(e.message)) setNeedSupervisor(true);
-      toast.error(errorMessage(e));
+      toast.error(e);
     },
   });
 

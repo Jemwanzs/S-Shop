@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { phone } from "@/lib/format";
 import type { Customer } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -43,7 +43,7 @@ export function CustomerForm({ open, onOpenChange, customer, onSaved }: { open: 
       onOpenChange(false);
       onSaved?.(customer?.id ?? r.id!);
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
 

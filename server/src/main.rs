@@ -83,10 +83,28 @@ async fn connect() -> anyhow::Result<sqlx::PgPool> {
     let db = PgPoolOptions::new()
         .max_connections(20)
         .acquire_timeout(Duration::from_secs(10))
+        // Recycle connections so none sits stale for long (a silently dropped socket can stall the health ping).
+        .idle_timeout(Duration::from_secs(10 * 60))
+        .max_lifetime(Duration::from_secs(30 * 60))
         .connect(&url)
         .await?;
     sqlx::migrate!("./migrations").run(&db).await?;
     Ok(db)
+}
+
+/// Browser hardening for every response. The CSP allows only this site's scripts (no inline script), Google Fonts,
+/// and images from this site, data: and blob: (photo previews); camera and location only for this site.
+fn security_headers(app: Router) -> Router {
+    const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+    let set = |name: &'static str, value: &'static str| {
+        SetResponseHeaderLayer::if_not_present(header::HeaderName::from_static(name), HeaderValue::from_static(value))
+    };
+    app.layer(set("content-security-policy", CSP))
+        .layer(set("strict-transport-security", "max-age=31536000; includeSubDomains"))
+        .layer(set("x-content-type-options", "nosniff"))
+        .layer(set("x-frame-options", "DENY"))
+        .layer(set("referrer-policy", "strict-origin-when-cross-origin"))
+        .layer(set("permissions-policy", "camera=(self), geolocation=(self), microphone=(), payment=()"))
 }
 
 async fn serve() -> anyhow::Result<()> {
@@ -132,6 +150,7 @@ async fn serve() -> anyhow::Result<()> {
         .with_state(state)
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http());
+    app = security_headers(app);
 
     if !cors_origins.is_empty() {
         let origins: Vec<HeaderValue> = cors_origins.iter().filter_map(|o| o.parse().ok()).collect();

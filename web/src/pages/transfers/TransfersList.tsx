@@ -31,6 +31,9 @@ export interface TransferRow {
   dispatched_at: string | null;
   received_at: string | null;
   created_at: string;
+  short_units: number;
+  damaged_units: number;
+  discrepancy_reason: string;
 }
 
 const LIMIT = 50;

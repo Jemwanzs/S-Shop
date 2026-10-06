@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ChevronDown, Images, Minus, Plus, ScanLine, Store } from "lucide-react";
 import { api, photoUrl } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { t } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 import { count, money, signed, toNum } from "@/lib/format";
 import type { PosProduct } from "@/lib/types";
@@ -10,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/Form";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
-import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { StockIndicator } from "@/components/Badges";
 import type { CartLine } from "./cart";
@@ -39,6 +41,8 @@ export function ItemSheet({
   initialBarcode?: string;
 }) {
   const { profile, can } = useSession();
+  const verify = (code: string) =>
+    api<{ ok: boolean }>("/sales/check-barcode", { body: { product_id: product!.id, barcode: code } });
   const s = profile!.settings;
   const markedPrice = toNum(product?.marked_price);
   const [qty, setQty] = useState(1);
@@ -55,9 +59,22 @@ export function ItemSheet({
     const p = editing?.unitPrice ?? markedPrice;
     setPrice(String(p));
     setDiscount(markedPrice - p > 0 ? String(markedPrice - p) : "");
-    setBarcode(editing?.barcode ?? initialBarcode);
+    setBarcode(editing?.barcode);
     setShowOther(false);
-  }, [product, editing, markedPrice, initialBarcode]);
+  }, [product, editing, markedPrice]);
+
+  // A barcode scanned on the till before opening this item is checked like any other scan.
+  useEffect(() => {
+    if (!product || editing || !initialBarcode) return;
+    let live = true;
+    verify(initialBarcode)
+      .then(() => live && setBarcode(initialBarcode))
+      .catch((e) => live && toast.error(e));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per opened item
+  }, [product?.id, editing, initialBarcode]);
 
   const availability = useQuery({
     queryKey: ["availability", product?.id],
@@ -77,16 +94,19 @@ export function ItemSheet({
   const unitDisc = markedPrice - unit;
   const overMax = product.max_discount !== null && unitDisc > toNum(product.max_discount);
   const needsBarcode = product.track_items || (s.sales.require_barcode_clearance && !!product.barcode);
-  const barcodeOk = !needsBarcode || (!!barcode && (product.track_items || barcode === product.barcode));
+  // `barcode` is only set after the server confirmed it belongs to this product, branch and available stock.
+  const barcodeOk = !needsBarcode || !!barcode;
   const belowMarkedBlocked = unitDisc > 0 && !can("sales.discount");
   const maxQty = Math.max(product.available, 0);
   const valid = unit >= 0 && price !== "" && qty >= 1 && qty <= maxQty && barcodeOk && !belowMarkedBlocked;
 
-  const onScan = (code: string) => {
+  const onScan = async (code: string): Promise<ScanOutcome | void> => {
     if (product.track_items && takenBarcodes.includes(code) && code !== editing?.barcode) {
       setBarcode(undefined);
-      return;
+      return { tone: "error", title: t("Already in this sale"), detail: t("This item has already been added to the cart.") };
     }
+    setBarcode(undefined);
+    await verify(code); // throws a titled error (mismatch, wrong branch, sold …) shown inside the scanner
     setBarcode(code);
   };
 

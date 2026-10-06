@@ -43,12 +43,12 @@ export default function SaleDetail() {
         body: { reason, restock, refund_method: refundMethod, items: Object.entries(qty).filter(([, q]) => q > 0).map(([sale_item_id, quantity]) => ({ sale_item_id, quantity })) },
       }),
     onSuccess: (r) => done(r, "Return processed"),
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const cancel = useMutation({
     mutationFn: (reason: string) => api<Outcome<unknown>>(`/sales/${id}/cancel`, { body: { reason, refund_method: refundMethod } }),
     onSuccess: (r) => done(r, "Sale cancelled"),
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const share = async () => {
     try {
@@ -57,7 +57,7 @@ export default function SaleDetail() {
       else if (r.link) window.open(r.link, "_blank");
       else toast.info("This sale has no customer mobile");
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     }
   };
 

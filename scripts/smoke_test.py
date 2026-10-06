@@ -593,6 +593,84 @@ call("PUT", f"/branches/{BRANCH}", {**g_body, "geofence": {"latitude": -1.2841, 
 sell(token=seller)
 check("back to anywhere", True)
 
+step("Record Sale: strict barcode validation")
+import threading as _th
+ring = call("POST", "/products", {"name": f"Ring {suffix}", "marked_price": 900, "cost_price": 500, "track_items": True})["result"]["id"]
+chain = call("POST", "/products", {"name": f"Chain {suffix}", "marked_price": 700, "cost_price": 400, "track_items": True})["result"]["id"]
+R = [f"RG{suffix}{i}" for i in range(5)]
+call("POST", "/stock/receive", {"product_id": ring, "quantity": 4, "barcodes": R[:4]})
+call("POST", "/stock/receive", {"product_id": chain, "quantity": 1, "barcodes": [f"CH{suffix}"]})
+call("POST", "/stock/receive", {"product_id": ring, "quantity": 1, "barcodes": [R[4]], "branch_id": b2}, branch=b2)
+def cb(code, product=ring, expect=200):
+    return call("POST", "/sales/check-barcode", {"product_id": product, "barcode": code}, token=seller, expect=expect)
+def title(code, product=ring):
+    return cb(code, product, 422)["error"]["title"]
+check("valid item accepted at scan time", cb(R[0])["ok"] is True)
+check("another product's barcode: mismatch", title(f"CH{suffix}") == "Barcode mismatch")
+check("unknown barcode", title(f"NOPE{suffix}") == "Unknown barcode")
+check("item held at another branch", title(R[4]) == "Wrong branch")
+def sell_items(codes, token=None, expect=200):
+    return call("POST", "/sales", {"items": [{"product_id": ring, "quantity": 1, "unit_price": 900, "barcode": c} for c in codes],
+                                   "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, token=token or seller, expect=expect)
+check("same item twice in one sale refused", sell_items([R[1], R[1]], expect=422)["error"]["title"] == "Already in this sale")
+check("checkout refuses another product's barcode", sell_items([f"CH{suffix}"], expect=422)["error"]["title"] == "Barcode mismatch")
+sell_items([R[0]])
+check("sold item refused at scan", title(R[0]) == "Item already sold")
+check("sold item refused at checkout", sell_items([R[0]], expect=422)["error"]["title"] == "Item already sold")
+tr = call("POST", "/transfers", {"to_branch_id": b2, "items": [{"product_id": ring, "quantity": 1, "barcodes": [R[3]]}], "submit": True})
+call("POST", f"/transfers/{tr['id']}/dispatch")
+check("item in transit refused", title(R[3]) == "Item in transit")
+# Two tills sell the same unit at the same moment: exactly one succeeds.
+results = []
+def race():
+    try:
+        sell_items([R[2]]); results.append(200)
+    except AssertionError as e:
+        results.append(422 if "422" in str(e) else str(e))
+threads = [_th.Thread(target=race) for _ in range(2)]
+[t_.start() for t_ in threads]; [t_.join() for t_ in threads]
+check("simultaneous sale of one unit: one wins", sorted(results) == [200, 422], results)
+mv = [m for m in call("GET", f"/stock/movements?period=today&product_id={ring}&limit=50")["items"] if m["kind"] == "sale"]
+check("exact units cleared with a movement each", sorted(m["barcode"] for m in mv) == sorted([R[0], R[2]]), [m["barcode"] for m in mv])
+check("units cleared only by completed sales", next(x for x in call("GET", f"/stock?q=Ring {suffix}")["items"])["on_hand"] == 1)
+
+step("Roadmap 18: transfer receipt with discrepancies")
+call("POST", "/stock/receive", {"product_id": nduma, "quantity": 10, "cost_price": 250})
+call("POST", "/stock/receive", {"product_id": chain, "quantity": 2, "barcodes": [f"CH{suffix}b", f"CH{suffix}c"]})
+def level(pid, br):
+    return call("GET", f"/stock?q=Nduma {suffix}", branch=br)["items"][0]["on_hand"]
+src0, dst0 = level(nduma, BRANCH), level(nduma, b2)
+dt = call("POST", "/transfers", {"to_branch_id": b2, "items": [{"product_id": nduma, "quantity": 6},
+                                  {"product_id": chain, "quantity": 2, "barcodes": [f"CH{suffix}b", f"CH{suffix}c"]}], "submit": True})
+call("POST", f"/transfers/{dt['id']}/dispatch")
+lines = {(i["product_id"], i["barcode"]): i["id"] for i in call("GET", f"/transfers/{dt['id']}")["items"]}
+nd_line, ch_damaged = lines[(nduma, None)], lines[(chain, f"CH{suffix}c")]
+call("POST", f"/transfers/{dt['id']}/receive", {"lines": [{"id": nd_line, "short": 2, "damaged": 1}], "reason": ""}, branch=b2, expect=400)
+check("discrepancy needs a reason", True)
+call("POST", f"/transfers/{dt['id']}/receive", {"lines": [{"id": nd_line, "short": 5, "damaged": 2}], "reason": "Box crushed"}, branch=b2, expect=400)
+check("cannot report more than was sent", True)
+call("POST", f"/transfers/{dt['id']}/receive", {"lines": [{"id": str(uuid.uuid4()), "short": 1}], "reason": "Box crushed"}, branch=b2, expect=400)
+check("lines must belong to the transfer", True)
+rc = call("POST", f"/transfers/{dt['id']}/receive", {"lines": [{"id": nd_line, "short": 2, "damaged": 1}, {"id": ch_damaged, "damaged": 1}],
+                                                     "reason": "2 missing from the carton, 1 crushed; chain clasp broken"}, branch=b2)
+check("received with discrepancies", rc["status"] == "received" and rc["short"] == 2 and rc["damaged"] == 2, rc)
+check("only good units become stock at the destination", level(nduma, b2) - dst0 == 3, (dst0, level(nduma, b2)))
+check("source was reduced by everything sent", src0 - level(nduma, BRANCH) == 6, (src0, level(nduma, BRANCH)))
+dd = call("GET", f"/transfers/{dt['id']}")
+nl = next(i for i in dd["items"] if i["id"] == nd_line)
+check("line shows received / short / damaged", (nl["received_qty"], nl["short_qty"], nl["damaged_qty"]) == (3, 2, 1), nl)
+check("transfer keeps the reason", dd["transfer"]["short_units"] == 2 and dd["transfer"]["damaged_units"] == 2 and "carton" in dd["transfer"]["discrepancy_reason"])
+mv_t = [m for m in call("GET", f"/stock/movements?period=today&limit=200&branch_id={b2}", branch=b2)["items"] if m["ref_id"] == dt["id"]]
+kinds = sorted((m["kind"], m["quantity"]) for m in mv_t if m["product_id"] == nduma)
+check("ledger: in 6, loss 2, damage 1", kinds == [("damage", -1), ("loss", -2), ("transfer_in", 6)], kinds)
+check("damaged tracked unit written off, good one in stock",
+      title(f"CH{suffix}b", chain) == "Wrong branch" and title(f"CH{suffix}c", chain) == "Item written off")
+aud_t = [x for x in call("GET", f"/audit?period=today&entity_id={dt['id']}&limit=20")["items"] if x["action"] == "receive"]
+check("receipt audited with the discrepancy", aud_t and "carton" in aud_t[0]["comments"], aud_t[:1])
+ok_t = call("POST", "/transfers", {"to_branch_id": b2, "items": [{"product_id": nduma, "quantity": 1}], "submit": True})
+call("POST", f"/transfers/{ok_t['id']}/dispatch")
+check("receipt with no body still receives everything", call("POST", f"/transfers/{ok_t['id']}/receive", branch=b2)["status"] == "received")
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

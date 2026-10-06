@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import type { Money, Settings } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/Page";
@@ -51,7 +51,7 @@ export function useSettingsDraft() {
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["me"] });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const dirty = !!draft && !!q.data && JSON.stringify(draft) !== JSON.stringify(q.data.settings);
   const update = (fn: (s: Settings) => void) =>

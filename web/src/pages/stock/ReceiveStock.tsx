@@ -132,7 +132,7 @@ export default function ReceiveStock() {
       setQty("1");
       setReference("");
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   const valid = !!p && quantity > 0 && (!qtyLocked || quantity === 1) && (s.stock.barcode_requirement !== "required" || tracked || barcodes.length > 0 || !!p.barcode);

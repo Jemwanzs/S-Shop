@@ -45,6 +45,8 @@ export class ApiError extends Error {
     message: string,
     public status: number,
     public code: string,
+    /** Short heading for the error popup ("Barcode mismatch"); `message` is then the explanation. */
+    public title?: string,
   ) {
     super(message);
   }
@@ -100,8 +102,8 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   const text = await res.text();
   const data = text ? safeJson(text) : null;
   if (!res.ok) {
-    const err = (data as { error?: { message?: string; code?: string } } | null)?.error;
-    throw new ApiError(err?.message ?? `Request failed (${res.status})`, res.status, err?.code ?? "error");
+    const err = (data as { error?: { message?: string; code?: string; title?: string | null } } | null)?.error;
+    throw new ApiError(err?.message ?? `Request failed (${res.status})`, res.status, err?.code ?? "error", err?.title ?? undefined);
   }
   return data as T;
 }

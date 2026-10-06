@@ -59,7 +59,9 @@ photos hidden on operational screens until “View photos”; the ordering porta
 - **Notifications** — import `toast` from `@/lib/toast` (never from `sonner` directly). `toast.success` / `toast.info`
   are brief toasts at the top centre (5 s, close × on the right). `toast.error` opens a **centred alert** with an icon,
   close × top-right and an OK button; it stays until dismissed, repeats are collapsed and several queue one after
-  another (`AlertHost`, mounted once in `App.tsx`).
+  another (`AlertHost`, mounted once in `App.tsx`). Pass the error itself — `toast.error(e)`: when the server sends a
+  titled refusal (`error.title`, e.g. *Barcode mismatch*) the alert shows the title with the explanation beneath.
+  Inside the scanner, the same titled error is shown in place with *Scan again*.
 - **Page crashes** — each page renders inside an `ErrorBoundary` (keyed by path) in the app shell: a failing page
   shows a "Reload" card while the menus keep working. Pages load inside the shell's `Suspense`, so navigation stays
   visible while a page downloads.

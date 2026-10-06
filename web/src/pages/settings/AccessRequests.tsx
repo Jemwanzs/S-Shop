@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, Check, Copy, Mail, MapPin, MessageCircle, Phone, X } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { ago, dateTime } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -56,12 +56,12 @@ export function AccessRequests() {
   const approve = useMutation({
     mutationFn: (r: AccessRequest) => api<Omit<Approved, "business">>(`/platform/access-requests/${r.id}/approve`, { method: "POST" }).then((res) => ({ ...res, business: r.business_name })),
     onSuccess: (res) => { setApproved(res); refresh(); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const reject = useMutation({
     mutationFn: () => api(`/platform/access-requests/${rejecting!.id}/reject`, { body: { note } }),
     onSuccess: () => { toast.success("Request rejected"); setRejecting(null); setNote(""); refresh(); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const copy = async (text: string) => {
     try {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScanLine } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
 import { count } from "@/lib/format";
@@ -68,7 +68,7 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
       reset();
       onOpenChange(false);
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const valid = current && reason.trim() && (tracked ? barcode.trim() : qty !== "" && (kind === "manual" ? parseInt(qty) !== 0 : parseInt(qty) >= 0));
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage, session } from "@/lib/api";
+import { api, session } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { CURRENCIES, FONTS, type Preferences } from "@/lib/prefs";
 import { LANGUAGES, t } from "@/lib/i18n";
@@ -24,7 +24,7 @@ export function PreferencesSettings() {
       await qc.invalidateQueries({ queryKey: ["me", session.token] });
       toast.success("Preferences saved");
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   const rate = (code: string) => {

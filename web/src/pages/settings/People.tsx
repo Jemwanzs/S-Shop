@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, LocateFixed, Pencil, Plus } from "lucide-react";
 import { currentPosition } from "@/lib/location";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { ago, initials } from "@/lib/format";
 import type { Hours, Role, UserRow } from "@/lib/types";
@@ -50,7 +50,7 @@ export function BranchesSettings() {
       qc.invalidateQueries({ queryKey: ["branches"] });
       qc.invalidateQueries({ queryKey: ["me"] });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   return (
     <SettingsPage title="Branches" description="Each branch keeps its own stock, sales, orders and expenses." loading={isLoading}>
@@ -116,7 +116,7 @@ export function BranchesSettings() {
                       setEdit({ ...edit, latitude: +p.coords.latitude.toFixed(6), longitude: +p.coords.longitude.toFixed(6) });
                       toast.success(`${t("Location set")} (±${Math.round(p.coords.accuracy)} m)`);
                     } catch (e) {
-                      toast.error(errorMessage(e));
+                      toast.error(e);
                     } finally {
                       setLocating(false);
                     }
@@ -151,12 +151,12 @@ export function UsersSettings() {
   const save = useMutation({
     mutationFn: (u: UserForm) => api(u.id ? `/users/${u.id}` : "/users", { method: u.id ? "PUT" : "POST", body: { ...u, pin: u.id ? undefined : u.pin } }),
     onSuccess: () => { toast.success("User saved"); setEdit(null); qc.invalidateQueries({ queryKey: ["users"] }); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const reset = useMutation({
     mutationFn: () => api(`/users/${resetFor!.id}/reset-pin`, { body: { pin: newPin } }),
     onSuccess: () => { toast.success("PIN reset"); setResetFor(null); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const branchName = (id: string) => branches.data?.find((b) => b.id === id)?.name ?? "";
 
@@ -235,7 +235,7 @@ export function RolesSettings() {
   const save = useMutation({
     mutationFn: () => api(edit!.id ? `/roles/${edit!.id}` : "/roles", { method: edit!.id ? "PUT" : "POST", body: edit }),
     onSuccess: () => { toast.success("Role saved"); setEdit(null); qc.invalidateQueries({ queryKey: ["roles"] }); qc.invalidateQueries({ queryKey: ["me"] }); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const toggle = (p: string, on: boolean) => edit && setEdit({ ...edit, permissions: on ? [...edit.permissions, p] : edit.permissions.filter((x) => x !== p) });
   return (

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Award, Coins, Gift, Lock, MessageCircle, Plus, Trophy, UserPlus, Users } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
 import { count, date, maskPhone, money, phone } from "@/lib/format";
@@ -149,7 +149,7 @@ function Referrals() {
       setReferred(null);
       qc.invalidateQueries({ queryKey: ["referrals"] });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const remove = useMutation({
     mutationFn: (rid: string) => api(`/referrals/${rid}/deactivate`, { method: "POST" }),
@@ -158,7 +158,7 @@ function Referrals() {
       setRemoving(null);
       qc.invalidateQueries({ queryKey: ["referrals"] });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const groups = new Map<string, Referral[]>();
   data?.items.forEach((r) => groups.set(r.referrer_id, [...(groups.get(r.referrer_id) ?? []), r]));
@@ -244,12 +244,12 @@ function Awards() {
   const close = useMutation({
     mutationFn: (id: string) => api(`/awards/${id}/close`, { method: "POST" }),
     onSuccess: () => { toast.success("Award period closed — winners recorded 🏆"); setClosing(null); qc.invalidateQueries({ queryKey: ["awards"] }); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const open = useMutation({
     mutationFn: () => api("/awards", { body: { name } }),
     onSuccess: () => { toast.success("New award period opened"); setOpening(false); setName(""); qc.invalidateQueries({ queryKey: ["awards"] }); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const message = async (cid: string) => {
     try {
@@ -257,7 +257,7 @@ function Awards() {
       if (r.sent) toast.success("Sent on WhatsApp");
       else window.open(r.link, "_blank");
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(e);
     }
   };
   if (isLoading || !data) return <Loading />;

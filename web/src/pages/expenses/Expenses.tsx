@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Paperclip, Plus, Wallet } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage, saveBlob, session } from "@/lib/api";
+import { api, saveBlob, session } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { date, methodLabel, money, todayIso, toNum } from "@/lib/format";
 import { fileToDataUrl, optimizeImage } from "@/lib/image";
@@ -43,7 +43,7 @@ export default function Expenses() {
   const voidIt = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) => api(`/expenses/${id}/void`, { body: { reason } }),
     onSuccess: () => { toast.success("Expense voided"); setVoiding(null); qc.invalidateQueries({ queryKey: ["expenses"] }); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const openAttachment = async (id: string) => {
     const res = await fetch(`/api/expenses/${id}/attachment`, { headers: { Authorization: `Bearer ${session.token}`, "X-Branch-Id": session.branchId ?? "" } });
@@ -146,7 +146,7 @@ function NewExpense({ open, onOpenChange, categories, methods }: { open: boolean
       setPayee("");
       setFile(null);
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const valid = categoryId && toNum(amount) > 0 && (!s.require_description || description.trim()) && (!s.require_attachment || file);
   return (

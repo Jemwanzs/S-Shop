@@ -18,6 +18,9 @@ pub enum AppError {
     /// Business-rule violation the user can act on (insufficient stock, discount too high …)
     #[error("{0}")]
     Rule(String),
+    /// A rule violation with a short title for the error popup ("Barcode mismatch") and the explanation.
+    #[error("{message}")]
+    Refused { title: String, message: String },
     #[error("{0}")]
     Upstream(String),
     #[error(transparent)]
@@ -34,6 +37,10 @@ pub fn rule(msg: impl Into<String>) -> AppError {
     AppError::Rule(msg.into())
 }
 
+pub fn refused(title: impl Into<String>, message: impl Into<String>) -> AppError {
+    AppError::Refused { title: title.into(), message: message.into() }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, code) = match &self {
@@ -41,7 +48,7 @@ impl IntoResponse for AppError {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
             AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
-            AppError::Rule(_) => (StatusCode::UNPROCESSABLE_ENTITY, "rule_violation"),
+            AppError::Rule(_) | AppError::Refused { .. } => (StatusCode::UNPROCESSABLE_ENTITY, "rule_violation"),
             AppError::Upstream(_) => (StatusCode::BAD_GATEWAY, "upstream_error"),
             AppError::Db(sqlx::Error::RowNotFound) => (StatusCode::NOT_FOUND, "not_found"),
             AppError::Db(sqlx::Error::Database(e)) if e.is_unique_violation() => (StatusCode::CONFLICT, "conflict"),
@@ -66,7 +73,11 @@ impl IntoResponse for AppError {
             other => other.to_string(),
         };
 
-        (status, Json(json!({ "error": { "code": code, "message": message } }))).into_response()
+        let title = match &self {
+            AppError::Refused { title, .. } => Some(title.clone()),
+            _ => None,
+        };
+        (status, Json(json!({ "error": { "code": code, "message": message, "title": title } }))).into_response()
     }
 }
 

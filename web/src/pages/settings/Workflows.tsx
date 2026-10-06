@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, Plus, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { money } from "@/lib/format";
 import type { Role, UserRow } from "@/lib/types";
@@ -40,7 +40,7 @@ export function WorkflowSettings() {
         },
       }),
     onSuccess: () => { toast.success("Workflow saved"); setEdit(null); qc.invalidateQueries({ queryKey: ["settings"] }); },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   const levelName = (l: WorkflowLevel) =>

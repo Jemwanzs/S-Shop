@@ -14,7 +14,7 @@ use uuid::Uuid;
 use super::{like, Outcome, Page, Period};
 use crate::audit::{self, Entry};
 use crate::auth::{verify_pin, Ctx};
-use crate::error::{bad, rule, AppError, AppResult};
+use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::inventory::{self, Check, Movement};
 use crate::loyalty;
 use crate::notify;
@@ -29,6 +29,7 @@ pub fn routes() -> Router<AppState> {
         .route("/pos/products", get(pos_products))
         .route("/sales", get(list).post(create))
         .route("/sales/{id}", get(detail))
+        .route("/sales/check-barcode", post(check_barcode))
         .route("/sales/{id}/return", post(return_items))
         .route("/sales/{id}/cancel", post(cancel))
         .route("/sales/{id}/share", post(share))
@@ -276,20 +277,11 @@ async fn prepare_lines(
             if l.quantity != 1 {
                 return Err(rule(format!("{} is tracked per item — add one line per scanned barcode", p.name)));
             }
-            let code = barcode.clone().ok_or_else(|| rule(format!("Scan the barcode of the {} being sold", p.name)))?;
-            let item: Option<(Uuid, Option<Decimal>)> = sqlx::query_as(
-                "SELECT id, cost_price FROM stock_items WHERE tenant_id = $1 AND product_id = $2 AND branch_id = $3
-                   AND barcode = $4 AND status = 'in_stock' FOR UPDATE",
-            )
-            .bind(ctx.tenant_id)
-            .bind(l.product_id)
-            .bind(input.branch_id)
-            .bind(&code)
-            .fetch_optional(&mut *conn)
-            .await?;
-            let (id, cost) = item.ok_or_else(|| rule(format!("{code} is not an available {} at this branch (already sold or elsewhere)", p.name)))?;
+            let code = barcode.clone().ok_or_else(|| refused("Scan required", format!("Scan the barcode of the {} being sold.", p.name)))?;
+            // Locked until the sale commits: a second till selling the same item waits, then finds it sold.
+            let (id, cost) = claim_item(conn, ctx.tenant_id, l.product_id, &p.name, input.branch_id, &code, true).await?;
             if seen_items.contains(&id) {
-                return Err(rule(format!("{code} is already in the cart")));
+                return Err(refused("Already in this sale", format!("{code} has already been added to this sale.")));
             }
             seen_items.push(id);
             stock_item_id = Some(id);
@@ -297,9 +289,8 @@ async fn prepare_lines(
         } else if s.sales.require_barcode_clearance && !trusted_prices {
             if let Some(expected) = &p.barcode {
                 match &barcode {
-                    Some(code) if code == expected => {}
-                    Some(_) => return Err(rule(format!("Scanned barcode does not match {}", p.name))),
-                    None => return Err(rule(format!("Scan {} to clear it", p.name))),
+                    Some(code) => check_product_barcode(conn, ctx.tenant_id, &p.name, expected, code).await?,
+                    None => return Err(refused("Scan required", format!("Scan {} to clear it before selling.", p.name))),
                 }
             }
         }
@@ -597,6 +588,127 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     )
     .await?;
     Ok(sale_id)
+}
+
+/// One barcode check for the till (at scan time) and the sale (at checkout): the scanned unit must be this product,
+/// at this branch, and in stock. `lock` holds the row until the sale commits. Returns the item and its cost.
+pub async fn claim_item(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    product_id: Uuid,
+    product_name: &str,
+    branch_id: Uuid,
+    code: &str,
+    lock: bool,
+) -> AppResult<(Uuid, Option<Decimal>)> {
+    let item: Option<(Uuid, Option<Decimal>)> = sqlx::query_as(&format!(
+        "SELECT id, cost_price FROM stock_items WHERE tenant_id = $1 AND product_id = $2 AND branch_id = $3
+           AND barcode = $4 AND status = 'in_stock'{}",
+        if lock { " FOR UPDATE" } else { "" }
+    ))
+    .bind(tenant_id)
+    .bind(product_id)
+    .bind(branch_id)
+    .bind(code)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if let Some(found) = item {
+        return Ok(found);
+    }
+    // Explain why: the most relevant unit carrying this barcode (active ones first).
+    let unit: Option<(Uuid, String, Uuid, String, String)> = sqlx::query_as(
+        "SELECT si.product_id, p.name, si.branch_id, b.name, si.status FROM stock_items si
+         JOIN products p ON p.id = si.product_id JOIN branches b ON b.id = si.branch_id
+         WHERE si.tenant_id = $1 AND si.barcode = $2
+         ORDER BY (si.status IN ('in_stock','reserved','in_transit')) DESC, si.updated_at DESC LIMIT 1",
+    )
+    .bind(tenant_id)
+    .bind(code)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Err(match unit {
+        None => match product_with_barcode(conn, tenant_id, code).await? {
+            Some((pid, name)) if pid != product_id => mismatch(&name),
+            _ => refused("Unknown barcode", format!("{code} is not registered to any {product_name} in stock. Scan the barcode on the item.")),
+        },
+        Some((pid, name, ..)) if pid != product_id => mismatch(&name),
+        Some((_, _, bid, bname, status)) => match status.as_str() {
+            "in_stock" if bid != branch_id => refused("Wrong branch", format!("This item is currently held at {bname}.")),
+            "sold" => refused("Item already sold", "This stock item is no longer available."),
+            "in_transit" => refused("Item in transit", "This item is being transferred and cannot be sold until the branch receives it."),
+            "reserved" => refused("Item reserved", "This item is reserved for a customer order."),
+            "written_off" => refused("Item written off", "This item was written off and is not in stock."),
+            "returned_to_supplier" => refused("Returned to supplier", "This item was returned to the supplier."),
+            _ => refused("Item unavailable", "This stock item is not available for sale."),
+        },
+    })
+}
+
+fn mismatch(other: &str) -> AppError {
+    refused("Barcode mismatch", format!("This barcode belongs to {other}. Scan the selected item's barcode."))
+}
+
+async fn product_with_barcode(conn: &mut PgConnection, tenant_id: Uuid, code: &str) -> AppResult<Option<(Uuid, String)>> {
+    Ok(sqlx::query_as("SELECT id, name FROM products WHERE tenant_id = $1 AND barcode = $2 ORDER BY is_active DESC LIMIT 1")
+        .bind(tenant_id)
+        .bind(code)
+        .fetch_optional(&mut *conn)
+        .await?)
+}
+
+/// Products cleared by their product barcode (not tracked per unit).
+async fn check_product_barcode(conn: &mut PgConnection, tenant_id: Uuid, name: &str, expected: &str, code: &str) -> AppResult<()> {
+    if code == expected {
+        return Ok(());
+    }
+    let owner = match product_with_barcode(conn, tenant_id, code).await? {
+        Some((_, other)) => Some(other),
+        None => sqlx::query_scalar(
+            "SELECT p.name FROM stock_items si JOIN products p ON p.id = si.product_id WHERE si.tenant_id = $1 AND si.barcode = $2 LIMIT 1",
+        )
+        .bind(tenant_id)
+        .bind(code)
+        .fetch_optional(&mut *conn)
+        .await?,
+    };
+    Err(match owner {
+        Some(other) => mismatch(&other),
+        None => refused("Barcode mismatch", format!("This is not the barcode of {name}. Scan the selected item's barcode.")),
+    })
+}
+
+#[derive(Deserialize)]
+struct CheckBarcodeBody {
+    product_id: Uuid,
+    barcode: String,
+    branch_id: Option<Uuid>,
+}
+
+/// Validates a scan before "Add to cart" with the same rules as checkout (nothing is reserved or cleared here).
+async fn check_barcode(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CheckBarcodeBody>) -> AppResult<Json<Value>> {
+    ctx.require("sales.create")?;
+    let branch = ctx.branch_or_current(b.branch_id)?;
+    let code = b.barcode.trim();
+    if code.is_empty() {
+        return Err(bad("Scan or type a barcode"));
+    }
+    let mut conn = state.db.acquire().await?;
+    let (name, track, expected): (String, bool, Option<String>) =
+        sqlx::query_as("SELECT name, track_items, barcode FROM products WHERE id = $1 AND tenant_id = $2")
+            .bind(b.product_id)
+            .bind(ctx.tenant_id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .ok_or(AppError::NotFound("Product"))?;
+    if track {
+        let (id, _) = claim_item(&mut conn, ctx.tenant_id, b.product_id, &name, branch, code, false).await?;
+        return Ok(Json(json!({ "ok": true, "barcode": code, "stock_item_id": id })));
+    }
+    match expected {
+        Some(expected) => check_product_barcode(&mut conn, ctx.tenant_id, &name, &expected, code).await?,
+        None => return Err(refused("No barcode registered", format!("{name} has no barcode on record, so it cannot be cleared by scanning."))),
+    }
+    Ok(Json(json!({ "ok": true, "barcode": code })))
 }
 
 async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBody>) -> AppResult<Json<Value>> {

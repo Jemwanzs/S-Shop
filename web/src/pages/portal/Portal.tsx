@@ -3,7 +3,7 @@ import { Link, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCircle2, ChevronRight, ClipboardList, ImageOff, Loader2, Minus, Plus, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, errorMessage, photoUrl } from "@/lib/api";
+import { api, photoUrl } from "@/lib/api";
 import { usePersistentState } from "@/lib/hooks";
 import { amount, count, date, phone, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -68,7 +68,7 @@ function Entry({ b, sess, setSess }: { b: Business; sess: PortalSession | null; 
       if (!r.exists || r.otp_required) setStep("details");
       else start.mutate({ mobile: r.mobile });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const start = useMutation({
     mutationFn: (body: { mobile: string; code?: string; first_name?: string; nickname?: string }) => api<PortalSession>(`/portal/${b.slug}/session`, { body, token: null }),
@@ -77,7 +77,7 @@ function Entry({ b, sess, setSess }: { b: Business; sess: PortalSession | null; 
       setStep("mobile");
       setMobile("");
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   // An expired or foreign session token: start again with the mobile number.
@@ -197,7 +197,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
       setCartOpen(false);
       qc.invalidateQueries({ queryKey: ["portal", b.slug] });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
 
   if (placed) {

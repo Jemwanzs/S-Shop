@@ -89,7 +89,7 @@ export default function TransferNew() {
       toast.success(r.status === "pending_approval" ? "Transfer sent for approval" : r.status === "approved" ? "Transfer approved — ready to dispatch" : "Draft saved");
       navigate(`/transfers/${r.id}`);
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => toast.error(e),
   });
   const valid = to && lines.length > 0 && lines.every((l) => (l.product.track_items ? l.barcodes.length > 0 : l.quantity > 0));
 

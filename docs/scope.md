@@ -110,7 +110,7 @@ Added 2026-10-05 after the analytics / access / operations gap review ([gap-revi
   **business date** stored with each transaction and used by dashboards, reports and performance.
 - ✅ **17. Geofencing** — branch coordinates and radius; *anywhere* (default) or *at the branch* for selected actions,
   enforced on the server, with a bypass permission and the location in the audit trail.
-- **18. Transfer receipt with discrepancies** — short/damaged quantities recorded on receipt with a reason.
+- ✅ **18. Transfer receipt with discrepancies** — short/damaged quantities recorded on receipt with a reason.
 
 Then:
 - Combined exchange screen (rest of roadmap 4).

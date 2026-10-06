@@ -178,7 +178,7 @@ function Analytics({ mine = false }: { mine?: boolean }) {
             </div>
           )}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
-            <StatCard label="Sales" value={m(k.sales)} icon={TrendingUp} tone="success" change={k.sales_change_pct as number | null} hint="vs previous period" className="col-span-2 md:col-span-1" />
+            <StatCard label="Sales" value={m(k.sales)} icon={TrendingUp} tone="success" change={k.sales_change_pct as number | null} hint={k.sales_change_pct != null ? "vs previous period" : undefined} className="col-span-2 md:col-span-1" />
             <StatCard label="Transactions" value={count(k.transactions as number)} icon={ShoppingBag} change={k.transactions_change_pct as number | null} />
             <StatCard label="Avg. transaction" value={m(k.average_transaction)} icon={CreditCard} />
             <StatCard label="Units sold" value={count(k.units_sold as number)} icon={Package} />

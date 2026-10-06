@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader, EmptyState } from "@/components/Page";
 import { DataList, Pager, CardRow } from "@/components/DataList";
 import { Segments } from "@/components/Filters";
-import { StatusBadge } from "@/components/Badges";
+import { Pill, StatusBadge } from "@/components/Badges";
 import { t } from "@/lib/i18n";
 
 export interface TransferRow {
@@ -77,9 +77,9 @@ export default function TransfersList() {
           { key: "units", header: "Units", align: "right", cell: (r) => <span className="num">{count(r.total_units)}</span> },
           { key: "by", header: "Created by", cell: (r) => r.created_by_name ?? "—", hideBelow: "lg" },
           { key: "date", header: "Created", cell: (r) => <span className="whitespace-nowrap text-muted-foreground">{dateTime(r.created_at)}</span>, hideBelow: "lg" },
-          { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status === "dispatched" ? "in_transit" : r.status} /> },
+          { key: "status", header: "Status", cell: (r) => <><StatusBadge status={r.status === "dispatched" ? "in_transit" : r.status} />{r.short_units + r.damaged_units > 0 && <Pill tone="warning" className="ms-1">{t("short / damaged")}</Pill>}</> },
         ]}
-        mobile={(r) => <CardRow title={`${r.from_branch_name} → ${r.to_branch_name}`} subtitle={<span className="num">{r.transfer_no} · {count(r.total_units)} {t("units")}</span>} meta={<StatusBadge status={r.status === "dispatched" ? "in_transit" : r.status} />} />}
+        mobile={(r) => <CardRow title={`${r.from_branch_name} → ${r.to_branch_name}`} subtitle={<span className="num">{r.transfer_no} · {count(r.total_units)} {t(r.total_units === 1 ? "unit" : "units")}</span>} meta={<><StatusBadge status={r.status === "dispatched" ? "in_transit" : r.status} />{r.short_units + r.damaged_units > 0 && <Pill tone="warning" className="ms-1">{t("short / damaged")}</Pill>}</>} />}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}
       />
     </>

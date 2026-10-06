@@ -314,7 +314,7 @@ async fn write_off(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>
                 entity_type: "credit_sale",
                 entity_id: id,
                 branch_id: Some(branch),
-                summary: format!("Write off {} owed by {} ({})", money_str(row.balance), row.customer_name, row.receipt_no),
+                summary: format!("Write off balance owed by {} ({})", row.customer_name, row.receipt_no),
                 amount: Some(row.balance),
                 payload: json!({ "reason": b.reason.trim() }),
             },

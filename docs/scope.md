@@ -84,11 +84,13 @@ Added 2026-10-05 (owner request), delivered in this order before the remaining i
   preference + sign-in picker, full RTL layout, every screen (roadmap 26), and every server message — 244 fixed messages
   and 66 messages with values ("Only {} × {} in stock"), matched as templates so the values are kept and known words
   inside them (statuses, record names) are translated too.
-- ◐ **10. Mobile-first UI/UX refinement** (2026-10-05) — one design language across the app: shared tokens for type,
+- ✅ **10. Mobile-first UI/UX refinement** (2026-10-05) — one design language across the app: shared tokens for type,
   control heights, radius, card padding, bottom-nav height and overlays; Outfit everywhere (tabular figures for
   numbers); compact primitives (buttons, inputs, selects, textareas, cards, KPI cards, lists, chips, sheets, dialogs,
   bottom nav); tables scroll inside their card; light and dark verified on every main screen at phone and desktop
-  widths. Ongoing: screen-by-screen polish as remaining modules are translated.
+  widths. Ongoing: screen-by-screen polish as remaining modules are translated. Screen-by-screen pass (2026-10-06): every main screen checked on phone and desktop in light and dark — no overflow,
+  no page errors; refinements: comparison hint only with a figure, credit summary side by side on phones, approval
+  summaries no longer repeat the amount, transfers received short/damaged marked in the list.
 - ✅ **11. Camera & barcode scanning** (2026-10-05) — one shared scanner (camera full screen on phones, handheld,
   manual) for sales, receiving, transfers, counts, returns and order completion; scan-to-cart with qty increments and
   per-unit validation; other-branch availability; *Barcode not found* → Scan again / Search / Assign barcode

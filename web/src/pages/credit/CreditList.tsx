@@ -35,10 +35,10 @@ export default function CreditList() {
   return (
     <>
       <PageHeader eyebrow="Sales" title="Credit Sales" description="Track what customers owe, collect repayments and follow up overdue balances." />
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_2fr]">
+      <div className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-[1fr_1fr_2fr]">
         <StatCard label="Outstanding" value={money(data?.summary.outstanding)} icon={HandCoins} tone="warning" />
         <StatCard label="Overdue" value={money(data?.summary.overdue)} icon={HandCoins} tone="danger" />
-        <Section title="Aging" className="sm:col-span-2 xl:col-span-1">
+        <Section title="Aging" className="col-span-2 xl:col-span-1">
           <div className="grid grid-cols-5 gap-2">
             {aging.data?.buckets.map((b) => (
               <div key={b.bucket} className="flex flex-col items-center gap-1">

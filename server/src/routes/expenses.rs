@@ -20,7 +20,7 @@ use crate::error::{bad, rule, AppError, AppResult};
 use crate::routes::approvals::ApprovalRow;
 use crate::settings;
 use crate::state::AppState;
-use crate::util::{money_str, round2};
+use crate::util::round2;
 use crate::workflow;
 
 pub fn routes() -> Router<AppState> {
@@ -210,7 +210,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
                 entity_type: "expense",
                 entity_id: id,
                 branch_id: Some(branch),
-                summary: format!("{category}: KSh {} — {}", money_str(b.amount), b.description.trim()),
+                summary: format!("{category} — {}", b.description.trim()),
                 amount: Some(b.amount),
                 payload: json!({}),
             },

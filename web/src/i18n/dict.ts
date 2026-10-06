@@ -1366,4 +1366,6 @@ export const DICT: Record<string, [string, string, string]> = {
   "delivered": ["imefikishwa", "livrée", "مُسلَّم"],
   "completed": ["imekamilika", "terminée", "مكتمل"],
   "returned": ["imerudishwa", "retournée", "مُرجع"],
+  "short / damaged": ["pungufu / imeharibika", "manquant / endommagé", "ناقص / تالف"],
+  "unit": ["kipande", "unité", "وحدة"],
 };

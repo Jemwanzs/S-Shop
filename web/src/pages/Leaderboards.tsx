@@ -10,7 +10,7 @@ import type { Category, Money } from "@/lib/types";
 import { PageHeader, EmptyState } from "@/components/Page";
 import { DataList, CardRow, type Column } from "@/components/DataList";
 import { PeriodFilter, Segments, type PeriodValue } from "@/components/Filters";
-import { NativeSelect } from "@/components/Form";
+import { Select } from "@/components/Form";
 import { Medal } from "@/components/Badges";
 
 type Kind = "products" | "staff";
@@ -96,16 +96,16 @@ export default function Leaderboards() {
         <PeriodFilter value={period} onChange={setPeriod} />
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           {(profile?.branches.length ?? 0) > 1 && (
-            <NativeSelect value={branchId} onChange={setBranchId} className="sm:w-48">
+            <Select value={branchId} onChange={setBranchId} className="sm:w-48" label="Branch">
               <option value="">{t("All my branches")}</option>
               {profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </NativeSelect>
+            </Select>
           )}
           {kind === "products" && (
-            <NativeSelect value={categoryId} onChange={setCategoryId} className="sm:w-48">
+            <Select value={categoryId} onChange={setCategoryId} className="sm:w-48" label="Category">
               <option value="">{t("All categories")}</option>
               {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </NativeSelect>
+            </Select>
           )}
         </div>
         <div>

@@ -30,6 +30,7 @@ pub fn routes() -> Router<AppState> {
         .route("/sales", get(list).post(create))
         .route("/sales/{id}", get(detail))
         .route("/sales/check-barcode", post(check_barcode))
+        .route("/credit/{id}/recall", post(recall_credit))
         .route("/sales/{id}/return", post(return_items))
         .route("/sales/{id}/cancel", post(cancel))
         .route("/sales/{id}/share", post(share))
@@ -1097,6 +1098,9 @@ async fn share(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) ->
 pub struct ReturnLine {
     pub sale_item_id: Uuid,
     pub quantity: i32,
+    /// Units scanned back in (recalls of tracked items): must be the exact units sold on this line.
+    #[serde(default)]
+    pub barcodes: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -1107,6 +1111,9 @@ pub struct ReturnBody {
     pub refund_method: String,
     #[serde(default = "yes")]
     pub restock: bool,
+    /// Credit recalls: what happens to payments beyond the revised amount owed — "refund" now or "credit" (follow-up).
+    #[serde(default)]
+    pub settle: String,
 }
 
 fn yes() -> bool {
@@ -1259,18 +1266,20 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
                     .await?;
             }
             let mk = if kind == "cancellation" { "sale_reversal" } else { "customer_return" };
+            let note = if kind == "recall" { format!("Credit sale recall {return_no} — {}", head.receipt_no) } else { return_no.clone() };
             let m = Movement::new(head.branch_id, product_id, mk, l.quantity)
                 .item(item_id)
                 .cost(unit_cost)
                 .price(Some(unit_price))
                 .reference("sale_return", return_id)
-                .notes(&return_no);
+                .notes(&note);
             inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), true, Check::None, m).await?;
         }
     }
 
     // Money: reduce credit first, refund the rest.
     let mut refunded = refund;
+    let mut balances: Option<(Uuid, Decimal, Decimal)> = None;
     if head.payment_method == "credit" {
         let (cs_id, balance): (Uuid, Decimal) = sqlx::query_as(
             "SELECT id, original_amount - amount_paid - adjustments FROM credit_sales WHERE sale_id = $1 FOR UPDATE",
@@ -1291,8 +1300,12 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
         .execute(&mut *conn)
         .await?;
         refunded = refund - reduce;
+        balances = Some((cs_id, balance, balance - reduce));
     }
-    if refunded > Decimal::ZERO {
+    // A recall may leave the customer owed money (they had paid more than the revised amount): refund it now, or
+    // record it as customer credit for follow-up — never silently dropped.
+    let customer_credit = if kind == "recall" && b.settle == "credit" { refunded } else { Decimal::ZERO };
+    if refunded > Decimal::ZERO && customer_credit == Decimal::ZERO {
         let method = if b.refund_method.is_empty() { head.payment_method.replace("credit", "cash") } else { b.refund_method.clone() };
         sqlx::query(
             "INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, user_id) VALUES ($1,$2,$3,$4,$5,$6,$7)",
@@ -1309,7 +1322,18 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
     }
 
     let reversed = loyalty::reverse_sale(conn, ctx.tenant_id, sale_id, points_to_reverse, Some(ctx.user_id), &return_no).await?;
-    sqlx::query("UPDATE sale_returns SET points_reversed = $2 WHERE id = $1").bind(return_id).bind(reversed).execute(&mut *conn).await?;
+    sqlx::query(
+        "UPDATE sale_returns SET points_reversed = $2, balance_before = $3, balance_after = $4, customer_credit = $5,
+             refund_method = CASE WHEN $5 > 0 THEN 'customer_credit' ELSE refund_method END
+         WHERE id = $1",
+    )
+    .bind(return_id)
+    .bind(reversed)
+    .bind(balances.map(|b| b.1))
+    .bind(balances.map(|b| b.2))
+    .bind(customer_credit)
+    .execute(&mut *conn)
+    .await?;
     if let Some(customer) = head.customer_id {
         let fully = kind == "cancellation";
         loyalty::record_purchase(conn, &s, customer, -refund, if fully { -1 } else { 0 }).await?;
@@ -1324,6 +1348,33 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
         (_, 0) => "returned",
         _ => "partially_returned",
     };
+    if let (Some((cs_id, _, after)), "recall") = (balances, kind) {
+        // Fully recalled with nothing left owed → the credit sale is closed as Recalled; otherwise collection goes on.
+        sqlx::query(
+            "UPDATE credit_sales SET recall_state = $2,
+                 status = CASE WHEN $2 = 'recalled' AND $3 <= 0 THEN 'recalled' ELSE status END
+             WHERE id = $1",
+        )
+        .bind(cs_id)
+        .bind(if remaining == 0 { "recalled" } else { "partially_recalled" })
+        .bind(after)
+        .execute(&mut *conn)
+        .await?;
+        audit::record(
+            conn,
+            ctx,
+            Entry::new("credit", "recall", "credit_sale", cs_id)
+                .branch(head.branch_id)
+                .after(json!({
+                    "return_no": return_no, "sale": head.receipt_no, "items": b.items, "branch_id": head.branch_id,
+                    "stock_restored": b.restock, "balance_before": balances.map(|x| x.1), "balance_after": after,
+                    "customer_credit": customer_credit, "refunded": if customer_credit > Decimal::ZERO { Decimal::ZERO } else { refunded },
+                }))
+                .approval(approval_id)
+                .comments(b.reason.trim()),
+        )
+        .await?;
+    }
     sqlx::query(
         "UPDATE sales SET status = $2,
              cancelled_at = CASE WHEN $2 = 'cancelled' THEN now() ELSE cancelled_at END,
@@ -1366,7 +1417,7 @@ async fn all_lines(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<Vec<Retu
         .bind(sale_id)
         .fetch_all(&mut *conn)
         .await?;
-    Ok(rows.into_iter().map(|(sale_item_id, quantity)| ReturnLine { sale_item_id, quantity }).collect())
+    Ok(rows.into_iter().map(|(sale_item_id, quantity)| ReturnLine { sale_item_id, quantity, barcodes: vec![] }).collect())
 }
 
 async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<CancelBody>) -> AppResult<Json<Outcome<Value>>> {
@@ -1400,8 +1451,99 @@ async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
         return Ok(Json(Outcome::pending(approval)));
     }
     let lines = all_lines(&mut tx, id).await?;
-    let body = ReturnBody { items: lines, reason: b.reason.clone(), refund_method: b.refund_method.clone(), restock: true };
+    let body = ReturnBody { items: lines, reason: b.reason.clone(), refund_method: b.refund_method.clone(), restock: true, settle: String::new() };
     let r = execute_return(&mut tx, &ctx, id, &body, "cancellation", None).await?;
+    tx.commit().await?;
+    state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": head.branch_id }));
+    Ok(Json(Outcome::done(r)))
+}
+
+/// Credit Sales → Recall: goods on a credit sale come back to the branch they were sold from. Tracked units must be
+/// scanned again and be the exact units sold on this sale. Same engine as returns (stock, ledger, loyalty, balance),
+/// recorded as a recall; maker-checker through the "credit.recall" workflow.
+async fn recall_credit(State(state): State<AppState>, ctx: Ctx, Path(credit_id): Path<Uuid>, Json(mut b): Json<ReturnBody>) -> AppResult<Json<Outcome<Value>>> {
+    ctx.require("credit.recall")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "returns").await?;
+    if b.reason.trim().chars().count() < 3 {
+        return Err(bad("A recall reason is required"));
+    }
+    if b.items.is_empty() {
+        return Err(bad("Choose the items being recalled"));
+    }
+    b.restock = true; // a recall always brings the goods back into stock
+    let mut tx = state.db.begin().await?;
+    let (sale_id, cs_status): (Uuid, String) = sqlx::query_as("SELECT sale_id, status FROM credit_sales WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+        .bind(credit_id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound("Credit sale"))?;
+    if matches!(cs_status.as_str(), "written_off" | "cancelled" | "recalled") {
+        return Err(refused("Cannot recall", format!("This credit sale is {}.", cs_status.replace('_', " "))));
+    }
+    let head = sale_head(&mut tx, &ctx, sale_id).await?;
+    let mut seen: Vec<String> = vec![];
+    for l in &b.items {
+        let (stock_item_id, sold_code, qty, returned, name): (Option<Uuid>, Option<String>, i32, i32, String) = sqlx::query_as(
+            "SELECT si.stock_item_id, si.barcode, si.quantity, si.returned_qty, p.name FROM sale_items si JOIN products p ON p.id = si.product_id
+             WHERE si.id = $1 AND si.sale_id = $2",
+        )
+        .bind(l.sale_item_id)
+        .bind(sale_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| refused("Not on this sale", "An item being recalled is not part of this credit sale."))?;
+        if returned >= qty {
+            return Err(refused("Already recalled", format!("{name} has already been returned or recalled.")));
+        }
+        if l.quantity <= 0 || l.quantity > qty - returned {
+            return Err(refused("Too many", format!("At most {} of {name} can be recalled.", qty - returned)));
+        }
+        if stock_item_id.is_some() {
+            let code = l.barcodes.first().map(|c| c.trim().to_string()).filter(|c| !c.is_empty())
+                .ok_or_else(|| refused("Scan required", format!("Scan the barcode on the {name} being returned.")))?;
+            if Some(&code) != sold_code.as_ref() {
+                return Err(refused("Barcode mismatch", format!("{code} is not the {name} sold on this credit sale. Scan the returned item's own barcode.")));
+            }
+            if seen.contains(&code) {
+                return Err(refused("Already scanned", format!("{code} is already in this recall.")));
+            }
+            seen.push(code);
+        }
+    }
+    // Settlement of any payments beyond the revised amount owed must be chosen up front.
+    let amount = return_amount(&mut tx, &head, sale_id, &b.items).await?;
+    let balance: Decimal = sqlx::query_scalar("SELECT original_amount - amount_paid - adjustments FROM credit_sales WHERE id = $1")
+        .bind(credit_id)
+        .fetch_one(&mut *tx)
+        .await?;
+    let over = amount - amount.min(balance.max(Decimal::ZERO));
+    if over > Decimal::ZERO && !matches!(b.settle.as_str(), "refund" | "credit") {
+        return Err(refused("Customer has overpaid", format!("After this recall the customer has paid {} more than they owe. Choose to refund it now or keep it as customer credit.", money_str(over))));
+    }
+    if b.settle == "refund" && over > Decimal::ZERO && b.refund_method.trim().is_empty() {
+        return Err(bad("Choose how the refund is paid"));
+    }
+    if workflow::needs_approval(&mut tx, &ctx, "credit.recall", workflow::Gate::branch(head.branch_id).amount(amount)).await? {
+        let approval = workflow::submit(
+            &mut tx,
+            &ctx,
+            workflow::Request {
+                action: "credit.recall",
+                entity_type: "sale",
+                entity_id: sale_id,
+                branch_id: Some(head.branch_id),
+                summary: format!("Recall credit sale {} — {}", head.receipt_no, b.reason.trim()),
+                amount: Some(amount),
+                payload: serde_json::to_value(&b).unwrap_or_default(),
+            },
+        )
+        .await?;
+        tx.commit().await?;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
+        return Ok(Json(Outcome::pending(approval)));
+    }
+    let r = execute_return(&mut tx, &ctx, sale_id, &b, "recall", None).await?;
     tx.commit().await?;
     state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": head.branch_id }));
     Ok(Json(Outcome::done(r)))
@@ -1413,10 +1555,14 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
             let b: ReturnBody = serde_json::from_value(a.payload.clone()).map_err(|_| bad("Stored return is invalid"))?;
             execute_return(conn, ctx, a.entity_id, &b, "return", Some(a.id)).await?;
         }
+        "credit.recall" => {
+            let b: ReturnBody = serde_json::from_value(a.payload.clone()).map_err(|_| bad("Stored recall is invalid"))?;
+            execute_return(conn, ctx, a.entity_id, &b, "recall", Some(a.id)).await?;
+        }
         "sale.cancel" => {
             let c: CancelBody = serde_json::from_value(a.payload.clone()).map_err(|_| bad("Stored cancellation is invalid"))?;
             let lines = all_lines(conn, a.entity_id).await?;
-            let body = ReturnBody { items: lines, reason: c.reason, refund_method: c.refund_method, restock: true };
+            let body = ReturnBody { items: lines, reason: c.reason, refund_method: c.refund_method, restock: true, settle: String::new() };
             execute_return(conn, ctx, a.entity_id, &body, "cancellation", Some(a.id)).await?;
         }
         _ => {}

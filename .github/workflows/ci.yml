@@ -1,0 +1,74 @@
+# Runs on every push and pull request. Railway waits for this check before deploying main
+# (service setting "Wait for CI"), so a failing build or test never reaches production.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: sshop
+          POSTGRES_DB: sshop
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:sshop@localhost:5432/sshop
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Web app: types, lint, production build (the server serves web/dist) ──
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Web — install
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+      - name: Web — lint
+        working-directory: web
+        run: npx eslint . --max-warnings 0
+      - name: Web — type-check & build
+        working-directory: web
+        run: npm run build
+
+      # ── API server: unit tests and build ──
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Server — unit tests
+        run: cargo test -p sshop
+      - name: Server — build
+        run: cargo build -p sshop
+
+      # ── End-to-end: fresh database, bootstrap business, full API smoke suite ──
+      - name: Start server
+        env:
+          JWT_SECRET: ci-secret-ci-secret-ci-secret-ci-secret
+          PORT: "8099"
+          WEB_DIR: web/dist
+          BOOTSTRAP_ADMIN_EMAIL: admin@sshop.test
+          BOOTSTRAP_ADMIN_PIN: "1234"
+          BOOTSTRAP_BUSINESS_NAME: CI Test Shop
+          PLATFORM_ADMIN_EMAILS: admin@sshop.test
+        run: |
+          ./target/debug/sshop > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf localhost:8099/healthz && break; sleep 1; done
+          curl -sf localhost:8099/healthz
+      - name: Smoke suite
+        run: python3 -u scripts/smoke_test.py http://localhost:8099 admin@sshop.test 1234
+      - name: Server log
+        if: always()
+        run: tail -n 200 server.log || true

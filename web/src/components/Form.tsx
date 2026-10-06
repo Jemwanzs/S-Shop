@@ -1,10 +1,13 @@
-import { useState, type ReactNode } from "react";
+import { createContext, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ResponsiveDialog } from "./ResponsiveDialog";
 import { t, tx } from "@/lib/i18n";
+
+/** The label of the enclosing Field, so a dropdown inside it names its sheet (see Select). */
+export const FieldLabel = createContext<string | undefined>(undefined);
 
 export function Field({ label, hint, optional, children, className }: { label: ReactNode; hint?: ReactNode; optional?: boolean; children: ReactNode; className?: string }) {
   return (
@@ -13,7 +16,7 @@ export function Field({ label, hint, optional, children, className }: { label: R
         {tx(label)}
         {optional && <span className="text-xs font-normal text-muted-foreground">{t("Optional")}</span>}
       </span>
-      {children}
+      <FieldLabel.Provider value={typeof label === "string" ? label : undefined}>{children}</FieldLabel.Provider>
       {hint && <span className="block text-xs text-muted-foreground">{tx(hint)}</span>}
     </label>
   );
@@ -31,28 +34,8 @@ export function ToggleRow({ label, hint, checked, onChange, disabled }: { label:
   );
 }
 
-/** Native select styled like inputs — reliable on every phone. */
-export function NativeSelect({ value, onChange, children, className, disabled }: {
-  value: string;
-  onChange: (v: string) => void;
-  children: ReactNode;
-  className?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-      className={cn(
-        "select-chevron flex h-control w-full appearance-none rounded-lg border border-input bg-background px-3 pe-9 text-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
-        className,
-      )}
-    >
-      {children}
-    </select>
-  );
-}
+/** Every dropdown in the app (see components/Select.tsx). */
+export { Select } from "@/components/Select";
 
 /** Confirmation with an optional mandatory reason (cancellations, write-offs …). */
 export function ConfirmDialog({

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, NativeSelect } from "@/components/Form";
+import { Field, Select } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { Card, SettingsPage, useSettings, type WorkflowLevel, type WorkflowRow } from "./shared";
@@ -103,24 +103,24 @@ export function WorkflowSettings() {
                   <div className="flex flex-wrap items-end gap-2 rounded-xl border p-3">
                     <span className="num flex h-11 w-8 items-center justify-center font-semibold text-muted-foreground">{i + 1}</span>
                     <Field label="Approver" className="min-w-40 flex-1">
-                      <NativeSelect value={l.approver_type} onChange={(v) => setLevel(i, { approver_type: v as WorkflowLevel["approver_type"] })}>
+                      <Select value={l.approver_type} onChange={(v) => setLevel(i, { approver_type: v as WorkflowLevel["approver_type"] })}>
                         {Object.entries(APPROVER).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
-                      </NativeSelect>
+                      </Select>
                     </Field>
                     {l.approver_type === "role" && (
                       <Field label="Role" className="min-w-40 flex-1">
-                        <NativeSelect value={l.approver_role_id ?? ""} onChange={(v) => setLevel(i, { approver_role_id: v || null })}>
+                        <Select value={l.approver_role_id ?? ""} onChange={(v) => setLevel(i, { approver_role_id: v || null })}>
                           <option value="">Choose…</option>
                           {roles.data?.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                        </NativeSelect>
+                        </Select>
                       </Field>
                     )}
                     {l.approver_type === "user" && (
                       <Field label="User" className="min-w-40 flex-1">
-                        <NativeSelect value={l.approver_user_id ?? ""} onChange={(v) => setLevel(i, { approver_user_id: v || null })}>
+                        <Select value={l.approver_user_id ?? ""} onChange={(v) => setLevel(i, { approver_user_id: v || null })}>
                           <option value="">Choose…</option>
                           {users.data?.filter((u) => u.is_active).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                        </NativeSelect>
+                        </Select>
                       </Field>
                     )}
                     {edit.levels.length > 1 && (

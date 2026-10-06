@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader, EmptyState } from "@/components/Page";
 import { DataList, Pager, CardRow } from "@/components/DataList";
 import { PeriodFilter, SearchInput, type PeriodValue } from "@/components/Filters";
-import { NativeSelect } from "@/components/Form";
+import { Select } from "@/components/Form";
 import { StatusBadge } from "@/components/Badges";
 import { StatCard } from "@/components/Stat";
 
@@ -51,28 +51,28 @@ export default function SalesList() {
         <PeriodFilter value={period} onChange={reset(setPeriod)} />
         <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap">
           <SearchInput value={q} onChange={reset(setQ)} placeholder="Receipt, customer or mobile" className="col-span-2 md:w-72" />
-          <NativeSelect value={method} onChange={reset(setMethod)} className="md:w-40">
+          <Select value={method} onChange={reset(setMethod)} className="md:w-40">
             <option value="">All payments</option>
             {profile?.settings.sales.payment_methods.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-          </NativeSelect>
-          <NativeSelect value={status} onChange={reset(setStatus)} className="md:w-44">
+          </Select>
+          <Select value={status} onChange={reset(setStatus)} className="md:w-44">
             <option value="">All statuses</option>
             <option value="completed">Completed</option>
             <option value="partially_returned">Part returned</option>
             <option value="returned">Returned</option>
             <option value="cancelled">Cancelled</option>
-          </NativeSelect>
+          </Select>
           {(profile?.branches.length ?? 0) > 1 && (
-            <NativeSelect value={branchId} onChange={reset(setBranchId)} className="md:w-44">
+            <Select value={branchId} onChange={reset(setBranchId)} className="md:w-44" label="Branch">
               <option value="">All my branches</option>
               {profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </NativeSelect>
+            </Select>
           )}
           {users.data && (
-            <NativeSelect value={userId} onChange={reset(setUserId)} className="md:w-44">
+            <Select value={userId} onChange={reset(setUserId)} className="md:w-44" label="Staff">
               <option value="">All staff</option>
               {users.data.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </NativeSelect>
+            </Select>
           )}
         </div>
       </div>

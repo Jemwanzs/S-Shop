@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BarChart3, ImagePlus, Loader2, PackagePlus, Pencil, Power, Star, Trash2 } from "lucide-react";
+import { BarChart3, ImagePlus, PackagePlus, Pencil, Power, Star, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { optimizeImage } from "@/lib/image";
+import { AddPhotosDialog } from "@/components/PhotoPicker";
 import { count, dateTime, money, signed, titleCase } from "@/lib/format";
 import type { Outcome, Paged, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -41,7 +41,7 @@ export default function ProductDetail() {
   const qc = useQueryClient();
   const [gallery, setGallery] = useState(false);
   const [toggling, setToggling] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [adding, setAdding] = useState(false);
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["product", id], queryFn: () => api<Detail>(`/products/${id}`) });
   const movements = useQuery({
     queryKey: ["stock", "movements", id],
@@ -62,23 +62,6 @@ export default function ProductDetail() {
     },
     onError: (e) => toast.error(e),
   });
-  const upload = async (files: FileList | null) => {
-    if (!files?.length) return;
-    setUploading(true);
-    try {
-      for (const file of Array.from(files)) {
-        const fd = new FormData();
-        fd.append("file", await optimizeImage(file), "photo.webp");
-        await api(`/products/${id}/photos`, { body: fd });
-      }
-      toast.success("Photos added");
-      refresh();
-    } catch (e) {
-      toast.error(e);
-    } finally {
-      setUploading(false);
-    }
-  };
   const photoAction = async (photoId: string, action: "primary" | "delete") => {
     try {
       await api(`/products/${id}/photos/${photoId}${action === "primary" ? "/primary" : ""}`, { method: action === "primary" ? "POST" : "DELETE" });
@@ -120,10 +103,9 @@ export default function ProductDetail() {
           </div>
 
           <Section title={`Photos · ${data.photos.length}/${maxPhotos}`} action={canPhotos && data.photos.length < maxPhotos && (
-            <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-primary">
-              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />} Add
-              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => upload(e.target.files)} disabled={uploading} />
-            </label>
+            <button type="button" className="inline-flex items-center gap-1.5 text-sm text-primary" onClick={() => setAdding(true)}>
+              <ImagePlus className="h-4 w-4" /> Add
+            </button>
           )}>
             {data.photos.length === 0 ? (
               <p className="py-4 text-sm text-muted-foreground">No photos. The primary photo is shown on the ordering link.</p>
@@ -204,6 +186,9 @@ export default function ProductDetail() {
           )}
         </div>
       </div>
+      {canPhotos && (
+        <AddPhotosDialog productId={id!} existing={data.photos.length} max={maxPhotos} open={adding} onOpenChange={setAdding} onSaved={refresh} />
+      )}
       <PhotoGallery open={gallery} onOpenChange={setGallery} title={p.name} urls={data.photos.map((x) => x.url)} />
       <ConfirmDialog
         open={toggling}

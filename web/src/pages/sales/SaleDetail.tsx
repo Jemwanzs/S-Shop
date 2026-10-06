@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page";
 import { Pill, StatusBadge } from "@/components/Badges";
-import { ConfirmDialog, Field, NativeSelect, ToggleRow } from "@/components/Form";
+import { ConfirmDialog, Field, Select, ToggleRow } from "@/components/Form";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 
 export default function SaleDetail() {
@@ -242,10 +242,10 @@ export default function SaleDetail() {
 function RefundMethod({ value, onChange, methods }: { value: string; onChange: (v: string) => void; methods: { key: string; label: string }[] }) {
   return (
     <Field label="Refund via" hint="Credit sales reduce the outstanding balance first">
-      <NativeSelect value={value} onChange={onChange}>
+      <Select value={value} onChange={onChange}>
         <option value="">Same as original payment</option>
         {methods.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-      </NativeSelect>
+      </Select>
     </Field>
   );
 }

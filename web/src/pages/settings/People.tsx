@@ -11,7 +11,7 @@ import { HoursEditor, hoursLabel } from "@/components/Hours";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, NativeSelect, ToggleRow } from "@/components/Form";
+import { Field, Select, ToggleRow } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { PasswordInput } from "@/components/PasswordInput";
@@ -74,10 +74,10 @@ export function BranchesSettings() {
             <Field label="Location" optional><Input value={edit.location ?? ""} onChange={(e) => setEdit({ ...edit, location: e.target.value })} /></Field>
             <Field label="Phone" optional><Input value={edit.phone ?? ""} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
             <Field label="Branch manager" optional className="sm:col-span-2" hint="Approves requests when a workflow uses “Branch manager”">
-              <NativeSelect value={edit.manager_id ?? ""} onChange={(v) => setEdit({ ...edit, manager_id: v || null })}>
+              <Select value={edit.manager_id ?? ""} onChange={(v) => setEdit({ ...edit, manager_id: v || null })}>
                 <option value="">—</option>
                 {users.data?.filter((u) => u.is_active).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </NativeSelect>
+              </Select>
             </Field>
             {canHours && businessHours && (
               <div className="space-y-3 sm:col-span-2">
@@ -191,10 +191,10 @@ export function UsersSettings() {
             {!edit.id && <Field label="Login PIN" hint="4–12 characters"><PasswordInput autoComplete="new-password" maxLength={12} value={edit.pin} onChange={(e) => setEdit({ ...edit, pin: e.target.value })} /></Field>}
             {!edit.id && <Field label="Confirm PIN" hint={pinConfirm && pinConfirm !== edit.pin ? "PINs do not match" : undefined}><PasswordInput autoComplete="new-password" maxLength={12} value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value)} /></Field>}
             <Field label="Role" className="sm:col-span-2">
-              <NativeSelect value={edit.role_id} onChange={(v) => setEdit({ ...edit, role_id: v })}>
+              <Select value={edit.role_id} onChange={(v) => setEdit({ ...edit, role_id: v })}>
                 <option value="">Choose…</option>
                 {roles.data?.filter((r) => r.is_active || r.id === edit.role_id).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </NativeSelect>
+              </Select>
             </Field>
             <div className="sm:col-span-2">
               <ToggleRow label="All branches" hint="Otherwise restricted to the branches below" checked={edit.all_branches} onChange={(v) => setEdit({ ...edit, all_branches: v })} />

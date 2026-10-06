@@ -11,7 +11,7 @@ import type { Category, Paged, Product, UserRow } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ErrorState, Loading, PageHeader, EmptyState } from "@/components/Page";
 import { PeriodFilter, type PeriodValue } from "@/components/Filters";
-import { NativeSelect } from "@/components/Form";
+import { Select } from "@/components/Form";
 import { DataList, type Column } from "@/components/DataList";
 
 interface Col {
@@ -128,26 +128,26 @@ export default function ReportView() {
         <PeriodFilter value={period} onChange={setPeriod} />
         <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap">
           {(profile?.branches.length ?? 0) > 1 && (
-            <NativeSelect value={branchId} onChange={setBranchId} className="md:w-48">
+            <Select value={branchId} onChange={setBranchId} className="md:w-48" label="Branch">
               <option value="">All my branches</option>
               {profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </NativeSelect>
+            </Select>
           )}
-          <NativeSelect value={categoryId} onChange={setCategoryId} className="md:w-48">
+          <Select value={categoryId} onChange={setCategoryId} className="md:w-48" label="Category">
             <option value="">All categories</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </NativeSelect>
+          </Select>
           {products.data && (
-            <NativeSelect value={productId} onChange={setProductId} className="md:w-56">
+            <Select value={productId} onChange={setProductId} className="md:w-56">
               <option value="">All products</option>
               {products.data.items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </NativeSelect>
+            </Select>
           )}
           {users.data && (
-            <NativeSelect value={userId} onChange={setUserId} className="md:w-48">
+            <Select value={userId} onChange={setUserId} className="md:w-48">
               <option value="">All users</option>
               {users.data.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </NativeSelect>
+            </Select>
           )}
           {isFetching && <Loader2 className="h-5 w-5 animate-spin self-center text-muted-foreground" />}
         </div>

@@ -1,21 +1,22 @@
 import { Languages } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { LANGUAGES } from "@/lib/i18n";
+import { Select } from "@/components/Select";
 
 /** Language choice before sign-in; once signed in, the user's preference decides. */
 export function LanguagePicker() {
   const { language, setDeviceLanguage } = useSession();
   return (
-    <label className="relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent">
+    <div className="flex items-center gap-1 text-muted-foreground">
       <Languages className="h-4 w-4" />
-      <select
+      <Select
         value={language}
-        onChange={(e) => setDeviceLanguage(e.target.value)}
-        className="cursor-pointer appearance-none bg-transparent pe-1 text-sm font-medium text-foreground focus:outline-none"
-        aria-label="Language"
+        onChange={setDeviceLanguage}
+        label="Language"
+        className="h-8 w-auto gap-1 border-transparent bg-transparent px-1.5 text-sm font-medium text-foreground hover:bg-accent"
       >
         {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
-      </select>
-    </label>
+      </Select>
+    </div>
   );
 }

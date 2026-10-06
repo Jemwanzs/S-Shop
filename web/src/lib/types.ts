@@ -291,6 +291,7 @@ export interface CreditRow {
   days_outstanding: number;
   status: string;
   created_at: string;
+  recall_state: "partially_recalled" | "recalled" | null;
 }
 
 export interface OrderRow {

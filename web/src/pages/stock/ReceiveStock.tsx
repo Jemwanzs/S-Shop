@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Images, Loader2, PackagePlus, ScanLine, X } from "lucide-react";
+import { CheckCircle2, ImagePlus, Images, Loader2, PackagePlus, ScanLine, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -11,10 +11,11 @@ import type { Outcome, Paged, Product, Supplier } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader, Section } from "@/components/Page";
-import { Field, NativeSelect, ToggleRow } from "@/components/Form";
+import { Field, Select, ToggleRow } from "@/components/Form";
 import { SearchInput } from "@/components/Filters";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { PhotoGallery } from "@/components/PhotoGallery";
+import { AddPhotosDialog } from "@/components/PhotoPicker";
 import { Pill } from "@/components/Badges";
 
 interface ProductDetail {
@@ -25,6 +26,8 @@ interface ProductDetail {
 
 export default function ReceiveStock() {
   const { profile, branch, can } = useSession();
+  const [addingPhotos, setAddingPhotos] = useState(false);
+  const maxPhotos = profile?.settings.product.max_photos ?? 5;
   const navigate = useNavigate();
   const s = profile!.settings;
   const qc = useQueryClient();
@@ -179,6 +182,9 @@ export default function ReceiveStock() {
                 <div className="flex flex-wrap gap-2">
                   {!p.is_active && <Pill tone="danger">Inactive product</Pill>}
                   {p.photo_count > 0 && <Button variant="outline" size="sm" onClick={() => setGallery(true)}><Images /> View photos</Button>}
+                  {(can("products.edit") || can("products.create")) && p.photo_count < maxPhotos && (
+                    <Button variant="outline" size="sm" onClick={() => setAddingPhotos(true)}><ImagePlus /> {p.photo_count ? "Add photos" : "Add photos (none yet)"}</Button>
+                  )}
                 </div>
               </div>
             )}
@@ -228,14 +234,14 @@ export default function ReceiveStock() {
                 </div>
                 {(profile?.branches.length ?? 0) > 1 && (
                   <Field label="Branch">
-                    <NativeSelect value={branchId} onChange={setBranchId}>{profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</NativeSelect>
+                    <Select value={branchId} onChange={setBranchId}>{profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select>
                   </Field>
                 )}
                 <Field label="Supplier" optional>
-                  <NativeSelect value={supplier} onChange={setSupplier}>
+                  <Select value={supplier} onChange={setSupplier}>
                     <option value="">—</option>
                     {suppliers.data?.filter((x) => x.is_active).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-                  </NativeSelect>
+                  </Select>
                 </Field>
                 <Field label="Reference / notes" optional><Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Delivery note, invoice no." /></Field>
                 <Field label="Date received"><Input type="date" value={received} max={todayIso()} onChange={(e) => setReceived(e.target.value)} /></Field>
@@ -260,6 +266,19 @@ export default function ReceiveStock() {
         continuous={scan === "items" && tracked}
         title={scan === "items" && tracked ? `Scan each ${p?.name}` : "Scan barcode"}
       />
+      {p && (
+        <AddPhotosDialog
+          productId={p.id}
+          existing={p.photo_count}
+          max={maxPhotos}
+          open={addingPhotos}
+          onOpenChange={setAddingPhotos}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["product", p.id] });
+            qc.invalidateQueries({ queryKey: ["products"] });
+          }}
+        />
+      )}
       {p && <PhotoGallery open={gallery} onOpenChange={setGallery} title={p.name} urls={detail.data?.photos.map((x) => x.url) ?? []} />}
     </>
   );

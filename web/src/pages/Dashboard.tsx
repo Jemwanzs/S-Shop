@@ -31,7 +31,7 @@ import type { Category, Money, UserRow } from "@/lib/types";
 import { PageHeader, Section, ErrorState, Loading, EmptyState } from "@/components/Page";
 import { StatCard } from "@/components/Stat";
 import { PeriodFilter, type PeriodValue } from "@/components/Filters";
-import { NativeSelect } from "@/components/Form";
+import { Select } from "@/components/Form";
 import { Medal, PointsPill, Pill } from "@/components/Badges";
 import { t } from "@/lib/i18n";
 
@@ -143,20 +143,20 @@ function Analytics({ mine = false }: { mine?: boolean }) {
         <PeriodFilter value={period} onChange={setPeriod} />
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           {multiBranch && (
-            <NativeSelect value={branchId} onChange={setBranchId} className="sm:w-48">
+            <Select value={branchId} onChange={setBranchId} className="sm:w-48" label="Branch">
               <option value="">{t("All my branches")}</option>
               {profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </NativeSelect>
+            </Select>
           )}
-          <NativeSelect value={categoryId} onChange={setCategoryId} className="sm:w-48">
+          <Select value={categoryId} onChange={setCategoryId} className="sm:w-48" label="Category">
             <option value="">{t("All categories")}</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </NativeSelect>
+          </Select>
           {!mine && users.data && (
-            <NativeSelect value={userId} onChange={setUserId} className="sm:w-48">
+            <Select value={userId} onChange={setUserId} className="sm:w-48" label="Staff">
               <option value="">{t("All staff")}</option>
               {users.data.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </NativeSelect>
+            </Select>
           )}
           {productId && <Pill tone="primary" className="h-11 px-3">Filtered by product · <Link to="/" className="underline">clear</Link></Pill>}
         </div>

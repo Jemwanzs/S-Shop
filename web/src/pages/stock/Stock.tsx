@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader, EmptyState } from "@/components/Page";
 import { DataList, Pager, CardRow } from "@/components/DataList";
 import { PeriodFilter, SearchInput, Segments, type PeriodValue } from "@/components/Filters";
-import { NativeSelect } from "@/components/Form";
+import { Select } from "@/components/Form";
 import { Pill, StatusBadge, StockIndicator } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
@@ -81,10 +81,10 @@ function Levels() {
         <Segments value={status} onChange={(v) => { setStatus(v); setOffset(0); }} options={[{ value: "all", label: "All" }, { value: "in", label: "In stock" }, { value: "low", label: "Low" }, { value: "out", label: "Out of stock" }]} />
         <div className="grid gap-2 sm:grid-cols-2 md:flex">
           <SearchInput value={q} onChange={(v) => { setQ(v); setOffset(0); }} placeholder="Search products" className="md:w-80" />
-          <NativeSelect value={category} onChange={(v) => { setCategory(v); setOffset(0); }} className="md:w-52">
+          <Select value={category} label="Category" onChange={(v) => { setCategory(v); setOffset(0); }} className="md:w-52">
             <option value="">All categories</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </NativeSelect>
+          </Select>
         </div>
       </div>
       <DataList
@@ -193,10 +193,10 @@ function Movements({ productId }: { productId?: string }) {
     <>
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <PeriodFilter value={period} onChange={(v) => { setPeriod(v); setOffset(0); }} />
-        <NativeSelect value={kind} onChange={(v) => { setKind(v); setOffset(0); }} className="md:w-52">
+        <Select value={kind} onChange={(v) => { setKind(v); setOffset(0); }} className="md:w-52">
           <option value="">All movements</option>
           {KINDS.map((k) => <option key={k} value={k}>{titleCase(k)}</option>)}
-        </NativeSelect>
+        </Select>
       </div>
       <DataList
         rows={data?.items}

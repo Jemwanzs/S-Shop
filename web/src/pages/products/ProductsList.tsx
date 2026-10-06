@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader, EmptyState } from "@/components/Page";
 import { DataList, Pager, CardRow } from "@/components/DataList";
 import { SearchInput, Segments } from "@/components/Filters";
-import { NativeSelect } from "@/components/Form";
+import { Select } from "@/components/Form";
 import { Pill, StockIndicator } from "@/components/Badges";
 
 const LIMIT = 50;
@@ -58,10 +58,10 @@ export default function ProductsList() {
         <Segments value={status} onChange={(v) => { setStatus(v); setOffset(0); }} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }, { value: "all", label: "All" }]} />
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:flex">
           <SearchInput value={q} onChange={(v) => { setQ(v); setOffset(0); }} placeholder="Name, nickname, code or barcode" className="md:w-80" />
-          <NativeSelect value={category} onChange={(v) => { setCategory(v); setOffset(0); }} className="md:w-52">
+          <Select value={category} label="Category" onChange={(v) => { setCategory(v); setOffset(0); }} className="md:w-52">
             <option value="">All categories</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </NativeSelect>
+          </Select>
         </div>
       </div>
       <DataList

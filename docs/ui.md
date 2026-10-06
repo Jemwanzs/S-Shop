@@ -55,6 +55,13 @@ photos hidden on operational screens until “View photos”; the ordering porta
 `Segments`, `SearchInput` · `StatCard` · `StatusBadge`, `PointsPill`, `Medal`, `StockIndicator` · `BarcodeScanner`
 · `PhotoGallery` · `Field`, `ToggleRow`, `NativeSelect`, `ConfirmDialog` · `ui/*` Radix primitives (shadcn).
 
+## Dropdowns (`components/Select.tsx`)
+Every dropdown in the app is `Select` (re-exported from `components/Form`), never a native `<select>`: pass `<option>`
+children as you would to a select. Larger screens open a panel the width of the field; phones open a bottom sheet with
+44 px rows. The chosen option is ticked, highlighted and scrolled into view; arrows/Enter/Escape work; lists of 9+
+options get a search box (`searchable` forces it on or off); disabled options and fields are dimmed. `label` names
+the sheet and the field for screen readers.
+
 ## Feedback & resilience
 - **Notifications** — import `toast` from `@/lib/toast` (never from `sonner` directly). `toast.success` / `toast.info`
   are brief toasts at the top centre (5 s, close × on the right). `toast.error` opens a **centred alert** with an icon,
@@ -101,7 +108,6 @@ screens gain layout, not bigger controls.
 | `--nav-h`, `.bottom-above-nav` | 3.6rem + safe area | bottom nav and bars fixed above it |
 | `--sidebar-w`, `start-sidebar` | 272px | desktop navigation |
 | `--overlay` | black at 50% + slight blur | dialog and sheet backdrops |
-| `.select-chevron` | CSS arrow, mirrored in RTL | native selects |
 | `.scroll-thin` | thin, token-coloured scrollbar | wide tables, internal scroll areas |
 | `.num` | Outfit, tabular figures, no wrapping | all amounts, counts, points |
 

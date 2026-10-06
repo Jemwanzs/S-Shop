@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Banknote, MessageCircle } from "lucide-react";
+import { Ban, Banknote, MessageCircle, RotateCcw } from "lucide-react";
+import { RecallDialog, type SoldItem } from "./RecallDialog";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -19,6 +20,12 @@ interface Detail {
   credit: CreditRow;
   payments: { id: string; method: string; amount: Money; reference: string; created_at: string; user_name: string | null }[];
   history: { action: string; created_at: string; user_name: string | null; comments: string }[];
+  items: SoldItem[];
+  can_recall: boolean;
+  recalls: {
+    return_no: string; reason: string; amount: Money; balance_before: Money | null; balance_after: Money | null; customer_credit: Money;
+    refund_method: string; created_at: string; user_name: string | null; items: { product: string; quantity: number; barcode: string | null }[];
+  }[];
 }
 
 export default function CreditDetail() {
@@ -28,6 +35,7 @@ export default function CreditDetail() {
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["credit", id], queryFn: () => api<Detail>(`/credit/${id}`) });
   const [paying, setPaying] = useState(false);
   const [writing, setWriting] = useState(false);
+  const [recalling, setRecalling] = useState(false);
   const [amountStr, setAmount] = useState("");
   const [method, setMethod] = useState("cash");
   const [reference, setReference] = useState("");
@@ -35,6 +43,7 @@ export default function CreditDetail() {
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["credit"] });
     qc.invalidateQueries({ queryKey: ["dashboard"] });
+    qc.invalidateQueries({ queryKey: ["stock"] });
   };
   const pay = useMutation({
     mutationFn: () => api<{ balance: number; status: string }>(`/credit/${id}/payments`, { body: { amount: toNum(amountStr), method, reference } }),
@@ -97,7 +106,10 @@ export default function CreditDetail() {
                 <p className="label-caps">Outstanding balance</p>
                 <p className="num mt-1 text-3xl font-bold">{money(c.balance)}</p>
               </div>
-              <StatusBadge status={c.status} />
+              <div className="flex flex-col items-end gap-1">
+                <StatusBadge status={c.status} />
+                {c.recall_state && <StatusBadge status={c.recall_state} />}
+              </div>
             </div>
             <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-muted">
               <div className="h-full rounded-full bg-success transition-all" style={{ width: `${paidPct}%` }} />
@@ -121,6 +133,31 @@ export default function CreditDetail() {
               </ul>
             )}
           </Section>
+          {data.recalls.length > 0 && (
+            <Section title="Recalls">
+              <ul className="divide-y">
+                {data.recalls.map((r) => (
+                  <li key={r.return_no} className="space-y-1 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="num font-medium">{r.return_no}</span>
+                      <span className="num font-semibold">{money(r.amount)}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{dateTime(r.created_at)} · {r.user_name} — {r.reason}</div>
+                    <div className="text-xs">
+                      {r.items.map((it) => `${it.quantity} × ${it.product}${it.barcode ? ` (${it.barcode})` : ""}`).join(", ")}
+                    </div>
+                    {r.balance_before !== null && (
+                      <div className="num text-xs text-muted-foreground">
+                        Balance {money(r.balance_before)} → {money(r.balance_after ?? 0)}
+                        {toNum(r.customer_credit) > 0 && <span className="font-medium text-warning"> · customer credit {money(r.customer_credit)} (follow up)</span>}
+                        {toNum(r.customer_credit) === 0 && r.refund_method && r.refund_method !== "customer_credit" && ` · refunded by ${methodLabel(r.refund_method)}`}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
           <Section title="Audit trail">
             <ul className="space-y-2 text-sm">
               {data.history.map((h, i) => (
@@ -141,12 +178,16 @@ export default function CreditDetail() {
             <KV label="Salesperson">{c.salesperson ?? "—"}</KV>
             <KV label="Customer"><Link to={`/customers/${c.customer_id}`} className="text-primary">View profile</Link></KV>
           </Section>
+          {data.can_recall && (
+            <Button variant="outline" className="w-full" onClick={() => setRecalling(true)}><RotateCcw /> Recall sale</Button>
+          )}
           {open && can("credit.write_off") && (
             <Button variant="outline" className="w-full text-destructive" onClick={() => setWriting(true)}><Ban /> Write off balance</Button>
           )}
         </div>
       </div>
 
+      <RecallDialog open={recalling} onOpenChange={setRecalling} credit={c} items={data.items} onDone={refresh} />
       <ResponsiveDialog
         open={paying}
         onOpenChange={setPaying}

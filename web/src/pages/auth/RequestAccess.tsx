@@ -5,7 +5,7 @@ import { api, errorMessage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { NativeSelect } from "@/components/Form";
+import { Select } from "@/components/Form";
 import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
 
@@ -66,10 +66,10 @@ export default function RequestAccessPage() {
         <label className="block"><AuthLabel>Email</AuthLabel><Input type="email" autoComplete="email" value={f.email} onChange={(e) => set("email")(e.target.value)} placeholder="your@email.com" required /></label>
         <label className="block">
           <AuthLabel>Type of business</AuthLabel>
-          <NativeSelect value={f.business_type} onChange={set("business_type")}>
+          <Select value={f.business_type} onChange={set("business_type")}>
             <option value="">{t("Choose…")}</option>
             {BUSINESS_TYPES.map((b) => <option key={b} value={b}>{t(b)}</option>)}
-          </NativeSelect>
+          </Select>
         </label>
         <label className="block"><AuthLabel>Town / location</AuthLabel><Input value={f.location} onChange={(e) => set("location")(e.target.value)} maxLength={120} /></label>
         <label className="block"><AuthLabel>Anything else? (optional)</AuthLabel><Textarea rows={3} value={f.message} onChange={(e) => set("message")(e.target.value)} maxLength={1000} /></label>

@@ -7,7 +7,7 @@ import type { Paged } from "@/lib/types";
 import { PageHeader, EmptyState } from "@/components/Page";
 import { DataList, Pager, CardRow } from "@/components/DataList";
 import { PeriodFilter, type PeriodValue } from "@/components/Filters";
-import { NativeSelect } from "@/components/Form";
+import { Select } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 
@@ -31,10 +31,10 @@ export default function Audit() {
       <PageHeader eyebrow="Admin" title="Audit trail" description="Who did what, when, where — with before and after values." />
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <PeriodFilter value={period} onChange={(v) => { setPeriod(v); setOffset(0); }} />
-        <NativeSelect value={module} onChange={(v) => { setModule(v); setOffset(0); }} className="md:w-48">
+        <Select value={module} onChange={(v) => { setModule(v); setOffset(0); }} className="md:w-48">
           <option value="">All modules</option>
           {MODULES.map((m) => <option key={m} value={m}>{titleCase(m)}</option>)}
-        </NativeSelect>
+        </Select>
       </div>
       <DataList
         rows={data?.items}

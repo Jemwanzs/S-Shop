@@ -68,7 +68,7 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | GET | `/api/products/{id}` |
 | PUT | `/api/products/{id}` |
 | POST | `/api/products/{id}/status` |
-| POST | `/api/products/{id}/photos` |
+| POST | `/api/products/{id}/photos` — multipart `upload_ref` (uuid, makes retries safe) then `file` (JPEG/PNG/WebP ≤ 3 MB) |
 | DELETE | `/api/products/{id}/photos/{photo_id}` |
 | POST | `/api/products/{id}/photos/{photo_id}/primary` |
 | GET | `/api/photos/{id}` |
@@ -172,6 +172,7 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | GET | `/api/credit/{id}` |
 | POST | `/api/credit/{id}/payments` |
 | POST | `/api/credit/{id}/write-off` |
+| POST | `/api/credit/{id}/recall` — `{items: [{sale_item_id, quantity, barcodes}], reason, settle: refund\|credit, refund_method}` |
 | POST | `/api/credit/{id}/remind` |
 
 ## Orders (staff)

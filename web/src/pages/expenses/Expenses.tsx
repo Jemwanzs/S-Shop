@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageHeader, EmptyState, Section } from "@/components/Page";
 import { DataList, Pager, CardRow } from "@/components/DataList";
 import { PeriodFilter, Chip, type PeriodValue } from "@/components/Filters";
-import { ConfirmDialog, Field, NativeSelect } from "@/components/Form";
+import { ConfirmDialog, Field, Select } from "@/components/Form";
 import { StatusBadge } from "@/components/Badges";
 import { StatCard } from "@/components/Stat";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
@@ -59,10 +59,10 @@ export default function Expenses() {
       <PageHeader eyebrow="Finance" title="Expenses" actions={can("expenses.create") && <Button onClick={() => setAdding(true)}><Plus /> Record expense</Button>} />
       <div className="mb-4 space-y-3">
         <PeriodFilter value={period} onChange={(v) => { setPeriod(v); setOffset(0); }} />
-        <NativeSelect value={category} onChange={(v) => { setCategory(v); setOffset(0); }} className="sm:w-56">
+        <Select value={category} label="Category" onChange={(v) => { setCategory(v); setOffset(0); }} className="sm:w-56">
           <option value="">All categories</option>
           {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </NativeSelect>
+        </Select>
       </div>
       <div className="mb-5 grid gap-3 md:grid-cols-[260px_minmax(0,1fr)]">
         <StatCard label="Approved spend" value={money(total)} icon={Wallet} tone="warning" />
@@ -153,10 +153,10 @@ function NewExpense({ open, onOpenChange, categories, methods }: { open: boolean
     <ResponsiveDialog open={open} onOpenChange={onOpenChange} title="Record expense" footer={<Button className="w-full md:w-auto" disabled={!valid || save.isPending} onClick={() => save.mutate()}>Save expense</Button>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Category">
-          <NativeSelect value={categoryId} onChange={setCategoryId}>
+          <Select value={categoryId} onChange={setCategoryId}>
             <option value="">Choose…</option>
             {categories.filter((c) => c.is_active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </NativeSelect>
+          </Select>
         </Field>
         <Field label="Amount"><Input inputMode="decimal" className="num" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} /></Field>
         <Field label="Date"><Input type="date" value={day} max={todayIso()} onChange={(e) => setDay(e.target.value)} /></Field>

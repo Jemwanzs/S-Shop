@@ -671,6 +671,83 @@ ok_t = call("POST", "/transfers", {"to_branch_id": b2, "items": [{"product_id": 
 call("POST", f"/transfers/{ok_t['id']}/dispatch")
 check("receipt with no body still receives everything", call("POST", f"/transfers/{ok_t['id']}/receive", branch=b2)["status"] == "received")
 
+step("Product photos: validation, limit, retry-safe uploads")
+def upload(pid, data, ref=None, expect=200):
+    boundary = "sshop" + uuid.uuid4().hex
+    parts = []
+    if ref:
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="upload_ref"\r\n\r\n{ref}\r\n'.encode())
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="p.png"\r\nContent-Type: image/png\r\n\r\n'.encode() + data + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    req = urllib.request.Request(BASE + f"/api/products/{pid}/photos", data=b"".join(parts), method="POST")
+    req.add_header("Authorization", "Bearer " + TOKEN)
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    try:
+        with urllib.request.urlopen(req) as r:
+            status, raw = r.status, r.read()
+    except urllib.error.HTTPError as e:
+        status, raw = e.code, e.read()
+    payload = json.loads(raw) if raw[:1] == b"{" else raw
+    if status != expect:
+        raise AssertionError(f"photo upload → {status} (expected {expect}): {payload}")
+    return payload
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 2000
+ph_prod = call("POST", "/products", {"name": f"Photo Test {suffix}", "marked_price": 100})["result"]["id"]
+ref = str(uuid.uuid4())
+first = upload(ph_prod, PNG, ref)
+again = upload(ph_prod, PNG, ref)
+check("same pending photo sent twice is stored once", again["id"] == first["id"] and again.get("duplicate") is True)
+check("not-an-image refused", upload(ph_prod, b"%PDF-1.4 hello", str(uuid.uuid4()), expect=422)["error"]["title"] == "Not a photo")
+check("2.5 MB photo accepted (body limit fits the 3 MB rule)", "id" in upload(ph_prod, PNG + b"\x00" * (2_500_000), str(uuid.uuid4())))
+check("over 3 MB refused", upload(ph_prod, PNG + b"\x00" * (3_200_000), str(uuid.uuid4()), expect=422)["error"]["title"] == "Photo too large")
+limit = call("GET", "/settings")["settings"]["product"]["max_photos"]
+for _ in range(limit - 2):
+    upload(ph_prod, PNG, str(uuid.uuid4()))
+check("limit enforced", upload(ph_prod, PNG, str(uuid.uuid4()), expect=422)["error"]["title"] == "Photo limit reached")
+check("photo count matches what was stored", len(call("GET", f"/products/{ph_prod}")["photos"]) == limit)
+
+step("Credit Sales: recall to stock")
+call("POST", "/stock/receive", {"product_id": nduma, "quantity": 5, "cost_price": 250})
+RC = [f"RC{suffix}a", f"RC{suffix}b"]
+call("POST", "/stock/receive", {"product_id": ring, "quantity": 2, "barcodes": RC})
+rcs = call("POST", "/sales", {"customer_id": cust_id, "items": [{"product_id": nduma, "quantity": 3, "unit_price": 400},
+        {"product_id": ring, "quantity": 1, "unit_price": 900, "barcode": RC[0]}], "payment": {"method": "credit"}, "client_ref": str(uuid.uuid4())})
+rc_id = rcs["credit"]["id"]
+rc = call("GET", f"/credit/{rc_id}")
+nd_item = next(i for i in rc["items"] if not i["tracked"])
+rg_item = next(i for i in rc["items"] if i["tracked"])
+check("credit detail lists what was sold", rc["can_recall"] and rg_item["barcode"] == RC[0] and nd_item["quantity"] == 3)
+def recall(items, reason="Customer could not pay", settle="", expect=200, token=None, **kw):
+    return call("POST", f"/credit/{rc_id}/recall", {"items": items, "reason": reason, "settle": settle, **kw}, token=token, expect=expect)
+call("POST", f"/credit/{rc_id}/recall", {"items": [{"sale_item_id": nd_item["id"], "quantity": 1}], "reason": "x"}, token=reporter, expect=403)
+check("recall needs permission", True)
+check("reason required", recall([{"sale_item_id": nd_item["id"], "quantity": 1}], reason="", expect=400) is not None)
+check("tracked unit must be scanned", recall([{"sale_item_id": rg_item["id"], "quantity": 1}], expect=422)["error"]["title"] == "Scan required")
+check("wrong barcode refused", recall([{"sale_item_id": rg_item["id"], "quantity": 1, "barcodes": [RC[1]]}], expect=422)["error"]["title"] == "Barcode mismatch")
+check("cannot recall more than sold", recall([{"sale_item_id": nd_item["id"], "quantity": 4}], expect=422)["error"]["title"] == "Too many")
+nd_before = call("GET", f"/stock?q=Nduma {suffix}")["items"][0]["on_hand"]
+r1 = recall([{"sale_item_id": nd_item["id"], "quantity": 1}], reason="One bag returned unopened")
+rc = call("GET", f"/credit/{rc_id}")
+check("partial recall reduces the balance", float(rc["credit"]["balance"]) == 1200 + 900 - 400 - 0 and rc["credit"]["recall_state"] == "partially_recalled", rc["credit"])
+check("collection continues on what is still owed", rc["credit"]["status"] in ("outstanding", "overdue"))
+check("stock back at the original branch", call("GET", f"/stock?q=Nduma {suffix}")["items"][0]["on_hand"] == nd_before + 1)
+mvr = [m for m in call("GET", "/stock/movements?period=today&limit=100")["items"] if "Credit sale recall" in (m["notes"] or "")]
+check("ledger shows the recall", any(m["kind"] == "customer_return" and m["quantity"] == 1 for m in mvr))
+call("POST", f"/credit/{rc_id}/payments", {"amount": 1500, "method": "cash"})
+over = recall([{"sale_item_id": nd_item["id"], "quantity": 2}, {"sale_item_id": rg_item["id"], "quantity": 1, "barcodes": [RC[0]]}], expect=422)
+check("overpayment must be settled explicitly", over["error"]["title"] == "Customer has overpaid", over)
+r2 = recall([{"sale_item_id": nd_item["id"], "quantity": 2}, {"sale_item_id": rg_item["id"], "quantity": 1, "barcodes": [RC[0]]}],
+            reason="Goods collected back", settle="credit")
+rc = call("GET", f"/credit/{rc_id}")
+last = rc["recalls"][-1]
+check("full recall closes the credit as Recalled", rc["credit"]["status"] == "recalled" and rc["credit"]["recall_state"] == "recalled", rc["credit"])
+check("overpayment kept as customer credit (no payout)", float(last["customer_credit"]) == 1500 and float(last["balance_after"]) == 0, last)
+check("payment history untouched", [float(x["amount"]) for x in rc["payments"]] == [1500.0], rc["payments"])
+check("exact unit back in stock", call("POST", "/sales/check-barcode", {"product_id": ring, "barcode": RC[0]})["ok"] is True)
+check("nothing left to recall", recall([{"sale_item_id": nd_item["id"], "quantity": 1}], expect=422)["error"]["title"] == "Cannot recall")
+aud_r = call("GET", f"/audit?period=today&entity_id={rc_id}&limit=20")["items"]
+check("recall audited with balances", any(x["action"] == "recall" and x["after"]["balance_before"] is not None for x in aud_r))
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

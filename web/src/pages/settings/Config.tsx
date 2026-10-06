@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, NativeSelect, ToggleRow } from "@/components/Form";
+import { Field, Select, ToggleRow } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { Card, SettingsPage, useSettingsDraft } from "./shared";
@@ -134,9 +134,9 @@ export function SalesSettings() {
         <>
           <Card title="Sale entry">
             <Row label="Quantity entry" hint="Locked = every item captured individually">
-              <NativeSelect value={s.sales.quantity_entry} onChange={(v) => d.update((x) => { x.sales.quantity_entry = v as "editable"; })}>
+              <Select value={s.sales.quantity_entry} onChange={(v) => d.update((x) => { x.sales.quantity_entry = v as "editable"; })}>
                 <option value="editable">Editable</option><option value="locked">Locked to 1</option>
-              </NativeSelect>
+              </Select>
             </Row>
             <ToggleRow label="Require barcode clearance" hint="Products with a barcode must be scanned before they can be sold" checked={s.sales.require_barcode_clearance} onChange={(v) => d.update((x) => { x.sales.require_barcode_clearance = v; })} />
             <Row label="Receipt footer"><Input value={s.sales.receipt_footer} onChange={(e) => d.update((x) => { x.sales.receipt_footer = e.target.value; })} /></Row>
@@ -181,20 +181,20 @@ export function StockSettings() {
       {(s) => (
         <Card>
           <Row label="Barcode requirement">
-            <NativeSelect value={s.stock.barcode_requirement} onChange={(v) => d.update((x) => { x.stock.barcode_requirement = v as "optional"; })}>
+            <Select value={s.stock.barcode_requirement} onChange={(v) => d.update((x) => { x.stock.barcode_requirement = v as "optional"; })}>
               <option value="required">Required</option><option value="optional">Optional</option><option value="disabled">Disabled</option>
-            </NativeSelect>
+            </Select>
           </Row>
           <Row label="Quantity entry when receiving" hint="Locked = capture each physical item individually">
-            <NativeSelect value={s.stock.quantity_entry} onChange={(v) => d.update((x) => { x.stock.quantity_entry = v as "editable"; })}>
+            <Select value={s.stock.quantity_entry} onChange={(v) => d.update((x) => { x.stock.quantity_entry = v as "editable"; })}>
               <option value="editable">Editable</option><option value="locked">Locked to 1</option>
-            </NativeSelect>
+            </Select>
           </Row>
           <ToggleRow label="Capture cost price" hint="Enables profit and cost valuation" checked={s.stock.capture_cost} onChange={(v) => d.update((x) => { x.stock.capture_cost = v; })} />
           <Row label="Stock valuation">
-            <NativeSelect value={s.stock.valuation} onChange={(v) => d.update((x) => { x.stock.valuation = v as "cost"; })}>
+            <Select value={s.stock.valuation} onChange={(v) => d.update((x) => { x.stock.valuation = v as "cost"; })}>
               <option value="cost">At cost</option><option value="selling">At selling price</option>
-            </NativeSelect>
+            </Select>
           </Row>
           <Row label="Default low-stock alert">{numInput(s.stock.low_stock_threshold, (n) => d.update((x) => { x.stock.low_stock_threshold = n; }))}</Row>
           <ToggleRow label="Transfer receipt control" hint="Stock stays “in transit” until the destination confirms receipt" checked={s.stock.transfer_receipt_control} onChange={(v) => d.update((x) => { x.stock.transfer_receipt_control = v; })} />
@@ -215,16 +215,16 @@ export function OrderSettings() {
         <Card>
           <ToggleRow label="Ordering link open" hint="Customers can place orders online" checked={s.orders.portal_enabled} onChange={(v) => d.update((x) => { x.orders.portal_enabled = v; })} />
           <Row label="Fulfilling branch">
-            <NativeSelect value={s.orders.default_branch_id ?? ""} onChange={(v) => d.update((x) => { x.orders.default_branch_id = v || null; })}>
+            <Select value={s.orders.default_branch_id ?? ""} onChange={(v) => d.update((x) => { x.orders.default_branch_id = v || null; })}>
               <option value="">First active branch</option>
               {profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </NativeSelect>
+            </Select>
           </Row>
           <ToggleRow label="Reserve stock for confirmed orders" hint="Available to sell = physical − reserved" checked={s.orders.reserve_stock} onChange={(v) => d.update((x) => { x.orders.reserve_stock = v; })} />
           <Row label="Order becomes a sale at">
-            <NativeSelect value={s.orders.sale_on_status} onChange={(v) => d.update((x) => { x.orders.sale_on_status = v as "delivered"; })}>
+            <Select value={s.orders.sale_on_status} onChange={(v) => d.update((x) => { x.orders.sale_on_status = v as "delivered"; })}>
               <option value="delivered">Delivered</option><option value="completed">Completed</option>
-            </NativeSelect>
+            </Select>
           </Row>
           <ToggleRow label="Verify customers with a WhatsApp code" hint="Requires the WhatsApp integration" checked={s.orders.verify_with_otp} onChange={(v) => d.update((x) => { x.orders.verify_with_otp = v; })} />
           <ToggleRow label="Show out-of-stock products" checked={s.orders.show_out_of_stock} onChange={(v) => d.update((x) => { x.orders.show_out_of_stock = v; })} />
@@ -289,9 +289,9 @@ function FieldsCard({ kind, empty }: { kind: FieldKind; empty: string }) {
           <div className="space-y-4">
             <Field label="Field name"><Input value={editing.label ?? ""} onChange={(e) => setEditing({ ...editing, label: e.target.value })} /></Field>
             <Field label="Type">
-              <NativeSelect value={editing.field_type ?? "text"} onChange={(v) => setEditing({ ...editing, field_type: v as CustomField["field_type"] })}>
+              <Select value={editing.field_type ?? "text"} onChange={(v) => setEditing({ ...editing, field_type: v as CustomField["field_type"] })}>
                 {["text", "number", "date", "dropdown", "boolean", "email"].map((t) => <option key={t} value={t}>{t === "boolean" ? "Yes / No" : titleCase(t)}</option>)}
-              </NativeSelect>
+              </Select>
             </Field>
             {editing.field_type === "dropdown" && (
               <Field label="Options" hint="Comma separated"><Input value={(editing.options ?? []).join(", ")} onChange={(e) => setEditing({ ...editing, options: e.target.value.split(",").map((o) => o.trim()) })} /></Field>
@@ -386,18 +386,18 @@ export function WorkspaceSettings() {
           </Card>
           <Card title="Outside trading hours">
             <Row label="Sales outside trading hours" hint="Blocking applies to counter sales; people with “Sell outside trading hours” can still sell.">
-              <NativeSelect value={s.workspace.outside_hours} onChange={(v) => d.update((x) => { x.workspace.outside_hours = v as "allow" | "block"; })}>
+              <Select value={s.workspace.outside_hours} onChange={(v) => d.update((x) => { x.workspace.outside_hours = v as "allow" | "block"; })}>
                 <option value="allow">{t("Allow")}</option>
                 <option value="block">{t("Block")}</option>
-              </NativeSelect>
+              </Select>
             </Row>
           </Card>
           <Card title="Where staff can work">
             <Row label="Location rule" hint="“At the branch” accepts the chosen actions only from devices within the branch radius. Set each branch's location under Branches.">
-              <NativeSelect value={s.workspace.location.mode} onChange={(v) => d.update((x) => { x.workspace.location.mode = v as "anywhere" | "branch"; })}>
+              <Select value={s.workspace.location.mode} onChange={(v) => d.update((x) => { x.workspace.location.mode = v as "anywhere" | "branch"; })}>
                 <option value="anywhere">{t("Anywhere")}</option>
                 <option value="branch">{t("At the branch")}</option>
-              </NativeSelect>
+              </Select>
             </Row>
             {s.workspace.location.mode === "branch" && (
               <div className="py-3">
@@ -471,10 +471,10 @@ export function ReportSettings() {
         const targetCard = (title: string, key: "products" | "staff", t: MedalTargets) => (
           <Card title={title}>
             <Row label="Measured by">
-              <NativeSelect value={t.basis} onChange={(v) => d.update((x) => { x.reports.medals[key].basis = v as MedalTargets["basis"]; })}>
+              <Select value={t.basis} onChange={(v) => d.update((x) => { x.reports.medals[key].basis = v as MedalTargets["basis"]; })}>
                 <option value="revenue">Sales value ({currency})</option>
                 <option value="units">Units sold</option>
-              </NativeSelect>
+              </Select>
             </Row>
             {(["gold", "silver", "bronze"] as const).map((level) => (
               <Row key={level} label={`${titleCase(level)} — per day`} hint={level === "bronze" ? "0 switches a medal off" : undefined}>
@@ -495,10 +495,10 @@ export function ReportSettings() {
             </Card>
             <Card title="Medals on dashboard leaderboards">
               <Row label="Best sellers & staff earn medals by" hint={targets ? "Anyone reaching a target, scaled to the period viewed (a week needs 7× the daily target)" : "Position: 1st Gold, 2nd Silver, 3rd Bronze"}>
-                <NativeSelect value={s.reports.medals.mode} onChange={(v) => d.update((x) => { x.reports.medals.mode = v as "rank" | "targets"; })}>
+                <Select value={s.reports.medals.mode} onChange={(v) => d.update((x) => { x.reports.medals.mode = v as "rank" | "targets"; })}>
                   <option value="rank">Rank (top three)</option>
                   <option value="targets">Targets</option>
-                </NativeSelect>
+                </Select>
               </Row>
             </Card>
             {targets && targetCard("Product targets", "products", s.reports.medals.products)}

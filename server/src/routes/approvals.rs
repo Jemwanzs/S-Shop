@@ -212,7 +212,7 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
         "product.create" | "product.edit" | "product.deactivate" => super::catalog::on_approved(&mut tx, &ctx, &a).await?,
         "stock.add" | "stock.adjust" | "stock.write_off" => super::stock::on_approved(&mut tx, &ctx, &a).await?,
         "stock.transfer" => super::transfers::on_approved(&mut tx, &ctx, &a).await?,
-        "sale.return" | "sale.cancel" => super::sales::on_approved(&mut tx, &ctx, &a).await?,
+        "sale.return" | "sale.cancel" | "credit.recall" => super::sales::on_approved(&mut tx, &ctx, &a).await?,
         "credit.write_off" => super::credit::on_approved(&mut tx, &ctx, &a).await?,
         "expense" => super::expenses::on_decided(&mut tx, &a, true).await?,
         _ => {}

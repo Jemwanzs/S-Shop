@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import type { CustomField } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Field, NativeSelect } from "./Form";
+import { Field, Select } from "./Form";
 import { KV } from "./Page";
 
 export type FieldKind = "customer" | "product";
@@ -24,10 +24,10 @@ export function CustomFieldInputs({ kind, values, onChange }: { kind: FieldKind;
         return (
           <Field key={f.id} label={f.label} optional={!f.required}>
             {f.field_type === "dropdown" ? (
-              <NativeSelect value={String(v ?? "")} onChange={(x) => set(f.key, x)}>
+              <Select value={String(v ?? "")} onChange={(x) => set(f.key, x)}>
                 <option value="">—</option>
                 {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
-              </NativeSelect>
+              </Select>
             ) : f.field_type === "boolean" ? (
               <div className="flex h-11 items-center"><Switch checked={!!v} onCheckedChange={(c) => set(f.key, c)} /></div>
             ) : (

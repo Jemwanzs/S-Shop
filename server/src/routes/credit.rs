@@ -48,6 +48,8 @@ pub struct CreditRow {
     /// outstanding | partially_paid | paid | overdue | written_off | cancelled
     pub status: String,
     pub created_at: DateTime<Utc>,
+    /// partially_recalled | recalled (goods brought back to stock), else null.
+    pub recall_state: Option<String>,
 }
 
 pub const CREDIT_SELECT: &str = "SELECT cs.id, cs.sale_id, s.receipt_no, cs.customer_id,
@@ -56,7 +58,7 @@ pub const CREDIT_SELECT: &str = "SELECT cs.id, cs.sale_id, s.receipt_no, cs.cust
         (cs.original_amount - cs.amount_paid - cs.adjustments) AS balance, cs.due_date,
         ($2::date - (cs.created_at AT TIME ZONE $3)::date) AS days_outstanding,
         CASE WHEN cs.status IN ('outstanding','partially_paid') AND cs.due_date < $2 THEN 'overdue' ELSE cs.status END AS status,
-        cs.created_at
+        cs.created_at, cs.recall_state
     FROM credit_sales cs JOIN sales s ON s.id = cs.sale_id JOIN customers c ON c.id = cs.customer_id
     JOIN branches b ON b.id = cs.branch_id LEFT JOIN users u ON u.id = cs.user_id";
 
@@ -154,7 +156,35 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     .bind(id)
     .fetch_all(&mut *conn)
     .await?;
+    // What was sold (for recalls) and every recall so far.
+    let items: Vec<(Uuid, String, String, i32, i32, Decimal, Option<String>, bool)> = sqlx::query_as(
+        "SELECT si.id, p.name, p.code, si.quantity, si.returned_qty, si.unit_price, si.barcode, si.stock_item_id IS NOT NULL
+         FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = $1 ORDER BY p.name, si.barcode",
+    )
+    .bind(row.sale_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let recalls: Vec<(String, String, Decimal, Option<Decimal>, Option<Decimal>, Decimal, String, DateTime<Utc>, Option<String>, Value)> = sqlx::query_as(
+        "SELECT r.return_no, r.reason, r.refund_amount, r.balance_before, r.balance_after, r.customer_credit, r.refund_method, r.created_at, u.name,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object('product', p.name, 'quantity', ri.quantity, 'barcode', si.barcode))
+                          FROM sale_return_items ri JOIN sale_items si ON si.id = ri.sale_item_id JOIN products p ON p.id = si.product_id
+                          WHERE ri.return_id = r.id), '[]'::jsonb)
+         FROM sale_returns r LEFT JOIN users u ON u.id = r.user_id WHERE r.sale_id = $1 AND r.kind = 'recall' ORDER BY r.created_at",
+    )
+    .bind(row.sale_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let open = !matches!(row.status.as_str(), "written_off" | "cancelled" | "recalled") && items.iter().any(|i| i.3 > i.4);
     Ok(Json(json!({
+        "can_recall": open && ctx.can("credit.recall"),
+        "items": items.into_iter().map(|(id, name, code, qty, returned, price, barcode, tracked)| json!({
+            "id": id, "product_name": name, "product_code": code, "quantity": qty, "returned_qty": returned,
+            "unit_price": price, "barcode": barcode, "tracked": tracked,
+        })).collect::<Vec<_>>(),
+        "recalls": recalls.into_iter().map(|(no, reason, amount, before, after, credit, method, at, user, items)| json!({
+            "return_no": no, "reason": reason, "amount": amount, "balance_before": before, "balance_after": after,
+            "customer_credit": credit, "refund_method": method, "created_at": at, "user_name": user, "items": items,
+        })).collect::<Vec<_>>(),
         "credit": row,
         "payments": payments.into_iter().map(|(id, method, amount, reference, at, user)| json!({
             "id": id, "method": method, "amount": amount, "reference": reference, "created_at": at, "user_name": user,

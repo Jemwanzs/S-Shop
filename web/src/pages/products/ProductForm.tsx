@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, Loader2, Plus, ScanLine, X } from "lucide-react";
+import { Loader2, Plus, ScanLine, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { optimizeImage } from "@/lib/image";
+import { PhotoPicker, photosValid, uploadPhotos, usePendingPhotos } from "@/components/PhotoPicker";
 import type { Category, Outcome, Product, Supplier } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loading, PageHeader, Section } from "@/components/Page";
-import { Field, NativeSelect, ToggleRow } from "@/components/Form";
+import { Field, Select, ToggleRow } from "@/components/Form";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { CustomFieldInputs } from "@/components/CustomFields";
 
@@ -61,7 +61,8 @@ export default function ProductForm() {
   const assignBarcode = params.get("barcode")?.trim() || null;
   const [f, setF] = useState<FormState>(() => (assignBarcode ? { ...EMPTY, barcode: assignBarcode } : EMPTY));
   const [scan, setScan] = useState(false);
-  const [photos, setPhotos] = useState<File[]>([]);
+  const photos = usePendingPhotos();
+  const [uploaded, setUploaded] = useState<number | null>(null);
   const [newCategory, setNewCategory] = useState<string | null>(null);
   const [newSupplier, setNewSupplier] = useState<string | null>(null);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((s) => ({ ...s, [k]: v }));
@@ -115,26 +116,30 @@ export default function ProductForm() {
       };
       const r = await api<Outcome<{ id: string }>>(editing ? `/products/${id}` : "/products", { method: editing ? "PUT" : "POST", body });
       const productId = editing ? id! : (r.result?.id ?? null);
-      // New products: upload photos chosen in the form (the product exists even while pending approval).
-      if (!editing && productId) {
-        for (const file of photos) {
-          const fd = new FormData();
-          fd.append("file", await optimizeImage(file), file.name.replace(/\.\w+$/, ".webp"));
-          await api(`/products/${productId}/photos`, { body: fd });
-        }
+      // New products: the product is saved first; each photo then succeeds or fails on its own, so a photo
+      // problem never makes a saved product look failed (and the form is left, so it is never created twice).
+      let upload = null;
+      if (!editing && productId && photos.items.length) {
+        setUploaded(0);
+        upload = await uploadPhotos(productId, photos.items, setUploaded);
       }
-      return { r, productId };
+      return { r, productId, upload };
     },
-    onSuccess: ({ r, productId }) => {
+    onSuccess: ({ r, productId, upload }) => {
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["product", id] });
-      if (r.pending_approval) {
+      qc.invalidateQueries({ queryKey: ["product", productId] });
+      setUploaded(null);
+      if (upload?.failed.length) {
+        toast.error(`${editing ? "Product updated" : "Product created"} — ${upload.failed.length} photo(s) not saved`, {
+          description: upload.failed.map((f) => `${f.name}: ${f.reason}`).join(" · ") + ` · ${upload.saved} saved. Add the rest from the product page.`,
+        });
+      } else if (r.pending_approval) {
         toast.success("Submitted for approval");
-        navigate("/products");
       } else {
-        toast.success(editing ? "Product updated" : "Product created");
-        navigate(`/products/${productId}`);
+        toast.success(editing ? "Product updated" : upload?.saved ? `Product created with ${upload.saved} photo(s)` : "Product created");
       }
+      navigate(r.pending_approval ? "/products" : `/products/${productId}`);
     },
     onError: (e) => toast.error(e),
   });
@@ -161,10 +166,10 @@ export default function ProductForm() {
               <Field label="Category" optional>
                 {newCategory === null ? (
                   <div className="flex gap-2">
-                    <NativeSelect value={f.category_id} onChange={(v) => set("category_id", v)}>
+                    <Select value={f.category_id} onChange={(v) => set("category_id", v)}>
                       <option value="">No category</option>
                       {categories.data?.filter((c) => c.is_active || c.id === f.category_id).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </NativeSelect>
+                    </Select>
                     <Button type="button" variant="outline" size="icon" onClick={() => setNewCategory("")} aria-label="New category"><Plus /></Button>
                   </div>
                 ) : (
@@ -178,10 +183,10 @@ export default function ProductForm() {
               <Field label="Supplier" optional>
                 {newSupplier === null ? (
                   <div className="flex gap-2">
-                    <NativeSelect value={f.supplier_id} onChange={(v) => set("supplier_id", v)}>
+                    <Select value={f.supplier_id} onChange={(v) => set("supplier_id", v)}>
                       <option value="">No supplier</option>
                       {suppliers.data?.filter((s) => s.is_active || s.id === f.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </NativeSelect>
+                    </Select>
                     <Button type="button" variant="outline" size="icon" onClick={() => setNewSupplier("")} aria-label="New supplier"><Plus /></Button>
                   </div>
                 ) : (
@@ -235,21 +240,7 @@ export default function ProductForm() {
 
           {!editing && (
             <Section title={`Photos · up to ${maxPhotos}`}>
-              <div className="flex flex-wrap gap-3">
-                {photos.map((p, i) => (
-                  <div key={i} className="relative h-24 w-24 overflow-hidden rounded-xl border">
-                    <img src={URL.createObjectURL(p)} alt="" className="h-full w-full object-cover" />
-                    {i === 0 && <span className="absolute bottom-1 start-1 rounded bg-black/60 px-1.5 text-[10px] text-white">Primary</span>}
-                    <button type="button" className="absolute end-1 top-1 rounded-full bg-black/60 p-1 text-white" onClick={() => setPhotos(photos.filter((_, n) => n !== i))} aria-label="Remove photo"><X className="h-3 w-3" /></button>
-                  </div>
-                ))}
-                {photos.length < maxPhotos && (
-                  <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed text-xs text-muted-foreground hover:border-primary/50">
-                    <ImagePlus className="h-5 w-5" /> Add
-                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => setPhotos([...photos, ...Array.from(e.target.files ?? [])].slice(0, maxPhotos))} />
-                  </label>
-                )}
-              </div>
+              <PhotoPicker photos={photos} room={maxPhotos} max={maxPhotos} disabled={save.isPending} />
             </Section>
           )}
         </div>
@@ -291,7 +282,14 @@ export default function ProductForm() {
         <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-sidebar">
           <div className="mx-auto flex max-w-[1680px] justify-end gap-2 px-1 md:px-3 lg:px-5">
             <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
-            <Button type="submit" disabled={!valid || save.isPending} className="min-w-32">{save.isPending ? <Loader2 className="animate-spin" /> : editing ? "Save changes" : "Create product"}</Button>
+            <Button type="submit" disabled={!valid || save.isPending || (!editing && !photosValid(photos.items, maxPhotos))} className="min-w-32">
+              {save.isPending ? (
+                <>
+                  <Loader2 className="animate-spin" />
+                  {uploaded !== null && <span className="num text-xs">{uploaded}/{photos.items.length}</span>}
+                </>
+              ) : editing ? "Save changes" : "Create product"}
+            </Button>
           </div>
         </div>
       </form>

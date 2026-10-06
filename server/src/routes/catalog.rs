@@ -1,7 +1,7 @@
 //! Products (master catalogue), categories, suppliers, product photos and barcode lookup.
 
 use axum::body::Bytes;
-use axum::extract::{Multipart, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
@@ -16,7 +16,7 @@ use uuid::Uuid;
 use super::{costs_hidden, like, Counted, Outcome, Page, Paged};
 use crate::audit::{self, Entry};
 use crate::auth::Ctx;
-use crate::error::{bad, rule, AppError, AppResult};
+use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::routes::approvals::ApprovalRow;
 use crate::settings;
 use crate::state::AppState;
@@ -28,7 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/products/lookup", get(lookup))
         .route("/products/{id}", get(detail).put(update))
         .route("/products/{id}/status", post(set_status))
-        .route("/products/{id}/photos", post(upload_photo))
+        .route("/products/{id}/photos", post(upload_photo).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
         .route("/products/{id}/photos/{photo_id}", axum::routing::delete(delete_photo))
         .route("/products/{id}/photos/{photo_id}/primary", post(set_primary))
         .route("/photos/{id}", get(photo))
@@ -520,8 +520,38 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
 
 // ───────────────────────────── Photos ─────────────────────────────
 
+/// What the bytes really are (the browser's declared type is not trusted).
+fn sniff_image(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if data.starts_with(&[0x89, b'P', b'N', b'G']) {
+        Some("image/png")
+    } else if data.len() > 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+/// Adds one photo. `upload_ref` (a uuid per pending photo, sent before `file`) makes retries safe: the same
+/// pending photo is stored once and a repeat returns the stored photo.
 async fn upload_photo(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, mut mp: Multipart) -> AppResult<Json<Value>> {
     ctx.require_any(&["products.create", "products.edit"])?;
+    let mut upload_ref: Option<Uuid> = None;
+    let mut data: Option<Bytes> = None;
+    while let Some(field) = mp.next_field().await.map_err(|_| bad("The photo could not be read. Try again."))? {
+        match field.name() {
+            Some("upload_ref") => upload_ref = field.text().await.ok().and_then(|t| Uuid::parse_str(t.trim()).ok()),
+            Some("file") => data = Some(field.bytes().await.map_err(|_| bad("The photo could not be read. Try again."))?),
+            _ => {}
+        }
+    }
+    let data = data.ok_or_else(|| bad("No photo uploaded"))?;
+    let mime = sniff_image(&data).ok_or_else(|| refused("Not a photo", "Only JPEG, PNG or WebP images can be added as product photos."))?;
+    if data.len() > 3 * 1024 * 1024 {
+        return Err(refused("Photo too large", "Each photo must be under 3 MB."));
+    }
+
     let mut tx = state.db.begin().await?;
     let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM products WHERE id=$1 AND tenant_id=$2 FOR UPDATE")
         .bind(id)
@@ -529,32 +559,34 @@ async fn upload_photo(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
         .fetch_optional(&mut *tx)
         .await?;
     exists.ok_or(AppError::NotFound("Product"))?;
+    if let Some(r) = upload_ref {
+        let already: Option<Uuid> = sqlx::query_scalar("SELECT id FROM product_photos WHERE product_id = $1 AND upload_ref = $2")
+            .bind(id)
+            .bind(r)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if let Some(photo_id) = already {
+            return Ok(Json(json!({ "id": photo_id, "url": format!("/api/photos/{photo_id}"), "duplicate": true })));
+        }
+    }
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM product_photos WHERE product_id = $1")
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
     if count >= s.product.max_photos as i64 {
-        return Err(rule(format!("A product can have at most {} photos", s.product.max_photos)));
-    }
-    let field = mp.next_field().await.map_err(|e| bad(e.to_string()))?.ok_or_else(|| bad("No photo uploaded"))?;
-    let mime = field.content_type().unwrap_or("").to_string();
-    if !["image/webp", "image/jpeg", "image/png"].contains(&mime.as_str()) {
-        return Err(bad("Photos must be WebP, JPEG or PNG"));
-    }
-    let data: Bytes = field.bytes().await.map_err(|e| bad(e.to_string()))?;
-    if data.len() > 3 * 1024 * 1024 {
-        return Err(bad("Photo must be under 3 MB"));
+        return Err(refused("Photo limit reached", format!("A product can have at most {} photos.", s.product.max_photos)));
     }
     let photo_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO product_photos (tenant_id, product_id, data, mime, is_primary, sort_order) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+        "INSERT INTO product_photos (tenant_id, product_id, data, mime, is_primary, sort_order, upload_ref) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
     )
     .bind(ctx.tenant_id)
     .bind(id)
     .bind(data.to_vec())
-    .bind(&mime)
+    .bind(mime)
     .bind(count == 0)
     .bind(count as i32)
+    .bind(upload_ref)
     .fetch_one(&mut *tx)
     .await?;
     sqlx::query("UPDATE products SET updated_at = now() WHERE id = $1").bind(id).execute(&mut *tx).await?;

@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader, Section } from "@/components/Page";
-import { Field, NativeSelect } from "@/components/Form";
+import { Field, Select } from "@/components/Form";
 import { SearchInput } from "@/components/Filters";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 
@@ -148,10 +148,10 @@ export default function TransferNew() {
                 <span className="font-medium">{branch?.name}</span><ArrowRight className="h-4 w-4 text-muted-foreground" /><span className="text-muted-foreground">{destinations.find((d) => d.id === to)?.name ?? "Choose destination"}</span>
               </div>
               <Field label="To branch">
-                <NativeSelect value={to} onChange={setTo}>
+                <Select value={to} onChange={setTo}>
                   <option value="">Select…</option>
                   {destinations.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </NativeSelect>
+                </Select>
               </Field>
               <Field label="Transfer date"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
               <Field label="Reason / notes" optional><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>

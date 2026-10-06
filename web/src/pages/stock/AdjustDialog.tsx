@@ -10,7 +10,7 @@ import type { Outcome, Paged, Product } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, NativeSelect } from "@/components/Form";
+import { Field, Select } from "@/components/Form";
 import { SearchInput } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
@@ -101,9 +101,9 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
             </div>
           )}
           <Field label="Type">
-            <NativeSelect value={kind} onChange={setKind}>
+            <Select value={kind} onChange={setKind}>
               {kinds.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-            </NativeSelect>
+            </Select>
           </Field>
           {tracked ? (
             <Field label="Item barcode">

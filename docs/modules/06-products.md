@@ -20,6 +20,14 @@ Up to **5** per product by default (Settings → Products → Photos per product
 browser before upload (≤ 1400 px). One is the **primary photo** (used on the ordering link); others can be promoted or
 removed. Photos are hidden on operational screens until *View photos*.
 
+**Adding photos** (new product form, product page, Stock → Receive stock) uses one picker (`components/PhotoPicker`):
+select → preview thumbnails with × → add/remove → save. Above the limit every photo stays visible, the extras are
+marked *Over limit* (*7 selected · Maximum 5*) and saving is blocked until enough are removed — nothing is dropped
+silently. Only images are accepted (the server checks the bytes: JPEG, PNG or WebP, ≤ 3 MB after resizing).
+Each photo is saved on its own: the screen reports exactly how many were saved and why any were not, and a saved
+product is never reported as failed or created twice. Every pending photo carries an upload id, so a retried or
+repeated upload is stored once.
+
 ## Product page
 Price, stock here, stock across branches, photo manager, recent stock movements, details, buttons for
 *Performance* (dashboard filtered to the product), *Receive stock*, *Edit*, *Activate/Deactivate*, barcoded items.

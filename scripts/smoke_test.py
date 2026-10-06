@@ -875,6 +875,43 @@ pc["orders"]["show_prices"] = True
 call("PUT", "/settings", pc)
 check("prices back when switched on", has_price(call("GET", f"/portal/{slug}/catalogue", token=ptoken)))
 
+step("Exchange: return and sell in one step, difference only")
+mug = call("POST", "/products", {"name": f"Mug {suffix}", "marked_price": 600, "cost_price": 300})["result"]["id"]
+pen = call("POST", "/products", {"name": f"Pen {suffix}", "marked_price": 100, "cost_price": 40})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": mug, "quantity": 5, "cost_price": 300})
+call("POST", "/stock/receive", {"product_id": pen, "quantity": 5, "cost_price": 40})
+call("POST", "/stock/receive", {"product_id": nduma, "quantity": 4, "cost_price": 250})
+def on_hand(name):
+    return call("GET", f"/stock?q={name} {suffix}")["items"][0]["on_hand"]
+xs = call("POST", "/sales", {"items": [{"product_id": nduma, "quantity": 2, "unit_price": 400}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+xs_id = xs["sale"]["id"]
+nd_line_x = xs["items"][0]["id"]
+nd0, mug0, pen0 = on_hand("Nduma"), on_hand("Mug"), on_hand("Pen")
+def ex(body, expect=200):
+    base_ = {"return_items": [{"sale_item_id": nd_line_x, "quantity": 1}], "payment": {"method": "cash"}, "reason": "Wrong item", "client_ref": str(uuid.uuid4())}
+    return call("POST", f"/sales/{xs_id}/exchange", {**base_, **body}, expect=expect)
+call("POST", f"/sales/{xs_id}/exchange", {"return_items": [{"sale_item_id": nd_line_x, "quantity": 1}], "items": [{"product_id": mug, "quantity": 1, "unit_price": 600}],
+     "payment": {"method": "cash"}, "reason": ""}, expect=400)
+check("exchange needs a reason", True)
+ref_a = str(uuid.uuid4())
+xa = ex({"items": [{"product_id": mug, "quantity": 1, "unit_price": 600}], "client_ref": ref_a})
+pays_a = sorted((p_["method"], float(p_["amount"])) for p_ in xa["payments"])
+check("customer pays only the difference", float(xa["sale"]["total"]) == 600 and pays_a == [("cash", 200.0), ("exchange", 400.0)], pays_a)
+check("retry returns the same exchange", ex({"items": [{"product_id": mug, "quantity": 1, "unit_price": 600}], "client_ref": ref_a})["sale"]["id"] == xa["sale"]["id"])
+check("stock moved both ways", on_hand("Nduma") == nd0 + 1 and on_hand("Mug") == mug0 - 1, (on_hand("Nduma"), on_hand("Mug")))
+check("surplus needs a refund method", ex({"items": [{"product_id": pen, "quantity": 1, "unit_price": 100}], "refund_method": ""}, 422)["error"]["title"] == "Choose the refund method")
+xb = ex({"items": [{"product_id": pen, "quantity": 1, "unit_price": 100}], "refund_method": "cash"})
+pays_b = sorted((p_["method"], float(p_["amount"])) for p_ in xb["payments"])
+check("surplus refunded; payments equal the new total", pays_b == [("cash", -300.0), ("exchange", 400.0)] and sum(a_ for _, a_ in pays_b) == 100.0, pays_b)
+orig = call("GET", f"/sales/{xs_id}")
+exch_total = sum(float(p_["amount"]) for d in (orig, xa, xb) for p_ in d["payments"] if p_["method"] == "exchange")
+check("exchange payments net to zero", abs(exch_total) < 0.01, exch_total)
+check("original sale fully returned", orig["sale"]["status"] == "returned" and on_hand("Pen") == pen0 - 1)
+cr_sale = call("POST", "/sales", {"customer_id": cust_id, "items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "credit"}, "client_ref": str(uuid.uuid4())})
+check("credit sales use recall instead", call("POST", f"/sales/{cr_sale['sale']['id']}/exchange", {"return_items": [{"sale_item_id": cr_sale["items"][0]["id"], "quantity": 1}],
+      "items": [{"product_id": pen, "quantity": 1, "unit_price": 100}], "payment": {"method": "cash"}, "reason": "swap"}, expect=422)["error"]["title"] == "Credit sale")
+check("exchange audited", any(x["action"] == "exchange" for x in call("GET", f"/audit?period=today&entity_id={xa['sale']['id']}&limit=10")["items"]))
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

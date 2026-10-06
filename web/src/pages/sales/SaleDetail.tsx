@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Download, MessageCircle, Printer, RotateCcw, ScanLine } from "lucide-react";
+import { Ban, Download, MessageCircle, Printer, RefreshCcw, RotateCcw, ScanLine } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -183,6 +183,9 @@ export default function SaleDetail() {
             <Section title="Corrections">
               <div className="flex flex-col gap-2">
                 {can("sales.return") && returnable.length > 0 && <Button variant="outline" onClick={() => setReturning(true)}><RotateCcw /> {t("Return items / refund")}</Button>}
+                {can("sales.return") && can("sales.create") && returnable.length > 0 && s.payment_method !== "credit" && (
+                  <Button variant="outline" asChild><Link to={`/sales/${id}/exchange`}><RefreshCcw /> {t("Exchange items")}</Link></Button>
+                )}
                 {can("sales.cancel") && s.status === "completed" && <Button variant="outline" className="text-destructive" onClick={() => setCancelling(true)}><Ban /> {t("Cancel sale")}</Button>}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">{t("Stock, loyalty points, customer totals and credit are reversed automatically.")}</p>

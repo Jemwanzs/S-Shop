@@ -42,6 +42,7 @@ const Notifications = page(() => import("@/pages/Notifications"));
 const Pos = page(() => import("@/pages/sales/Pos"));
 const SalesList = page(() => import("@/pages/sales/SalesList"));
 const SaleDetail = page(() => import("@/pages/sales/SaleDetail"));
+const Exchange = page(() => import("@/pages/sales/Exchange"));
 const CreditList = page(() => import("@/pages/credit/CreditList"));
 const CreditDetail = page(() => import("@/pages/credit/CreditDetail"));
 const OrdersList = page(() => import("@/pages/orders/OrdersList"));
@@ -107,6 +108,7 @@ export default function App() {
                   <Route path="pos" element={<Pos />} />
                   <Route path="sales" element={<SalesList />} />
                   <Route path="sales/:id" element={<SaleDetail />} />
+                  <Route path="sales/:id/exchange" element={<Exchange />} />
                   <Route path="credit" element={<CreditList />} />
                   <Route path="credit/:id" element={<CreditDetail />} />
                   <Route path="orders" element={<OrdersList />} />

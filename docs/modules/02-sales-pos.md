@@ -71,6 +71,21 @@ Reversed automatically: stock (movement + barcode back in stock), refund payment
 first), loyalty points of the returned lines (and the referrer's matching share), customer spend/visits, sale status
 (`partially_returned`, `returned`, `cancelled`), linked order (→ returned).
 
+## Exchange (Sale → Exchange items)
+One screen, one transaction: items **come back** from the sale and others **go out** in their place
+(`POST /api/sales/{id}/exchange`, needs `sales.return` and `sales.create`).
+- *Coming back* — quantities per line of the original sale. *Taking instead* — search this branch's products; tracked
+  items are scanned and verified exactly as at the till.
+- The full value of the returned goods (net of any points redemption on the original) moves to the new sale as an
+  **exchange** payment (negative on the old sale, positive on the new one — they net to zero). The customer pays only
+  the **difference** with the chosen method (M-Pesa code optional as at the till), or is **refunded** the surplus by the
+  chosen refund method.
+- Stock comes back to and goes out of the original sale's branch; the ledger, loyalty, customer totals and receipts
+  follow from the existing return and sale engines. The new receipt notes *Exchange for RCP-… (RTN-…)*; audited as one
+  exchange. A retried submit returns the same exchange (`client_ref`).
+- Credit sales use **Credit Sales → Recall** and a new sale instead; returns that need approval must be processed (and
+  approved) first.
+
 ## Sales history
 Filters: period (default today), search (receipt, customer, mobile), payment method, status, branch, staff.
 Summary cards: count, value, discounts.

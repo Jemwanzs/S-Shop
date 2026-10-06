@@ -32,6 +32,7 @@ pub fn routes() -> Router<AppState> {
         .route("/sales/check-barcode", post(check_barcode))
         .route("/credit/{id}/recall", post(recall_credit))
         .route("/sales/{id}/return", post(return_items))
+        .route("/sales/{id}/exchange", post(exchange))
         .route("/sales/{id}/cancel", post(cancel))
         .route("/sales/{id}/share", post(share))
 }
@@ -179,6 +180,14 @@ pub struct SaleInput {
     pub approved_by: Option<Uuid>,
     pub order_id: Option<Uuid>,
     pub client_ref: Option<Uuid>,
+    /// Exchanges: value of goods returned on another sale, applied to this sale before the chosen payment.
+    pub exchange: Option<ExchangeCredit>,
+}
+
+pub struct ExchangeCredit {
+    pub amount: Decimal,
+    /// The return number the value comes from.
+    pub reference: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -392,6 +401,9 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     if method == "credit" && (!s.sales.credit_enabled || input.customer_id.is_none()) {
         return Err(rule("Credit sales need a customer"));
     }
+    if method == "credit" && input.exchange.is_some() {
+        return Err(rule("An exchange cannot be put on credit — take payment for the difference"));
+    }
 
     let gross: Decimal = lines.iter().map(|l| l.marked_price * Decimal::from(l.quantity)).sum();
     let net: Decimal = lines.iter().map(|l| l.line_total).sum();
@@ -410,6 +422,10 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         }
     }
     let total = round2(net - redeemed_value);
+    // Exchange: the full value of the returned goods moves onto this sale (so "exchange" payments net to zero across
+    // the two sales); the chosen method collects any shortfall, and the exchange handler refunds any surplus.
+    let exchange_in = input.exchange.as_ref().map_or(Decimal::ZERO, |x| x.amount.max(Decimal::ZERO));
+    let due_now = (total - exchange_in).max(Decimal::ZERO);
 
     // Loyalty points (awarded after the sale rows exist).
     let mut points: i64 = 0;
@@ -447,8 +463,8 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
             }
             _ => Decimal::ZERO,
         },
-        "mpesa" => {
-            (reference, mpesa_request) = confirm_mpesa(conn, ctx, s, input.payment.mpesa_request_id, reference, total, sale_id).await?;
+        "mpesa" if due_now > Decimal::ZERO => {
+            (reference, mpesa_request) = confirm_mpesa(conn, ctx, s, input.payment.mpesa_request_id, reference, due_now, sale_id).await?;
             total
         }
         _ => total,
@@ -562,6 +578,23 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
             .await?;
         }
     } else if total > Decimal::ZERO {
+        if let Some(x) = &input.exchange {
+            if exchange_in > Decimal::ZERO {
+                sqlx::query(
+                    "INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, user_id) VALUES ($1,$2,$3,'exchange',$4,$5,$6)",
+                )
+                .bind(ctx.tenant_id)
+                .bind(input.branch_id)
+                .bind(sale_id)
+                .bind(exchange_in)
+                .bind(&x.reference)
+                .bind(ctx.user_id)
+                .execute(&mut *conn)
+                .await?;
+            }
+        }
+    }
+    if method != "credit" && due_now > Decimal::ZERO {
         sqlx::query(
             "INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, phone, mpesa_request_id, user_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
@@ -570,7 +603,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         .bind(input.branch_id)
         .bind(sale_id)
         .bind(method)
-        .bind(total)
+        .bind(due_now)
         .bind(&reference)
         .bind(input.payment.phone.trim())
         .bind(mpesa_request)
@@ -827,6 +860,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             approved_by: None,
             order_id: None,
             client_ref: None,
+            exchange: None,
         };
         let (_, excessive) = prepare_lines(&mut tx, &ctx, &s, &input, false).await?;
         if excessive {
@@ -851,6 +885,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             approved_by,
             order_id: None,
             client_ref: b.client_ref,
+            exchange: None,
         },
         false,
     )
@@ -1623,6 +1658,137 @@ async fn recall_credit(State(state): State<AppState>, ctx: Ctx, Path(credit_id):
     tx.commit().await?;
     state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": head.branch_id }));
     Ok(Json(Outcome::done(r)))
+}
+
+#[derive(Deserialize)]
+struct ExchangeBody {
+    /// Lines of the original sale coming back.
+    return_items: Vec<ReturnLine>,
+    /// What the customer takes instead.
+    items: Vec<LineInput>,
+    /// How any difference the customer owes is paid.
+    payment: PaymentInput,
+    reason: String,
+    /// How any value left over (returned goods worth more than the new items) is refunded.
+    #[serde(default)]
+    refund_method: String,
+    client_ref: Option<Uuid>,
+}
+
+/// Exchange: return items from a sale and sell others in one step. The return value pays for the new items first
+/// (an "exchange" payment moved from the old sale to the new one); the customer pays any difference, or is refunded
+/// what is left. One transaction, built from the existing return and sale engines.
+async fn exchange(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<ExchangeBody>) -> AppResult<Json<Value>> {
+    ctx.require("sales.return")?;
+    ctx.require("sales.create")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "returns").await?;
+    if b.reason.trim().chars().count() < 3 {
+        return Err(bad("A reason is required"));
+    }
+    if b.return_items.is_empty() {
+        return Err(bad("Choose the items being returned"));
+    }
+    if b.items.is_empty() {
+        return Err(bad("Add the items the customer is taking"));
+    }
+    // A retried submit returns the exchange already recorded.
+    if let Some(cref) = b.client_ref {
+        if let Some(sale) = sqlx::query_scalar::<_, Uuid>("SELECT id FROM sales WHERE tenant_id = $1 AND client_ref = $2")
+            .bind(ctx.tenant_id)
+            .bind(cref)
+            .fetch_optional(&state.db)
+            .await?
+        {
+            return Ok(Json(sale_detail(&state, &ctx, sale).await?));
+        }
+    }
+    let mut tx = state.db.begin().await?;
+    let head = sale_head(&mut tx, &ctx, id).await?;
+    if matches!(head.status.as_str(), "cancelled" | "returned") {
+        return Err(rule("This sale has already been fully reversed"));
+    }
+    if head.payment_method == "credit" {
+        return Err(refused("Credit sale", "Items on a credit sale come back through Credit Sales → Recall; then record the new sale."));
+    }
+    if head.branch_id != ctx.branch_id {
+        ctx.require("sales.change_branch")?;
+    }
+    let s = settings::load(&mut tx, ctx.tenant_id).await?;
+    if s.workspace.outside_hours == settings::OutsideHours::Block && !ctx.can("sales.outside_hours") {
+        let hours = settings::branch_hours(&mut tx, ctx.tenant_id, head.branch_id, &s).await?;
+        if !hours.is_open(Utc::now().with_timezone(&ctx.tz).naive_local()) {
+            return Err(rule(format!("The branch is closed (trading hours {}–{}). Sales outside trading hours need permission.", hours.open, hours.close)));
+        }
+    }
+    let value = return_amount(&mut tx, &head, id, &b.return_items).await?;
+    if workflow::needs_approval(&mut tx, &ctx, "sale.return", workflow::Gate::branch(head.branch_id).amount(value)).await? {
+        return Err(refused("Return needs approval", "Returns of this value need approval. Process the return first; sell the new items once it is approved."));
+    }
+    // 1. The return: stock back, ledger, loyalty; its value leaves the old sale as an "exchange" payment.
+    let rb = ReturnBody { items: b.return_items, reason: b.reason.trim().to_string(), refund_method: "exchange".into(), restock: true, settle: String::new() };
+    let r = execute_return(&mut tx, &ctx, id, &rb, "return", None).await?;
+    let return_no = r["return_no"].as_str().unwrap_or_default().to_string();
+    let credit: Decimal = r["refunded"].as_str().and_then(|v| v.parse().ok()).or_else(|| r["refunded"].as_f64().and_then(|f| Decimal::try_from(f).ok())).unwrap_or(value);
+    // 2. The new sale, paid first by that value.
+    let product_ids: Vec<Uuid> = b.items.iter().map(|i| i.product_id).collect();
+    let sale_id = record_sale(
+        &mut tx,
+        &ctx,
+        &s,
+        SaleInput {
+            branch_id: head.branch_id,
+            customer_id: head.customer_id,
+            lines: b.items,
+            payment: b.payment,
+            redeem_points: 0,
+            due_date: None,
+            deposit: None,
+            notes: format!("Exchange for {} ({return_no})", head.receipt_no),
+            approved_by: None,
+            order_id: None,
+            client_ref: b.client_ref,
+            exchange: Some(ExchangeCredit { amount: credit, reference: return_no.clone() }),
+        },
+        false,
+    )
+    .await?;
+    // 3. Value left over (returned goods worth more than the new items) goes back to the customer.
+    let new_total: Decimal = sqlx::query_scalar("SELECT total FROM sales WHERE id = $1 AND tenant_id = $2")
+        .bind(sale_id)
+        .bind(ctx.tenant_id)
+        .fetch_one(&mut *tx)
+        .await?;
+    let left_over = credit - new_total;
+    if left_over > Decimal::ZERO {
+        let method = b.refund_method.trim();
+        if method.is_empty() || matches!(method, "credit" | "exchange") || !s.payment_enabled(method) {
+            return Err(refused("Choose the refund method", format!("The returned items are worth {} more than the new ones — choose how that is refunded.", money_str(left_over))));
+        }
+        sqlx::query("INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, user_id) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+            .bind(ctx.tenant_id)
+            .bind(head.branch_id)
+            .bind(sale_id)
+            .bind(method)
+            .bind(-left_over)
+            .bind(&return_no)
+            .bind(ctx.user_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    audit::record(
+        &mut tx,
+        &ctx,
+        Entry::new("sales", "exchange", "sale", sale_id)
+            .branch(head.branch_id)
+            .after(json!({ "original_sale": id, "original_receipt": head.receipt_no, "return_no": return_no,
+                           "returned_value": credit, "new_total": new_total, "customer_paid": (new_total - credit).max(Decimal::ZERO),
+                           "refunded": left_over.max(Decimal::ZERO) }))
+            .comments(b.reason.trim()),
+    )
+    .await?;
+    tx.commit().await?;
+    after_sale(&state, &ctx, &s, sale_id, head.branch_id, &product_ids).await;
+    Ok(Json(sale_detail(&state, &ctx, sale_id).await?))
 }
 
 pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) -> AppResult<()> {

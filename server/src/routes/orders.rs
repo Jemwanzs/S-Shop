@@ -441,6 +441,7 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
                         approved_by: None,
                         order_id: Some(id),
                         client_ref: None,
+                        exchange: None,
                     },
                     true,
                 )

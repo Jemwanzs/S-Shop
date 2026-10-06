@@ -42,7 +42,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 | 32 | Mobile navigation Home · Sales · Stock · Orders · More, permission-aware | ✅ | Desktop uses a grouped sidebar instead. |
 | 33 | Data-integrity rules | ✅ | Enforced in the database (unique/partial indexes, checks) and in the ledger (row locks). Negative stock only when explicitly enabled. |
 | 34 | Stock reservation: physical − reserved = available | ✅ | `stock_levels.reserved`; counter sales respect reservations. |
-| 35 | Returns, reversals, corrections, refunds, stock restoration | ✅ / ◐ | Partial returns and full cancellations reverse stock, value, customer totals, loyalty (incl. referral share), credit. Exchange/correction = return + new sale (no single combined screen yet). |
+| 35 | Returns, reversals, corrections, refunds, stock restoration | ✅ | Partial returns and full cancellations reverse stock, value, customer totals, loyalty (incl. referral share), credit. Exchange screen: return + new sale in one step, difference only. |
 | 36 | Receipts: view, PDF, print, share | ✅ | 80 mm PDF, browser print, WhatsApp share. |
 | 37 | Universal search, Current Branch first | ✅ | Ctrl/⌘ K on desktop, search icon on phones. |
 | 38 | In-app notifications; WhatsApp | ✅ | Live via SSE + WhatsApp Cloud API or wa.me links. |
@@ -67,7 +67,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 - ~~Custom product fields; configurable order statuses.~~ ✅ done (roadmap 1, 2026-10-03).
 - ~~Multi-level approval chains; expense approval rules by category/branch/role.~~ ✅ done (roadmap 2, 2026-10-03).
 - ~~Threshold-based medals for products and staff.~~ ✅ done (roadmap 3, 2026-10-03).
-- Deposits on credit sales ✅ (roadmap 4a, 2026-10-03); a combined exchange screen ⏳.
+- Deposits on credit sales ✅ (roadmap 4a, 2026-10-03); combined exchange screen ✅ (roadmap 27, 2026-10-06).
 
 Added 2026-10-05 (owner request), delivered in this order before the remaining items:
 
@@ -131,13 +131,14 @@ Then, in this order:
   (idempotent `client_ref`), refusals listed for retry/discard ([module 02](modules/02-sales-pos.md)).
 - ✅ **26. Languages** — finish roadmap 9: buttons, chips, badges, placeholders, list headers, toasts and error titles
   translate centrally; screen text wrapped; Swahili, French and Arabic for every visible string.
-- ⏳ **32. M-Pesa at Record Sale** (owner request 2026-10-06) — two separate flows: *manual* (number and confirmation
+- ✅ **32. M-Pesa at Record Sale** (owner request 2026-10-06) — two separate flows: *manual* (number and confirmation
   code both optional) and *STK Push* (number required → push → confirmed result). Push STK shown always, disabled with
-  *STK not configured* when the integration is not active; never blocks a manual M-Pesa sale. **Next.**
-- ⏳ **33. Ordering link — Show product prices** (owner request 2026-10-06) — Settings → Orders & ordering link, ON by
+  *STK not configured* when the integration is not active; never blocks a manual M-Pesa sale.
+- ✅ **33. Ordering link — Show product prices** (owner request 2026-10-06) — Settings → Orders & ordering link, ON by
   default; when OFF, prices are hidden (and not sent) everywhere on the customer ordering link — cards, details, cart,
   checkout, order history and tracking; staff screens unaffected.
-- ⏳ **27. Combined exchange screen** (rest of roadmap 4).
+- ✅ **27. Combined exchange screen** — return + new sale in one step, difference paid or refunded; exchange
+  payments net to zero ([module 02](modules/02-sales-pos.md)).
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

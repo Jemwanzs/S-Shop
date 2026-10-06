@@ -22,7 +22,7 @@ environment *production*). ✅ complete · 🟡 partial · 🔴 missing.
 | Audit trail | ✅ | Before/after JSON, user, branch, IP, device, location, approval link — written in the same transaction as the change. | — |
 | Browser security | ✅ *(this pass)* | Strict Content-Security-Policy (no inline script), HSTS, `nosniff`, `X-Frame-Options: DENY`, referrer and permissions policies — verified with no CSP violations across all screens, PDF export and the camera. | Session token is kept in browser storage (mitigated by the strict CSP). |
 | Browser storage | ✅ | Only: session token + chosen branch, theme, language, unsent till cart and portal cart (all per device). No business data lives in the browser. | — |
-| Automated tests | 🟡 | 209 end-to-end API checks (`scripts/smoke_test.py`) + unit tests, run by hand before each push. | **No CI**: nothing runs automatically before Railway deploys. |
+| Automated tests | ✅ *(2026-10-06)* | GitHub Actions (`.github/workflows/ci.yml`) on every push: lint, type-check, web build, unit tests, server build, and 244 end-to-end checks against a fresh Postgres 18. | Turn on Railway *Wait for CI* (service → Settings → Source) so a red build never deploys. |
 | Observability | 🟡 | Structured logs (`RUST_LOG`), Railway deploy/HTTP logs. | `/healthz` does not check the database; no error alerting. |
 | Scale-out | 🟡 | One replica: background jobs and live events (SSE) run in-process. | A second replica would run jobs twice and split live events — needs a DB lock for jobs and Postgres `LISTEN/NOTIFY` for events before scaling out. |
 | File storage | 🟡 | Logos and product photos stored in Postgres (`bytea`), served with long cache headers. | Fine now; move to object storage (Railway Bucket) as photo volume grows. |
@@ -33,7 +33,7 @@ environment *production*). ✅ complete · 🟡 partial · 🔴 missing.
 1. **Database backups** (Railway → Postgres → Backups: daily, keep 7+). Nothing else protects the data if the volume is lost. *Dashboard setting.*
 2. **Email sender + public URL**: verify a sending domain in Resend, set `MAIL_FROM` (e.g. `S'Shop <no-reply@sshop.io>`), set `PUBLIC_URL`. Without it, access-request emails reach only the Resend account owner. *Variables + DNS.*
 3. **`sshop.io` DNS**: add the CNAME (`ckyv3su4.up.railway.app`) and the `_railway-verify` TXT record at the registrar, then set `PUBLIC_URL=https://sshop.io`.
-4. **CI before deploy**: GitHub Actions running `cargo test`, type-check, lint, web build and the smoke suite against a Postgres service; turn on Railway *Wait for CI* so a failing build never deploys. *Code.*
+4. ✅ **CI** is live (first run green). Remaining: switch on Railway *Wait for CI* (Service → Settings → Source). *Dashboard toggle.*
 5. **Hardening**: cross-tenant attack tests in the smoke suite (a user of business B requesting A's ids → 404 on every resource); `tenant_id` on every id-based write as a second guard; per-IP rate limit on sign-in and public forms; database check in `/healthz`. *Code.*
 6. **Region**: move app + database together to an EU region when convenient (needs a short maintenance window and a backup/restore).
 7. **Before running two replicas**: job lock + `LISTEN/NOTIFY` events. Not needed at one replica.

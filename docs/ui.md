@@ -90,6 +90,11 @@ the sheet and the field for screen readers.
   get translated titles and labels by adding dictionary entries only. Arabic sets `dir="rtl"`: use logical classes
   (`ms-/me-/ps-/pe-/start-/end-/text-start/border-s`) instead of left/right ones, and `rtl:rotate-180` on directional
   arrows. Signed-in users get their preference; the sign-in screens use the device's last choice.
+  Buttons, chips, badges, pills, input placeholders, list headers, confirm labels, toasts and error titles translate
+  automatically too. **Messages with values** (mostly from the server) are dictionary entries with `{}` placeholders,
+  e.g. `"Only {} × {} in stock"`: `t()` matches them as templates (most specific first), keeps the values and translates
+  values that are themselves dictionary words (statuses, record names). Keep the same number of `{}` in every language.
+  New server messages: add the English text (or its template) to the dictionary.
 
 ## Design system (roadmap 10)
 Sizes are rem-based on a compact root (14px phones, 15px tablet and up), so the whole UI scales together and large

@@ -76,7 +76,7 @@ export function ErrorState({ error, retry }: { error: unknown; retry?: () => voi
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
       <AlertTriangle className="h-6 w-6 text-destructive" />
-      <p className="text-sm text-muted-foreground">{errorMessage(error)}</p>
+      <p className="text-sm text-muted-foreground">{t(errorMessage(error))}</p>
       {retry && (
         <Button variant="outline" size="sm" onClick={retry}>
           {t("Try again")}

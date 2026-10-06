@@ -80,10 +80,10 @@ Added 2026-10-05 (owner request), delivered in this order before the remaining i
 - ✅ **8. User preferences** (per user) — font (Outfit default, Poppins, Inter, Roboto, Nunito) and display currency
   (KES default, USD, EUR) with live exchange rates; the active currency is shown once in the profile and figures are
   shown without repeated currency symbols.
-- ◐ **9. Languages** — English, Swahili, French, Arabic (right-to-left), per user. Done: translation system, language
-  preference + sign-in picker, full RTL layout, navigation, menus, sign-in/request access, preferences, page titles,
-  section/field/KPI labels, dashboard filters. Remaining: text written directly inside individual screens (buttons,
-  table headings, toasts, server messages), translated module by module.
+- ✅ **9. Languages** — English, Swahili, French, Arabic (right-to-left), per user: translation system, language
+  preference + sign-in picker, full RTL layout, every screen (roadmap 26), and every server message — 244 fixed messages
+  and 66 messages with values ("Only {} × {} in stock"), matched as templates so the values are kept and known words
+  inside them (statuses, record names) are translated too.
 - ◐ **10. Mobile-first UI/UX refinement** (2026-10-05) — one design language across the app: shared tokens for type,
   control heights, radius, card padding, bottom-nav height and overlays; Outfit everywhere (tabular figures for
   numbers); compact primitives (buttons, inputs, selects, textareas, cards, KPI cards, lists, chips, sheets, dialogs,

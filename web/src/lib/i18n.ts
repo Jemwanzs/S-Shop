@@ -19,10 +19,40 @@ export function setLanguage(code: string) {
   document.documentElement.dir = current === "ar" ? "rtl" : "ltr";
 }
 
+/**
+ * Dictionary entries containing `{}` are templates for messages with values filled in (mostly server messages such as
+ * "Only {} × {} in stock"). Most specific first, so a generic template never captures a more specific message.
+ */
+let templates: { key: string; re: RegExp }[] | null = null;
+function compiledTemplates() {
+  if (!templates) {
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    templates = Object.keys(DICT)
+      .filter((k) => k.includes("{}"))
+      .sort((a, b) => b.replace(/\{\}/g, "").length - a.replace(/\{\}/g, "").length)
+      .map((key) => ({ key, re: new RegExp("^" + key.split("{}").map(esc).join("(.+?)") + "$", "s") }));
+  }
+  return templates;
+}
+
 /** Translate English UI text; untranslated text falls back to English. */
 export function t(text: string): string {
-  if (current === "en") return text;
-  return DICT[text]?.[COLUMN[current]] ?? text;
+  if (current === "en" || !text) return text;
+  const col = COLUMN[current];
+  const hit = DICT[text]?.[col];
+  if (hit) return hit;
+  if (text.length > 400 || !/[A-Za-z]/.test(text)) return text;
+  for (const tp of compiledTemplates()) {
+    const m = tp.re.exec(text);
+    if (!m) continue;
+    let i = 1;
+    // Values keep their text, translated when they are known words (statuses, record names…).
+    return DICT[tp.key][col].replace(/\{\}/g, () => {
+      const v = m[i++] ?? "";
+      return DICT[v]?.[col] ?? v;
+    });
+  }
+  return text;
 }
 
 /**

@@ -29,6 +29,9 @@ pub fn routes() -> Router<AppState> {
 #[derive(Serialize, sqlx::FromRow, Clone)]
 pub struct ApprovalRow {
     pub id: Uuid,
+    /// Business the request belongs to (guards writes made when it is decided).
+    #[serde(skip)]
+    pub tenant_id: Uuid,
     pub action: String,
     pub entity_type: String,
     pub entity_id: Uuid,
@@ -59,7 +62,7 @@ impl ApprovalRow {
     }
 }
 
-const SELECT: &str = "SELECT a.id, a.action, a.entity_type, a.entity_id, a.branch_id, b.name AS branch_name, a.summary, a.amount,
+const SELECT: &str = "SELECT a.id, a.tenant_id, a.action, a.entity_type, a.entity_id, a.branch_id, b.name AS branch_name, a.summary, a.amount,
         a.payload, a.status, a.requested_by, ru.name AS requested_by_name, du.name AS decided_by_name, a.decided_at,
         a.comments, a.level, a.decisions, a.created_at
     FROM approvals a
@@ -177,9 +180,10 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
 
     // An intermediate level: record the decision and pass the request on.
     if a.level < total {
-        sqlx::query("UPDATE approvals SET level = level + 1, decisions = decisions || $2 WHERE id = $1")
+        sqlx::query("UPDATE approvals SET level = level + 1, decisions = decisions || $2 WHERE id = $1 AND tenant_id = $3")
             .bind(id)
             .bind(decision(&ctx, a.level, "approved", &comments))
+            .bind(ctx.tenant_id)
             .execute(&mut *tx)
             .await?;
         audit::record(
@@ -218,11 +222,12 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
         _ => {}
     }
 
-    sqlx::query("UPDATE approvals SET status='approved', decided_by=$2, decided_at=now(), comments=$3, decisions = decisions || $4 WHERE id=$1")
+    sqlx::query("UPDATE approvals SET status='approved', decided_by=$2, decided_at=now(), comments=$3, decisions = decisions || $4 WHERE id=$1 AND tenant_id = $5")
         .bind(id)
         .bind(ctx.user_id)
         .bind(&comments)
         .bind(decision(&ctx, a.level, "approved", &comments))
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
     audit::record(
@@ -244,11 +249,12 @@ async fn reject(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, b
     let a = load_pending(&mut tx, &ctx, id).await?;
     ensure_can_decide(&mut tx, &ctx, &a).await?;
     on_closed_without_approval(&mut tx, &a).await?;
-    sqlx::query("UPDATE approvals SET status='rejected', decided_by=$2, decided_at=now(), comments=$3, decisions = decisions || $4 WHERE id=$1")
+    sqlx::query("UPDATE approvals SET status='rejected', decided_by=$2, decided_at=now(), comments=$3, decisions = decisions || $4 WHERE id=$1 AND tenant_id = $5")
         .bind(id)
         .bind(ctx.user_id)
         .bind(&comments)
         .bind(decision(&ctx, a.level, "rejected", &comments))
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
     audit::record(
@@ -271,9 +277,10 @@ async fn withdraw(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
         return Err(AppError::Forbidden("Only the requester can withdraw a request".into()));
     }
     on_closed_without_approval(&mut tx, &a).await?;
-    sqlx::query("UPDATE approvals SET status='cancelled', decided_by=$2, decided_at=now() WHERE id=$1")
+    sqlx::query("UPDATE approvals SET status='cancelled', decided_by=$2, decided_at=now() WHERE id=$1 AND tenant_id = $3")
         .bind(id)
         .bind(ctx.user_id)
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("approvals", "withdraw", &a.entity_type, a.entity_id).approval(Some(id))).await?;
@@ -285,14 +292,16 @@ async fn withdraw(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
 async fn on_closed_without_approval(conn: &mut sqlx::PgConnection, a: &ApprovalRow) -> AppResult<()> {
     match a.action.as_str() {
         "stock.adjust" | "stock.write_off" => {
-            sqlx::query("UPDATE stock_adjustments SET status='rejected', decided_at=now() WHERE id=$1 AND status='pending'")
+            sqlx::query("UPDATE stock_adjustments SET status='rejected', decided_at=now() WHERE id=$1 AND status='pending' AND tenant_id = $2")
                 .bind(a.entity_id)
+                .bind(a.tenant_id)
                 .execute(&mut *conn)
                 .await?;
         }
         "stock.transfer" => {
-            sqlx::query("UPDATE transfers SET status='rejected' WHERE id=$1 AND status='pending_approval'")
+            sqlx::query("UPDATE transfers SET status='rejected' WHERE id=$1 AND status='pending_approval' AND tenant_id = $2")
                 .bind(a.entity_id)
+                .bind(a.tenant_id)
                 .execute(&mut *conn)
                 .await?;
         }

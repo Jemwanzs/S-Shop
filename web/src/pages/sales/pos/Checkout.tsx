@@ -3,6 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, Pencil, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
+import { enqueueSale, offlineBlocker, type QueuedSale } from "@/lib/offline";
+import { locationHeader } from "@/lib/location";
 import { useSession } from "@/lib/session";
 import { count, money, phone as fmtPhone, todayIso, toNum } from "@/lib/format";
 import type { Customer, SaleDetail } from "@/lib/types";
@@ -59,8 +61,8 @@ export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEd
   );
 }
 
-export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDone: (sale: SaleDetail) => void; clientRef: string }) {
-  const { profile, can } = useSession();
+export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLine[]; onDone: (sale: SaleDetail) => void; onQueued: (sale: QueuedSale) => void; clientRef: string }) {
+  const { profile, can, branch } = useSession();
   const s = profile!.settings;
   const methods = s.sales.payment_methods.filter((m) => m.enabled && (m.key !== "credit" || s.sales.credit_enabled));
   const [method, setMethod] = useState(methods[0]?.key ?? "cash");
@@ -135,10 +137,36 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
     onError: (e) => toast.error(e),
   });
 
+  // Offline: a sale that needs no live check is kept on this device and synced later (same client_ref).
+  const queueOffline = async (body: Record<string, unknown>): Promise<{ queued: QueuedSale }> => {
+    const blocker = offlineBlocker({
+      method,
+      customerNew: isNew && digits.length >= 9,
+      redeem: redeemPts,
+      deposit: takingDeposit,
+      supervisor: showSupervisor,
+      tracked: lines.some((l) => l.product.track_items),
+      clearance: lines.some((l) => !!l.barcode),
+    });
+    if (blocker) throw new ApiError(blocker, 0, "offline", "You're offline");
+    const queued: QueuedSale = {
+      client_ref: clientRef,
+      tenant_id: profile!.tenant.id,
+      branch_id: branch!.id,
+      user_id: profile!.user.id,
+      sold_at: new Date().toISOString(),
+      body: { ...body, offline_at: new Date().toISOString() },
+      location: locationHeader(),
+      total: t.payable,
+      items: lines.reduce((a, l) => a + l.quantity, 0),
+      status: "pending",
+    };
+    await enqueueSale(queued);
+    return { queued };
+  };
   const complete = useMutation({
-    mutationFn: () =>
-      api<SaleDetail>("/sales", {
-        body: {
+    mutationFn: async (): Promise<SaleDetail | { queued: QueuedSale }> => {
+      const body = {
           customer_id: customer?.id,
           customer: !customer && digits.length >= 9 ? { mobile: digits, first_name: firstName, nickname } : undefined,
           items: lines.map((l) => ({ product_id: l.product.id, quantity: l.quantity, unit_price: l.unitPrice, barcode: l.barcode })),
@@ -160,9 +188,16 @@ export function Checkout({ lines, onDone, clientRef }: { lines: CartLine[]; onDo
           due_date: isCredit ? dueDate : undefined,
           supervisor: showSupervisor && supEmail ? { email: supEmail, pin: supPin } : undefined,
           client_ref: clientRef,
-        },
-      }),
-    onSuccess: onDone,
+      };
+      if (!navigator.onLine) return queueOffline(body);
+      try {
+        return await api<SaleDetail>("/sales", { body });
+      } catch (e) {
+        if (e instanceof ApiError && e.code === "network") return queueOffline(body);
+        throw e;
+      }
+    },
+    onSuccess: (r) => ("queued" in r ? onQueued(r.queued) : onDone(r)),
     onError: (e) => {
       if (e instanceof ApiError && /supervisor/i.test(e.message)) setNeedSupervisor(true);
       toast.error(e);

@@ -748,6 +748,97 @@ check("nothing left to recall", recall([{"sale_item_id": nd_item["id"], "quantit
 aud_r = call("GET", f"/audit?period=today&entity_id={rc_id}&limit=20")["items"]
 check("recall audited with balances", any(x["action"] == "recall" and x["after"]["balance_before"] is not None for x in aud_r))
 
+step("Hardening: another business cannot reach this one")
+# The administrator of a second business (all permissions there) attacks this business's records by id.
+_r = urllib.request.Request(BASE + "/api/auth/me"); _r.add_header("Authorization", "Bearer " + t2["token"])
+x_branch = json.load(urllib.request.urlopen(_r))["branches"][0]["id"]
+x_appr = call("GET", "/approvals?status=all&limit=1")["items"][0]["id"]
+x_exp = call("POST", "/expenses", {"category_id": rent, "amount": 50, "description": "Water"})["result"]["id"]
+def attack(method, path, body=None):
+    req = urllib.request.Request(BASE + "/api" + path, method=method, data=json.dumps(body).encode() if body is not None else None)
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", "Bearer " + t2["token"])
+    req.add_header("X-Branch-Id", x_branch)
+    try:
+        with urllib.request.urlopen(req) as r:
+            raw = r.read()
+            body_ = json.loads(raw) if raw[:1] in (b"{", b"[") else raw
+            # A list scoped to the caller's own business may answer 200 — but it must be empty.
+            empty = body_ == [] or (isinstance(body_, dict) and body_.get("items") == [])
+            return 404 if empty else r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+targets = [
+    ("GET", f"/products/{nduma}"), ("PUT", f"/products/{nduma}", {"name": "HACKED", "marked_price": 1}),
+    ("POST", f"/products/{nduma}/status", {"is_active": False}), ("DELETE", f"/products/{ph_prod}/photos/{first['id']}"),
+    ("GET", f"/sales/{mine_sale['sale']['id']}"), ("POST", f"/sales/{mine_sale['sale']['id']}/cancel", {"reason": "x"}),
+    ("POST", f"/sales/{mine_sale['sale']['id']}/return", {"items": [], "reason": "x"}),
+    ("GET", f"/customers/{cust_id}"), ("PUT", f"/customers/{cust_id}", {"first_name": "HACKED"}),
+    ("GET", f"/credit/{credit_id}"), ("POST", f"/credit/{credit_id}/payments", {"amount": 1, "method": "cash"}),
+    ("POST", f"/credit/{credit_id}/write-off", {"reason": "x"}), ("POST", f"/credit/{rc_id}/recall", {"items": [], "reason": "xxxx"}),
+    ("GET", f"/orders/{o2['id']}"), ("POST", f"/orders/{o2['id']}/status", {"status": "cancelled"}),
+    ("GET", f"/transfers/{dt['id']}"), ("POST", f"/transfers/{ok_t['id']}/receive"), ("POST", f"/transfers/{dt['id']}/cancel", {"reason": "x"}),
+    ("POST", f"/expenses/{x_exp}/void"),
+    ("POST", f"/approvals/{x_appr}/approve", {"comments": "x"}), ("POST", f"/approvals/{x_appr}/reject", {"comments": "x"}),
+    ("PUT", f"/branches/{BRANCH}", {"name": "HACKED", "code": "HX"}), ("PUT", f"/roles/{repo_role}", {"name": "HACKED", "permissions": ["*"]}),
+    ("PUT", f"/users/{admin_id}", {"name": "HACKED", "email": "x@x.test", "phone": "", "role_id": repo_role, "all_branches": True, "branch_ids": []}),
+    ("POST", f"/users/{admin_id}/reset-pin", {"pin": "9999"}),
+    ("POST", "/sales/check-barcode", {"product_id": ring, "barcode": RC[1]}),
+    ("POST", "/stock/receive", {"product_id": nduma, "quantity": 5, "branch_id": BRANCH}),
+    ("GET", f"/stock/availability/{nduma}"), ("GET", f"/audit?entity_id={nduma}"),
+    ("GET", f"/dashboard?branch_id={BRANCH}"), ("GET", f"/reports/sales?branch_id={BRANCH}"),
+    ("GET", f"/leaderboards/products?branch_id={BRANCH}"),
+]
+leaks = []
+for t_ in targets:
+    st = attack(*t_)
+    if st < 400 or st >= 500:
+        leaks.append(f"{t_[0]} {t_[1]} → {st}")
+check(f"{len(targets)} cross-business attempts all refused", not leaks, leaks)
+check("nothing changed by the attempts", call("GET", f"/products/{nduma}")["product"]["name"] == f"Nduma {suffix}"
+      and next(b_ for b_ in call("GET", "/branches") if b_["id"] == BRANCH)["name"] != "HACKED")
+check("lists never show another business's records",
+      all(x["id"] != nduma for x in call("GET", "/products?status=all&limit=200", token=t2["token"], branch=x_branch)["items"]))
+
+step("Hardening: rate limits and health")
+codes = []
+for i in range(32):
+    req = urllib.request.Request(BASE + "/api/auth/login", method="POST", data=json.dumps({"email": f"nobody{i}@sshop.test", "pin": "0000"}).encode())
+    req.add_header("Content-Type", "application/json")
+    req.add_header("X-Forwarded-For", f"203.0.113.{int(suffix, 36) % 250 if suffix.isalnum() else 7}")
+    try:
+        urllib.request.urlopen(req); codes.append(200)
+    except urllib.error.HTTPError as e:
+        codes.append(e.code)
+check("sign-in rate limited per client", codes[-1] == 429 and codes[0] == 400, codes[-3:])
+check("health check pings the database", urllib.request.urlopen(BASE + "/healthz").read() == b"ok")
+
+step("Offline POS: queued sales sync with their real time")
+import datetime as _dt2
+call("POST", "/stock/receive", {"product_id": nduma, "quantity": 5, "cost_price": 250})
+def iso(dt): return dt.astimezone(_dt2.timezone.utc).isoformat().replace("+00:00", "Z")
+now_ = _dt2.datetime.now(_dt2.timezone.utc)
+off_ref = str(uuid.uuid4())
+off_body = {"items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "cash"},
+            "client_ref": off_ref, "offline_at": iso(now_ - _dt2.timedelta(hours=2))}
+o1 = call("POST", "/sales", off_body, token=seller)
+o2_ = call("POST", "/sales", off_body, token=seller)
+check("synced twice, recorded once", o1["sale"]["id"] == o2_["sale"]["id"])
+row = next(x for x in call("GET", "/sales?period=all&limit=200")["items"] if x["id"] == o1["sale"]["id"])
+sold = _dt2.datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
+check("sale keeps the moment it was made", abs((sold - (now_ - _dt2.timedelta(hours=2))).total_seconds()) < 5 and row["synced_at"], row)
+mv_o = [m for m in call("GET", "/stock/movements?period=all&limit=200")["items"] if m["ref_id"] == o1["sale"]["id"]]
+check("stock movement carries the same time", mv_o and abs((_dt2.datetime.fromisoformat(mv_o[0]["created_at"].replace("Z", "+00:00")) - sold).total_seconds()) < 5)
+old = dict(off_body, client_ref=str(uuid.uuid4()), offline_at=iso(now_ - _dt2.timedelta(hours=80)))
+check("too old to sync is refused", call("POST", "/sales", old, token=seller, expect=422)["error"]["title"] == "Offline sale too old")
+fut = dict(off_body, client_ref=str(uuid.uuid4()), offline_at=iso(now_ + _dt2.timedelta(hours=2)))
+check("future time refused", call("POST", "/sales", fut, token=seller, expect=422)["error"]["title"] == "Offline sale too old")
+live = dict(off_body, client_ref=str(uuid.uuid4()), customer_id=cust_id, payment={"method": "credit"})
+check("credit cannot be recorded offline", call("POST", "/sales", live, token=seller, expect=422)["error"]["title"] == "Needs a connection")
+call("POST", "/sales", {k: v for k, v in off_body.items() if k != "client_ref"}, token=seller, expect=400)
+check("offline sales need a client reference", True)
+check("sync is audited", any(x["action"] == "offline_sync" for x in call("GET", f"/audit?period=all&entity_id={o1['sale']['id']}&limit=20")["items"]))
+
 step("Query strings: paging & flags on every list")
 for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&status=all", "/stock?limit=5", "/stock/movements?period=all&limit=5",
              "/stock/items?limit=5", "/stock/adjustments?period=all&limit=5", "/transfers?limit=5", "/customers?limit=5&with_credit=true",

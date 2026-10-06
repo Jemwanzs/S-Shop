@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Clock, MessageCircle, PackageSearch, Printer, ScanLine, ShoppingCart, Trash2 } from "lucide-react";
+import { CheckCircle2, Clock, CloudOff, MessageCircle, PackageSearch, Printer, ScanLine, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -17,6 +17,7 @@ import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { totals, type CartLine } from "./pos/cart";
 import { hoursLabel, useOpenNow } from "@/components/Hours";
+import { loadSnapshot, saveSnapshot, type QueuedSale } from "@/lib/offline";
 import { t as translate } from "@/lib/i18n";
 import { ItemSheet } from "./pos/ItemSheet";
 import { CartLines, Checkout } from "./pos/Checkout";
@@ -47,10 +48,27 @@ export default function Pos() {
   const [scan, setScan] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [done, setDone] = useState<SaleDetail | null>(null);
+  const [queued, setQueued] = useState<QueuedSale | null>(null);
 
+  // The full list is kept on this device per branch, so the till keeps working without a connection.
+  const snapshotKey = `pos:${profile?.tenant.id}:${branch?.id}`;
+  const [snapshotAt, setSnapshotAt] = useState<number | null>(null);
   const products = useQuery({
     queryKey: ["pos-products", branch?.id, term],
-    queryFn: () => api<PosProduct[]>("/pos/products", { query: { q: term, all: true } }),
+    queryFn: async () => {
+      try {
+        const rows = await api<PosProduct[]>("/pos/products", { query: { q: term, all: true } });
+        if (!term) saveSnapshot(snapshotKey, rows);
+        setSnapshotAt(null);
+        return rows;
+      } catch (e) {
+        const snap = e instanceof ApiError && e.code === "network" ? await loadSnapshot<PosProduct[]>(snapshotKey) : undefined;
+        if (!snap) throw e;
+        setSnapshotAt(snap.at);
+        const k = term.trim().toLowerCase();
+        return snap.value.filter((p) => !k || [p.name, p.code, p.nickname, p.barcode].some((x) => x?.toLowerCase().includes(k)));
+      }
+    },
     placeholderData: (p) => p,
   });
 
@@ -138,6 +156,11 @@ export default function Pos() {
     toast.success(`${line.product.name} added`, { duration: 1200 });
   };
 
+  const savedOffline = (q: QueuedSale) => {
+    setCart({ lines: [], ref: newRef() });
+    setCartOpen(false);
+    setQueued(q);
+  };
   const finished = (sale: SaleDetail) => {
     setCart({ lines: [], ref: newRef() });
     setCartOpen(false);
@@ -173,7 +196,7 @@ export default function Pos() {
       ) : (
         <>
           <CartLines lines={cart.lines} onEdit={(l) => { setEditing(l); setSelected(l.product); }} onRemove={(key) => setCart((c) => ({ ...c, lines: c.lines.filter((l) => l.key !== key) }))} />
-          <Checkout lines={cart.lines} onDone={finished} clientRef={cart.ref} />
+          <Checkout lines={cart.lines} onDone={finished} onQueued={savedOffline} clientRef={cart.ref} />
         </>
       )}
     </div>
@@ -187,6 +210,12 @@ export default function Pos() {
           title="Record Sale"
           actions={<Button variant="ink" onClick={() => setScan(true)}><ScanLine /> Scan</Button>}
         />
+        {snapshotAt && (
+          <div className="mb-3 flex items-start gap-2 rounded-xl bg-warning/10 p-3 text-sm text-warning">
+            <CloudOff className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{translate("Offline — stock as of")} {new Date(snapshotAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. {translate("Cash sales are saved on this device.")}</span>
+          </div>
+        )}
         {!openNow && branch?.hours && (
           <div className={cn("mb-3 flex items-start gap-2 rounded-xl p-3 text-sm", blocked ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning")}>
             <Clock className="mt-0.5 h-4 w-4 shrink-0" />
@@ -278,6 +307,23 @@ export default function Pos() {
       />
       <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={onScan} title="Scan to sell" continuous />
 
+      <ResponsiveDialog
+        open={!!queued}
+        onOpenChange={(o) => !o && setQueued(null)}
+        title="Saved offline"
+        footer={<Button className="w-full md:w-auto" onClick={() => setQueued(null)}>New sale</Button>}
+      >
+        {queued && (
+          <div className="space-y-3 py-2 text-center">
+            <CloudOff className="mx-auto h-14 w-14 text-warning" />
+            <p className="num text-3xl font-bold">{money(queued.total)}</p>
+            <p className="text-sm text-muted-foreground">
+              {translate("Kept on this device and sent automatically when the connection is back. The receipt number is given then.")}
+            </p>
+            <p className="num text-xs text-muted-foreground">Ref {queued.client_ref.slice(0, 8).toUpperCase()}</p>
+          </div>
+        )}
+      </ResponsiveDialog>
       <ResponsiveDialog
         open={!!done}
         onOpenChange={(o) => !o && setDone(null)}

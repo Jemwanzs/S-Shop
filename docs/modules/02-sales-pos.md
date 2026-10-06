@@ -19,6 +19,21 @@
 Phone: floating cart bar → checkout sheet. Desktop: product grid with a sticky cart/checkout panel. The cart survives
 navigation and is kept per branch.
 
+## Offline selling (installable app)
+The app installs to the home screen and opens without a connection (service worker: app shell and build files only —
+never business data or API responses). While offline:
+- The till sells from this branch's product list kept on the device (*Offline — stock as of …*).
+- Walk-in **cash-style sales** of products that need no scan verification are saved on the device with their time,
+  location and `client_ref` (*Saved offline*; the receipt number is given when it syncs).
+- Anything needing a live check waits for the connection, with a clear reason: credit, M-Pesa, new customers,
+  points, deposits, supervisor approval, tracked/barcode-cleared items.
+- Saved sales sync automatically when the connection returns (and every 30 s): the server records each once
+  (`client_ref`), at the **moment it was made** (`offline_at` → sale, stock movement and payment times, so the business
+  day is right; `synced_at` marks it), checks trading hours at that moment, and audits the sync. Only sales up to
+  72 hours old are accepted.
+- A sale the server refuses (e.g. the stock was sold meanwhile) is listed under *need attention* with the reason:
+  fix the cause and **Retry**, or **Discard** one that should not be recorded. Nothing is dropped silently.
+
 ## Pricing model (one source of truth)
 `discount = marked − selling`. A negative difference is a premium. Discounts are never applied twice.
 - Selling below the marked price needs `sales.discount`.

@@ -673,10 +673,11 @@ async fn apply_adjustment(conn: &mut PgConnection, ctx: &Ctx, adj_id: Uuid, appr
                 "supplier_return" => "returned_to_supplier",
                 _ => "written_off",
             };
-            sqlx::query("UPDATE stock_items SET status = $2, branch_id = $3, updated_at = now() WHERE id = $1")
+            sqlx::query("UPDATE stock_items SET status = $2, branch_id = $3, updated_at = now() WHERE id = $1 AND tenant_id = $4")
                 .bind(item_id)
                 .bind(new_status)
                 .bind(branch)
+                .bind(ctx.tenant_id)
                 .execute(&mut *conn)
                 .await?;
         }
@@ -685,13 +686,14 @@ async fn apply_adjustment(conn: &mut PgConnection, ctx: &Ctx, adj_id: Uuid, appr
         inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), s.stock.allow_negative, check, m).await?;
     }
     sqlx::query(
-        "UPDATE stock_adjustments SET status='applied', previous_qty=$2, delta=$3, new_qty=$4, decided_by=$5, decided_at=now() WHERE id=$1",
+        "UPDATE stock_adjustments SET status='applied', previous_qty=$2, delta=$3, new_qty=$4, decided_by=$5, decided_at=now() WHERE id=$1 AND tenant_id = $6",
     )
     .bind(adj_id)
     .bind(level.on_hand)
     .bind(delta)
     .bind(level.on_hand + delta)
     .bind(ctx.user_id)
+    .bind(ctx.tenant_id)
     .execute(&mut *conn)
     .await?;
     audit::record(

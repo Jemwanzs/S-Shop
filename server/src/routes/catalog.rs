@@ -589,7 +589,7 @@ async fn upload_photo(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
     .bind(upload_ref)
     .fetch_one(&mut *tx)
     .await?;
-    sqlx::query("UPDATE products SET updated_at = now() WHERE id = $1").bind(id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE products SET updated_at = now() WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).execute(&mut *tx).await?;
     audit::record(&mut tx, &ctx, Entry::new("products", "add_photo", "product", id).comments("photo added")).await?;
     tx.commit().await?;
     Ok(Json(json!({ "id": photo_id, "url": format!("/api/photos/{photo_id}") })))
@@ -607,9 +607,10 @@ async fn delete_photo(State(state): State<AppState>, ctx: Ctx, Path((id, photo_i
             .await?;
     if was_primary.ok_or(AppError::NotFound("Photo"))? {
         sqlx::query(
-            "UPDATE product_photos SET is_primary = true WHERE id = (SELECT id FROM product_photos WHERE product_id = $1 ORDER BY sort_order LIMIT 1)",
+            "UPDATE product_photos SET is_primary = true WHERE id = (SELECT id FROM product_photos WHERE product_id = $1 ORDER BY sort_order LIMIT 1) AND tenant_id = $2",
         )
         .bind(id)
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
     }
@@ -626,9 +627,10 @@ async fn set_primary(State(state): State<AppState>, ctx: Ctx, Path((id, photo_id
         .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
-    let n = sqlx::query("UPDATE product_photos SET is_primary = true WHERE id = $1 AND product_id = $2")
+    let n = sqlx::query("UPDATE product_photos SET is_primary = true WHERE id = $1 AND product_id = $2 AND tenant_id = $3")
         .bind(photo_id)
         .bind(id)
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?
         .rows_affected();

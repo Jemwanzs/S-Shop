@@ -53,6 +53,7 @@ fn clip(s: &str, max: usize) -> String {
 }
 
 async fn submit(State(state): State<AppState>, headers: HeaderMap, Json(b): Json<RequestBody>) -> AppResult<Json<Value>> {
+    state.limits.check(&crate::auth::client_meta(&headers).0, "access_request", 6, std::time::Duration::from_secs(3600))?;
     let ok = json!({ "ok": true, "support_phones": SUPPORT_PHONES });
     if !b.website.trim().is_empty() {
         return Ok(Json(ok)); // quietly drop bot submissions

@@ -47,6 +47,7 @@ struct LoginResponse {
 }
 
 async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<LoginBody>) -> AppResult<Json<LoginResponse>> {
+    state.limits.check(&crate::auth::client_meta(&headers).0, "login", 30, std::time::Duration::from_secs(300))?;
     let email = body.email.trim().to_lowercase();
     if email.is_empty() || body.pin.is_empty() {
         return Err(bad("Enter your email and PIN"));

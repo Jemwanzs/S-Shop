@@ -112,6 +112,28 @@ Added 2026-10-05 after the analytics / access / operations gap review ([gap-revi
   enforced on the server, with a bypass permission and the location in the audit trail.
 - ✅ **18. Transfer receipt with discrepancies** — short/damaged quantities recorded on receipt with a reason.
 
-Then:
-- Combined exchange screen (rest of roadmap 4).
-- Offline queueing of sales on the POS (installable PWA).
+Added 2026-10-06 (owner requests and the [production readiness audit](production-readiness-2026-10.md)):
+
+- ✅ **19. Strict barcode clearance at Record Sale** — every scan checked on the server before *Add to cart* (product,
+  branch, status, duplicates) with titled errors; exact unit locked and cleared at checkout ([module 19](modules/19-barcode-scanning.md)).
+- ✅ **20. Credit sale recall** — goods back to the original branch, re-scan of tracked units, balance revised,
+  overpayment refunded or kept as customer credit, audited, approval workflow ([module 03](modules/03-credit-sales.md)).
+- ✅ **21. S'Shop dropdowns** — one dropdown component for the whole app (panel / bottom sheet, search, check marks).
+- ✅ **22. Reliable product photos** — shared picker with previews and limit, per-photo results, retry-safe uploads;
+  *Add photos* on Receive stock ([module 06](modules/06-products.md)).
+- ✅ **23. Production safety** — security headers (CSP, HSTS …), CI on every push with Railway *Wait for CI* on.
+- ✅ **24. Hardening** — cross-business attack tests (32 kinds of request refused, nothing changed), tenant id on
+  id-based writes in route handlers, per-client rate limits (429), database check in `/healthz`, forged
+  `X-Forwarded-For` no longer trusted.
+
+Then, in this order:
+- ✅ **25. Offline POS** — installable app shell; cash-style sales saved on the device and synced at their real time
+  (idempotent `client_ref`), refusals listed for retry/discard ([module 02](modules/02-sales-pos.md)).
+- ⏳ **26. Languages** — finish roadmap 9 (screen text, toasts, server messages).
+- ⏳ **27. Combined exchange screen** (rest of roadmap 4).
+
+Towards the end (owner decision 2026-10-06 — deferred, not dropped):
+- ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
+- ⏳ **29. Email sender & public URL** — verified sending domain in Resend, `MAIL_FROM`, `PUBLIC_URL`.
+- ⏳ **30. `sshop.io` domain** — CNAME `ckyv3su4.up.railway.app` + `_railway-verify` TXT at the registrar.
+- ⏳ **31. Region** — move app + database together to an EU region (with a backup/restore window).

@@ -392,9 +392,10 @@ async fn close_period(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
         .await?;
         winners.push(json!({ "customer_id": st.customer_id, "name": st.name, "tier": tier, "spend": st.period_spend, "mobile": st.mobile }));
     }
-    sqlx::query("UPDATE award_periods SET status = 'closed', end_date = $2 WHERE id = $1")
+    sqlx::query("UPDATE award_periods SET status = 'closed', end_date = $2 WHERE id = $1 AND tenant_id = $3")
         .bind(id)
         .bind(end)
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("loyalty", "close_award_period", "award_period", id).after(json!({ "winners": winners })))

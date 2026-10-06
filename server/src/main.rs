@@ -11,6 +11,7 @@ mod jobs;
 mod legacy;
 mod loyalty;
 mod notify;
+mod ratelimit;
 mod perms;
 mod routes;
 mod settings;
@@ -92,6 +93,14 @@ async fn connect() -> anyhow::Result<sqlx::PgPool> {
     Ok(db)
 }
 
+async fn healthz(axum::extract::State(state): axum::extract::State<state::AppState>) -> (axum::http::StatusCode, &'static str) {
+    let ping = tokio::time::timeout(Duration::from_secs(3), sqlx::query("SELECT 1").execute(&state.db)).await;
+    match ping {
+        Ok(Ok(_)) => (axum::http::StatusCode::OK, "ok"),
+        _ => (axum::http::StatusCode::SERVICE_UNAVAILABLE, "database unavailable"),
+    }
+}
+
 /// Browser hardening for every response. The CSP allows only this site's scripts (no inline script), Google Fonts,
 /// and images from this site, data: and blob: (photo previews); camera and location only for this site.
 fn security_headers(app: Router) -> Router {
@@ -144,7 +153,8 @@ async fn serve() -> anyhow::Result<()> {
 
     let mut app = Router::new()
         .nest("/api", routes::api())
-        .route("/healthz", axum::routing::get(|| async { "ok" }))
+        // Healthy only when the database answers (Railway restarts the service otherwise).
+        .route("/healthz", axum::routing::get(healthz))
         .merge(assets)
         .fallback_service(spa)
         .with_state(state)

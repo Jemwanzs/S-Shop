@@ -32,6 +32,8 @@ pub struct AppState {
     pub fx: Arc<Mutex<Option<(Instant, serde_json::Value)>>>,
     /// Progress of the demo-business build (routes/platform.rs).
     pub demo: Arc<std::sync::Mutex<crate::routes::platform::DemoStatus>>,
+    /// Rate limits for unauthenticated endpoints.
+    pub limits: Arc<crate::ratelimit::Limiter>,
 }
 
 impl AppState {
@@ -49,6 +51,7 @@ impl AppState {
             mpesa_token: Arc::new(Mutex::new(None)),
             fx: Arc::new(Mutex::new(None)),
             demo: Arc::new(std::sync::Mutex::new(Default::default())),
+            limits: Arc::default(),
         }
     }
 

@@ -23,6 +23,9 @@ pub enum AppError {
     Refused { title: String, message: String },
     #[error("{0}")]
     Upstream(String),
+    /// Too many requests from one client; seconds until it may try again.
+    #[error("Too many attempts. Try again in {0} seconds.")]
+    RateLimited(u64),
     #[error(transparent)]
     Db(#[from] sqlx::Error),
     #[error(transparent)]
@@ -50,6 +53,7 @@ impl IntoResponse for AppError {
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             AppError::Rule(_) | AppError::Refused { .. } => (StatusCode::UNPROCESSABLE_ENTITY, "rule_violation"),
             AppError::Upstream(_) => (StatusCode::BAD_GATEWAY, "upstream_error"),
+            AppError::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             AppError::Db(sqlx::Error::RowNotFound) => (StatusCode::NOT_FOUND, "not_found"),
             AppError::Db(sqlx::Error::Database(e)) if e.is_unique_violation() => (StatusCode::CONFLICT, "conflict"),
             AppError::Db(sqlx::Error::Database(e)) if e.is_check_violation() => (StatusCode::UNPROCESSABLE_ENTITY, "rule_violation"),
@@ -75,6 +79,7 @@ impl IntoResponse for AppError {
 
         let title = match &self {
             AppError::Refused { title, .. } => Some(title.clone()),
+            AppError::RateLimited(_) => Some("Too many attempts".to_string()),
             _ => None,
         };
         (status, Json(json!({ "error": { "code": code, "message": message, "title": title } }))).into_response()

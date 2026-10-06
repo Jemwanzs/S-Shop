@@ -1,6 +1,6 @@
 import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, session } from "./api";
+import { api, ApiError, session } from "./api";
 import type { Branch, Profile } from "./types";
 import { setDisplayCurrency } from "./format";
 import { applyFont, DEFAULT_PREFERENCES, type Fx, type Preferences } from "./prefs";
@@ -31,20 +31,57 @@ interface SessionValue {
 
 const Ctx = createContext<SessionValue | null>(null);
 
+const PROFILE_KEY = "sshop.profile";
+function rememberProfile(token: string | null, profile: Profile) {
+  try {
+    if (token) localStorage.setItem(PROFILE_KEY, JSON.stringify({ token, profile }));
+  } catch {
+    /* storage unavailable: offline start simply needs a connection */
+  }
+}
+function cachedProfile(token: string | null): Profile | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PROFILE_KEY) ?? "null") as { token: string; profile: Profile } | null;
+    return saved && token && saved.token === token ? saved.profile : null;
+  } catch {
+    return null;
+  }
+}
+function forgetProfile() {
+  try {
+    localStorage.removeItem(PROFILE_KEY);
+  } catch {
+    /* nothing stored */
+  }
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [token, setToken] = useState(session.token);
   const [branchId, setBranchId] = useState(session.branchId);
 
+  // The last profile for this sign-in is kept on the device, so the app (offline POS) still opens without a
+  // connection. It is used only when the network is down — a real sign-out or expired session clears it.
   const { data: profile, isLoading } = useQuery({
     queryKey: ["me", token],
-    queryFn: () => api<Profile>("/auth/me"),
+    queryFn: async () => {
+      try {
+        const p = await api<Profile>("/auth/me");
+        rememberProfile(token, p);
+        return p;
+      } catch (e) {
+        const cached = e instanceof ApiError && e.code === "network" ? cachedProfile(token) : null;
+        if (cached) return cached;
+        throw e;
+      }
+    },
     enabled: !!token,
     staleTime: 5 * 60_000,
   });
 
   useEffect(() => {
     const onUnauthorized = () => {
+      forgetProfile();
       setToken(null);
       qc.clear();
     };
@@ -127,6 +164,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
       },
       signOut: () => {
+        forgetProfile();
         session.setToken(null);
         setToken(null);
         qc.clear();

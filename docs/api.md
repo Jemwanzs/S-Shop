@@ -149,7 +149,7 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 |---|---|
 | GET | `/api/pos/products` |
 | GET | `/api/sales` |
-| POST | `/api/sales` |
+| POST | `/api/sales` — offline sync: `client_ref` + `offline_at` (≤ 72 h, cash-style sales only) |
 | GET | `/api/sales/{id}` |
 | POST | `/api/sales/check-barcode` — `{product_id, barcode, branch_id?}`: same rules as checkout; refusals are 422 with `error.title` |
 | POST | `/api/sales/{id}/return` |

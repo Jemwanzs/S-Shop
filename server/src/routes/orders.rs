@@ -450,11 +450,12 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
         }
     }
 
-    sqlx::query("UPDATE orders SET status=$2, reserved=$3, sale_id=$4, updated_at=now() WHERE id=$1")
+    sqlx::query("UPDATE orders SET status=$2, reserved=$3, sale_id=$4, updated_at=now() WHERE id=$1 AND tenant_id = $5")
         .bind(id)
         .bind(target)
         .bind(reserved)
         .bind(sale_id)
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
     sqlx::query("INSERT INTO order_events (order_id, status, user_id, notes) VALUES ($1,$2,$3,$4)")

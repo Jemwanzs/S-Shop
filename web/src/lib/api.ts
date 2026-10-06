@@ -70,6 +70,8 @@ interface Options {
   query?: Query;
   /** Use a different bearer token (ordering portal) — `null` sends none. */
   token?: string | null;
+  /** Extra headers that override the defaults (offline sync sends the sale's own branch and location). */
+  headers?: Record<string, string>;
 }
 
 export async function api<T = unknown>(path: string, opts: Options = {}): Promise<T> {
@@ -81,6 +83,7 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   // Geofencing: the device position goes with staff requests while the business requires it.
   const where = opts.token === undefined ? locationHeader() : null;
   if (where) headers["X-Location"] = where;
+  Object.assign(headers, opts.headers);
   let body: BodyInit | undefined;
   if (opts.body instanceof FormData) body = opts.body;
   else if (opts.body !== undefined) {

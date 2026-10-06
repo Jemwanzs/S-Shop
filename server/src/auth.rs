@@ -101,10 +101,12 @@ pub fn bearer(parts: &Parts) -> Option<String> {
 }
 
 pub fn client_meta(headers: &HeaderMap) -> (String, String) {
+    // The last X-Forwarded-For entry is the one added by our proxy (Railway); earlier entries come from the client
+    // and could be forged, so they are never trusted for the audit trail or rate limits.
     let ip = headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
+        .and_then(|v| v.rsplit(',').next())
         .unwrap_or_default()
         .trim()
         .to_string();

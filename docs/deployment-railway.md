@@ -7,7 +7,7 @@ S'Shop runs as **one service** (built from the repository `Dockerfile`) plus **o
 | GitHub repository | `https://github.com/Jemwanzs/S-Shop` (branch `main`) |
 | Railway project | `c7f30712-2adc-403b-bf4b-42c83d5f8dae` |
 | Build | `Dockerfile` (selected by `railway.json`) |
-| Health check | `GET /healthz` |
+| Health check | `GET /healthz` — `ok` only when the database answers within 3 s (503 otherwise) |
 
 ## 1. Services
 

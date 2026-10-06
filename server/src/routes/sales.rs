@@ -159,7 +159,12 @@ struct CreateBody {
     notes: String,
     supervisor: Option<Supervisor>,
     client_ref: Option<Uuid>,
+    /// Offline POS: when the sale was made on the device (sent later). Needs `client_ref`; within 72 hours.
+    offline_at: Option<DateTime<Utc>>,
 }
+
+/// Offline sales may be at most this old when they reach the server.
+const OFFLINE_MAX_AGE_HOURS: i64 = 72;
 
 /// Everything needed to record a sale; shared by the counter and order completion.
 pub struct SaleInput {
@@ -489,8 +494,9 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         .execute(&mut *conn)
         .await?;
         if let Some(item) = l.stock_item_id {
-            sqlx::query("UPDATE stock_items SET status = 'sold', updated_at = now() WHERE id = $1")
+            sqlx::query("UPDATE stock_items SET status = 'sold', updated_at = now() WHERE id = $1 AND tenant_id = $2")
                 .bind(item)
+                .bind(ctx.tenant_id)
                 .execute(&mut *conn)
                 .await?;
         }
@@ -732,11 +738,27 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
         }
     }
 
+    // Offline sales: only what needs no live check, recorded at the time it was made.
+    if let Some(at) = b.offline_at {
+        let now = Utc::now();
+        if b.client_ref.is_none() {
+            return Err(bad("Offline sales need a client reference"));
+        }
+        if at > now + Duration::minutes(5) || at < now - Duration::hours(OFFLINE_MAX_AGE_HOURS) {
+            return Err(refused("Offline sale too old", format!("Offline sales must reach the server within {OFFLINE_MAX_AGE_HOURS} hours. Record it again as a new sale.")));
+        }
+        let live_only = b.payment.method == "credit" || b.payment.method == "mpesa" && b.payment.mpesa_request_id.is_some()
+            || b.redeem_points > 0 || b.deposit.is_some() || b.supervisor.is_some() || b.customer.is_some();
+        if live_only {
+            return Err(refused("Needs a connection", "Credit, M-Pesa push, points, deposits, new customers and supervisor approvals cannot be recorded offline."));
+        }
+    }
+    let sold_at = b.offline_at.unwrap_or_else(Utc::now);
     let mut tx = state.db.begin().await?;
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
     if s.workspace.outside_hours == settings::OutsideHours::Block && !ctx.can("sales.outside_hours") {
         let hours = settings::branch_hours(&mut tx, ctx.tenant_id, branch, &s).await?;
-        if !hours.is_open(Utc::now().with_timezone(&ctx.tz).naive_local()) {
+        if !hours.is_open(sold_at.with_timezone(&ctx.tz).naive_local()) {
             return Err(rule(format!("The branch is closed (trading hours {}–{}). Sales outside trading hours need permission.", hours.open, hours.close)));
         }
     }
@@ -817,6 +839,37 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
         false,
     )
     .await?;
+    if let Some(at) = b.offline_at {
+        // The sale, its stock movements and payments carry the moment of sale (business-date triggers follow).
+        sqlx::query("UPDATE sales SET created_at = $3, synced_at = now() WHERE id = $1 AND tenant_id = $2")
+            .bind(sale_id)
+            .bind(ctx.tenant_id)
+            .bind(at)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE stock_movements SET created_at = $3, occurred_on = ($3 AT TIME ZONE $4)::date WHERE ref_type = 'sale' AND ref_id = $1 AND tenant_id = $2")
+            .bind(sale_id)
+            .bind(ctx.tenant_id)
+            .bind(at)
+            .bind(ctx.tz.name())
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE payments SET created_at = $3 WHERE sale_id = $1 AND tenant_id = $2")
+            .bind(sale_id)
+            .bind(ctx.tenant_id)
+            .bind(at)
+            .execute(&mut *tx)
+            .await?;
+        audit::record(
+            &mut tx,
+            &ctx,
+            Entry::new("sales", "offline_sync", "sale", sale_id)
+                .branch(branch)
+                .after(json!({ "sold_at": at, "synced_at": Utc::now() }))
+                .comments("Recorded offline on the device and synced"),
+        )
+        .await?;
+    }
     tx.commit().await?;
 
     after_sale(&state, &ctx, &s, sale_id, branch, &product_ids).await;
@@ -844,6 +897,8 @@ struct SaleRow {
     created_at: DateTime<Utc>,
     /// Trading day the sale belongs to (differs from the calendar date after midnight on late hours).
     business_date: NaiveDate,
+    /// Set when the sale was made offline and synced later.
+    synced_at: Option<DateTime<Utc>>,
     branch_name: String,
     customer_id: Option<Uuid>,
     customer_name: Option<String>,
@@ -887,7 +942,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     let branches = ctx.branch_scope(q.branch_id)?;
     let (from, to) = q.period.resolve(ctx.today(), "today");
     let rows: Vec<SaleListRow> = sqlx::query_as(
-        "SELECT s.id, s.receipt_no, s.created_at, s.business_date, b.name AS branch_name, s.customer_id,
+        "SELECT s.id, s.receipt_no, s.created_at, s.business_date, s.synced_at, b.name AS branch_name, s.customer_id,
                 NULLIF(TRIM(c.first_name || ' ' || c.other_names), '') AS customer_name, c.mobile AS customer_mobile,
                 u.name AS user_name, s.status, s.total, s.discount_total, s.payment_method, s.points_earned,
                 (SELECT COALESCE(SUM(quantity),0) FROM sale_items si WHERE si.sale_id = s.id)::bigint AS item_count,
@@ -1241,12 +1296,12 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
     let mut points_to_reverse = 0;
     for l in &b.items {
         let (product_id, item_id, qty, unit_price, unit_cost, points): (Uuid, Option<Uuid>, i32, Decimal, Option<Decimal>, i64) = sqlx::query_as(
-            "UPDATE sale_items SET returned_qty = returned_qty + $3 WHERE id = $1 AND sale_id = $2
-             RETURNING product_id, stock_item_id, quantity, unit_price, unit_cost, points",
+            "UPDATE sale_items SET returned_qty = returned_qty + $3 WHERE id = $1 AND sale_id = $2 AND tenant_id = $4 RETURNING product_id, stock_item_id, quantity, unit_price, unit_cost, points",
         )
         .bind(l.sale_item_id)
         .bind(sale_id)
         .bind(l.quantity)
+        .bind(ctx.tenant_id)
         .fetch_one(&mut *conn)
         .await?;
         points_to_reverse += points * i64::from(l.quantity) / i64::from(qty.max(1));
@@ -1259,9 +1314,10 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
             .await?;
         if b.restock {
             if let Some(si) = item_id {
-                sqlx::query("UPDATE stock_items SET status='in_stock', branch_id=$2, updated_at=now() WHERE id=$1")
+                sqlx::query("UPDATE stock_items SET status='in_stock', branch_id=$2, updated_at=now() WHERE id=$1 AND tenant_id = $3")
                     .bind(si)
                     .bind(head.branch_id)
+                    .bind(ctx.tenant_id)
                     .execute(&mut *conn)
                     .await?;
             }
@@ -1292,11 +1348,12 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
             "UPDATE credit_sales SET adjustments = adjustments + $2,
                  status = CASE WHEN original_amount - amount_paid - adjustments - $2 <= 0
                                THEN (CASE WHEN $3 THEN 'cancelled' ELSE 'paid' END) ELSE status END
-             WHERE id = $1",
+             WHERE id = $1 AND tenant_id = $4",
         )
         .bind(cs_id)
         .bind(reduce)
         .bind(kind == "cancellation")
+        .bind(ctx.tenant_id)
         .execute(&mut *conn)
         .await?;
         refunded = refund - reduce;
@@ -1325,13 +1382,14 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
     sqlx::query(
         "UPDATE sale_returns SET points_reversed = $2, balance_before = $3, balance_after = $4, customer_credit = $5,
              refund_method = CASE WHEN $5 > 0 THEN 'customer_credit' ELSE refund_method END
-         WHERE id = $1",
+         WHERE id = $1 AND tenant_id = $6",
     )
     .bind(return_id)
     .bind(reversed)
     .bind(balances.map(|b| b.1))
     .bind(balances.map(|b| b.2))
     .bind(customer_credit)
+    .bind(ctx.tenant_id)
     .execute(&mut *conn)
     .await?;
     if let Some(customer) = head.customer_id {
@@ -1353,11 +1411,12 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
         sqlx::query(
             "UPDATE credit_sales SET recall_state = $2,
                  status = CASE WHEN $2 = 'recalled' AND $3 <= 0 THEN 'recalled' ELSE status END
-             WHERE id = $1",
+             WHERE id = $1 AND tenant_id = $4",
         )
         .bind(cs_id)
         .bind(if remaining == 0 { "recalled" } else { "partially_recalled" })
         .bind(after)
+        .bind(ctx.tenant_id)
         .execute(&mut *conn)
         .await?;
         audit::record(
@@ -1380,16 +1439,17 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
              cancelled_at = CASE WHEN $2 = 'cancelled' THEN now() ELSE cancelled_at END,
              cancelled_by = CASE WHEN $2 = 'cancelled' THEN $3 ELSE cancelled_by END,
              cancel_reason = CASE WHEN $2 = 'cancelled' THEN $4 ELSE cancel_reason END
-         WHERE id = $1",
+         WHERE id = $1 AND tenant_id = $5",
     )
     .bind(sale_id)
     .bind(status)
     .bind(ctx.user_id)
     .bind(b.reason.trim())
+    .bind(ctx.tenant_id)
     .execute(&mut *conn)
     .await?;
     if let (Some(order), "cancelled") = (head.order_id, status) {
-        sqlx::query("UPDATE orders SET status = 'returned', updated_at = now() WHERE id = $1").bind(order).execute(&mut *conn).await?;
+        sqlx::query("UPDATE orders SET status = 'returned', updated_at = now() WHERE id = $1 AND tenant_id = $2").bind(order).bind(ctx.tenant_id).execute(&mut *conn).await?;
         sqlx::query("INSERT INTO order_events (order_id, status, user_id, notes) VALUES ($1, 'returned', $2, $3)")
             .bind(order)
             .bind(ctx.user_id)

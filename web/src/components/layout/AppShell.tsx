@@ -25,6 +25,7 @@ import { PoweredBy } from "@/components/PoweredBy";
 import { Loading } from "@/components/Page";
 import { Field } from "@/components/Form";
 import { GlobalSearch } from "./GlobalSearch";
+import { OfflineBar } from "@/components/OfflineBar";
 import mark from "@/assets/sshop-mark.png";
 import { allowed, BOTTOM, NAV } from "./nav";
 import { t } from "@/lib/i18n";
@@ -380,6 +381,7 @@ export function AppShell() {
       <div className="min-w-0">
         <ActingBanner />
         <LocationGuard />
+        <OfflineBar />
         <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur no-print">
           <div className="mx-auto flex h-14 max-w-[1680px] items-center gap-2 px-4 md:px-6 lg:h-16 lg:px-8">
             <div className="min-w-0 flex-1 lg:hidden"><Brand /></div>

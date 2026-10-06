@@ -3,6 +3,7 @@
 //! WhatsApp one-time code), browse the catalogue, order, and track orders.
 
 use axum::extract::{Path, Query, State};
+use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
@@ -97,7 +98,8 @@ struct IdentifyBody {
     mobile: String,
 }
 
-async fn identify(State(state): State<AppState>, Path(slug): Path<String>, Json(b): Json<IdentifyBody>) -> AppResult<Json<Value>> {
+async fn identify(State(state): State<AppState>, headers: HeaderMap, Path(slug): Path<String>, Json(b): Json<IdentifyBody>) -> AppResult<Json<Value>> {
+    state.limits.check(&crate::auth::client_meta(&headers).0, "portal_auth", 30, std::time::Duration::from_secs(600))?;
     let t = tenant(&state, &slug).await?;
     let mobile = normalize_mobile(&b.mobile)?;
     let existing: Option<(String, String)> = sqlx::query_as("SELECT first_name, nickname FROM customers WHERE tenant_id = $1 AND mobile = $2")
@@ -151,7 +153,8 @@ struct SessionBody {
     nickname: String,
 }
 
-async fn session(State(state): State<AppState>, Path(slug): Path<String>, Json(b): Json<SessionBody>) -> AppResult<Json<Value>> {
+async fn session(State(state): State<AppState>, headers: HeaderMap, Path(slug): Path<String>, Json(b): Json<SessionBody>) -> AppResult<Json<Value>> {
+    state.limits.check(&crate::auth::client_meta(&headers).0, "portal_auth", 30, std::time::Duration::from_secs(600))?;
     let t = tenant(&state, &slug).await?;
     let mobile = normalize_mobile(&b.mobile)?;
     let mut tx = state.db.begin().await?;
@@ -373,7 +376,8 @@ struct PlaceBody {
     notes: String,
 }
 
-async fn place_order(State(state): State<AppState>, Path(slug): Path<String>, c: PortalCustomer, Json(b): Json<PlaceBody>) -> AppResult<Json<Value>> {
+async fn place_order(State(state): State<AppState>, headers: HeaderMap, Path(slug): Path<String>, c: PortalCustomer, Json(b): Json<PlaceBody>) -> AppResult<Json<Value>> {
+    state.limits.check(&crate::auth::client_meta(&headers).0, "portal_order", 20, std::time::Duration::from_secs(600))?;
     let t = tenant(&state, &slug).await?;
     ensure_same_tenant(&c, &t)?;
     if b.delivery_location.trim().is_empty() {
@@ -405,7 +409,8 @@ async fn place_order(State(state): State<AppState>, Path(slug): Path<String>, c:
 }
 
 /// Public tracking by unguessable token — no account needed.
-async fn track(State(state): State<AppState>, Path(token): Path<Uuid>) -> AppResult<Json<Value>> {
+async fn track(State(state): State<AppState>, headers: HeaderMap, Path(token): Path<Uuid>) -> AppResult<Json<Value>> {
+    state.limits.check(&crate::auth::client_meta(&headers).0, "portal_track", 120, std::time::Duration::from_secs(600))?;
     let row: Option<(Uuid, String, String, Decimal, DateTime<Utc>, String, String, String, bool, Value)> = sqlx::query_as(
         "SELECT o.id, o.order_no, o.status, o.total, o.created_at, o.delivery_location, t.name, t.slug, t.logo IS NOT NULL, t.settings
          FROM orders o JOIN tenants t ON t.id = o.tenant_id WHERE o.track_token = $1",

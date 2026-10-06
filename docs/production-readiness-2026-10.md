@@ -18,12 +18,12 @@ environment *production*). ✅ complete · 🟡 partial · 🔴 missing.
 | Region | 🟡 | App and database in `us-west2` (together, so queries are local). | Users in Kenya are ~250 ms away; an EU region (Amsterdam) would roughly halve page latency. |
 | Multi-tenancy | ✅ | Tenant comes only from the signed token (`Ctx`), never from the request body; every query filters `tenant_id`; branch access checked on every request; platform admins "open" a business with an audited acting session, re-verified each request. Demo business isolated (`is_demo`, no WhatsApp/email). | Defence in depth (see *Hardening*). |
 | Roles & permissions | ✅ | 56 `module.action` permissions enforced on the server (UI hides what the server would refuse); settings per area; no self-escalation; own-data scoping (`staff.view_others`). | — |
-| Authentication | ✅ | Argon2 PIN hashes, 12 h tokens, account lockout after failed attempts, timing-equalised unknown-email login, portal OTP with attempt and rate limits. | No per-IP rate limit on sign-in / access-request forms (lockout is per account). |
+| Authentication | ✅ | Argon2 PIN hashes, 12 h tokens, account lockout after failed attempts, timing-equalised unknown-email login, portal OTP with attempt and rate limits; per-client rate limits on sign-in, access requests and the ordering portal (429 *Too many attempts*); client address taken from the proxy's own `X-Forwarded-For` entry (not forgeable). | — |
 | Audit trail | ✅ | Before/after JSON, user, branch, IP, device, location, approval link — written in the same transaction as the change. | — |
 | Browser security | ✅ *(this pass)* | Strict Content-Security-Policy (no inline script), HSTS, `nosniff`, `X-Frame-Options: DENY`, referrer and permissions policies — verified with no CSP violations across all screens, PDF export and the camera. | Session token is kept in browser storage (mitigated by the strict CSP). |
 | Browser storage | ✅ | Only: session token + chosen branch, theme, language, unsent till cart and portal cart (all per device). No business data lives in the browser. | — |
 | Automated tests | ✅ *(2026-10-06)* | GitHub Actions (`.github/workflows/ci.yml`) on every push: lint, type-check, web build, unit tests, server build, and 244 end-to-end checks against a fresh Postgres 18. | Turn on Railway *Wait for CI* (service → Settings → Source) so a red build never deploys. |
-| Observability | 🟡 | Structured logs (`RUST_LOG`), Railway deploy/HTTP logs. | `/healthz` does not check the database; no error alerting. |
+| Observability | 🟡 | Structured logs (`RUST_LOG`), Railway deploy/HTTP logs; `/healthz` answers only when the database does (Railway restarts otherwise). | No error alerting. |
 | Scale-out | 🟡 | One replica: background jobs and live events (SSE) run in-process. | A second replica would run jobs twice and split live events — needs a DB lock for jobs and Postgres `LISTEN/NOTIFY` for events before scaling out. |
 | File storage | 🟡 | Logos and product photos stored in Postgres (`bytea`), served with long cache headers. | Fine now; move to object storage (Railway Bucket) as photo volume grows. |
 | Offline selling | 🔴 | — | Roadmap item (offline POS / PWA). |
@@ -34,9 +34,10 @@ environment *production*). ✅ complete · 🟡 partial · 🔴 missing.
 2. **Email sender + public URL**: verify a sending domain in Resend, set `MAIL_FROM` (e.g. `S'Shop <no-reply@sshop.io>`), set `PUBLIC_URL`. Without it, access-request emails reach only the Resend account owner. *Variables + DNS.*
 3. **`sshop.io` DNS**: add the CNAME (`ckyv3su4.up.railway.app`) and the `_railway-verify` TXT record at the registrar, then set `PUBLIC_URL=https://sshop.io`.
 4. ✅ **CI** is live (first run green). Remaining: switch on Railway *Wait for CI* (Service → Settings → Source). *Dashboard toggle.*
-5. **Hardening**: cross-tenant attack tests in the smoke suite (a user of business B requesting A's ids → 404 on every resource); `tenant_id` on every id-based write as a second guard; per-IP rate limit on sign-in and public forms; database check in `/healthz`. *Code.*
+5. ✅ **Hardening** (2026-10-06): cross-business attack tests (another business's administrator is refused on 32 kinds of request and nothing changes), `tenant_id` added to 36 id-based writes in route handlers as a second guard, per-client rate limits, database check in `/healthz`, forged `X-Forwarded-For` no longer trusted.
 6. **Region**: move app + database together to an EU region when convenient (needs a short maintenance window and a backup/restore).
 7. **Before running two replicas**: job lock + `LISTEN/NOTIFY` events. Not needed at one replica.
 8. **Offline POS (PWA)** — on the roadmap.
 
-Items 1–3 are settings on Railway, Resend and the domain registrar (owner action); 4–5 are code and come next.
+Status 2026-10-06: CI ✅ with *Wait for CI* on. Backups, email sender, domain and region are deferred to the end of the
+roadmap (items 28–31 in [scope.md](scope.md)); hardening (item 24) is next.

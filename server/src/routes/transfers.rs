@@ -284,7 +284,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
 
 async fn submit_inner(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, from: Uuid, no: &str) -> AppResult<(&'static str, Option<Uuid>)> {
     if workflow::needs_approval(conn, ctx, "stock.transfer", workflow::Gate::branch(from)).await? {
-        sqlx::query("UPDATE transfers SET status = 'pending_approval' WHERE id = $1").bind(id).execute(&mut *conn).await?;
+        sqlx::query("UPDATE transfers SET status = 'pending_approval' WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).execute(&mut *conn).await?;
         let approval = workflow::submit(
             conn,
             ctx,
@@ -301,9 +301,10 @@ async fn submit_inner(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, from: Uuid, 
         .await?;
         Ok(("pending_approval", Some(approval)))
     } else {
-        sqlx::query("UPDATE transfers SET status = 'approved', approved_by = $2, approved_at = now() WHERE id = $1")
+        sqlx::query("UPDATE transfers SET status = 'approved', approved_by = $2, approved_at = now() WHERE id = $1 AND tenant_id = $3")
             .bind(id)
             .bind(ctx.user_id)
+            .bind(ctx.tenant_id)
             .execute(&mut *conn)
             .await?;
         Ok(("approved", None))
@@ -350,9 +351,10 @@ async fn dispatch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
     let note = format!("Transfer {} → {}", t.transfer_no, t.to_branch_name);
     for (_, product_id, item_id, qty) in &items {
         if let Some(si) = item_id {
-            let n = sqlx::query("UPDATE stock_items SET status='in_transit', updated_at=now() WHERE id=$1 AND status='in_stock' AND branch_id=$2")
+            let n = sqlx::query("UPDATE stock_items SET status='in_transit', updated_at=now() WHERE id=$1 AND status='in_stock' AND branch_id=$2 AND tenant_id = $3")
                 .bind(si)
                 .bind(t.from_branch_id)
+                .bind(ctx.tenant_id)
                 .execute(&mut *tx)
                 .await?
                 .rows_affected();
@@ -363,9 +365,10 @@ async fn dispatch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
         let m = Movement::new(t.from_branch_id, *product_id, "transfer_out", -qty).item(*item_id).reference("transfer", id).notes(&note);
         inventory::apply(&mut tx, ctx.tenant_id, Some(ctx.user_id), s.stock.allow_negative, Check::Available, m).await?;
     }
-    sqlx::query("UPDATE transfers SET status='dispatched', dispatched_by=$2, dispatched_at=now() WHERE id=$1")
+    sqlx::query("UPDATE transfers SET status='dispatched', dispatched_by=$2, dispatched_at=now() WHERE id=$1 AND tenant_id = $3")
         .bind(id)
         .bind(ctx.user_id)
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("transfers", "dispatch", "transfer", id).branch(t.from_branch_id)).await?;
@@ -438,10 +441,11 @@ async fn receive_inner(conn: &mut PgConnection, ctx: &Ctx, t: &TransferRow, item
         let (short, damaged) = r.lines.iter().find(|l| l.id == *line_id).map_or((0, 0), |l| (l.short, l.damaged));
         if let Some(si) = item_id {
             let status = if short + damaged > 0 { "written_off" } else { "in_stock" };
-            sqlx::query("UPDATE stock_items SET status=$3, branch_id=$2, updated_at=now() WHERE id=$1 AND status='in_transit'")
+            sqlx::query("UPDATE stock_items SET status=$3, branch_id=$2, updated_at=now() WHERE id=$1 AND status='in_transit' AND tenant_id = $4")
                 .bind(si)
                 .bind(t.to_branch_id)
                 .bind(status)
+                .bind(ctx.tenant_id)
                 .execute(&mut *conn)
                 .await?;
         }
@@ -463,10 +467,11 @@ async fn receive_inner(conn: &mut PgConnection, ctx: &Ctx, t: &TransferRow, item
                 .await?;
         }
     }
-    sqlx::query("UPDATE transfers SET status='received', received_by=$2, received_at=now(), discrepancy_reason=$3 WHERE id=$1")
+    sqlx::query("UPDATE transfers SET status='received', received_by=$2, received_at=now(), discrepancy_reason=$3 WHERE id=$1 AND tenant_id = $4")
         .bind(t.id)
         .bind(ctx.user_id)
         .bind(if discrepancy { reason } else { "" })
+        .bind(ctx.tenant_id)
         .execute(&mut *conn)
         .await?;
     let mut e = Entry::new("transfers", "receive", "transfer", t.id).branch(t.to_branch_id);
@@ -539,10 +544,11 @@ async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, b
     if !["draft", "pending_approval", "approved"].contains(&t.status.as_str()) {
         return Err(rule("A dispatched transfer cannot be cancelled — receive it, then transfer it back"));
     }
-    sqlx::query("UPDATE transfers SET status='cancelled' WHERE id=$1").bind(id).execute(&mut *tx).await?;
-    sqlx::query("UPDATE approvals SET status='cancelled', decided_by=$2, decided_at=now() WHERE entity_id=$1 AND status='pending'")
+    sqlx::query("UPDATE transfers SET status='cancelled' WHERE id=$1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE approvals SET status='cancelled', decided_by=$2, decided_at=now() WHERE entity_id=$1 AND status='pending' AND tenant_id = $3")
         .bind(id)
         .bind(ctx.user_id)
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("transfers", "cancel", "transfer", id).branch(t.from_branch_id).comments(&reason)).await?;
@@ -551,9 +557,10 @@ async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, b
 }
 
 pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) -> AppResult<()> {
-    let n = sqlx::query("UPDATE transfers SET status='approved', approved_by=$2, approved_at=now() WHERE id=$1 AND status='pending_approval'")
+    let n = sqlx::query("UPDATE transfers SET status='approved', approved_by=$2, approved_at=now() WHERE id=$1 AND status='pending_approval' AND tenant_id = $3")
         .bind(a.entity_id)
         .bind(ctx.user_id)
+        .bind(ctx.tenant_id)
         .execute(&mut *conn)
         .await?
         .rows_affected();

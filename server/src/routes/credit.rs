@@ -263,15 +263,17 @@ async fn repay(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Js
     let new_status: String = sqlx::query_scalar(
         "UPDATE credit_sales SET amount_paid = amount_paid + $2,
              status = CASE WHEN original_amount - amount_paid - adjustments - $2 <= 0 THEN 'paid' ELSE 'partially_paid' END
-         WHERE id = $1 RETURNING status",
+         WHERE id = $1 AND tenant_id = $3 RETURNING status",
     )
     .bind(id)
     .bind(round2(b.amount))
+    .bind(ctx.tenant_id)
     .fetch_one(&mut *tx)
     .await?;
-    sqlx::query("UPDATE sales SET amount_paid = amount_paid + $2 WHERE id = (SELECT sale_id FROM credit_sales WHERE id = $1)")
+    sqlx::query("UPDATE sales SET amount_paid = amount_paid + $2 WHERE id = (SELECT sale_id FROM credit_sales WHERE id = $1) AND tenant_id = $3")
         .bind(id)
         .bind(round2(b.amount))
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
     audit::record(
@@ -330,10 +332,11 @@ async fn write_off(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>
 async fn apply_write_off(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, reason: &str, approval_id: Option<Uuid>) -> AppResult<()> {
     let balance: Decimal = sqlx::query_scalar(
         "UPDATE credit_sales SET status='written_off', written_off_at=now(), written_off_by=$2
-         WHERE id=$1 AND status IN ('outstanding','partially_paid') RETURNING original_amount - amount_paid - adjustments",
+         WHERE id=$1 AND status IN ('outstanding','partially_paid') AND tenant_id = $3 RETURNING original_amount - amount_paid - adjustments",
     )
     .bind(id)
     .bind(ctx.user_id)
+    .bind(ctx.tenant_id)
     .fetch_optional(&mut *conn)
     .await?
     .ok_or_else(|| rule("This credit is no longer open"))?;

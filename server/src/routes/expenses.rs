@@ -225,9 +225,10 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
 }
 
 pub async fn on_decided(conn: &mut PgConnection, a: &ApprovalRow, approved: bool) -> AppResult<()> {
-    sqlx::query("UPDATE expenses SET status = $2 WHERE id = $1 AND status = 'pending'")
+    sqlx::query("UPDATE expenses SET status = $2 WHERE id = $1 AND status = 'pending' AND tenant_id = $3")
         .bind(a.entity_id)
         .bind(if approved { "approved" } else { "rejected" })
+        .bind(a.tenant_id)
         .execute(&mut *conn)
         .await?;
     Ok(())
@@ -273,10 +274,11 @@ async fn void(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Jso
     if status == "void" {
         return Err(rule("Already voided"));
     }
-    sqlx::query("UPDATE expenses SET status = 'void' WHERE id = $1").bind(id).execute(&mut *tx).await?;
-    sqlx::query("UPDATE approvals SET status = 'cancelled', decided_by = $2, decided_at = now() WHERE entity_id = $1 AND status = 'pending'")
+    sqlx::query("UPDATE expenses SET status = 'void' WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE approvals SET status = 'cancelled', decided_by = $2, decided_at = now() WHERE entity_id = $1 AND status = 'pending' AND tenant_id = $3")
         .bind(id)
         .bind(ctx.user_id)
+        .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("expenses", "void", "expense", id).branch(branch).before(json!({ "status": status })).comments(b.reason.trim()))

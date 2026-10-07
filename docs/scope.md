@@ -142,6 +142,26 @@ Then, in this order:
 - ✅ **27. Combined exchange screen** — return + new sale in one step, difference paid or refunded; exchange
   payments net to zero ([module 02](modules/02-sales-pos.md)).
 
+Added 2026-10-07 — **Platform Owner, Tenant Monitoring & Billing** (owner request, delivered 2026-10-07; [module 21](modules/21-platform-billing.md)).
+Platform Owner functionality stays separate from tenant administration: a Tenant Admin never gains Platform Owner
+access or sees another business's billing or activity. Built in this order:
+- ✅ **34. Tenant directory** — per business: name, status, admins and contacts, branches and locations, signup /
+  onboarding details, activation date, billing model, subscription status, last payment, next due, outstanding.
+- ✅ **35. Tenant activity monitoring** — sign-ins, failed sign-ins, sales, stock counts, transfers (existing audit
+  trail) filtered by business, branch, user, activity and date range; the platform owner can reset a tenant admin's PIN
+  (audited).
+- ✅ **36. Activate / deactivate / reactivate** — confirmation + reason; deactivation blocks sign-in, ends sessions,
+  disables the ordering link and blocks new transactions while keeping all data; every change in the platform audit.
+- ✅ **37. Billing models & documents** — per business *Subscription* (amount, monthly / quarterly / semi-annual /
+  annual / custom, start, next due, grace period, auto-renew) or *One-off* (amount, paid, payment date, optional
+  maintenance fee with its own frequency and next due); quotation → invoice → payment → receipt (downloadable).
+- ✅ **38. Paystack** — credentials only in environment variables; the server initiates, verifies, receives the webhook
+  (signature checked) and reconciles; only a verified payment marks an invoice paid and moves the period / next due.
+- ✅ **39. Tenant Billing** (Settings → Billing) — model, amount, status, last payment, period covered, next due,
+  outstanding, invoice / payment / receipt history; vendor bank details (masked); *Pay now* for one outstanding invoice.
+- ✅ **40. Platform billing dashboard** — active, deactivated, paid, due soon, overdue, subscription revenue,
+  maintenance due, with drill-down per business.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ⏳ **29. Email sender & public URL** — verified sending domain in Resend, `MAIL_FROM`, `PUBLIC_URL`.

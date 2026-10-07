@@ -217,7 +217,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
 }
 
 /// One-time PIN for the new administrator: 8 characters without look-alikes (0/O, 1/l/I).
-fn temporary_pin() -> String {
+pub fn temporary_pin() -> String {
     const CHARS: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
     let mut rng = rand::thread_rng();
     (0..8).map(|_| CHARS[rng.gen_range(0..CHARS.len())] as char).collect()

@@ -5,6 +5,7 @@ pub mod admin;
 pub mod approvals;
 pub mod audit;
 pub mod auth;
+pub mod billing;
 pub mod catalog;
 pub mod credit;
 pub mod customers;
@@ -38,6 +39,7 @@ pub fn api() -> Router<AppState> {
         .merge(access::routes())
         .merge(prefs::routes())
         .merge(platform::routes())
+        .merge(billing::routes())
         .merge(admin::routes())
         .merge(catalog::routes())
         .merge(stock::routes())

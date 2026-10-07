@@ -1,28 +1,41 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRightLeft, Building2, FlaskConical, Loader2, RotateCcw } from "lucide-react";
+import { ArrowRightLeft, Building2, ChevronRight, FlaskConical, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { ago, count } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import type { Profile } from "@/lib/types";
+import { STATUS_LABEL, STATUS_TONE, type BillingSummary } from "@/lib/billing";
 import { Button } from "@/components/ui/button";
 import { Pill } from "@/components/Badges";
 import { ConfirmDialog } from "@/components/Form";
 import { Card, SettingsPage } from "./shared";
 
-interface TenantRow {
+export interface TenantRow {
   id: string;
   name: string;
   slug: string;
   is_demo: boolean;
+  status: "active" | "deactivated";
+  status_reason: string;
+  status_changed_at: string | null;
+  activated_at: string | null;
   created_at: string;
+  phone: string;
+  email: string;
+  address: string;
   users: number;
   branches: number;
   sales: number;
   last_sale_at: string | null;
+  last_login_at: string | null;
+  admin_name: string | null;
+  admin_email: string | null;
+  admin_phone: string | null;
+  billing: BillingSummary;
 }
 
 interface DemoState {
@@ -65,28 +78,31 @@ export function BusinessesSettings() {
   const st = demo.data?.status;
   const [confirmReset, setConfirmReset] = useState(false);
   return (
-    <SettingsPage title="Businesses" description="Every business on this S'Shop installation. Opening one gives you full access inside it as platform owner — it is recorded in that business's audit trail.">
+    <SettingsPage title="Businesses" description="Every business on this S'Shop installation with its status and billing. Opening one gives you full access inside it as platform owner — it is recorded in that business's audit trail.">
       <Card>
         {tenants.data?.items.map((b) => {
           const current = b.id === profile?.tenant.id;
           return (
             <div key={b.id} className="flex items-center gap-3 py-3">
               <span className="rounded-lg bg-primary/10 p-2 text-primary"><Building2 className="h-4 w-4" /></span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 font-medium">
+              <Link to={`/settings/businesses/${b.id}`} className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5 font-medium">
                   <span className="truncate">{b.name}</span>
                   {b.is_demo && <Pill tone="info">{t("Demo")}</Pill>}
                   {b.id === tenants.data.home_tenant_id && <Pill>{t("Yours")}</Pill>}
+                  {b.status !== "active" && <Pill tone="danger">{t("Deactivated")}</Pill>}
+                  {!b.is_demo && b.billing.status !== "not_set" && <Pill tone={STATUS_TONE[b.billing.status]}>{t(STATUS_LABEL[b.billing.status])}</Pill>}
                 </div>
-                <div className="num text-xs text-muted-foreground">
-                  /{b.slug} · {count(b.branches)} {t("branches")} · {count(b.users)} {t("users")} · {count(b.sales)} {t("sales")}{b.last_sale_at && ` · ${t("last sale")} ${ago(b.last_sale_at)}`}
+                <div className="num truncate text-xs text-muted-foreground">
+                  {b.admin_name ? `${b.admin_name} · ` : ""}{count(b.branches)} {t("branches")} · {count(b.users)} {t("users")} · {count(b.sales)} {t("sales")}{b.last_sale_at && ` · ${t("last sale")} ${ago(b.last_sale_at)}`}
                 </div>
-              </div>
+              </Link>
               {current ? (
                 <Pill tone="success">{t("Open now")}</Pill>
               ) : (
-                <Button size="sm" variant="outline" disabled={open.isPending} onClick={() => open.mutate(b.id)}><ArrowRightLeft /> {t("Open business")}</Button>
+                <Button size="sm" variant="outline" disabled={open.isPending} onClick={() => open.mutate(b.id)}><ArrowRightLeft /> <span className="hidden sm:inline">{t("Open business")}</span></Button>
               )}
+              <Link to={`/settings/businesses/${b.id}`} aria-label={t("Details")} className="text-muted-foreground"><ChevronRight className="h-4 w-4 rtl:rotate-180" /></Link>
             </div>
           );
         })}

@@ -42,11 +42,15 @@ struct Tenant {
 }
 
 async fn tenant(state: &AppState, slug: &str) -> AppResult<Tenant> {
-    let row: Option<(Uuid, String, Value)> = sqlx::query_as("SELECT id, name, settings FROM tenants WHERE slug = $1")
+    let row: Option<(Uuid, String, Value, String)> = sqlx::query_as("SELECT id, name, settings, status FROM tenants WHERE slug = $1")
         .bind(slug)
         .fetch_optional(&state.db)
         .await?;
-    let (id, name, raw) = row.ok_or(AppError::NotFound("Business"))?;
+    let (id, name, raw, status) = row.ok_or(AppError::NotFound("Business"))?;
+    // A deactivated business's ordering link is switched off (its data is kept).
+    if status != "active" {
+        return Err(crate::error::refused("Ordering unavailable", "This shop is not taking orders at the moment"));
+    }
     let settings: TenantSettings = serde_json::from_value(raw).unwrap_or_default();
     if !settings.orders.portal_enabled {
         return Err(AppError::Forbidden("Online ordering is currently closed".into()));

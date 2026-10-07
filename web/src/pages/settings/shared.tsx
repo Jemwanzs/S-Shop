@@ -109,3 +109,13 @@ export function Card({ title, children, action }: { title?: string; children: Re
     </section>
   );
 }
+
+/** Label above a value — compact facts in a grid (billing, business details). */
+export function Fact({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <p className="label-caps truncate">{label}</p>
+      <div className="num mt-0.5 text-sm font-medium">{children}</div>
+    </div>
+  );
+}

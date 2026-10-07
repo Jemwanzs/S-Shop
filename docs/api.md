@@ -24,9 +24,29 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 ## Platform (platform admins)
 | Method | Path |
 |---|---|
-| GET | `/api/platform/tenants` |
+| GET | `/api/platform/tenants` — directory with status, admin contacts and billing position |
+| GET | `/api/platform/tenants/{id}` — users, branches, onboarding, status history, billing |
 | POST | `/api/platform/tenants/{id}/open` |
+| POST | `/api/platform/tenants/{id}/status` `{ status: active\|deactivated, reason }` |
+| POST | `/api/platform/tenants/{id}/users/{user_id}/reset-pin` — one-time PIN |
+| GET | `/api/platform/activity?tenant_id&branch_id&user_id&activity&period\|from&to&limit&offset` |
 | GET/POST | `/api/platform/demo` — status / build `{ reset }` |
+
+## Billing ([module 21](modules/21-platform-billing.md))
+| Method | Path |
+|---|---|
+| GET | `/api/billing` — the business's own plan, status, documents, payments, vendor (masked) — `settings.billing` |
+| GET | `/api/billing/documents/{id}` — document + payments + parties (PDF) |
+| POST | `/api/billing/invoices/{id}/pay` — Paystack checkout for one open invoice |
+| POST | `/api/billing/paystack/verify` `{ reference }` — server verifies with Paystack |
+| POST | `/api/billing/quotations/{id}/accept` |
+| GET | `/api/platform/billing` — dashboard |
+| GET/PUT | `/api/platform/billing/vendor` |
+| PUT | `/api/platform/tenants/{id}/billing-plan` |
+| POST | `/api/platform/tenants/{id}/billing-documents` `{ kind, category: next_period\|one_off\|other, amount?, description?, due_date? }` |
+| GET | `/api/platform/billing/documents/{id}` |
+| POST | `/api/platform/billing/documents/{id}/void` `{ reason }` · `/invoice` (quotation → invoice) · `/payments` `{ method, reference, paid_at?, note? }` |
+| POST | `/api/platform/billing/payments/{id}/verify` |
 
 ## Access requests
 | Method | Path |
@@ -263,5 +283,6 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | Method | Path |
 |---|---|
 | POST | `/api/webhooks/mpesa/{token}` |
+| POST | `/api/webhooks/paystack` — `x-paystack-signature` (HMAC-SHA512) required |
 | GET | `/api/webhooks/whatsapp` |
 | POST | `/api/webhooks/whatsapp` |

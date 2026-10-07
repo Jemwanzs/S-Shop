@@ -77,16 +77,40 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Js
         }
     }
 
+    let (ip, ua) = client_meta(&headers);
     if !verify_pin(&body.pin, &user.pin_hash) {
         let attempts = user.failed_attempts + 1;
         let lock = (attempts >= MAX_ATTEMPTS).then(|| Utc::now() + Duration::minutes(LOCK_MINUTES));
+        let mut tx = state.db.begin().await?;
         sqlx::query("UPDATE users SET failed_attempts = $2, locked_until = $3 WHERE id = $1")
             .bind(user.id)
             .bind(if lock.is_some() { 0 } else { attempts })
             .bind(lock)
-            .execute(&state.db)
+            .execute(&mut *tx)
             .await?;
+        // Failed sign-ins are part of the activity the business and the platform owner can review.
+        audit::system(
+            &mut tx,
+            user.tenant_id,
+            Some(user.id),
+            Entry::new("auth", "login_failed", "user", user.id).after(serde_json::json!({ "attempt": attempts, "locked": lock.is_some() })),
+            &ip,
+            &ua,
+        )
+        .await?;
+        tx.commit().await?;
         return Err(invalid());
+    }
+    let tenant_status: String = sqlx::query_scalar("SELECT status FROM tenants WHERE id = $1").bind(user.tenant_id).fetch_one(&state.db).await?;
+    if tenant_status != "active" {
+        return Err(crate::error::refused(
+            "Business deactivated",
+            format!(
+                "Access to this business has been suspended. Contact S'Shop support: {} / {}",
+                super::access::SUPPORT_PHONES[0],
+                super::access::SUPPORT_PHONES[1]
+            ),
+        ));
     }
 
     sqlx::query("UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = now() WHERE id = $1")
@@ -94,7 +118,6 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Js
         .execute(&state.db)
         .await?;
 
-    let (ip, ua) = client_meta(&headers);
     sqlx::query(
         "INSERT INTO audit_log (tenant_id, user_id, module, action, entity_type, entity_id, ip, user_agent)
          VALUES ($1,$2,'auth','login','user',$2,$3,$4)",

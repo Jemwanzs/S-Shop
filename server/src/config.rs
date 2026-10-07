@@ -14,6 +14,7 @@ pub struct Config {
     pub mpesa: Option<MpesaConfig>,
     pub whatsapp: Option<WhatsAppConfig>,
     pub email: Option<EmailConfig>,
+    pub paystack: Option<PaystackConfig>,
     /// Platform admins (lower-case emails) review access requests and activate new businesses.
     pub platform_admins: Vec<String>,
     /// Who is emailed when a business requests access.
@@ -25,6 +26,20 @@ pub struct EmailConfig {
     pub api_key: String,
     /// e.g. "S'Shop <noreply@yourdomain.com>". Resend's test sender only delivers to the account owner.
     pub from: String,
+}
+
+/// Paystack (platform billing). The secret key only ever lives in the environment and on the server.
+#[derive(Clone)]
+pub struct PaystackConfig {
+    pub secret_key: String,
+    /// https://api.paystack.co — overridable only for tests against a local stand-in.
+    pub base_url: String,
+}
+
+impl std::fmt::Debug for PaystackConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PaystackConfig").field("secret_key", &"<redacted>").field("base_url", &self.base_url).finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -139,6 +154,11 @@ impl Config {
             from: var("MAIL_FROM").unwrap_or_else(|| "S'Shop <onboarding@resend.dev>".into()),
         });
 
+        let paystack = var("PAYSTACK_SECRET_KEY").map(|secret_key| PaystackConfig {
+            secret_key,
+            base_url: var("PAYSTACK_BASE_URL").unwrap_or_else(|| "https://api.paystack.co".into()).trim_end_matches('/').to_string(),
+        });
+
         Ok(Self {
             port: var("PORT").and_then(|p| p.parse().ok()).unwrap_or(8080),
             jwt_secret,
@@ -151,6 +171,7 @@ impl Config {
             mpesa,
             whatsapp,
             email,
+            paystack,
             platform_admins,
             access_request_notify,
         })

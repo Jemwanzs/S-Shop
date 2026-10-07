@@ -91,6 +91,7 @@ pub const CATALOGUE: &[PermGroup] = &[
         ("settings.workspace", "Working days, trading hours & location rules"),
         ("settings.workflows", "Approval workflows"),
         ("settings.integrations", "M-Pesa & WhatsApp settings"),
+        ("settings.billing", "Billing: invoices, receipts & paying S'Shop"),
     ]},
 ];
 

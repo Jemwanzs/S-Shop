@@ -80,3 +80,26 @@ pub async fn record(conn: &mut PgConnection, ctx: &Ctx, e: Entry<'_>) -> AppResu
     .await?;
     Ok(())
 }
+
+/// Audit row written without a signed-in staff member (webhooks, background jobs, sign-in attempts).
+pub async fn system(conn: &mut PgConnection, tenant_id: Uuid, user_id: Option<Uuid>, e: Entry<'_>, ip: &str, user_agent: &str) -> AppResult<()> {
+    sqlx::query(
+        "INSERT INTO audit_log (tenant_id, user_id, module, action, entity_type, entity_id, branch_id, before, after, comments, ip, user_agent)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+    )
+    .bind(tenant_id)
+    .bind(user_id)
+    .bind(e.module)
+    .bind(e.action)
+    .bind(e.entity_type)
+    .bind(e.entity_id)
+    .bind(e.branch_id)
+    .bind(e.before)
+    .bind(e.after)
+    .bind(e.comments)
+    .bind(ip)
+    .bind(user_agent)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}

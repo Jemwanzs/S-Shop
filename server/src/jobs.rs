@@ -26,6 +26,9 @@ pub fn spawn(state: AppState) {
 }
 
 async fn run_once(state: &AppState) -> anyhow::Result<()> {
+    if let Err(e) = crate::billing::run_jobs(state).await {
+        tracing::warn!(error = %format!("{e:#}"), "billing jobs");
+    }
     sqlx::query(
         "UPDATE mpesa_requests SET status = 'timeout', result_desc = 'No response from M-Pesa', updated_at = now()
          WHERE status = 'pending' AND created_at < now() - interval '10 minutes'",

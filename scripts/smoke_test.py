@@ -7,12 +7,18 @@ Usage:
 Creates test data in the target business — run it against a scratch database,
 never production.
 """
+import datetime
+import hashlib
+import hmac
 import json
+import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE, EMAIL, PIN = (sys.argv[1:4] + [None] * 3)[:3]
 if not (BASE and EMAIL and PIN):
@@ -42,6 +48,77 @@ def call(method, path, body=None, expect=200, token=None, branch=None, location=
     if status != expect:
         raise AssertionError(f"{method} {path} → {status} (expected {expect}): {payload}")
     return payload
+
+
+# ── Paystack stand-in (roadmap 38) ──
+# When SMOKE_PAYSTACK_PORT is set, the server under test is started with PAYSTACK_BASE_URL pointing here and
+# PAYSTACK_SECRET_KEY = SMOKE_PAYSTACK_SECRET, so the whole payment path runs without the real Paystack.
+PS_PORT = os.environ.get("SMOKE_PAYSTACK_PORT")
+PS_SECRET = os.environ.get("SMOKE_PAYSTACK_SECRET", "")
+PS = {}
+
+
+class _Paystack(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code, obj):
+        raw = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def _authorised(self):
+        if self.headers.get("Authorization") != "Bearer " + PS_SECRET:
+            self._send(401, {"status": False, "message": "Invalid key"})
+            return False
+        return True
+
+    def do_POST(self):
+        if not self._authorised():
+            return
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        if self.path == "/transaction/initialize":
+            PS[body["reference"]] = {"amount": body["amount"], "currency": body["currency"], "email": body["email"],
+                                     "metadata": body.get("metadata"), "status": "ongoing"}
+            return self._send(200, {"status": True, "message": "Authorization URL created", "data": {
+                "authorization_url": "https://checkout.paystack.test/" + body["reference"], "access_code": "ac_" + body["reference"],
+                "reference": body["reference"]}})
+        self._send(404, {"status": False, "message": "Not found"})
+
+    def do_GET(self):
+        if not self._authorised():
+            return
+        if self.path.startswith("/transaction/verify/"):
+            ref = self.path.rsplit("/", 1)[1]
+            t = PS.get(ref)
+            if not t:
+                return self._send(400, {"status": False, "message": "Transaction reference not found"})
+            paid = t["status"] == "success"
+            return self._send(200, {"status": True, "message": "Verification successful", "data": {
+                "id": 1, "status": t["status"], "reference": ref, "amount": t.get("paid_amount", t["amount"]), "currency": t["currency"],
+                "channel": "card", "gateway_response": "Approved" if paid else "",
+                "paid_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z") if paid else None}})
+        self._send(404, {"status": False, "message": "Not found"})
+
+
+if PS_PORT:
+    threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", int(PS_PORT)), _Paystack).serve_forever, daemon=True).start()
+
+
+def paystack_webhook(event, sign=True):
+    raw = json.dumps(event).encode()
+    req = urllib.request.Request(BASE + "/api/webhooks/paystack", data=raw, method="POST")
+    req.add_header("Content-Type", "application/json")
+    sig = hmac.new(PS_SECRET.encode(), raw, hashlib.sha512).hexdigest() if sign else "00" * 64
+    req.add_header("x-paystack-signature", sig)
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
 
 
 def check(name, cond, detail=""):
@@ -922,6 +999,176 @@ for path in ["/sales?period=all&limit=5&offset=0", "/products?limit=5&offset=5&s
         check(f"GET {path}", True)
     except AssertionError as e:
         check(f"GET {path}", False, str(e))
+
+step("Roadmap 34–36: platform owner — directory, activity, PIN reset, activation")
+dk = me2["tenant"]["id"]
+dk_admin = me2["user"]["id"]
+dk_slug = me2["tenant"]["slug"]
+dk_email = me2["user"]["email"]
+dk_name = me2["tenant"]["name"]
+home_id = login["profile"]["tenant"]["id"]
+dk_row = next(x for x in call("GET", "/platform/tenants")["items"] if x["id"] == dk)
+check("directory: admin contact, status, activation, billing", dk_row["admin_email"] == dk_email and dk_row["status"] == "active"
+      and dk_row["activated_at"] and dk_row["billing"]["status"] == "not_set", dk_row)
+dd = call("GET", f"/platform/tenants/{dk}")
+check("detail: onboarding details from the access request", dd["onboarding"]["business_type"] == "Retail shop" and dd["onboarding"]["branches"] == 2, dd["onboarding"])
+check("detail: users, admins and branches", any(u["id"] == dk_admin and u["is_admin"] for u in dd["users"]) and len(dd["branches"]) >= 1)
+denied = []
+for m_, p_, b_ in [("GET", "/platform/tenants", None), ("GET", f"/platform/tenants/{home_id}", None), ("GET", "/platform/activity", None),
+                   ("GET", "/platform/billing", None), ("GET", "/platform/billing/vendor", None),
+                   ("POST", f"/platform/tenants/{home_id}/status", {"status": "deactivated", "reason": "takeover"}),
+                   ("POST", f"/platform/tenants/{home_id}/users/{dk_admin}/reset-pin", None),
+                   ("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "amount": 1, "start_date": "2026-01-01"}),
+                   ("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "other", "amount": 1, "description": "self"})]:
+    try:
+        call(m_, p_, b_, token=t2["token"], branch="none", expect=403)
+    except AssertionError as e:
+        denied.append(str(e))
+check("a business administrator never reaches platform-owner endpoints", not denied, denied)
+call("POST", "/auth/login", {"email": dk_email, "pin": "wrong-pin"}, expect=400)
+fails = call("GET", f"/platform/activity?activity=login_failed&tenant_id={dk}&period=today")
+check("failed sign-in recorded and visible to the platform owner", fails["total"] >= 1 and fails["items"][0]["business"] == dk_name, fails)
+logins = call("GET", f"/platform/activity?activity=login&tenant_id={dk}&user_id={dk_admin}&period=today")
+check("sign-ins filtered by business and user", logins["total"] >= 1 and all(i["user_id"] == dk_admin for i in logins["items"]), logins["total"])
+sales_act = call("GET", f"/platform/activity?activity=sale&tenant_id={home_id}&period=today")
+check("sales activity across businesses", sales_act["totals"]["sale"] >= 1 and sales_act["totals"]["login"] == 0, sales_act["totals"])
+call("GET", "/platform/activity?activity=nonsense", expect=400)
+rp = call("POST", f"/platform/tenants/{dk}/users/{dk_admin}/reset-pin")
+call("POST", "/auth/login", {"email": dk_email, "pin": ap["temporary_pin"]}, expect=400)
+t2 = call("POST", "/auth/login", {"email": dk_email, "pin": rp["temporary_pin"]})
+check("platform PIN reset: old PIN refused, one-time PIN works", t2["profile"]["tenant"]["id"] == dk)
+check("PIN reset in the business's own audit trail", any(a["action"] == "reset_pin" and a["module"] == "platform"
+      for a in call("GET", "/audit?period=today&module=platform", token=t2["token"], branch="none")["items"]))
+
+step("Roadmap 37–39: billing plans, invoices, Paystack, receipts")
+today_ = datetime.date.today().isoformat()
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "amount": 0, "start_date": today_}, expect=400)
+check("subscription without an amount refused", True)
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "amount": 2500, "frequency": "weekly", "start_date": today_}, expect=400)
+check("unknown frequency refused", True)
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "amount": 2500, "frequency": "monthly", "start_date": today_,
+                                                     "next_due_date": today_, "grace_days": 5, "auto_renew": True, "notes": "internal note"})
+T2 = {"token": t2["token"], "branch": "none"}
+mb = call("GET", "/billing", **T2)
+check("business sees its plan and status", mb["plan"]["model"] == "subscription" and float(mb["plan"]["amount"]) == 2500 and mb["summary"]["status"] == "due_soon", mb["summary"])
+check("internal plan notes are not shown to the business", "notes" not in mb["plan"])
+check("vendor bank details masked", mb["vendor"]["bank_name"] == "I&M Bank" and mb["vendor"]["account_masked"] == "•••450" and "account_number" not in mb["vendor"], mb["vendor"])
+inv = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period"})
+check("invoice for the next period", inv["number"].startswith("INV-"), inv)
+call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period"}, expect=422)
+check("the same period cannot be invoiced twice", True)
+mb = call("GET", "/billing", **T2)
+inv_doc = next(d for d in mb["documents"] if d["id"] == inv["id"])
+check("invoice: number, period, due date, status", inv_doc["status"] == "open" and inv_doc["period_start"] == today_ and inv_doc["due_date"] == today_
+      and float(mb["summary"]["outstanding"]) == 2500, inv_doc)
+call("GET", f"/billing/documents/{inv['id']}", expect=404)
+check("another business cannot open this invoice", True)
+call("POST", f"/billing/invoices/{inv['id']}/pay", expect=404)
+check("another business cannot pay this invoice", True)
+clerk_bill = call("GET", "/billing", token=clerk, expect=403)
+check("billing needs the settings.billing permission", True)
+next_due_before = mb["plan"]["next_due_date"]
+if PS_PORT:
+    st_ = call("POST", f"/billing/invoices/{inv['id']}/pay", **T2)
+    ref = st_["reference"]
+    check("Pay now opens Paystack for this invoice only", st_["authorization_url"].endswith(ref) and PS[ref]["amount"] == 250000
+          and PS[ref]["currency"] == "KES" and PS[ref]["metadata"]["invoice_id"] == inv["id"], PS.get(ref))
+    v = call("POST", "/billing/paystack/verify", {"reference": ref}, **T2)
+    check("not paid yet → still pending (the return page is not proof)", v["status"] == "pending", v)
+    PS[ref]["status"] = "success"
+    v = call("POST", "/billing/paystack/verify", {"reference": ref}, **T2)
+    check("verified with Paystack → success with a receipt", v["status"] == "success" and v["receipt_no"].startswith("RCT-"), v)
+    v2 = call("POST", "/billing/paystack/verify", {"reference": ref}, **T2)
+    check("verifying again changes nothing", v2["receipt_no"] == v["receipt_no"], v2)
+    mb = call("GET", "/billing", **T2)
+    check("invoice paid → payment → period → next due", next(d for d in mb["documents"] if d["id"] == inv["id"])["status"] == "paid"
+          and mb["plan"]["next_due_date"] > next_due_before and mb["summary"]["period_start"] == today_ and float(mb["summary"]["outstanding"]) == 0,
+          (mb["plan"], mb["summary"]))
+    call("POST", f"/billing/invoices/{inv['id']}/pay", **T2, expect=422)
+    check("a paid invoice cannot be paid again", True)
+    inv2 = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period"})
+    ref2 = call("POST", f"/billing/invoices/{inv2['id']}/pay", **T2)["reference"]
+    PS[ref2]["status"] = "success"
+    check("webhook with a bad signature refused", paystack_webhook({"event": "charge.success", "data": {"reference": ref2}}, sign=False) == 401)
+    check("signed webhook accepted", paystack_webhook({"event": "charge.success", "data": {"reference": ref2, "amount": 1}}) == 200)
+    mb = call("GET", "/billing", **T2)
+    check("webhook settles after re-verifying with Paystack", next(d for d in mb["documents"] if d["id"] == inv2["id"])["status"] == "paid")
+    inv3 = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "other", "amount": 100, "description": "Extra training"})
+    ref3 = call("POST", f"/billing/invoices/{inv3['id']}/pay", **T2)["reference"]
+    PS[ref3].update(status="success", paid_amount=1000)
+    v = call("POST", "/billing/paystack/verify", {"reference": ref3}, **T2)
+    mb = call("GET", "/billing", **T2)
+    check("an amount that does not match the invoice is not accepted", v["status"] == "failed"
+          and next(d for d in mb["documents"] if d["id"] == inv3["id"])["status"] == "open", v)
+    call("POST", f"/platform/billing/documents/{inv3['id']}/void", {"reason": "Raised in error"})
+else:
+    call("POST", f"/billing/invoices/{inv['id']}/pay", **T2, expect=422)
+    check("Pay now refused clearly when Paystack is not configured", True)
+    call("POST", f"/platform/billing/documents/{inv['id']}/payments", {"method": "bank", "reference": f"BNK0{suffix}"})
+manual = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "other", "amount": 300, "description": "Data migration"})
+call("POST", f"/platform/billing/documents/{manual['id']}/payments", {"method": "bank", "reference": ""}, expect=400)
+check("manual payment needs a reference", True)
+mp_ = call("POST", f"/platform/billing/documents/{manual['id']}/payments", {"method": "bank", "reference": f"BNK{suffix}", "note": "I&M transfer"})
+check("bank payment recorded by the platform owner → receipt", mp_["receipt_no"].startswith("RCT-"), mp_)
+call("POST", f"/platform/billing/documents/{manual['id']}/payments", {"method": "bank", "reference": f"BNK{suffix}X"}, expect=422)
+check("a paid invoice cannot take another payment", True)
+doc = call("GET", f"/billing/documents/{manual['id']}", **T2)
+check("receipt details for download", doc["document"]["status"] == "paid" and doc["payments"][0]["receipt_no"] == mp_["receipt_no"]
+      and doc["business"]["name"] == dk_name and doc["vendor"]["account_masked"] == "•••450", doc["payments"])
+quo = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "quotation", "category": "other", "amount": 1000, "description": "Extra branch setup"})
+check("quotation numbered separately", quo["number"].startswith("QUO-"), quo)
+acc = call("POST", f"/billing/quotations/{quo['id']}/accept", **T2)
+call("POST", f"/billing/quotations/{quo['id']}/accept", **T2, expect=422)
+check("quotation → invoice once", acc["number"].startswith("INV-"), acc)
+call("POST", f"/platform/billing/documents/{acc['invoice_id']}/void", {"reason": ""}, expect=422)
+call("POST", f"/platform/billing/documents/{acc['invoice_id']}/void", {"reason": "Customer changed plan"})
+mb = call("GET", "/billing", **T2)
+check("voided invoice kept with its reason", next(d for d in mb["documents"] if d["id"] == acc["invoice_id"])["status"] == "void")
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "one_off", "one_off_amount": 0}, expect=400)
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "one_off", "one_off_amount": 50000, "maintenance": True, "amount": 5000,
+                                                     "frequency": "annual", "start_date": today_})
+mb = call("GET", "/billing", **T2)
+check("one-off model: one-off pending, maintenance fee and next due", mb["summary"]["one_off_status"] == "pending" and mb["summary"]["maintenance"]
+      and float(mb["summary"]["amount"]) == 5000 and mb["summary"]["next_due"] == today_, mb["summary"])
+oo = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "one_off"})
+call("POST", f"/platform/billing/documents/{oo['id']}/payments", {"method": "mpesa", "reference": f"MP{suffix}OO"})
+mb = call("GET", "/billing", **T2)
+check("one-off paid", mb["summary"]["one_off_status"] == "paid" and float(mb["summary"]["one_off_amount"]) == 50000, mb["summary"])
+dash = call("GET", "/platform/billing")
+check("billing dashboard: statuses, revenue, maintenance due", all(k in dash["counts"] for k in ("active", "deactivated", "paid", "due_soon", "overdue"))
+      and float(dash["revenue"]["one_off"]["all"]) >= 50000 and dash["maintenance_due"]["count"] >= 1
+      and any(r["id"] == dk for r in dash["items"]), (dash["counts"], dash["revenue"], dash["maintenance_due"]))
+check("billing activity in the platform activity view", call("GET", f"/platform/activity?activity=billing&tenant_id={dk}&period=today")["total"] >= 3)
+
+step("Roadmap 36: deactivate / reactivate a business")
+call("POST", f"/platform/tenants/{dk}/status", {"status": "deactivated", "reason": ""}, expect=422)
+check("deactivation needs a reason", True)
+call("POST", f"/platform/tenants/{home_id}/status", {"status": "deactivated", "reason": "Testing self lock-out"}, expect=422)
+check("the platform owner's own business cannot be deactivated", True)
+old_t2 = t2["token"]
+time.sleep(1.1)
+call("POST", f"/platform/tenants/{dk}/status", {"status": "deactivated", "reason": "Invoices unpaid"})
+call("GET", "/auth/me", token=old_t2, branch="none", expect=401)
+check("deactivation ends the business's sessions", True)
+r = call("POST", "/auth/login", {"email": dk_email, "pin": rp["temporary_pin"]}, expect=422)
+check("sign-in blocked with a clear title", r["error"]["title"] == "Business deactivated", r)
+r = call("GET", f"/portal/{dk_slug}", token="none", expect=422)
+check("ordering link disabled", r["error"]["title"] == "Ordering unavailable", r)
+acting = call("POST", f"/platform/tenants/{dk}/open")
+call("GET", "/dashboard?period=today", token=acting["token"], branch="none")
+r = call("POST", "/categories", {"name": "Blocked"}, token=acting["token"], branch="none", expect=422)
+check("platform owner can look inside but not transact", r["error"]["title"] == "Business deactivated", r)
+dk_row = next(x for x in call("GET", "/platform/tenants")["items"] if x["id"] == dk)
+check("status and reason in the directory", dk_row["status"] == "deactivated" and dk_row["status_reason"] == "Invoices unpaid", dk_row["status"])
+check("data kept while deactivated", len(call("GET", f"/platform/tenants/{dk}")["billing"]["documents"]) >= 4)
+call("POST", f"/platform/tenants/{dk}/status", {"status": "active", "reason": "Paid up"})
+t2 = call("POST", "/auth/login", {"email": dk_email, "pin": rp["temporary_pin"]})
+call("GET", "/auth/me", token=old_t2, branch="none", expect=401)
+check("reactivated: sign-in works, sessions from before stay ended", bool(t2["token"]))
+hist = call("GET", f"/platform/tenants/{dk}")["status_history"]
+check("status history audited", [h["action"] for h in hist][:2] == ["reactivate_business", "deactivate_business"], hist)
+check("platform audit trail at home", sum(1 for a in call("GET", "/audit?period=today&module=platform")["items"]
+                                         if a["action"] in ("deactivate_business", "reactivate_business")) >= 2)
 
 step("Dashboard, reports, search, notifications, audit")
 d = call("GET", "/dashboard?period=today")

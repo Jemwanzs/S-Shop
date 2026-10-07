@@ -1,5 +1,6 @@
 mod audit;
 mod auth;
+mod billing;
 mod bootstrap;
 mod config;
 mod demo;

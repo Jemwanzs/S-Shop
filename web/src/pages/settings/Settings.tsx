@@ -1,6 +1,8 @@
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import {
+  Activity,
   Award,
+  Banknote,
   Building2,
   CalendarClock,
   SlidersHorizontal,
@@ -13,6 +15,7 @@ import {
   KeyRound,
   Package,
   Plug,
+  Receipt,
   ShieldCheck,
   Store,
   Users,
@@ -32,6 +35,10 @@ import { WorkflowSettings } from "./Workflows";
 import { AccessRequests } from "./AccessRequests";
 import { PreferencesSettings } from "./Preferences";
 import { BusinessesSettings } from "./Businesses";
+import { BusinessDetail } from "./BusinessDetail";
+import { BillingSettings } from "./Billing";
+import { PlatformActivity } from "./PlatformActivity";
+import { PlatformBilling } from "./PlatformBilling";
 import { t } from "@/lib/i18n";
 
 interface SectionDef {
@@ -49,6 +56,7 @@ const SECTIONS: SectionDef[] = [
   { path: "users", label: "Users", group: "Business", icon: Users, perm: "users.manage", element: <UsersSettings /> },
   { path: "workspace", label: "Workspace & hours", group: "Business", icon: CalendarClock, perm: "settings.workspace", element: <WorkspaceSettings /> },
   { path: "roles", label: "Roles & permissions", group: "Business", icon: KeyRound, perm: "roles.manage", element: <RolesSettings /> },
+  { path: "billing", label: "Billing", group: "Business", icon: Receipt, perm: "settings.billing", element: <BillingSettings /> },
   { path: "products", label: "Products", group: "Configuration", icon: Package, perm: "settings.products", element: <ProductSettings /> },
   { path: "sales", label: "Sales & payments", group: "Configuration", icon: CreditCard, perm: "settings.sales", element: <SalesSettings /> },
   { path: "stock", label: "Stock", group: "Configuration", icon: Warehouse, perm: "settings.stock", element: <StockSettings /> },
@@ -63,6 +71,8 @@ const SECTIONS: SectionDef[] = [
   { path: "preferences", label: "User preferences", group: "Personal", icon: SlidersHorizontal, perm: "", element: <PreferencesSettings /> },
   // "platform": only platform administrators (PLATFORM_ADMIN_EMAILS) see this section.
   { path: "businesses", label: "Businesses", group: "Platform", icon: Network, perm: "platform", element: <BusinessesSettings /> },
+  { path: "platform-billing", label: "Platform billing", group: "Platform", icon: Banknote, perm: "platform", element: <PlatformBilling /> },
+  { path: "activity", label: "Activity", group: "Platform", icon: Activity, perm: "platform", element: <PlatformActivity /> },
   { path: "access-requests", label: "Access requests", group: "Platform", icon: Inbox, perm: "platform", element: <AccessRequests /> },
 ];
 
@@ -111,6 +121,7 @@ export default function Settings() {
         <div className={cn("min-w-0", atIndex && "hidden lg:block")}>
           <Routes>
             {sections.map((s) => <Route key={s.path} path={s.path} element={s.element} />)}
+            {profile?.user.platform_admin && <Route path="businesses/:id" element={<BusinessDetail />} />}
             <Route index element={<IndexRoute first={sections[0]?.path} />} />
             <Route path="*" element={<Navigate to="/settings" replace />} />
           </Routes>

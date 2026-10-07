@@ -202,7 +202,7 @@ export default function SaleDetail() {
         confirmLabel="Process return"
         requireReason
         busy={ret.isPending}
-        onConfirm={(reason) => ret.mutate(reason)}
+        onConfirm={(reason) => ret.mutateAsync(reason)}
       >
         <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setScanReturn(true)}><ScanLine /> {t("Scan returned items")}</Button>
         <ul className="divide-y rounded-xl border">
@@ -235,7 +235,7 @@ export default function SaleDetail() {
         destructive
         requireReason
         busy={cancel.isPending}
-        onConfirm={(reason) => cancel.mutate(reason)}
+        onConfirm={(reason) => cancel.mutateAsync(reason)}
       >
         <RefundMethod value={refundMethod} onChange={setRefundMethod} methods={profile?.settings.sales.payment_methods.filter((m) => m.key !== "credit") ?? []} />
       </ConfirmDialog>

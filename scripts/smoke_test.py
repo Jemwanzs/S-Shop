@@ -29,9 +29,13 @@ BRANCH = None
 FAILURES = []
 
 
-def call(method, path, body=None, expect=200, token=None, branch=None, location=None):
+def call(method, path, body=None, expect=200, token=None, branch=None, location=None, repeat=False):
     req = urllib.request.Request(BASE + "/api" + path.replace(" ", "%20"), method=method)
     req.add_header("Content-Type", "application/json")
+    # Each call is its own request (repeating one tests the business rules, not the duplicate guard), unless
+    # `repeat` asks for an identical request — what a double click or a client retry sends.
+    if not repeat:
+        req.add_header("Idempotency-Key", str(uuid.uuid4()))
     if token or TOKEN:
         req.add_header("Authorization", "Bearer " + (token or TOKEN))
     if branch or BRANCH:
@@ -1057,8 +1061,7 @@ check("internal plan notes are not shown to the business", "notes" not in mb["pl
 check("vendor bank details masked", mb["vendor"]["bank_name"] == "I&M Bank" and mb["vendor"]["account_masked"] == "•••450" and "account_number" not in mb["vendor"], mb["vendor"])
 inv = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period"})
 check("invoice for the next period", inv["number"].startswith("INV-"), inv)
-# A different request for the same period (an identical one would be a double-submit, answered from memory).
-call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period", "description": ""}, expect=422)
+call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period"}, expect=422)
 check("the same period cannot be invoiced twice", True)
 mb = call("GET", "/billing", **T2)
 inv_doc = next(d for d in mb["documents"] if d["id"] == inv["id"])
@@ -1121,8 +1124,7 @@ check("receipt details for download", doc["document"]["status"] == "paid" and do
 quo = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "quotation", "category": "other", "amount": 1000, "description": "Extra branch setup"})
 check("quotation numbered separately", quo["number"].startswith("QUO-"), quo)
 acc = call("POST", f"/billing/quotations/{quo['id']}/accept", **T2)
-# A second, separate accept (an immediate identical one is a double-submit, answered with the first result).
-call("POST", f"/billing/quotations/{quo['id']}/accept?again=1", **T2, expect=422)
+call("POST", f"/billing/quotations/{quo['id']}/accept", **T2, expect=422)
 check("quotation → invoice once", acc["number"].startswith("INV-"), acc)
 call("POST", f"/platform/billing/documents/{acc['invoice_id']}/void", {"reason": ""}, expect=422)
 call("POST", f"/platform/billing/documents/{acc['invoice_id']}/void", {"reason": "Customer changed plan"})
@@ -1254,22 +1256,22 @@ call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "a
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
-first_ = call("POST", "/categories", dup_body)
-again_ = call("POST", "/categories", dup_body)
+first_ = call("POST", "/categories", dup_body, repeat=True)
+again_ = call("POST", "/categories", dup_body, repeat=True)
 check("an immediate identical repeat returns the first result, nothing created twice", again_ == first_
       and sum(1 for c in call("GET", "/categories") if c["name"] == f"Dup {suffix}") == 1, (first_, again_))
 import concurrent.futures as _cf
 def _race():
     try:
-        return call("POST", "/categories", {"name": f"Race {suffix}"}), 200
+        return call("POST", "/categories", {"name": f"Race {suffix}"}, repeat=True), 200
     except AssertionError as e:
         return str(e), int(str(e).split("→ ")[1].split(" ")[0])
 with _cf.ThreadPoolExecutor(4) as ex:
     codes = sorted(r[1] for r in ex.map(lambda _: _race(), range(4)))
 check("simultaneous duplicates: one runs, the rest are refused or answered with it", codes.count(200) >= 1
       and all(c in (200, 409) for c in codes) and sum(1 for c in call("GET", "/categories") if c["name"] == f"Race {suffix}") == 1, codes)
-call("POST", "/categories", {"name": ""}, expect=400)
-call("POST", "/categories", {"name": ""}, expect=400)
+call("POST", "/categories", {"name": ""}, expect=400, repeat=True)
+call("POST", "/categories", {"name": ""}, expect=400, repeat=True)
 check("a failed request is not remembered: retrying runs it again", True)
 
 step("Dashboard, reports, search, notifications, audit")

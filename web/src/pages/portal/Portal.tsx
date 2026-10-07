@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, ChevronRight, ClipboardList, ImageOff, Loader2, Minus, Plus, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronRight, ClipboardList, ImageOff, Minus, Plus, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, photoUrl } from "@/lib/api";
 import { usePersistentState } from "@/lib/hooks";
 import { amount, count, date, phone, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorState, Loading } from "@/components/Page";
@@ -117,9 +118,10 @@ function Entry({ b, sess, setSess }: { b: Business; sess: PortalSession | null; 
             <Field label="Mobile Number">
               <Input inputMode="tel" autoComplete="tel" className="num h-14 rounded-xl text-lg" placeholder="07XXXXXXXX" value={mobile} onChange={(e) => setMobile(e.target.value)} autoFocus />
             </Field>
-            <Button type="submit" variant="ink" size="lg" className="h-14 w-full rounded-xl text-base" disabled={mobile.replace(/\D/g, "").length < 9 || identify.isPending || start.isPending}>
-              {identify.isPending || start.isPending ? <Loader2 className="animate-spin" /> : "Continue"}
-            </Button>
+            <ActionButton type="submit" variant="ink" size="lg" className="h-14 w-full rounded-xl text-base" online busy={identify.isPending || start.isPending}
+              blockedBy={[mobile.replace(/\D/g, "").length < 9 && "Enter your mobile number"]}>
+              Continue
+            </ActionButton>
           </form>
         ) : (
           <form
@@ -142,9 +144,10 @@ function Entry({ b, sess, setSess }: { b: Business; sess: PortalSession | null; 
                 <Field label="Nickname" optional><Input className="h-12 rounded-xl" value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Optional" /></Field>
               </>
             )}
-            <Button type="submit" variant="ink" size="lg" className="h-14 w-full rounded-xl text-base" disabled={start.isPending || (ident?.otp_required && code.length !== 6) || (!ident?.exists && !firstName.trim())}>
-              {start.isPending ? <Loader2 className="animate-spin" /> : "Continue"}
-            </Button>
+            <ActionButton type="submit" variant="ink" size="lg" className="h-14 w-full rounded-xl text-base" online busy={start.isPending}
+              blockedBy={[ident?.otp_required && code.length !== 6 && "Enter the 6-digit code", !ident?.exists && !firstName.trim() && "Enter your first name"]}>
+              Continue
+            </ActionButton>
           </form>
         )}
       </main>
@@ -277,9 +280,10 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
         onOpenChange={setCartOpen}
         title="Your order"
         footer={
-          <Button variant="ink" size="lg" className="h-14 w-full rounded-xl" disabled={!lines.length || !location.trim() || submit.isPending} onClick={() => submit.mutate()}>
-            {submit.isPending ? <Loader2 className="animate-spin" /> : <>Submit Order{b.show_prices && <> · <span className="num">{b.currency} {amount(total)}</span></>}</>}
-          </Button>
+          <ActionButton variant="ink" size="lg" className="h-14 w-full rounded-xl" online busy={submit.isPending} busyLabel="Sending…"
+            blockedBy={[!lines.length && REASONS.emptyCart, !location.trim() && "Enter your location"]} onAction={() => submit.mutateAsync()}>
+            <>Submit Order{b.show_prices && <> · <span className="num">{b.currency} {amount(total)}</span></>}</>
+          </ActionButton>
         }
       >
         <div className="space-y-5">

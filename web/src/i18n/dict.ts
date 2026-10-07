@@ -1761,4 +1761,13 @@ export const DICT: Record<string, [string, string, string]> = {
   "The upload is too large": ["Faili ni kubwa mno", "Le fichier est trop volumineux", "الملف كبير جدًا"],
   "Enter quantities": ["Weka idadi", "Saisissez les quantités", "أدخل الكميات"],
   "Choose destination": ["Chagua mahali pa kupeleka", "Choisissez la destination", "اختر الوجهة"],
+  "Enter your mobile number": ["Weka nambari yako ya simu", "Saisissez votre numéro de mobile", "أدخل رقم جوالك"],
+  "Enter the 6-digit code": ["Weka nambari ya tarakimu 6", "Saisissez le code à 6 chiffres", "أدخل الرمز المكوّن من 6 أرقام"],
+  "Enter your first name": ["Weka jina lako la kwanza", "Saisissez votre prénom", "أدخل اسمك الأول"],
+  "Enter your location": ["Weka mahali ulipo", "Saisissez votre emplacement", "أدخل موقعك"],
+  "Sending…": ["Inatuma…", "Envoi…", "جارٍ الإرسال…"],
+  "Rescan": ["Changanua tena", "Rescanner", "إعادة المسح"],
+  "Sell, stock, and reward -": ["Uza, hifadhi na tuza -", "Vendez, gérez le stock et récompensez -", "بِع وأدِر المخزون وكافئ -"],
+  "from one phone.": ["kwa simu moja.", "depuis un seul téléphone.", "من هاتف واحد."],
+  "Working days and trading hours. Each sale, order, payment and stock movement also records the business day it belongs to, so late trading after midnight counts for the day that opened.": ["Siku za kazi na saa za biashara. Kila mauzo, oda, malipo na mwendo wa hisa hurekodi pia siku ya biashara inayohusika, hivyo biashara ya usiku baada ya saa sita huhesabiwa kwa siku iliyofunguliwa.", "Jours ouvrés et heures d'ouverture. Chaque vente, commande, paiement et mouvement de stock enregistre aussi son jour d'activité : les ventes après minuit comptent pour la journée ouverte.", "أيام العمل وساعات التداول. تسجّل كل عملية بيع وطلب ودفع وحركة مخزون يوم العمل الذي تنتمي إليه، فيُحتسب البيع بعد منتصف الليل لليوم الذي بدأ."],
 };

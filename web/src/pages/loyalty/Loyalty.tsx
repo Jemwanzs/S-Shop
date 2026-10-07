@@ -221,7 +221,7 @@ function Referrals() {
         destructive
         confirmLabel="Remove"
         busy={remove.isPending}
-        onConfirm={() => removing && remove.mutate(removing.id)}
+        onConfirm={() => removing && remove.mutateAsync(removing.id)}
       />
     </div>
   );
@@ -328,7 +328,7 @@ function Awards() {
         description={`The top ${data.winners_per_period} customers by spend are recorded as Gold, Silver and Bronze winners.`}
         confirmLabel="Close & award"
         busy={close.isPending}
-        onConfirm={() => closing && close.mutate(closing.id)}
+        onConfirm={() => closing && close.mutateAsync(closing.id)}
       />
       <ResponsiveDialog open={opening} onOpenChange={setOpening} title="Open award period" footer={<ActionButton className="w-full md:w-auto" online busy={open.isPending} busyLabel="Opening…" blockedBy={[!name.trim() && "Enter a name"]}
         onAction={() => open.mutateAsync()}>{tr("Open period")}</ActionButton>}>

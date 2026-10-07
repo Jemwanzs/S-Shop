@@ -226,7 +226,7 @@ export default function CreditDetail() {
         destructive
         requireReason
         busy={writeOff.isPending}
-        onConfirm={(reason) => writeOff.mutate(reason)}
+        onConfirm={(reason) => writeOff.mutateAsync(reason)}
       />
     </>
   );

@@ -172,7 +172,7 @@ async fn serve() -> anyhow::Result<()> {
             CorsLayer::new()
                 .allow_origin(AllowOrigin::list(origins))
                 .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, "x-branch-id".parse().unwrap()]),
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, "x-branch-id".parse().unwrap(), "x-location".parse().unwrap(), "idempotency-key".parse().unwrap()]),
         );
     }
 

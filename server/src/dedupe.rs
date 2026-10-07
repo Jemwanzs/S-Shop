@@ -2,7 +2,7 @@
 //! of the *same* request must not run twice. Disabling buttons in the browser is not enough on its own.
 //!
 //! A request is identified by who sent it (the session token, else the client address), the method, the path with
-//! its query, the branch header and the exact body. While one is being processed an identical one gets 409
+//! its query, the branch header, an optional `Idempotency-Key` header and the exact body. While one is being processed an identical one gets 409
 //! *Already processing*; for a few seconds after it succeeded an identical one gets the same response again instead
 //! of running twice. Failures are not remembered, so trying again after an error works as normal. Sign-in, webhooks
 //! (their senders retry deliberately and are idempotent already) and the live event stream are left alone.
@@ -109,6 +109,8 @@ pub async fn guard(axum::extract::State(state): axum::extract::State<crate::stat
         parts.method.as_str().as_bytes(),
         parts.uri.path_and_query().map_or("", |p| p.as_str()).as_bytes(),
         parts.headers.get("x-branch-id").map_or(&b""[..], |v| v.as_bytes()),
+        // A client may name its requests: different keys are different requests, the same key the same request.
+        parts.headers.get("idempotency-key").map_or(&b""[..], |v| v.as_bytes()),
     ] {
         h.update((piece.len() as u64).to_le_bytes());
         h.update(piece);

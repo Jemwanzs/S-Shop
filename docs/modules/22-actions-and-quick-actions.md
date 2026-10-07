@@ -36,7 +36,7 @@ backend processing ────────┘  (busy, or the promise returned b
 * **Lifecycles** — e.g. transfers: *Submit for approval* → *Awaiting approval* → *Dispatch* / *Awaiting dispatch* →
   *In transit* → *Confirm receipt*: the next step is the action when this user may take it, otherwise its waiting state.
 
-Converted: the settings save bar, `ConfirmDialog` (cancel, void, write-off, deactivate, PIN reset …), POS *Complete sale*
+Converted: the settings save bar, the customer ordering portal (continue, verify, *Submit order*), `ConfirmDialog` (cancel, void, write-off, deactivate, PIN reset …), POS *Complete sale*
 and *Push STK*, exchange, order status moves, phone orders, product form, receive stock, stock count, adjustments,
 transfers (new / submit / dispatch / receive / cancel), credit repayments and recall, customers and points, expenses,
 loyalty referrals and award periods, approvals (approve / reject / withdraw), users, roles, branches, PIN reset, custom
@@ -48,7 +48,8 @@ business. New screens use `ActionButton` instead of wiring `disabled`/spinners b
 
 `server/src/dedupe.rs` guards every write request (POST/PUT/PATCH/DELETE under `/api`, except sign-in, webhooks and the
 event stream). A request is fingerprinted by sender (session token, else client address), method, path + query, branch
-header and body:
+header, an optional `Idempotency-Key` header and body (the web app sends no key, so a double click is recognised by its
+content; a client that names its requests — the test suite does — decides itself what counts as the same request):
 
 * identical request **still running** → 409 *Already processing*;
 * identical request within **3 seconds after it succeeded** → the same response again (`x-duplicate: replayed`), nothing

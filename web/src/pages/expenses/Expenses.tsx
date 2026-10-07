@@ -117,7 +117,7 @@ export default function Expenses() {
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}
       />
       <NewExpense open={adding} onOpenChange={setAdding} categories={categories.data ?? []} methods={profile?.settings.sales.payment_methods.filter((m) => m.enabled && m.key !== "credit") ?? []} />
-      <ConfirmDialog open={!!voiding} onOpenChange={(o) => !o && setVoiding(null)} title="Void this expense?" description="It stays on record but no longer counts." destructive requireReason confirmLabel="Void" busy={voidIt.isPending} onConfirm={(reason) => voiding && voidIt.mutate({ id: voiding.id, reason })} />
+      <ConfirmDialog open={!!voiding} onOpenChange={(o) => !o && setVoiding(null)} title="Void this expense?" description="It stays on record but no longer counts." destructive requireReason confirmLabel="Void" busy={voidIt.isPending} onConfirm={(reason) => voiding && voidIt.mutateAsync({ id: voiding.id, reason })} />
     </>
   );
 }

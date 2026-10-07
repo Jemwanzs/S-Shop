@@ -199,7 +199,7 @@ export default function ProductDetail() {
         destructive={p.is_active}
         confirmLabel={p.is_active ? "Deactivate" : "Activate"}
         busy={status.isPending}
-        onConfirm={() => status.mutate()}
+        onConfirm={() => status.mutateAsync()}
       />
     </>
   );

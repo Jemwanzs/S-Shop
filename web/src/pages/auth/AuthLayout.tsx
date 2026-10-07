@@ -16,7 +16,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
         <img src={stacked} alt="S'Shop — Everything you love in one place" className="relative h-auto w-52 xl:w-60" />
         <div className="relative max-w-lg space-y-3">
           <h1 className="text-4xl font-semibold leading-tight">
-            {t("Sell, stock, and reward -")} <span className="text-brand">from one phone.</span>
+            {t("Sell, stock, and reward -")} <span className="text-brand">{t("from one phone.")}</span>
           </h1>
           <p className="text-base text-[#1c1410]/70">Inventory, point of sale, customer orders, credit and loyalty for every branch of your business.</p>
         </div>

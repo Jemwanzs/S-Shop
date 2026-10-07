@@ -162,7 +162,29 @@ access or sees another business's billing or activity. Built in this order:
 - ✅ **40. Platform billing dashboard** — active, deactivated, paid, due soon, overdue, subscription revenue,
   maintenance due, with drill-down per business.
 
-Towards the end (owner decision 2026-10-06 — deferred, not dropped):
+Added 2026-10-07 — **Tenant-specific & module-based billing** (owner request, delivered 2026-10-07;
+[module 21](modules/21-platform-billing.md)). Reuses the billing built in 37–40; one billing implementation for every
+screen, the session check and the background job:
+- ✅ **41. Module-based packages** — *Full platform* (default) or *Selected modules* (Sales/POS, Orders, Stock &
+  Inventory, Customers, Loyalty, Credit Sales, Expenses, Reports & Analytics). Excluded modules are refused by the server
+  on every request (and inside a sale: credit payment, points redemption; the ordering link needs Orders) and hidden in
+  the web app through the same permission check.
+- ✅ **42. Tenant-specific pricing** — per business: model, package, base price (or per-module prices), frequency,
+  currency, discount (percentage or fixed), tax (yes/no + %), start date, next billing date, grace period; shown as
+  Base → Discount → Tax → Amount payable, and carried on every invoice and PDF.
+- ✅ **43. Free, trial & grace** — free access (billing off, business active), trial (start, end, modules; billing
+  starts the day after, audited when it ends), grace days plus explicit grace extension, optional automatic suspension
+  when overdue (sign-in and Billing still work so the business can pay; lifted on payment).
+- ✅ **44. Billing statuses** — Platform owned, Trial, Free, Active subscription, One-off paid, Payment due, Maintenance
+  due, Grace period, Overdue, Suspended — used by the dashboard, the business's Billing page, the session and the jobs.
+- ✅ **45. Platform owner's protected business** — ownership *Platform owned* (set at start-up for businesses of
+  `PLATFORM_ADMIN_EMAILS`): never deactivated or suspended, no plans, invoices or payments, complete platform — enforced
+  in the API and by database triggers.
+- ✅ **46. One-off & maintenance** — one-off fee (or *paid on* for payments made before), independent maintenance fee
+  with its own frequency, tax and discount; a one-off plan never produces subscription invoices. Every pricing, module,
+  discount, tax, trial/grace, free-access and status change is audited with previous and new values.
+
+ — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ⏳ **29. Email sender & public URL** — verified sending domain in Resend, `MAIL_FROM`, `PUBLIC_URL`.
 - ⏳ **30. `sshop.io` domain** — CNAME `ckyv3su4.up.railway.app` + `_railway-verify` TXT at the registrar.

@@ -142,6 +142,7 @@ pub struct Profile {
     permissions: Vec<String>,
     settings: Value,
     integrations: Value,
+    billing: Value,
     /// Present while a platform admin works inside another business.
     acting: Option<Value>,
 }
@@ -178,6 +179,10 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
     .fetch_one(&state.db)
     .await?;
     let settings: crate::settings::TenantSettings = serde_json::from_value(settings).unwrap_or_default();
+    let access = {
+        let mut conn = state.db.acquire().await?;
+        crate::billing::access(&mut conn, tenant_id).await?
+    };
 
     Ok(Profile {
         user: serde_json::json!({
@@ -188,6 +193,16 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         tenant: serde_json::json!({
             "id": tenant_id, "name": tname, "slug": slug, "tagline": tagline, "currency": currency,
             "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")), "is_demo": is_demo, "timezone": timezone,
+        }),
+        // Package and billing access (roadmap 41–45): modules = null means every module. The platform owner acting
+        // inside a business is not restricted.
+        billing: serde_json::json!({
+            "modules": if acting.is_some() { None } else { access.modules() },
+            "suspended": acting.is_none() && access.suspended(),
+            "ownership": access.ownership,
+            "access_mode": access.access_mode,
+            "trial_end": access.trial_end,
+            "catalogue": crate::billing::modules_catalogue(),
         }),
         acting: match acting {
             Some(home) => {

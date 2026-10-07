@@ -398,6 +398,9 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     if !s.payment_enabled(method) {
         return Err(rule("This payment method is not enabled"));
     }
+    if method == "credit" {
+        ctx.require_module("credit")?;
+    }
     if method == "credit" && (!s.sales.credit_enabled || input.customer_id.is_none()) {
         return Err(rule("Credit sales need a customer"));
     }
@@ -412,6 +415,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     // Points redemption reduces the amount payable (ledger written once the sale row exists).
     let mut redeemed_value = Decimal::ZERO;
     if input.redeem_points > 0 {
+        ctx.require_module("loyalty")?;
         ctx.require("customers.redeem_points")?;
         if input.customer_id.is_none() {
             return Err(rule("Select the customer redeeming points"));

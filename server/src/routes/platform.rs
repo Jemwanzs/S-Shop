@@ -36,6 +36,9 @@ pub struct TenantRow {
     pub slug: String,
     pub is_demo: bool,
     pub status: String,
+    /// customer | platform (the platform owner's own, protected business).
+    pub ownership: String,
+    pub billing_suspended: bool,
     pub status_reason: String,
     pub status_changed_at: Option<DateTime<Utc>>,
     pub activated_at: Option<DateTime<Utc>>,
@@ -55,7 +58,7 @@ pub struct TenantRow {
     pub billing: crate::billing::Summary,
 }
 
-const TENANT_ROW: &str = "SELECT t.id, t.name, t.slug, t.is_demo, t.status, t.status_reason, t.status_changed_at, t.activated_at, t.created_at,
+const TENANT_ROW: &str = "SELECT t.id, t.name, t.slug, t.is_demo, t.status, t.ownership, t.billing_suspended, t.status_reason, t.status_changed_at, t.activated_at, t.created_at,
         t.phone, t.email, t.address,
         (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND u.is_active) AS users,
         (SELECT COUNT(*) FROM branches b WHERE b.tenant_id = t.id AND b.is_active) AS branches,
@@ -166,7 +169,8 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     .await?;
     let history: Vec<StatusChange> = sqlx::query_as(
         "SELECT a.created_at, u.name AS by_name, a.action, a.after FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
-         WHERE a.tenant_id = $1 AND a.module = 'platform' AND a.action IN ('deactivate_business', 'reactivate_business')
+         WHERE a.tenant_id = $1 AND ((a.module = 'platform' AND a.action IN ('deactivate_business', 'reactivate_business'))
+                OR (a.module = 'billing' AND a.action IN ('billing_suspended', 'billing_restored', 'trial_ended', 'plan_updated')))
          ORDER BY a.created_at DESC LIMIT 20",
     )
     .bind(id)
@@ -212,7 +216,7 @@ async fn set_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
         return Err(refused("Reason required", "Give the reason for deactivating this business"));
     }
     let mut tx = state.db.begin().await?;
-    let (name, current): (String, String) = sqlx::query_as("SELECT name, status FROM tenants WHERE id = $1 FOR UPDATE")
+    let (name, current, ownership): (String, String, String) = sqlx::query_as("SELECT name, status, ownership FROM tenants WHERE id = $1 FOR UPDATE")
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?
@@ -226,7 +230,7 @@ async fn set_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
             .bind(id)
             .fetch_all(&mut *tx)
             .await?;
-        if id == ctx.acting_from.unwrap_or(ctx.tenant_id) || emails.iter().any(|e| state.cfg.platform_admins.contains(e)) {
+        if ownership == "platform" || id == ctx.acting_from.unwrap_or(ctx.tenant_id) || emails.iter().any(|e| state.cfg.platform_admins.contains(e)) {
             return Err(refused("Not allowed", "The platform owner's own business cannot be deactivated"));
         }
         sqlx::query("UPDATE tenants SET status = 'deactivated', status_reason = $2, status_changed_at = now(), sessions_valid_after = now() WHERE id = $1")
@@ -279,7 +283,8 @@ const ACTIVITIES: &[(&str, &str, &[&str])] = &[
     ("transfer", "transfers", &["create", "submit", "dispatch", "receive", "cancel"]),
     ("pin_reset", "platform", &["reset_pin"]),
     ("platform", "platform", &["open_business", "deactivate_business", "reactivate_business", "approve_access"]),
-    ("billing", "billing", &["payment_received", "invoice_issued", "quotation_issued", "quotation_accepted", "document_void", "plan_updated", "payment_started"]),
+    ("billing", "billing", &["payment_received", "invoice_issued", "quotation_issued", "quotation_accepted", "document_void", "plan_updated", "payment_started",
+                             "billing_suspended", "billing_restored", "trial_ended"]),
 ];
 
 #[derive(Deserialize)]

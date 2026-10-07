@@ -105,6 +105,15 @@ export interface Profile {
   permissions: string[];
   settings: Settings;
   integrations: { mpesa_stk: boolean; whatsapp: boolean };
+  /** Package and billing access (roadmap 41–45). `modules` null = every module. */
+  billing?: {
+    modules: string[] | null;
+    suspended: boolean;
+    ownership: "customer" | "platform";
+    access_mode: "billed" | "free" | "trial" | null;
+    trial_end: string | null;
+    catalogue: { key: string; label: string; perms: string[] }[];
+  };
   /** Present while a platform admin works inside another business. */
   acting: { home_tenant_id: Id; home_tenant_name: string } | null;
 }

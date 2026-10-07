@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useLiveEvents } from "@/lib/events";
-import { initials } from "@/lib/format";
+import { date, initials } from "@/lib/format";
 import type { Notification, Profile } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -238,6 +238,28 @@ function ActingBanner() {
   );
 }
 
+/** Billing suspension (pay to restore) and the last week of a trial (roadmap 43). */
+function BillingBanner() {
+  const { profile, can } = useSession();
+  const b = profile?.billing;
+  if (!b || profile?.acting) return null;
+  const daysLeft = b.access_mode === "trial" && b.trial_end ? Math.ceil((new Date(`${b.trial_end}T23:59:59`).getTime() - Date.now()) / 86_400_000) : null;
+  if (!b.suspended && (daysLeft === null || daysLeft > 7 || daysLeft < 0)) return null;
+  const payLink = can("settings.billing") && (
+    <Link to="/settings/billing" className="shrink-0 rounded-full bg-background/20 px-2.5 py-0.5 font-medium hover:bg-background/30">{t(b.suspended ? "Pay now" : "Billing")}</Link>
+  );
+  return (
+    <div className={cn("flex items-center gap-2 px-3.5 py-1.5 text-[0.78rem] md:px-6 lg:px-8 print:hidden", b.suspended ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground")}>
+      <span className="min-w-0 flex-1">
+        {b.suspended
+          ? t("S'Shop access is suspended for an overdue invoice. Sign-in still works; an administrator can pay in Settings → Billing.")
+          : `${t("Trial ends on")} ${date(b.trial_end)} — ${t("billing starts the next day.")}`}
+      </span>
+      {payLink}
+    </div>
+  );
+}
+
 function Sidebar({ approvals }: { approvals: number }) {
   const { can } = useSession();
   return (
@@ -380,6 +402,7 @@ export function AppShell() {
       <Sidebar approvals={approvals} />
       <div className="min-w-0">
         <ActingBanner />
+        <BillingBanner />
         <LocationGuard />
         <OfflineBar />
         <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur no-print">

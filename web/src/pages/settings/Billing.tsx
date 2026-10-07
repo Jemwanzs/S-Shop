@@ -20,10 +20,12 @@ import {
   type BillingSummary,
   type DocumentView,
   type VendorPublic,
+  type ModuleDef,
+  packageLabel,
 } from "@/lib/billing";
 import { Button } from "@/components/ui/button";
 import { Pill, StatusBadge } from "@/components/Badges";
-import { Card, Fact, SettingsPage } from "./shared";
+import { Card, Fact, PriceLines, SettingsPage } from "./shared";
 
 interface MyBilling {
   summary: BillingSummary;
@@ -32,6 +34,7 @@ interface MyBilling {
   payments: BillingPayment[];
   vendor: VendorPublic;
   paystack: boolean;
+  catalogue: ModuleDef[];
 }
 
 /** Settings → Billing: the business's own plan, invoices, receipts and *Pay now* (roadmap 39). */
@@ -104,26 +107,44 @@ export function BillingSettings() {
       )}
       {s && (
         <Card title="Plan" action={<Pill tone={STATUS_TONE[s.status]}>{t(STATUS_LABEL[s.status])}</Pill>}>
-          {s.status === "not_set" ? (
+          {s.status === "platform_owned" ? (
+            <p className="py-2 text-sm text-muted-foreground">{t("This is the platform owner's own business: the full platform is included and no S'Shop billing applies.")}</p>
+          ) : s.status === "not_set" ? (
             <p className="py-2 text-sm text-muted-foreground">{t("No billing plan has been set up for this business yet.")}</p>
           ) : (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 py-2 sm:grid-cols-3">
-              <Fact label={t("Billing model")}>{t(s.model === "one_off" ? "One-off" : "Subscription")}</Fact>
-              {s.model === "one_off" && (
-                <Fact label={t("One-off payment")}>
-                  {moneyDoc(s.one_off_amount, s.currency)} · <span className={s.one_off_status === "paid" ? "text-success" : "text-warning"}>{t(s.one_off_status === "paid" ? "Paid" : "Pending")}</span>
-                </Fact>
+            <div className="space-y-3 py-2">
+              {s.status === "suspended" && (
+                <p className="rounded-lg bg-destructive/10 p-2.5 text-sm text-destructive">{t("Access is suspended for an overdue invoice. Pay it below to restore access immediately.")}</p>
               )}
-              {s.amount != null && (
-                <Fact label={t(s.model === "one_off" ? "Maintenance fee" : "Amount")}>
-                  {moneyDoc(s.amount, s.currency)} · {frequencyLabel(s.frequency, s.custom_months)}
-                </Fact>
+              {s.access_mode === "free" && <p className="rounded-lg bg-chart-2/10 p-2.5 text-sm">{t("Free access: S'Shop billing is switched off for this business.")}</p>}
+              {s.status === "trial" && s.trial_end && (
+                <p className="rounded-lg bg-chart-2/10 p-2.5 text-sm">
+                  {t("Trial until")} <b>{date(s.trial_end)}</b>. {t("Afterwards the plan below applies")}{s.next_due ? ` — ${t("first payment due")} ${date(s.next_due)}` : ""}.
+                </p>
               )}
-              {s.next_due && <Fact label={t(s.model === "one_off" ? "Next maintenance due" : "Next payment due")}>{date(s.next_due)}</Fact>}
-              <Fact label={t("Outstanding")}><span className={Number(s.outstanding) > 0 ? "font-semibold text-destructive" : ""}>{moneyDoc(s.outstanding, s.currency)}</span></Fact>
-              <Fact label={t("Last payment")}>{s.last_payment_at ? `${moneyDoc(s.last_payment_amount, s.currency)} · ${date(s.last_payment_at)}` : "—"}</Fact>
-              {s.period_end && <Fact label={t("Period covered")}>{periodLabel(s)}</Fact>}
-              {s.grace_days > 0 && s.amount != null && <Fact label={t("Grace period")}>{s.grace_days} {t("days")}</Fact>}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
+                <Fact label={t("Package")}>{packageLabel(s.package, s.modules, d?.catalogue ?? [])}</Fact>
+                <Fact label={t("Billing model")}>{t(s.model === "one_off" ? "One-off" : "Subscription")}</Fact>
+                {s.model === "one_off" && (
+                  <Fact label={t("One-off payment")}>
+                    <span className={s.one_off_status === "paid" ? "text-success" : "text-warning"}>{t(s.one_off_status === "paid" ? "Paid" : "Pending")}</span>
+                  </Fact>
+                )}
+                {s.amount != null && <Fact label={t("Frequency")}>{frequencyLabel(s.frequency, s.custom_months)}</Fact>}
+                {s.next_due && <Fact label={t(s.model === "one_off" ? "Next maintenance due" : "Next payment due")}>{date(s.next_due)}</Fact>}
+                <Fact label={t("Outstanding")}><span className={Number(s.outstanding) > 0 ? "font-semibold text-destructive" : ""}>{moneyDoc(s.outstanding, s.currency)}</span></Fact>
+                <Fact label={t("Last payment")}>{s.last_payment_at ? `${moneyDoc(s.last_payment_amount, s.currency)} · ${date(s.last_payment_at)}` : "—"}</Fact>
+                {s.period_end && <Fact label={t("Period covered")}>{periodLabel(s)}</Fact>}
+                {s.amount != null && (s.grace_days > 0 || s.grace_until) && (
+                  <Fact label={t("Grace period")}>{s.grace_days} {t("days")}{s.grace_until ? ` · ${t("extended to")} ${date(s.grace_until)}` : ""}</Fact>
+                )}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {s.one_off_price && s.one_off_status !== "paid" && <PriceLines price={s.one_off_price} currency={s.currency} label="One-off payable" />}
+                {s.recurring_price && (
+                  <PriceLines price={s.recurring_price} currency={s.currency} label={s.model === "one_off" ? "Maintenance payable" : "Payable per period"} />
+                )}
+              </div>
             </div>
           )}
         </Card>

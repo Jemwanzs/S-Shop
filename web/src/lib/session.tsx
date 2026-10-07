@@ -104,8 +104,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [profile, branches, branchId]);
 
+  // A permission that belongs to a module outside the business's package is treated as not held, so every screen,
+  // menu and button guarded by `can` follows the package (the server refuses those modules as well).
   const can = useCallback(
-    (perm: string) => !!profile?.permissions.some((p) => p === "*" || p === perm || (p === "settings.manage" && perm.startsWith("settings."))),
+    (perm: string) => {
+      if (!profile) return false;
+      const b = profile.billing;
+      if (b?.modules) {
+        const owner = b.catalogue.find((m) => m.perms.some((p) => perm === p || (p.endsWith(".") && perm.startsWith(p))));
+        if (owner && !b.modules.includes(owner.key)) return false;
+      }
+      return profile.permissions.some((p) => p === "*" || p === perm || (p === "settings.manage" && perm.startsWith("settings.")));
+    },
     [profile],
   );
 

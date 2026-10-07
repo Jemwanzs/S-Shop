@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import type { Money, Settings } from "@/lib/types";
+import { moneyDoc } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/Page";
 import { tx } from "@/lib/i18n";
@@ -115,7 +116,25 @@ export function Fact({ label, children }: { label: ReactNode; children: ReactNod
   return (
     <div className="min-w-0">
       <p className="label-caps truncate">{label}</p>
-      <div className="num mt-0.5 text-sm font-medium">{children}</div>
+      <div className="mt-0.5 break-words text-sm font-medium tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+/** Base price → discount → tax → amount payable (roadmap 42). */
+export function PriceLines({ price, currency, label = "Amount payable" }: { price: { subtotal: Money; discount: Money; tax_rate: Money; tax: Money; total: Money }; currency: string; label?: string }) {
+  const row = (k: string, v: string, strong = false) => (
+    <div className={strong ? "flex justify-between border-t pt-1.5 font-semibold" : "flex justify-between text-muted-foreground"}>
+      <span>{t(k)}</span>
+      <span className="num">{v}</span>
+    </div>
+  );
+  return (
+    <div className="space-y-1 rounded-lg bg-muted/50 p-2.5 text-sm">
+      {row("Base price", moneyDoc(price.subtotal, currency, true))}
+      {Number(price.discount) > 0 && row("Discount", `− ${moneyDoc(price.discount, currency, true)}`)}
+      {Number(price.tax) > 0 && row(`${t("Tax")} (${Number(price.tax_rate)}%)`, `+ ${moneyDoc(price.tax, currency, true)}`)}
+      {row(label, moneyDoc(price.total, currency, true), true)}
     </div>
   );
 }

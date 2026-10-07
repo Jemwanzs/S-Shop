@@ -51,6 +51,14 @@ async fn tenant(state: &AppState, slug: &str) -> AppResult<Tenant> {
     if status != "active" {
         return Err(crate::error::refused("Ordering unavailable", "This shop is not taking orders at the moment"));
     }
+    // The ordering link belongs to the Orders module, and stops while billing is suspended (roadmap 41–43).
+    let access = {
+        let mut conn = state.db.acquire().await?;
+        crate::billing::access(&mut conn, id).await?
+    };
+    if access.suspended() || access.modules().is_some_and(|m| !m.iter().any(|x| x == "orders")) {
+        return Err(crate::error::refused("Ordering unavailable", "This shop is not taking orders at the moment"));
+    }
     let settings: TenantSettings = serde_json::from_value(raw).unwrap_or_default();
     if !settings.orders.portal_enabled {
         return Err(AppError::Forbidden("Online ordering is currently closed".into()));

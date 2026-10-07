@@ -22,6 +22,9 @@ import {
   type BillingPlan,
   type BillingSummary,
   type DocumentView,
+  type ModuleDef,
+  calculate,
+  packageLabel,
 } from "@/lib/billing";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +33,7 @@ import { Pill, StatusBadge } from "@/components/Badges";
 import { ConfirmDialog, Field, Select, ToggleRow } from "@/components/Form";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { Loading } from "@/components/Page";
-import { Card, Fact, SettingsPage } from "./shared";
+import { Card, Fact, PriceLines, SettingsPage } from "./shared";
 import type { TenantRow } from "./Businesses";
 
 interface Detail {
@@ -38,10 +41,19 @@ interface Detail {
   users: { id: string; name: string; email: string; phone: string; role: string; is_admin: boolean; is_active: boolean; last_login_at: string | null; failed_attempts: number; locked_until: string | null; failed_last_7d: number }[];
   branches: { id: string; name: string; code: string; location: string; latitude: number | null; longitude: number | null; is_active: boolean }[];
   onboarding: { contact_name: string; email: string; phone: string; location: string; business_type: string; branches: number | null; message: string; created_at: string; decided_at: string | null; decided_by_name: string | null } | null;
-  status_history: { created_at: string; by_name: string | null; action: string; after: { reason?: string } | null }[];
-  billing: { plan: (BillingPlan & { notes: string }) | null; summary: BillingSummary; documents: BillingDocument[]; payments: BillingPayment[]; paystack: boolean };
+  status_history: { created_at: string; by_name: string | null; action: string; after: { reason?: string; changes?: Record<string, unknown> } | null }[];
+  billing: { plan: (BillingPlan & { notes: string }) | null; summary: BillingSummary; documents: BillingDocument[]; payments: BillingPayment[]; paystack: boolean; catalogue: ModuleDef[] };
   is_home: boolean;
 }
+
+const HISTORY_LABEL: Record<string, string> = {
+  deactivate_business: "Deactivated",
+  reactivate_business: "Reactivated",
+  billing_suspended: "Billing suspended",
+  billing_restored: "Billing access restored",
+  trial_ended: "Trial ended — billing applies",
+  plan_updated: "Billing plan changed",
+};
 
 /** Platform owner: one business in full — contacts, users, branches, onboarding, activation and billing. */
 export function BusinessDetail() {
@@ -122,21 +134,28 @@ export function BusinessDetail() {
   const b = d.tenant;
   const s = d.billing.summary;
   const active = b.status === "active";
+  // The platform owner's own business: never deactivated, suspended or billed (also enforced by the server and database).
+  const owned = b.ownership === "platform";
 
   return (
     <SettingsPage title={b.name} description={`/${b.slug}`}>
       <div className="-mt-3 flex flex-wrap items-center gap-2">
         <Button size="sm" variant="ghost" asChild><Link to="/settings/businesses"><ArrowLeft className="rtl:rotate-180" /> {t("Businesses")}</Link></Button>
         <Pill tone={active ? "success" : "danger"}>{t(active ? "Active" : "Deactivated")}</Pill>
+        {owned && <Pill tone="primary">{t("Platform owned")}</Pill>}
         <Pill tone={STATUS_TONE[s.status]}>{t(STATUS_LABEL[s.status])}</Pill>
         {b.is_demo && <Pill tone="info">{t("Demo")}</Pill>}
         <span className="flex-1" />
         <Button size="sm" variant="outline" disabled={open.isPending} onClick={() => open.mutate()}><ArrowRightLeft /> {t("Open business")}</Button>
-        {!d.is_home && (
-          <Button size="sm" variant={active ? "destructive" : "default"} onClick={() => setStatusOpen(true)}>
-            <Power /> {t(active ? "Deactivate" : "Reactivate")}
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant={active ? "destructive" : "default"}
+          disabled={owned || d.is_home}
+          title={owned ? t("The platform owner's business cannot be deactivated") : undefined}
+          onClick={() => setStatusOpen(true)}
+        >
+          <Power /> {t(active ? "Deactivate" : "Reactivate")}
+        </Button>
       </div>
       {!active && (
         <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
@@ -211,13 +230,21 @@ export function BusinessDetail() {
         title="Billing"
         action={
           <div className="flex gap-1.5">
-            <Button size="sm" variant="outline" onClick={() => setPlanOpen(true)}><Pencil /> {t("Plan")}</Button>
-            <Button size="sm" onClick={() => setIssueOpen(true)}><FilePlus2 /> {t("Issue")}</Button>
+            <Button size="sm" variant="outline" disabled={owned} onClick={() => setPlanOpen(true)}><Pencil /> {t("Plan")}</Button>
+            <Button size="sm" disabled={owned} onClick={() => setIssueOpen(true)}><FilePlus2 /> {t("Issue")}</Button>
           </div>
         }
       >
+        {owned && (
+          <p className="py-2 text-sm text-muted-foreground">{t("Platform owned: the full platform is included, no subscription or maintenance invoices are issued and the business cannot be charged, suspended or deactivated.")}</p>
+        )}
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 py-2 sm:grid-cols-3">
-          <Fact label={t("Billing model")}>{s.model ? t(s.model === "one_off" ? "One-off" : "Subscription") : t("Not set")}</Fact>
+          <Fact label={t("Billing model")}>{s.model ? t(s.model === "one_off" ? "One-off" : "Subscription") : t(owned ? "Platform owned" : "Not set")}</Fact>
+          <Fact label={t("Package")}>{packageLabel(s.package, s.modules, d.billing.catalogue)}</Fact>
+          {s.access_mode && s.access_mode !== "billed" && (
+            <Fact label={t("Access")}>{s.access_mode === "free" ? t("Free") : `${t("Trial")} ${date(s.trial_start)} – ${date(s.trial_end)}`}</Fact>
+          )}
+          {s.grace_until && <Fact label={t("Grace extended to")}>{date(s.grace_until)}</Fact>}
           {s.model === "one_off" && <Fact label={t("One-off")}>{moneyDoc(s.one_off_amount, s.currency)} · {t(s.one_off_status === "paid" ? "Paid" : "Pending")}</Fact>}
           {s.amount != null && <Fact label={t(s.model === "one_off" ? "Maintenance" : "Subscription")}>{moneyDoc(s.amount, s.currency)} · {frequencyLabel(s.frequency, s.custom_months)}</Fact>}
           <Fact label={t("Next due")}>{s.next_due ? date(s.next_due) : "—"}</Fact>
@@ -227,6 +254,12 @@ export function BusinessDetail() {
           {s.period_end && <Fact label={t("Period covered")}>{periodLabel(s)}</Fact>}
           {d.billing.plan && <Fact label={t("Auto-renew")}>{t(d.billing.plan.auto_renew ? "On" : "Off")} · {t("grace")} {d.billing.plan.grace_days}d</Fact>}
         </div>
+        {(s.recurring_price || (s.one_off_price && s.one_off_status !== "paid")) && (
+          <div className="grid gap-3 py-2 sm:grid-cols-2">
+            {s.one_off_price && s.one_off_status !== "paid" && <PriceLines price={s.one_off_price} currency={s.currency} label="One-off payable" />}
+            {s.recurring_price && <PriceLines price={s.recurring_price} currency={s.currency} label={s.model === "one_off" ? "Maintenance payable" : "Payable per period"} />}
+          </div>
+        )}
         {d.billing.plan?.notes && <p className="py-2 text-xs text-muted-foreground">{d.billing.plan.notes}</p>}
       </Card>
 
@@ -288,11 +321,14 @@ export function BusinessDetail() {
       </Card>
 
       {d.status_history.length > 0 && (
-        <Card title="Status history">
+        <Card title="Status & billing history">
           {d.status_history.map((h, i) => (
             <div key={i} className="flex items-center gap-2 py-2 text-sm">
-              {h.action === "deactivate_business" ? <Ban className="h-4 w-4 text-destructive" /> : <Power className="h-4 w-4 text-success" />}
-              <span className="flex-1">{t(h.action === "deactivate_business" ? "Deactivated" : "Reactivated")}{h.after?.reason && ` — ${h.after.reason}`}</span>
+              {h.action === "deactivate_business" || h.action === "billing_suspended" ? <Ban className="h-4 w-4 text-destructive" /> : <Power className="h-4 w-4 text-success" />}
+              <span className="flex-1">
+                {t(HISTORY_LABEL[h.action] ?? h.action)}{h.after?.reason && ` — ${h.after.reason}`}
+                {h.action === "plan_updated" && h.after?.changes && <span className="text-xs text-muted-foreground"> · {Object.keys(h.after.changes).join(", ")}</span>}
+              </span>
               <span className="text-xs text-muted-foreground">{h.by_name} · {dateTime(h.created_at)}</span>
             </div>
           ))}
@@ -349,94 +385,218 @@ export function BusinessDetail() {
         busy={docAction.isPending}
         onConfirm={(reason) => voidDoc && docAction.mutate({ doc: voidDoc, action: "void", body: { reason } })}
       />
-      {planOpen && <PlanDialog tenantId={id} plan={d.billing.plan} onClose={() => setPlanOpen(false)} onSaved={refresh} />}
+      {planOpen && <PlanDialog tenantId={id} plan={d.billing.plan} catalogue={d.billing.catalogue} onClose={() => setPlanOpen(false)} onSaved={refresh} />}
       {issueOpen && <IssueDialog tenantId={id} plan={d.billing.plan} onClose={() => setIssueOpen(false)} onSaved={refresh} />}
       {payDoc && <RecordPaymentDialog doc={payDoc} onClose={() => setPayDoc(null)} onSaved={refresh} />}
     </SettingsPage>
   );
 }
 
-function PlanDialog({ tenantId, plan, onClose, onSaved }: { tenantId: string; plan: (BillingPlan & { notes: string }) | null; onClose: () => void; onSaved: () => void }) {
+function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId: string; plan: (BillingPlan & { notes: string }) | null; catalogue: ModuleDef[]; onClose: () => void; onSaved: () => void }) {
+  const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
   const [f, setF] = useState({
     model: plan?.model ?? "subscription",
+    access_mode: plan?.access_mode ?? "billed",
+    package: plan?.package ?? "full",
+    modules: plan?.modules ?? [],
+    module_prices: Object.fromEntries(Object.entries(plan?.module_prices ?? {}).map(([k, v]) => [k, str(v)])) as Record<string, string>,
     currency: plan?.currency ?? "KES",
-    one_off_amount: plan ? String(plan.one_off_amount) : "",
+    one_off_amount: plan && Number(plan.one_off_amount) > 0 ? str(plan.one_off_amount) : "",
+    one_off_paid_on: plan?.one_off_paid_on ?? "",
     maintenance: plan ? plan.model === "one_off" && plan.recurring : false,
-    amount: plan && plan.recurring ? String(plan.amount) : "",
+    amount: plan && plan.recurring ? str(plan.amount) : "",
     frequency: plan?.frequency ?? "monthly",
-    custom_months: String(plan?.custom_months ?? 1),
+    custom_months: str(plan?.custom_months ?? 1),
     start_date: plan?.start_date ?? todayIso(),
     next_due_date: plan?.next_due_date ?? "",
-    grace_days: String(plan?.grace_days ?? 7),
+    grace_days: str(plan?.grace_days ?? 7),
+    grace_until: plan?.grace_until ?? "",
     auto_renew: plan?.auto_renew ?? true,
+    auto_suspend: plan?.auto_suspend ?? false,
+    discount_type: plan?.discount_type ?? "none",
+    discount_value: plan && Number(plan.discount_value) > 0 ? str(plan.discount_value) : "",
+    tax_enabled: plan?.tax_enabled ?? false,
+    tax_rate: plan && Number(plan.tax_rate) > 0 ? str(plan.tax_rate) : "16",
+    trial_start: plan?.trial_start ?? todayIso(),
+    trial_end: plan?.trial_end ?? "",
+    trial_modules: plan?.trial_modules ?? [],
     notes: plan?.notes ?? "",
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  const toggle = (k: "modules" | "trial_modules", m: string) => set(k, f[k].includes(m) ? f[k].filter((x) => x !== m) : [...f[k], m]);
+  const free = f.access_mode === "free";
   const recurring = f.model === "subscription" || f.maintenance;
+  const perModule = f.model === "subscription" && f.package === "modules";
+  const base = perModule && f.modules.some((m) => f.module_prices[m])
+    ? f.modules.reduce((sum, m) => sum + Number(f.module_prices[m] || 0), 0)
+    : Number(f.amount || 0);
+  const calc = (b: number) => calculate(b, f.discount_type, Number(f.discount_value || 0), f.tax_enabled, Number(f.tax_rate || 0));
   const save = useMutation({
     mutationFn: () =>
-      api(`/platform/tenants/${tenantId}/billing-plan`, {
+      api<{ changes: Record<string, unknown> }>(`/platform/tenants/${tenantId}/billing-plan`, {
         method: "PUT",
         body: {
-          model: f.model, currency: f.currency, one_off_amount: Number(f.one_off_amount || 0), maintenance: f.maintenance,
-          amount: Number(f.amount || 0), frequency: f.frequency, custom_months: Number(f.custom_months || 1),
+          model: f.model, access_mode: f.access_mode, package: f.package, modules: f.package === "modules" ? f.modules : [],
+          module_prices: Object.fromEntries(Object.entries(f.module_prices).filter(([k, v]) => v !== "" && f.modules.includes(k)).map(([k, v]) => [k, Number(v)])),
+          currency: f.currency, one_off_amount: Number(f.one_off_amount || 0), one_off_paid_on: f.model === "one_off" && f.one_off_paid_on ? f.one_off_paid_on : null,
+          maintenance: f.maintenance, amount: Number(f.amount || 0), frequency: f.frequency, custom_months: Number(f.custom_months || 1),
           start_date: recurring ? f.start_date || null : null, next_due_date: recurring ? f.next_due_date || null : null,
-          grace_days: Number(f.grace_days || 0), auto_renew: f.auto_renew, notes: f.notes,
+          grace_days: Number(f.grace_days || 0), grace_until: f.grace_until || null, auto_renew: f.auto_renew, auto_suspend: f.auto_suspend,
+          discount_type: f.discount_type, discount_value: Number(f.discount_value || 0), tax_enabled: f.tax_enabled, tax_rate: Number(f.tax_rate || 0),
+          trial_start: f.access_mode === "trial" ? f.trial_start || null : null, trial_end: f.access_mode === "trial" ? f.trial_end || null : null,
+          trial_modules: f.access_mode === "trial" ? f.trial_modules : [], notes: f.notes,
         },
       }),
-    onSuccess: () => {
-      toast.success("Billing plan saved");
+    onSuccess: (r) => {
+      const n = Object.keys(r.changes ?? {}).length;
+      toast.success(n ? `${t("Billing plan saved")} · ${n} ${t("changes recorded")}` : t("No changes"));
       onSaved();
       onClose();
     },
     onError: (e) => toast.error(e),
   });
   const what = f.model === "subscription" ? "Subscription" : "Maintenance";
+  const moduleChecks = (k: "modules" | "trial_modules", withPrices: boolean) => (
+    <div className="grid gap-1.5 sm:grid-cols-2">
+      {catalogue.map((m) => (
+        <div key={m.key} className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm">
+          <label className="flex min-w-0 flex-1 items-center gap-2">
+            <input type="checkbox" className="h-4 w-4 accent-[hsl(var(--primary))]" checked={f[k].includes(m.key)} onChange={() => toggle(k, m.key)} />
+            <span className="truncate">{t(m.label)}</span>
+          </label>
+          {withPrices && f[k].includes(m.key) && (
+            <Input className="h-8 w-24" type="number" inputMode="decimal" min={0} placeholder={t("Price")} value={f.module_prices[m.key] ?? ""}
+              onChange={(e) => set("module_prices", { ...f.module_prices, [m.key]: e.target.value })} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
   return (
     <ResponsiveDialog
       open
+      wide
       onOpenChange={(o) => !o && onClose()}
       title="Billing plan"
+      description="Tenant-specific package, price, discount, tax and access. Every change is recorded with its previous and new value."
       footer={<Button onClick={() => save.mutate()} disabled={save.isPending}>{save.isPending ? <Loader2 className="animate-spin" /> : t("Save plan")}</Button>}
     >
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Billing model">
-            <Select value={f.model} onChange={(v) => set("model", v as typeof f.model)}>
-              <option value="subscription">{t("Subscription")}</option>
-              <option value="one_off">{t("One-off")}</option>
+      <div className="space-y-4">
+        <section className="space-y-3">
+          <p className="label-caps">{t("Access")}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Access">
+              <Select value={f.access_mode} onChange={(v) => set("access_mode", v as typeof f.access_mode)}>
+                <option value="billed">{t("Billed")}</option>
+                <option value="trial">{t("Trial")}</option>
+                <option value="free">{t("Free access")}</option>
+              </Select>
+            </Field>
+            <Field label="Billing model">
+              <Select value={f.model} onChange={(v) => set("model", v as typeof f.model)}>
+                <option value="subscription">{t("Subscription")}</option>
+                <option value="one_off">{t("One-off")}</option>
+              </Select>
+            </Field>
+          </div>
+          {free && <p className="rounded-lg bg-chart-2/10 p-2.5 text-xs">{t("Free access switches billing off for this business without deactivating it. No invoices are issued automatically.")}</p>}
+          {f.access_mode === "trial" && (
+            <div className="space-y-2 rounded-lg border p-2.5">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Trial start"><Input type="date" value={f.trial_start} onChange={(e) => set("trial_start", e.target.value)} /></Field>
+                <Field label="Trial end"><Input type="date" min={f.trial_start} value={f.trial_end} onChange={(e) => set("trial_end", e.target.value)} /></Field>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("Modules during the trial (none ticked = the package's modules). After the trial ends the plan below applies and billing starts the next day.")}</p>
+              {moduleChecks("trial_modules", false)}
+            </div>
+          )}
+        </section>
+
+        <section className="space-y-3">
+          <p className="label-caps">{t("Package")}</p>
+          <Field label="Package">
+            <Select value={f.package} onChange={(v) => set("package", v as typeof f.package)}>
+              <option value="full">{t("Full platform (all modules)")}</option>
+              <option value="modules">{t("Selected modules")}</option>
             </Select>
           </Field>
-          <Field label="Currency"><Input value={f.currency} maxLength={3} onChange={(e) => set("currency", e.target.value.toUpperCase())} /></Field>
-        </div>
-        {f.model === "one_off" && (
-          <>
-            <Field label="One-off amount"><Input type="number" inputMode="decimal" min={0} value={f.one_off_amount} onChange={(e) => set("one_off_amount", e.target.value)} /></Field>
-            <ToggleRow label="Maintenance fee required" checked={f.maintenance} onChange={(v) => set("maintenance", v)} />
-          </>
-        )}
-        {recurring && (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={`${what} amount`}><Input type="number" inputMode="decimal" min={0} value={f.amount} onChange={(e) => set("amount", e.target.value)} /></Field>
+          {f.package === "modules" && (
+            <>
+              <p className="text-xs text-muted-foreground">{t("Modules outside the package are refused by the server, not just hidden. Products, dashboard, settings, users and approvals are always included.")}</p>
+              {moduleChecks("modules", f.model === "subscription")}
+            </>
+          )}
+        </section>
+
+        <section className="space-y-3">
+          <p className="label-caps">{t("Pricing")}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Currency"><Input value={f.currency} maxLength={3} onChange={(e) => set("currency", e.target.value.toUpperCase())} /></Field>
+            {recurring && (
               <Field label="Frequency">
                 <Select value={f.frequency} onChange={(v) => set("frequency", v)}>
                   {FREQUENCIES.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}
                 </Select>
               </Field>
-            </div>
-            {f.frequency === "custom" && (
-              <Field label="Every (months)"><Input type="number" min={1} max={60} value={f.custom_months} onChange={(e) => set("custom_months", e.target.value)} /></Field>
             )}
+          </div>
+          {recurring && f.frequency === "custom" && (
+            <Field label="Every (months)"><Input type="number" min={1} max={60} value={f.custom_months} onChange={(e) => set("custom_months", e.target.value)} /></Field>
+          )}
+          {f.model === "one_off" && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="One-off amount" optional={free}><Input type="number" inputMode="decimal" min={0} value={f.one_off_amount} onChange={(e) => set("one_off_amount", e.target.value)} /></Field>
+              <Field label="One-off paid on" optional hint="Mark as paid when it was paid outside S'Shop"><Input type="date" max={todayIso()} value={f.one_off_paid_on} onChange={(e) => set("one_off_paid_on", e.target.value)} /></Field>
+            </div>
+          )}
+          {f.model === "one_off" && <ToggleRow label="Maintenance required" checked={f.maintenance} onChange={(v) => set("maintenance", v)} />}
+          {recurring && !perModule && (
+            <Field label={`${what} base price`} optional={free}><Input type="number" inputMode="decimal" min={0} value={f.amount} onChange={(e) => set("amount", e.target.value)} /></Field>
+          )}
+          {perModule && (
+            <Field label="Base price" hint="Sum of the included modules' prices, or a single price when none are set" optional={free}>
+              <Input type="number" inputMode="decimal" min={0} value={f.modules.some((m) => f.module_prices[m]) ? String(base) : f.amount}
+                disabled={f.modules.some((m) => f.module_prices[m])} onChange={(e) => set("amount", e.target.value)} />
+            </Field>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Discount">
+              <Select value={f.discount_type} onChange={(v) => set("discount_type", v as typeof f.discount_type)}>
+                <option value="none">{t("No discount")}</option>
+                <option value="percent">{t("Percentage")}</option>
+                <option value="fixed">{t("Fixed amount")}</option>
+              </Select>
+            </Field>
+            {f.discount_type !== "none" && (
+              <Field label={f.discount_type === "percent" ? "Discount (%)" : "Discount amount"}>
+                <Input type="number" inputMode="decimal" min={0} max={f.discount_type === "percent" ? 100 : undefined} value={f.discount_value} onChange={(e) => set("discount_value", e.target.value)} />
+              </Field>
+            )}
+          </div>
+          <div className="grid grid-cols-2 items-end gap-3">
+            <ToggleRow label="Tax applicable" checked={f.tax_enabled} onChange={(v) => set("tax_enabled", v)} />
+            {f.tax_enabled && <Field label="Tax (%)"><Input type="number" inputMode="decimal" min={0} max={100} value={f.tax_rate} onChange={(e) => set("tax_rate", e.target.value)} /></Field>}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {f.model === "one_off" && Number(f.one_off_amount) > 0 && <PriceLines price={calc(Number(f.one_off_amount))} currency={f.currency} label="One-off payable" />}
+            {recurring && base > 0 && <PriceLines price={calc(base)} currency={f.currency} label={f.model === "one_off" ? "Maintenance payable" : "Payable per period"} />}
+          </div>
+        </section>
+
+        {recurring && (
+          <section className="space-y-3">
+            <p className="label-caps">{t("Dates & grace")}</p>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Start date"><Input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} /></Field>
-              <Field label="Next due date" hint="Defaults to the start date"><Input type="date" value={f.next_due_date} onChange={(e) => set("next_due_date", e.target.value)} /></Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+              <Field label="Next billing date" hint={f.access_mode === "trial" ? "Defaults to the day after the trial" : "Defaults to the start date"} optional>
+                <Input type="date" value={f.next_due_date} onChange={(e) => set("next_due_date", e.target.value)} />
+              </Field>
               <Field label="Grace period (days)"><Input type="number" min={0} max={90} value={f.grace_days} onChange={(e) => set("grace_days", e.target.value)} /></Field>
+              <Field label="Grace extended to" optional><Input type="date" value={f.grace_until} onChange={(e) => set("grace_until", e.target.value)} /></Field>
             </div>
             <ToggleRow label="Auto-renew" hint="Issue the next period's invoice automatically 7 days before it starts" checked={f.auto_renew} onChange={(v) => set("auto_renew", v)} />
-          </>
+            <ToggleRow label="Suspend when overdue" hint="After the grace period, the business can only sign in and pay until the invoice is settled" checked={f.auto_suspend} onChange={(v) => set("auto_suspend", v)} />
+          </section>
         )}
         <Field label="Internal notes" optional><Textarea rows={2} value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field>
       </div>

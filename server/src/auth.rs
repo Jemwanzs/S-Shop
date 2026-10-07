@@ -133,12 +133,27 @@ pub struct Ctx {
     pub user_agent: String,
     /// The platform admin's own business when they have opened this one (full access, audited).
     pub acting_from: Option<Uuid>,
+    /// Modules in the business's package (None = all) — roadmap 41.
+    pub modules: Option<Vec<String>>,
 }
 
 impl Ctx {
     pub fn can(&self, perm: &str) -> bool {
         // "Manage all settings" implies every settings area.
         self.permissions.iter().any(|p| p == "*" || p == perm || (p == "settings.manage" && perm.starts_with("settings.")))
+    }
+
+    /// The business's package includes `module` (see `billing::MODULES`).
+    pub fn has_module(&self, module: &str) -> bool {
+        self.modules.as_ref().is_none_or(|m| m.iter().any(|x| x == module))
+    }
+
+    pub fn require_module(&self, module: &str) -> AppResult<()> {
+        if self.has_module(module) {
+            Ok(())
+        } else {
+            Err(module_refused(module))
+        }
     }
 
     /// May see sales, figures and performance of employees other than themselves.
@@ -206,6 +221,19 @@ impl Ctx {
     }
 }
 
+pub fn module_refused(module: &str) -> AppError {
+    crate::error::refused(
+        "Not in your package",
+        format!("{} is not part of this business's S'Shop package — contact S'Shop to add it", crate::billing::module_label(module)),
+    )
+}
+
+/// While billing is suspended a business can still sign in, see its profile and notifications, and pay.
+fn allowed_while_suspended(path: &str) -> bool {
+    let p = path.strip_prefix("/api").unwrap_or(path);
+    ["/auth/", "/billing", "/notifications", "/fx", "/events"].iter().any(|pre| p.starts_with(pre))
+}
+
 #[derive(sqlx::FromRow)]
 struct CtxRow {
     name: String,
@@ -216,6 +244,14 @@ struct CtxRow {
     email: String,
     tenant_status: String,
     sessions_valid_after: Option<chrono::DateTime<Utc>>,
+}
+
+/// Paths are matched as the API router sees them (inside /api).
+fn request_path(parts: &Parts) -> String {
+    parts
+        .extensions
+        .get::<axum::extract::OriginalUri>()
+        .map_or_else(|| parts.uri.path().to_string(), |u| u.0.path().to_string())
 }
 
 impl FromRequestParts<AppState> for Ctx {
@@ -263,6 +299,29 @@ impl FromRequestParts<AppState> for Ctx {
             }
         }
 
+        // Roadmap 41–43: the package decides which modules this business may use, and a billing suspension leaves
+        // only sign-in, notifications and Billing (so the business can pay). The platform owner acting inside a
+        // business is not restricted.
+        let access: crate::billing::AccessRow = {
+            let mut conn = state.db.acquire().await?;
+            crate::billing::access(&mut conn, claims.tid).await?
+        };
+        let path = request_path(parts);
+        let modules = if claims.home.is_some() { None } else { access.modules() };
+        if claims.home.is_none() {
+            if access.suspended() && !allowed_while_suspended(&path) {
+                return Err(crate::error::refused(
+                    "Billing suspended",
+                    "This business's S'Shop access is suspended for an overdue invoice — an administrator can pay it in Settings → Billing",
+                ));
+            }
+            if let (Some(m), Some(allowed)) = (crate::billing::module_for_path(&path), modules.as_ref()) {
+                if !allowed.iter().any(|x| x == m) {
+                    return Err(module_refused(m));
+                }
+            }
+        }
+
         let all_branches = row.all_branches || row.permissions.iter().any(|p| p == "*");
         let branches: Vec<(Uuid, i32)> = if all_branches {
             sqlx::query_as("SELECT id, day_shift_minutes FROM branches WHERE tenant_id = $1 AND is_active ORDER BY created_at")
@@ -307,6 +366,7 @@ impl FromRequestParts<AppState> for Ctx {
             ip,
             user_agent,
             acting_from: claims.home,
+            modules,
         })
     }
 }

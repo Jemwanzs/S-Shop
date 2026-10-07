@@ -20,6 +20,8 @@ export interface TenantRow {
   slug: string;
   is_demo: boolean;
   status: "active" | "deactivated";
+  ownership: "customer" | "platform";
+  billing_suspended: boolean;
   status_reason: string;
   status_changed_at: string | null;
   activated_at: string | null;

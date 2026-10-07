@@ -1,4 +1,4 @@
-# 21 — Platform owner, tenant monitoring & billing (roadmap 34–40)
+# 21 — Platform owner, tenant monitoring & billing (roadmap 34–46)
 
 Platform-owner functionality is separate from tenant administration. Only accounts listed in
 `PLATFORM_ADMIN_EMAILS` (the platform owner, `jamosammy@gmail.com` in production) reach `/api/platform/*`; every
@@ -105,3 +105,70 @@ excluded from the figures.
 `tenants.status / status_reason / status_changed_at / activated_at / sessions_valid_after`, `platform_settings`
 (vendor details), `billing_plans`, `billing_documents`, `billing_payments`, sequences for quotation, invoice and
 receipt numbers, and an audit index on `(module, action, created_at)` for activity monitoring.
+
+## 41 — Packages and modules
+
+A plan's package is **Full platform** (default) or **Selected modules**. Modules (`billing::MODULES`):
+
+| Module | API it owns | Permissions it owns |
+|---|---|---|
+| Sales / POS | `/sales`, `/mpesa` | `sales.*` |
+| Orders | `/orders` (+ the ordering link) | `orders.*` |
+| Stock & Inventory | `/stock`, `/transfers` | `stock.*` |
+| Customers | `/customers` | `customers.view/create/edit` |
+| Loyalty | `/loyalty` (+ points redemption in a sale) | `loyalty.*`, `customers.view_loyalty`, `customers.redeem_points` |
+| Credit Sales | `/credit` (+ credit payment in a sale) | `credit.*`, `customers.view_credit` |
+| Expenses | `/expenses` | `expenses.*` |
+| Reports & Analytics | `/reports`, `/leaderboards` | `reports.*` |
+
+Core (always included): products, dashboard, settings, users, branches, roles, approvals, audit, notifications,
+search, billing. The session check (`auth.rs`) refuses a module outside the package with 422 *Not in your package*;
+the profile carries the module list and the web app's `can()` treats the module's permissions as not held, so menus,
+screens and buttons follow. No plan = everything (existing businesses keep working). The platform owner acting
+inside a business is not restricted.
+
+## 42 — Tenant-specific pricing
+
+Per business: billing model, package, base price — or per-module prices (the base is the sum of the included modules) —
+frequency, currency, discount (none / percentage / fixed), tax (yes/no + %), start date, next billing date, grace days.
+`billing::calculate`: discount on the base, tax on the discounted amount, rounded to cents:
+**Base → Discount → Tax → Amount payable** (e.g. 120,000 + 16% = 139,200). Invoices and quotations store subtotal,
+discount, tax rate, tax and the amount payable; Paystack charges the amount payable; the PDF shows the lines.
+
+## 43 — Free, trial and grace
+
+* **Free** — billing off without deactivating; no price needed; no automatic invoices.
+* **Trial** — start, end and (optionally) its own modules. The Billing page and a banner in the last week show when
+  it ends; the background job then switches the plan to billed (audited `trial_ended`) and the first recurring
+  payment is due the day after the trial.
+* **Grace** — `grace_days` after an invoice's due date, plus an explicit extension date (`grace_until`). With
+  *Suspend when overdue* on, an invoice overdue past both suspends the business: sign-in, notifications and Billing
+  keep working so an administrator can pay; everything else gets 422 *Billing suspended*; the ordering link stops.
+  Paying, voiding, extending grace or switching to free lifts it immediately (`billing::refresh_suspension`, audited
+  `billing_suspended` / `billing_restored`).
+
+## 44 — Statuses
+
+`platform_owned`, `trial`, `free`, `active` (subscription), `one_off_paid`, `payment_due`, `maintenance_due`, `grace`,
+`overdue`, `suspended` (and `not_set`) — computed once in `billing::summary` and used by the platform dashboard,
+directory, business detail, the business's Billing page and the session.
+
+## 45 — The platform owner's business
+
+`tenants.ownership = 'platform'` for every business with an active platform administrator (set at start-up). It keeps
+the complete platform; *Deactivate*, *Plan* and *Issue* are disabled on its page; the API refuses a plan, quotation,
+invoice or deactivation for it; database triggers refuse deactivation, suspension, plans, documents and payments for it
+and the removal of the platform ownership itself. Platform-owner privileges remain the separate `PLATFORM_ADMIN_EMAILS`
+check, not a tenant permission.
+
+## 46 — One-off and maintenance
+
+A one-off plan has the one-off fee (invoiced, or marked *paid on* a date for a payment made before) and, independently,
+*Maintenance required* with its own amount, frequency, start and next due date; discount and tax apply to both.
+Automatic invoices for a one-off plan are maintenance invoices only, and only when maintenance is on.
+
+## Audit
+
+Every plan save writes `billing.plan_updated` (in the business and the platform owner's audit trail) with
+`changes: { field: { from, to } }` for each field that changed — pricing, modules, discount, tax, trial, grace,
+free access, auto-suspend — plus who and when. Suspension, restoration and trial end are audited by the system.

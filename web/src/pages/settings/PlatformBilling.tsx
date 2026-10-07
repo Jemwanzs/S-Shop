@@ -21,7 +21,8 @@ import type { TenantRow } from "./Businesses";
 
 type Rev = { month: Money; year: Money; all: Money };
 interface Dashboard {
-  counts: Record<"businesses" | "active" | "deactivated" | "paid" | "due_soon" | "grace" | "overdue" | "pending" | "not_set", number>;
+  counts: Record<"businesses" | "active" | "deactivated", number>;
+  by_status: Record<BillingStatus, number>;
   revenue: { subscription: Rev; one_off: Rev; maintenance: Rev; other: Rev; monthly_recurring: Money };
   outstanding: Money;
   maintenance_due: { count: number; amount: Money };
@@ -41,22 +42,25 @@ export function PlatformBilling() {
   if (q.isLoading || !q.data) return <Loading />;
   const d = q.data;
   const c = d.counts;
+  const n = (st: BillingStatus) => d.by_status[st] ?? 0;
   const k = (v: Money) => moneyDoc(v, "KES");
-  const rows = d.items.filter((r) => !r.is_demo).filter((r) =>
+  // The platform owner's own business is listed separately: it is never billed.
+  const rows = d.items.filter((r) => !r.is_demo && (filter === "all" || r.ownership !== "platform")).filter((r) =>
     filter === "all" ? true : filter === "active" || filter === "deactivated" ? (filter === "active") === (r.status === "active") : r.billing.status === filter,
   );
+  const STATUS_ORDER: BillingStatus[] = ["active", "one_off_paid", "trial", "free", "payment_due", "maintenance_due", "grace", "overdue", "suspended", "not_set"];
   const chips: [Filter, string, number][] = [
-    ["all", "All", c.businesses], ["active", "Active", c.active], ["deactivated", "Deactivated", c.deactivated], ["paid", "Paid up", c.paid],
-    ["due_soon", "Due soon", c.due_soon], ["grace", "In grace period", c.grace], ["overdue", "Overdue", c.overdue], ["pending", "Payment pending", c.pending], ["not_set", "No plan", c.not_set],
+    ["all", "All", c.businesses], ["active", "Active", c.active], ["deactivated", "Deactivated", c.deactivated],
+    ...STATUS_ORDER.map((st): [Filter, string, number] => [st, STATUS_LABEL[st], n(st)]),
   ];
   return (
     <SettingsPage title="Platform billing" description="Every business's billing position, revenue and what is due. Payments show as paid only after the server has confirmed them.">
       {!d.paystack && <p className="rounded-lg bg-warning/10 p-2.5 text-xs text-warning">{t("Paystack is not configured (PAYSTACK_SECRET_KEY). Businesses can still pay by bank transfer, recorded here.")}</p>}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Active" value={c.active} icon={CheckCircle2} tone="success" hint={`${c.deactivated} ${t("deactivated")}`} />
-        <StatCard label="Paid up" value={c.paid} icon={CircleDollarSign} tone="primary" />
-        <StatCard label="Due soon" value={c.due_soon + c.grace} icon={Clock} tone="warning" hint={c.grace ? `${c.grace} ${t("in grace period")}` : undefined} />
-        <StatCard label="Overdue" value={c.overdue} icon={AlertTriangle} tone="danger" hint={k(d.outstanding) + " " + t("outstanding")} />
+        <StatCard label="Paid up" value={n("active") + n("one_off_paid")} icon={CircleDollarSign} tone="primary" hint={`${n("trial")} ${t("trial")} · ${n("free")} ${t("free")}`} />
+        <StatCard label="Payment due" value={n("payment_due") + n("maintenance_due") + n("grace")} icon={Clock} tone="warning" hint={n("grace") ? `${n("grace")} ${t("in grace period")}` : undefined} />
+        <StatCard label="Overdue" value={n("overdue") + n("suspended")} icon={AlertTriangle} tone="danger" hint={`${n("suspended")} ${t("suspended")} · ${k(d.outstanding)} ${t("outstanding")}`} />
         <StatCard label="Subscription revenue" value={k(d.revenue.subscription.month)} icon={CalendarClock} hint={`${t("This year")} ${k(d.revenue.subscription.year)} · MRR ${k(d.revenue.monthly_recurring)}`} />
         <StatCard label="One-off revenue" value={k(d.revenue.one_off.year)} icon={CircleDollarSign} hint={`${t("All time")} ${k(d.revenue.one_off.all)}`} />
         <StatCard label="Maintenance due" value={d.maintenance_due.count} icon={Wrench} hint={`${k(d.maintenance_due.amount)} · ${t("next 30 days")}`} />
@@ -88,6 +92,7 @@ export function PlatformBilling() {
                 <span className="truncate">{r.name}</span>
                 {r.status !== "active" && <Pill tone="danger">{t("Deactivated")}</Pill>}
                 <Pill tone={STATUS_TONE[r.billing.status]}>{t(STATUS_LABEL[r.billing.status])}</Pill>
+                {r.billing.package === "modules" && <Pill>{r.billing.modules?.length ?? 0} {t("modules")}</Pill>}
               </div>
               <p className="truncate text-xs text-muted-foreground">
                 {r.billing.model ? t(r.billing.model === "one_off" ? "One-off" : "Subscription") : t("No plan")}

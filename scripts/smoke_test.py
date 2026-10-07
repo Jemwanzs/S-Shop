@@ -1050,7 +1050,7 @@ call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "a
                                                      "next_due_date": today_, "grace_days": 5, "auto_renew": True, "notes": "internal note"})
 T2 = {"token": t2["token"], "branch": "none"}
 mb = call("GET", "/billing", **T2)
-check("business sees its plan and status", mb["plan"]["model"] == "subscription" and float(mb["plan"]["amount"]) == 2500 and mb["summary"]["status"] == "due_soon", mb["summary"])
+check("business sees its plan and status", mb["plan"]["model"] == "subscription" and float(mb["plan"]["amount"]) == 2500 and mb["summary"]["status"] == "payment_due", mb["summary"])
 check("internal plan notes are not shown to the business", "notes" not in mb["plan"])
 check("vendor bank details masked", mb["vendor"]["bank_name"] == "I&M Bank" and mb["vendor"]["account_masked"] == "•••450" and "account_number" not in mb["vendor"], mb["vendor"])
 inv = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period"})
@@ -1135,7 +1135,8 @@ call("POST", f"/platform/billing/documents/{oo['id']}/payments", {"method": "mpe
 mb = call("GET", "/billing", **T2)
 check("one-off paid", mb["summary"]["one_off_status"] == "paid" and float(mb["summary"]["one_off_amount"]) == 50000, mb["summary"])
 dash = call("GET", "/platform/billing")
-check("billing dashboard: statuses, revenue, maintenance due", all(k in dash["counts"] for k in ("active", "deactivated", "paid", "due_soon", "overdue"))
+check("billing dashboard: statuses, revenue, maintenance due", all(k in dash["counts"] for k in ("active", "deactivated"))
+      and all(k in dash["by_status"] for k in ("active", "one_off_paid", "trial", "free", "payment_due", "maintenance_due", "grace", "overdue", "suspended"))
       and float(dash["revenue"]["one_off"]["all"]) >= 50000 and dash["maintenance_due"]["count"] >= 1
       and any(r["id"] == dk for r in dash["items"]), (dash["counts"], dash["revenue"], dash["maintenance_due"]))
 check("billing activity in the platform activity view", call("GET", f"/platform/activity?activity=billing&tenant_id={dk}&period=today")["total"] >= 3)
@@ -1169,6 +1170,83 @@ hist = call("GET", f"/platform/tenants/{dk}")["status_history"]
 check("status history audited", [h["action"] for h in hist][:2] == ["reactivate_business", "deactivate_business"], hist)
 check("platform audit trail at home", sum(1 for a in call("GET", "/audit?period=today&module=platform")["items"]
                                          if a["action"] in ("deactivate_business", "reactivate_business")) >= 2)
+
+step("Roadmap 41–46: packages, tenant pricing, trial / free / grace, platform-owned business")
+T2 = {"token": t2["token"], "branch": "none"}  # the session from after reactivation
+home_row = next(x for x in call("GET", "/platform/tenants")["items"] if x["id"] == home_id)
+check("the platform owner's business is platform owned", home_row["ownership"] == "platform" and home_row["billing"]["status"] == "platform_owned", home_row["billing"]["status"])
+r = call("PUT", f"/platform/tenants/{home_id}/billing-plan", {"model": "subscription", "amount": 1000, "start_date": today_}, expect=422)
+check("no billing plan for the platform owner's business", r["error"]["title"] == "Not billable", r)
+call("POST", f"/platform/tenants/{home_id}/billing-documents", {"kind": "invoice", "category": "other", "amount": 100, "description": "Should not exist"}, expect=422)
+check("no invoices for the platform owner's business", True)
+check("platform owner keeps every module", call("GET", "/auth/me")["billing"]["modules"] is None)
+later = (datetime.date.today() + datetime.timedelta(days=60)).isoformat()
+plan_ = {"model": "subscription", "package": "modules", "modules": ["sales", "stock", "reports"],
+         "module_prices": {"sales": 1000, "stock": 800, "reports": 700, "credit": 999}, "frequency": "monthly",
+         "start_date": later, "next_due_date": later, "discount_type": "percent", "discount_value": 10, "tax_enabled": True, "tax_rate": 16}
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {**plan_, "modules": []}, expect=400)
+check("a module package needs modules", True)
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {**plan_, "modules": ["sales", "teleport"]}, expect=400)
+check("unknown module refused", True)
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {**plan_, "discount_value": 150}, expect=400)
+check("percentage discount over 100% refused", True)
+sp = call("PUT", f"/platform/tenants/{dk}/billing-plan", plan_)
+rp_ = sp["summary"]["recurring_price"]
+check("per-module price: base = included modules only", float(sp["plan"]["amount"]) == 2500 and "credit" not in sp["plan"]["module_prices"], sp["plan"])
+check("base → discount → tax → payable", [float(rp_[k]) for k in ("subtotal", "discount", "tax", "total")] == [2500, 250, 360, 2610], rp_)
+pinv = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period"})
+pdoc = call("GET", f"/billing/documents/{pinv['id']}", **T2)["document"]
+check("invoice carries the breakdown", [float(pdoc[k]) for k in ("subtotal", "discount", "tax", "amount")] == [2500, 250, 360, 2610], pdoc)
+changes = next(a for a in call("GET", f"/platform/activity?activity=billing&tenant_id={dk}&period=today")["items"] if a["action"] == "plan_updated")["after"]["changes"]
+check("plan change audited with previous and new values", changes["tax_rate"]["to"] in ("16", "16.00", 16) and "modules" in changes and "from" in changes["package"], list(changes))
+me_dk = call("GET", "/auth/me", **T2)
+check("profile lists the package's modules", me_dk["billing"]["modules"] == ["sales", "stock", "reports"], me_dk["billing"])
+blocked = []
+for path_, want in [("/credit", 422), ("/expenses", 422), ("/customers", 422), ("/loyalty/overview", 422), ("/orders", 422),
+                    ("/sales?period=today", 200), ("/stock", 200), ("/products", 200), ("/reports", 200), ("/billing", 200)]:
+    try:
+        r = call("GET", path_, **T2, expect=want)
+        if want == 422 and r["error"]["title"] != "Not in your package":
+            blocked.append(f"{path_}: {r['error']}")
+    except AssertionError as e:
+        blocked.append(str(e))
+check("modules outside the package refused by the server, included ones work", not blocked, blocked)
+r = call("GET", f"/portal/{dk_slug}", token="none", expect=422)
+check("ordering link off without the Orders module", r["error"]["title"] == "Ordering unavailable", r)
+act_ = call("POST", f"/platform/tenants/{dk}/open")
+call("GET", "/credit", token=act_["token"], branch="none")
+check("platform owner inside the business is not restricted", True)
+call("POST", f"/platform/billing/documents/{pinv['id']}/void", {"reason": "Package changed"})
+trial_end = (datetime.date.today() + datetime.timedelta(days=14)).isoformat()
+day_after = (datetime.date.today() + datetime.timedelta(days=15)).isoformat()
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "amount": 3000, "frequency": "monthly", "start_date": today_,
+                                                     "access_mode": "trial", "trial_start": today_}, expect=400)
+check("a trial needs its dates", True)
+tr = call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "amount": 3000, "frequency": "monthly", "start_date": later,
+                                                          "access_mode": "trial", "trial_start": today_, "trial_end": trial_end,
+                                                          "trial_modules": ["sales", "credit", "expenses"]})
+check("trial: status, end date, billing starts the day after", tr["summary"]["status"] == "trial" and tr["summary"]["trial_end"] == trial_end
+      and tr["plan"]["next_due_date"] == day_after, (tr["summary"]["status"], tr["plan"]["next_due_date"]))
+call("GET", "/credit", **T2)
+call("GET", "/reports", **T2, expect=422)
+check("trial modules apply during the trial", call("GET", "/auth/me", **T2)["billing"]["modules"] == ["sales", "credit", "expenses"])
+fr = call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "access_mode": "free"})
+check("free access without a price, business stays active", fr["summary"]["status"] == "free" and call("GET", "/billing", **T2)["summary"]["status"] == "free", fr["summary"]["status"])
+call("GET", "/credit", **T2)
+check("free full package: every module", call("GET", "/auth/me", **T2)["billing"]["modules"] is None)
+gr = call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "amount": 1000, "frequency": "monthly", "start_date": later,
+                                                          "grace_days": 3, "grace_until": later, "auto_suspend": True})
+check("grace extension and automatic suspension saved", gr["plan"]["grace_until"] == later and gr["plan"]["auto_suspend"] is True
+      and gr["summary"]["suspended"] is False, gr["plan"])
+oo2 = call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "one_off", "one_off_amount": 80000, "one_off_paid_on": today_,
+                                                           "tax_enabled": True, "tax_rate": 16})
+call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period"}, expect=422)
+check("one-off without maintenance never produces a recurring invoice", oo2["summary"]["status"] == "one_off_paid", oo2["summary"]["status"])
+mt = call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "one_off", "one_off_amount": 80000, "one_off_paid_on": today_,
+                                                          "maintenance": True, "amount": 120000, "frequency": "annual", "start_date": later,
+                                                          "tax_enabled": True, "tax_rate": 16})
+check("annual maintenance 120,000 + 16% tax", float(mt["summary"]["recurring_price"]["total"]) == 139200 and mt["summary"]["one_off_status"] == "paid", mt["summary"]["recurring_price"])
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "access_mode": "free"})
 
 step("Dashboard, reports, search, notifications, audit")
 d = call("GET", "/dashboard?period=today")

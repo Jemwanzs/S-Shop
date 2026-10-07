@@ -121,6 +121,7 @@ async fn serve() -> anyhow::Result<()> {
     let cfg = config::Config::from_env()?;
     let db = connect().await?;
     bootstrap::ensure(&db, &cfg).await?;
+    billing::mark_platform_tenants(&db, &cfg.platform_admins).await?;
 
     let port = cfg.port;
     let web_dir = cfg.web_dir.clone();

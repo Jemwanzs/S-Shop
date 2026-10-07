@@ -3,13 +3,39 @@ import type { Money } from "./types";
 import { date, dateTime, moneyDoc } from "./format";
 import { t } from "./i18n";
 
-export type BillingStatus = "not_set" | "paid" | "pending" | "due_soon" | "grace" | "overdue";
+export type BillingStatus =
+  | "platform_owned" | "not_set" | "free" | "trial" | "suspended" | "active" | "one_off_paid"
+  | "payment_due" | "maintenance_due" | "grace" | "overdue";
+
+/** Base price → discount → tax → amount payable. */
+export interface Price {
+  subtotal: Money;
+  discount: Money;
+  tax_rate: Money;
+  tax: Money;
+  total: Money;
+}
+
+export interface ModuleDef {
+  key: string;
+  label: string;
+}
 
 export interface BillingSummary {
   status: BillingStatus;
+  ownership: "customer" | "platform";
+  suspended: boolean;
   model: "subscription" | "one_off" | null;
+  access_mode: "billed" | "free" | "trial" | null;
+  package: "full" | "modules" | null;
+  modules: string[] | null;
   currency: string;
   amount: Money | null;
+  recurring_price: Price | null;
+  grace_until: string | null;
+  trial_start: string | null;
+  trial_end: string | null;
+  one_off_price: Price | null;
   frequency: string | null;
   custom_months: number | null;
   next_due: string | null;
@@ -31,6 +57,22 @@ export interface BillingPlan {
   model: "subscription" | "one_off";
   currency: string;
   one_off_amount: Money;
+  one_off_paid_on: string | null;
+  package: "full" | "modules";
+  modules: string[];
+  module_prices: Record<string, Money>;
+  discount_type: "none" | "percent" | "fixed";
+  discount_value: Money;
+  tax_enabled: boolean;
+  tax_rate: Money;
+  access_mode: "billed" | "free" | "trial";
+  trial_start: string | null;
+  trial_end: string | null;
+  trial_modules: string[];
+  grace_until: string | null;
+  auto_suspend: boolean;
+  recurring_price?: Price | null;
+  one_off_price?: Price | null;
   recurring: boolean;
   amount: Money;
   frequency: string;
@@ -59,6 +101,10 @@ export interface BillingDocument {
   paid_at: string | null;
   void_reason: string;
   created_at: string;
+  subtotal: Money;
+  discount: Money;
+  tax_rate: Money;
+  tax: Money;
   overdue: boolean;
 }
 
@@ -95,22 +141,47 @@ export interface DocumentView {
 }
 
 export const STATUS_LABEL: Record<BillingStatus, string> = {
+  platform_owned: "Platform owned",
   not_set: "No plan",
-  paid: "Paid up",
-  pending: "Payment pending",
-  due_soon: "Due soon",
-  grace: "In grace period",
+  free: "Free",
+  trial: "Trial",
+  suspended: "Suspended",
+  active: "Active subscription",
+  one_off_paid: "One-off paid",
+  payment_due: "Payment due",
+  maintenance_due: "Maintenance due",
+  grace: "Grace period",
   overdue: "Overdue",
 };
 
-export const STATUS_TONE: Record<BillingStatus, "success" | "warning" | "danger" | "neutral" | "info"> = {
+export const STATUS_TONE: Record<BillingStatus, "success" | "warning" | "danger" | "neutral" | "info" | "primary"> = {
+  platform_owned: "primary",
   not_set: "neutral",
-  paid: "success",
-  pending: "warning",
-  due_soon: "info",
+  free: "info",
+  trial: "info",
+  suspended: "danger",
+  active: "success",
+  one_off_paid: "success",
+  payment_due: "warning",
+  maintenance_due: "warning",
   grace: "warning",
   overdue: "danger",
 };
+
+/** Same calculation as the server (billing::calculate): discount on the base, tax on the discounted amount. */
+export function calculate(base: number, discountType: string, discountValue: number, taxEnabled: boolean, taxRate: number): Price {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const b = r2(Math.max(base, 0));
+  const discount = discountType === "percent" ? r2((b * Math.min(discountValue, 100)) / 100) : discountType === "fixed" ? r2(Math.min(discountValue, b)) : 0;
+  const rate = taxEnabled ? taxRate : 0;
+  const tax = r2(((b - discount) * rate) / 100);
+  return { subtotal: b, discount, tax_rate: rate, tax, total: r2(b - discount + tax) };
+}
+
+export function packageLabel(pkg: string | null | undefined, modules: string[] | null | undefined, catalogue: ModuleDef[]): string {
+  if (pkg !== "modules" || !modules?.length) return t("Full platform");
+  return modules.map((m) => t(catalogue.find((c) => c.key === m)?.label ?? m)).join(", ");
+}
 
 export const FREQUENCIES: [string, string][] = [
   ["monthly", "Monthly"],
@@ -184,11 +255,24 @@ export async function billingPdf(v: DocumentView, payment?: BillingPayment) {
     headStyles: { fillColor: [24, 24, 27] },
     styles: { fontSize: 9 },
     head: [["Description", "Category", "Amount"]],
-    body: [[d.description + (d.period_start ? `\n${periodLabel(d)}` : ""), CATEGORY_LABEL[d.category], moneyDoc(d.amount, d.currency, true)]],
+    body: [[d.description + (d.period_start ? `\n${periodLabel(d)}` : ""), CATEGORY_LABEL[d.category], moneyDoc(d.subtotal, d.currency, true)]],
     columnStyles: { 2: { halign: "right" } },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   y = (doc as any).lastAutoTable.finalY + 8;
+  doc.setFontSize(9);
+  const lines: [string, string][] = [["Subtotal", moneyDoc(d.subtotal, d.currency, true)]];
+  if (Number(d.discount) > 0) lines.push(["Discount", `-${moneyDoc(d.discount, d.currency, true)}`]);
+  if (Number(d.tax) > 0) lines.push([`Tax (${Number(d.tax_rate)}%)`, moneyDoc(d.tax, d.currency, true)]);
+  if (lines.length > 1) {
+    doc.setFont("helvetica", "normal");
+    lines.forEach(([k, v]) => {
+      doc.text(k, 120, y);
+      doc.text(v, W - 18, y, { align: "right" });
+      y += 5;
+    });
+    y += 1;
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text(payment ? "Amount paid" : "Total", 120, y);

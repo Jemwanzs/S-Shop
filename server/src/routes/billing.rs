@@ -63,7 +63,12 @@ pub struct DocumentRow {
     paid_at: Option<DateTime<Utc>>,
     void_reason: String,
     created_at: DateTime<Utc>,
-    /// open invoice past its due date + grace period.
+    /// Base price → discount → tax → amount (payable).
+    subtotal: Decimal,
+    discount: Decimal,
+    tax_rate: Decimal,
+    tax: Decimal,
+    /// open invoice past its due date + grace period (and any grace extension).
     overdue: bool,
 }
 
@@ -86,7 +91,9 @@ pub struct PaymentRow {
 
 const DOCUMENTS: &str = "SELECT d.id, d.kind, d.number, d.category, d.description, d.amount, d.currency, d.issue_date, d.due_date,
         d.period_start, d.period_end, d.status, d.quotation_id, d.paid_at, d.void_reason, d.created_at,
-        (d.kind = 'invoice' AND d.status = 'open' AND d.due_date + COALESCE(p.grace_days, 0) < $2) AS overdue
+        d.subtotal, d.discount, d.tax_rate, d.tax,
+        (d.kind = 'invoice' AND d.status = 'open' AND d.due_date + COALESCE(p.grace_days, 0) < $2
+         AND (p.grace_until IS NULL OR p.grace_until < $2)) AS overdue
  FROM billing_documents d LEFT JOIN billing_plans p ON p.tenant_id = d.tenant_id WHERE d.tenant_id = $1";
 
 const PAYMENTS: &str = "SELECT b.id, b.invoice_id, d.number AS invoice_number, b.amount, b.currency, b.method, b.reference, b.status, b.channel,
@@ -136,12 +143,18 @@ fn vendor_public(v: &Vendor) -> Value {
     })
 }
 
-/// The plan as the business sees it (no internal notes).
+/// The plan as the business sees it (no internal notes), with the price breakdown.
 fn plan_public(p: &billing::Plan) -> Value {
     json!({
         "model": p.model, "currency": p.currency, "one_off_amount": p.one_off_amount, "recurring": p.recurring, "amount": p.amount,
         "frequency": p.frequency, "custom_months": p.custom_months, "start_date": p.start_date, "next_due_date": p.next_due_date,
-        "grace_days": p.grace_days, "auto_renew": p.auto_renew,
+        "grace_days": p.grace_days, "grace_until": p.grace_until, "auto_renew": p.auto_renew, "auto_suspend": p.auto_suspend,
+        "package": p.package, "modules": p.modules, "module_prices": p.module_prices,
+        "discount_type": p.discount_type, "discount_value": p.discount_value, "tax_enabled": p.tax_enabled, "tax_rate": p.tax_rate,
+        "access_mode": p.access_mode, "trial_start": p.trial_start, "trial_end": p.trial_end, "trial_modules": p.trial_modules,
+        "one_off_paid_on": p.one_off_paid_on,
+        "recurring_price": p.recurring.then(|| billing::price(p, p.amount)),
+        "one_off_price": (p.model == "one_off").then(|| billing::price(p, p.one_off_amount)),
     })
 }
 
@@ -160,6 +173,7 @@ async fn my_billing(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<V
         "payments": payments(&state, ctx.tenant_id, false).await?,
         "vendor": vendor_public(&vendor(&state).await?),
         "paystack": state.cfg.paystack.is_some(),
+        "catalogue": billing::modules_catalogue(),
     })))
 }
 
@@ -291,15 +305,16 @@ async fn accept_quotation(State(state): State<AppState>, ctx: Ctx, Path(id): Pat
 }
 
 async fn quotation_to_invoice(tx: &mut sqlx::PgConnection, tenant_id: Uuid, id: Uuid, by: Option<Uuid>) -> AppResult<(Uuid, String)> {
-    let q: Option<(String, String, String, Decimal, String, Option<NaiveDate>, Option<NaiveDate>)> = sqlx::query_as(
-        "SELECT status, category, description, amount, currency, period_start, period_end FROM billing_documents
-         WHERE id = $1 AND tenant_id = $2 AND kind = 'quotation' FOR UPDATE",
+    #[allow(clippy::type_complexity)]
+    let q: Option<(String, String, String, Decimal, String, Option<NaiveDate>, Option<NaiveDate>, Decimal, Decimal, Decimal, Decimal)> = sqlx::query_as(
+        "SELECT status, category, description, amount, currency, period_start, period_end, subtotal, discount, tax_rate, tax
+         FROM billing_documents WHERE id = $1 AND tenant_id = $2 AND kind = 'quotation' FOR UPDATE",
     )
     .bind(id)
     .bind(tenant_id)
     .fetch_optional(&mut *tx)
     .await?;
-    let (status, category, description, amount, currency, ps, pe) = q.ok_or(AppError::NotFound("Quotation"))?;
+    let (status, category, description, amount, currency, ps, pe, subtotal, discount, tax_rate, tax) = q.ok_or(AppError::NotFound("Quotation"))?;
     if status != "open" {
         return Err(rule(format!("This quotation is already {status}")));
     }
@@ -312,7 +327,8 @@ async fn quotation_to_invoice(tx: &mut sqlx::PgConnection, tenant_id: Uuid, id: 
             kind: "invoice",
             category: &category,
             description,
-            amount,
+            // The invoice carries the quotation's price exactly as accepted.
+            price: billing::Price { subtotal, discount, tax_rate, tax, total: amount },
             currency,
             issue_date: today,
             due_date: today + chrono::Duration::days(grace.max(1) as i64),
@@ -339,6 +355,7 @@ pub async fn platform_view(state: &AppState, tenant_id: Uuid) -> AppResult<Value
         "documents": documents(state, tenant_id).await?,
         "payments": payments(state, tenant_id, true).await?,
         "paystack": state.cfg.paystack.is_some(),
+        "catalogue": billing::modules_catalogue(),
     }))
 }
 
@@ -365,13 +382,15 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Va
     let monthly_recurring: Option<Decimal> = sqlx::query_scalar(
         "SELECT SUM(p.amount / CASE p.frequency WHEN 'quarterly' THEN 3 WHEN 'semi_annual' THEN 6 WHEN 'annual' THEN 12
                                                 WHEN 'custom' THEN p.custom_months ELSE 1 END)
-         FROM billing_plans p JOIN tenants t ON t.id = p.tenant_id WHERE p.recurring AND t.status = 'active' AND p.model = 'subscription'",
+         FROM billing_plans p JOIN tenants t ON t.id = p.tenant_id
+         WHERE p.recurring AND t.status = 'active' AND t.ownership = 'customer' AND p.access_mode = 'billed' AND p.model = 'subscription'",
     )
     .fetch_one(&state.db)
     .await?;
     let maintenance: (i64, Option<Decimal>) = sqlx::query_as(
         "SELECT COUNT(*), SUM(p.amount) FROM billing_plans p JOIN tenants t ON t.id = p.tenant_id
-         WHERE p.model = 'one_off' AND p.recurring AND t.status = 'active' AND p.next_due_date <= $1",
+         WHERE p.model = 'one_off' AND p.recurring AND t.status = 'active' AND t.ownership = 'customer' AND p.access_mode = 'billed'
+           AND p.next_due_date <= $1",
     )
     .bind(today + chrono::Duration::days(30))
     .fetch_one(&state.db)
@@ -387,19 +406,19 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Va
     .fetch_all(&state.db)
     .await?;
     let by = |cat: &str, i: usize| revenue.iter().filter(|r| r.0 == cat).map(|r| [r.1, r.2, r.3][i]).sum::<Decimal>();
-    let billable = |r: &super::platform::TenantRow| !r.is_demo;
+    // Figures cover customer businesses: not the demo, not the platform owner's own business.
+    let billable = |r: &super::platform::TenantRow| !r.is_demo && r.ownership == "customer";
+    let mut by_status = serde_json::Map::new();
+    for st in STATUSES {
+        by_status.insert(st.to_string(), json!(count(&|r| billable(r) && r.billing.status == *st)));
+    }
     Ok(Json(json!({
         "counts": {
             "businesses": count(&|r| billable(r)),
             "active": count(&|r| billable(r) && r.status == "active"),
             "deactivated": count(&|r| billable(r) && r.status != "active"),
-            "paid": count(&|r| billable(r) && r.billing.status == "paid"),
-            "due_soon": count(&|r| billable(r) && r.billing.status == "due_soon"),
-            "grace": count(&|r| billable(r) && r.billing.status == "grace"),
-            "overdue": count(&|r| billable(r) && r.billing.status == "overdue"),
-            "pending": count(&|r| billable(r) && r.billing.status == "pending"),
-            "not_set": count(&|r| billable(r) && r.billing.status == "not_set"),
         },
+        "by_status": by_status,
         "revenue": {
             "subscription": { "month": by("subscription", 0), "year": by("subscription", 1), "all": by("subscription", 2) },
             "one_off": { "month": by("one_off", 0), "year": by("one_off", 1), "all": by("one_off", 2) },
@@ -414,6 +433,9 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Va
         "paystack": state.cfg.paystack.is_some(),
     })))
 }
+
+/// Billing statuses (roadmap 44), in the order the dashboard shows them.
+const STATUSES: &[&str] = &["active", "one_off_paid", "trial", "free", "payment_due", "maintenance_due", "grace", "overdue", "suspended", "not_set"];
 
 #[derive(Serialize, sqlx::FromRow)]
 struct PaymentAttention {
@@ -463,9 +485,12 @@ struct PlanBody {
     currency: Option<String>,
     #[serde(default)]
     one_off_amount: Decimal,
+    /// One-off fee already paid outside S'Shop.
+    one_off_paid_on: Option<NaiveDate>,
     /// One-off model: maintenance fee required.
     #[serde(default)]
     maintenance: bool,
+    /// Recurring base price for the full platform (a module package uses `module_prices`).
     #[serde(default)]
     amount: Decimal,
     #[serde(default)]
@@ -476,19 +501,111 @@ struct PlanBody {
     next_due_date: Option<NaiveDate>,
     #[serde(default)]
     grace_days: Option<i32>,
+    grace_until: Option<NaiveDate>,
     #[serde(default)]
     auto_renew: Option<bool>,
+    #[serde(default)]
+    auto_suspend: bool,
+    /// full | modules
+    #[serde(default)]
+    package: Option<String>,
+    #[serde(default)]
+    modules: Vec<String>,
+    #[serde(default)]
+    module_prices: std::collections::BTreeMap<String, Decimal>,
+    /// none | percent | fixed
+    #[serde(default)]
+    discount_type: Option<String>,
+    #[serde(default)]
+    discount_value: Decimal,
+    #[serde(default)]
+    tax_enabled: bool,
+    #[serde(default)]
+    tax_rate: Decimal,
+    /// billed | free | trial
+    #[serde(default)]
+    access_mode: Option<String>,
+    trial_start: Option<NaiveDate>,
+    trial_end: Option<NaiveDate>,
+    #[serde(default)]
+    trial_modules: Vec<String>,
     #[serde(default)]
     notes: String,
 }
 
-/// Sets a business's billing model (roadmap 37).
+fn clean_modules(list: &[String], what: &str) -> AppResult<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    for m in list {
+        if !billing::is_module(m) {
+            return Err(bad(format!("Unknown module in {what}: {m}")));
+        }
+        if !out.contains(m) {
+            out.push(m.clone());
+        }
+    }
+    // Catalogue order, so the same package always reads the same way.
+    out.sort_by_key(|m| billing::MODULES.iter().position(|x| x.key == m).unwrap_or(usize::MAX));
+    Ok(out)
+}
+
+/// Field-by-field differences between two plan snapshots, for the audit trail (who, when, previous → new).
+fn plan_changes(before: &Option<billing::Plan>, after: &Option<billing::Plan>) -> Value {
+    let b = before.as_ref().and_then(|p| serde_json::to_value(p).ok()).unwrap_or(Value::Null);
+    let a = after.as_ref().and_then(|p| serde_json::to_value(p).ok()).unwrap_or(Value::Null);
+    let mut changes = serde_json::Map::new();
+    if let Some(obj) = a.as_object() {
+        for (k, v) in obj {
+            if k == "updated_at" || k == "tenant_id" {
+                continue;
+            }
+            let old = b.get(k).cloned().unwrap_or(Value::Null);
+            if &old != v {
+                changes.insert(k.clone(), json!({ "from": old, "to": v }));
+            }
+        }
+    }
+    Value::Object(changes)
+}
+
+/// Sets a business's package, pricing, discount, tax, access (billed / free / trial), grace and billing model
+/// (roadmap 37, 41–43). Every change is audited with the previous and new value of each field.
 async fn save_plan(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<PlanBody>) -> AppResult<Json<Value>> {
     require_platform_admin(&state, &ctx).await?;
     if !matches!(b.model.as_str(), "subscription" | "one_off") {
         return Err(bad("Billing model must be Subscription or One-off"));
     }
+    let access_mode = b.access_mode.clone().unwrap_or_else(|| "billed".into());
+    if !matches!(access_mode.as_str(), "billed" | "free" | "trial") {
+        return Err(bad("Access must be billed, free or trial"));
+    }
+    let free = access_mode == "free";
+    let package = b.package.clone().unwrap_or_else(|| "full".into());
+    if !matches!(package.as_str(), "full" | "modules") {
+        return Err(bad("Package must be the full platform or selected modules"));
+    }
+    let modules = if package == "modules" { clean_modules(&b.modules, "the package")? } else { Vec::new() };
+    if package == "modules" && modules.is_empty() {
+        return Err(bad("Choose at least one module for the package"));
+    }
+    let mut module_prices = serde_json::Map::new();
+    for (k, v) in &b.module_prices {
+        if !billing::is_module(k) {
+            return Err(bad(format!("Unknown module in the prices: {k}")));
+        }
+        if *v < Decimal::ZERO {
+            return Err(bad("Module prices cannot be negative"));
+        }
+        if package == "modules" && modules.contains(k) {
+            module_prices.insert(k.clone(), json!(crate::util::round2(*v)));
+        }
+    }
     let recurring = b.model == "subscription" || b.maintenance;
+    // A module package priced per module: the recurring base is the sum of the included modules' prices.
+    let amount = if b.model == "subscription" && package == "modules" && !module_prices.is_empty() {
+        modules.iter().filter_map(|m| b.module_prices.get(m)).copied().sum::<Decimal>()
+    } else {
+        b.amount
+    };
     let frequency = b.frequency.clone().unwrap_or_else(|| "monthly".into());
     if !FREQUENCIES.contains(&frequency.as_str()) {
         return Err(bad("Choose a billing frequency"));
@@ -501,61 +618,121 @@ async fn save_plan(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>
     if !(0..=90).contains(&grace) {
         return Err(bad("Grace period must be 0–90 days"));
     }
-    if b.model == "one_off" && b.one_off_amount <= Decimal::ZERO {
-        return Err(bad("Enter the one-off amount"));
-    }
-    if recurring {
-        let what = if b.model == "subscription" { "subscription" } else { "maintenance" };
-        if b.amount <= Decimal::ZERO {
-            return Err(bad(format!("Enter the {what} amount")));
-        }
-        if b.start_date.is_none() {
-            return Err(bad(format!("Enter the {what} start date")));
-        }
-    }
-    if b.one_off_amount < Decimal::ZERO || b.amount < Decimal::ZERO {
+    if b.one_off_amount < Decimal::ZERO || amount < Decimal::ZERO || b.discount_value < Decimal::ZERO {
         return Err(bad("Amounts cannot be negative"));
+    }
+    let discount_type = b.discount_type.clone().unwrap_or_else(|| "none".into());
+    if !matches!(discount_type.as_str(), "none" | "percent" | "fixed") {
+        return Err(bad("Discount must be none, a percentage or a fixed amount"));
+    }
+    if discount_type == "percent" && b.discount_value > Decimal::from(100) {
+        return Err(bad("A percentage discount cannot be more than 100%"));
+    }
+    if b.tax_enabled && (b.tax_rate <= Decimal::ZERO || b.tax_rate > Decimal::from(100)) {
+        return Err(bad("Enter a tax percentage between 0 and 100"));
+    }
+    // Free access needs no price; everything else does.
+    if !free {
+        if b.model == "one_off" && b.one_off_amount <= Decimal::ZERO {
+            return Err(bad("Enter the one-off amount"));
+        }
+        if recurring {
+            let what = if b.model == "subscription" { "subscription" } else { "maintenance" };
+            if amount <= Decimal::ZERO {
+                return Err(bad(format!("Enter the {what} amount")));
+            }
+            if b.start_date.is_none() {
+                return Err(bad(format!("Enter the {what} start date")));
+            }
+        }
+    }
+    let trial_modules = clean_modules(&b.trial_modules, "the trial")?;
+    if access_mode == "trial" {
+        match (b.trial_start, b.trial_end) {
+            (Some(s), Some(e)) if e >= s => {}
+            (Some(_), Some(_)) => return Err(bad("The trial must end on or after its start date")),
+            _ => return Err(bad("Enter the trial start and end dates")),
+        }
+    }
+    if b.one_off_paid_on.is_some_and(|d| d > billing::today()) {
+        return Err(bad("The one-off payment date cannot be in the future"));
     }
     let currency = b.currency.clone().unwrap_or_else(|| "KES".into()).trim().to_uppercase();
     if currency.len() != 3 {
         return Err(bad("Currency must be a 3-letter code"));
     }
-    let next_due = if recurring { b.next_due_date.or(b.start_date) } else { None };
+    // Billing of a recurring fee after a trial starts the day after the trial ends.
+    let after_trial = (access_mode == "trial").then(|| b.trial_end.and_then(|e| e.succ_opt())).flatten();
+    let recurring = recurring && !(free && amount <= Decimal::ZERO);
+    let next_due = if recurring { b.next_due_date.or(after_trial).or(b.start_date) } else { None };
+    let start_date = if recurring { b.start_date.or(next_due) } else { None };
+
     let mut tx = state.db.begin().await?;
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM tenants WHERE id = $1)").bind(id).fetch_one(&mut *tx).await?;
-    if !exists {
-        return Err(AppError::NotFound("Business"));
+    let ownership: String = sqlx::query_scalar("SELECT ownership FROM tenants WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound("Business"))?;
+    if ownership == "platform" {
+        return Err(refused("Not billable", "Platform billing does not apply to the platform owner's business"));
     }
     let before = billing::plan(&mut tx, id).await?;
     sqlx::query(
         "INSERT INTO billing_plans (tenant_id, model, currency, one_off_amount, recurring, amount, frequency, custom_months, start_date,
-                                    next_due_date, grace_days, auto_renew, notes, updated_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                                    next_due_date, grace_days, auto_renew, notes, updated_by, package, modules, module_prices,
+                                    discount_type, discount_value, tax_enabled, tax_rate, access_mode, trial_start, trial_end,
+                                    trial_modules, grace_until, auto_suspend, one_off_paid_on)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
          ON CONFLICT (tenant_id) DO UPDATE SET model = EXCLUDED.model, currency = EXCLUDED.currency, one_off_amount = EXCLUDED.one_off_amount,
              recurring = EXCLUDED.recurring, amount = EXCLUDED.amount, frequency = EXCLUDED.frequency, custom_months = EXCLUDED.custom_months,
              start_date = EXCLUDED.start_date, next_due_date = EXCLUDED.next_due_date, grace_days = EXCLUDED.grace_days,
-             auto_renew = EXCLUDED.auto_renew, notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = now()",
+             auto_renew = EXCLUDED.auto_renew, notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = now(),
+             package = EXCLUDED.package, modules = EXCLUDED.modules, module_prices = EXCLUDED.module_prices,
+             discount_type = EXCLUDED.discount_type, discount_value = EXCLUDED.discount_value, tax_enabled = EXCLUDED.tax_enabled,
+             tax_rate = EXCLUDED.tax_rate, access_mode = EXCLUDED.access_mode, trial_start = EXCLUDED.trial_start,
+             trial_end = EXCLUDED.trial_end, trial_modules = EXCLUDED.trial_modules, grace_until = EXCLUDED.grace_until,
+             auto_suspend = EXCLUDED.auto_suspend, one_off_paid_on = EXCLUDED.one_off_paid_on",
     )
     .bind(id)
     .bind(&b.model)
     .bind(&currency)
     .bind(if b.model == "one_off" { b.one_off_amount } else { Decimal::ZERO })
     .bind(recurring)
-    .bind(if recurring { b.amount } else { Decimal::ZERO })
+    .bind(if recurring { crate::util::round2(amount) } else { Decimal::ZERO })
     .bind(&frequency)
     .bind(custom_months)
-    .bind(if recurring { b.start_date } else { None })
+    .bind(start_date)
     .bind(next_due)
     .bind(grace)
     .bind(b.auto_renew.unwrap_or(true))
     .bind(b.notes.trim().chars().take(1000).collect::<String>())
     .bind(ctx.user_id)
+    .bind(&package)
+    .bind(&modules)
+    .bind(Value::Object(module_prices))
+    .bind(&discount_type)
+    .bind(if discount_type == "none" { Decimal::ZERO } else { b.discount_value })
+    .bind(b.tax_enabled)
+    .bind(if b.tax_enabled { b.tax_rate } else { Decimal::ZERO })
+    .bind(&access_mode)
+    .bind(if access_mode == "trial" { b.trial_start } else { None })
+    .bind(if access_mode == "trial" { b.trial_end } else { None })
+    .bind(if access_mode == "trial" { trial_modules } else { Vec::new() })
+    .bind(b.grace_until)
+    .bind(b.auto_suspend)
+    .bind(if b.model == "one_off" { b.one_off_paid_on } else { None })
     .execute(&mut *tx)
     .await?;
     let after = billing::plan(&mut tx, id).await?;
-    record_platform(&mut tx, &ctx, id, || Entry::new("billing", "plan_updated", "tenant", id).before(before.clone()).after(after.clone())).await?;
+    let changes = plan_changes(&before, &after);
+    if changes.as_object().is_some_and(|c| !c.is_empty()) {
+        let entry = json!({ "changes": changes, "plan": after });
+        record_platform(&mut tx, &ctx, id, || Entry::new("billing", "plan_updated", "tenant", id).before(before.clone()).after(entry.clone())).await?;
+    }
+    billing::refresh_suspension(&mut tx, id, Some(ctx.user_id)).await?;
+    let summary = billing::summary(&mut tx, id).await?;
     tx.commit().await?;
-    Ok(Json(json!({ "ok": true, "plan": after })))
+    Ok(Json(json!({ "ok": true, "plan": after, "summary": summary, "changes": changes })))
 }
 
 #[derive(Deserialize)]
@@ -593,27 +770,27 @@ async fn issue_document(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
             let p = plan.as_ref().ok_or_else(|| rule("Set the business's billing plan first"))?;
             if b.kind == "invoice" {
                 let (i, n) = billing::issue_next_period(&mut tx, p, Some(ctx.user_id)).await?;
-                (i, n, p.amount)
+                (i, n, billing::price(p, p.amount))
             } else {
                 let start = p.next_due_date.ok_or_else(|| rule("This billing plan has no recurring fee"))?;
                 let period = billing::period(start, billing::months(&p.frequency, p.custom_months));
                 let (i, n) = billing::insert_document(&mut tx, billing::NewDocument {
                     tenant_id: id, kind: "quotation", category: billing::recurring_category(p),
                     description: format!("{} — {}", if p.model == "subscription" { "S'Shop subscription" } else { "S'Shop maintenance" }, billing::frequency_label(&p.frequency, p.custom_months)),
-                    amount: p.amount, currency: currency.clone(), issue_date: today, due_date: due(b.due_date)?, period: Some(period), quotation_id: None, created_by: Some(ctx.user_id),
+                    price: billing::price(p, p.amount), currency: currency.clone(), issue_date: today, due_date: due(b.due_date)?, period: Some(period), quotation_id: None, created_by: Some(ctx.user_id),
                 }).await?;
-                (i, n, p.amount)
+                (i, n, billing::price(p, p.amount))
             }
         }
         "one_off" => {
             let p = plan.as_ref().filter(|p| p.model == "one_off").ok_or_else(|| rule("This business is not on the one-off model"))?;
-            let amount = b.amount.unwrap_or(p.one_off_amount);
+            let price = billing::price(p, b.amount.unwrap_or(p.one_off_amount));
             let description = if b.description.trim().is_empty() { "S'Shop one-off licence".to_string() } else { b.description.trim().chars().take(300).collect() };
             let (i, n) = billing::insert_document(&mut tx, billing::NewDocument {
                 tenant_id: id, kind: if b.kind == "invoice" { "invoice" } else { "quotation" }, category: "one_off", description,
-                amount, currency: currency.clone(), issue_date: today, due_date: due(b.due_date)?, period: None, quotation_id: None, created_by: Some(ctx.user_id),
+                price, currency: currency.clone(), issue_date: today, due_date: due(b.due_date)?, period: None, quotation_id: None, created_by: Some(ctx.user_id),
             }).await?;
-            (i, n, amount)
+            (i, n, price)
         }
         "other" => {
             let amount = b.amount.filter(|a| *a > Decimal::ZERO).ok_or_else(|| bad("Enter the amount"))?;
@@ -621,19 +798,18 @@ async fn issue_document(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
             if description.len() < 3 {
                 return Err(bad("Describe what this is for"));
             }
+            // Ad-hoc charges follow the business's discount and tax settings.
+            let price = plan.as_ref().map_or_else(|| billing::plain(amount), |p| billing::price(p, amount));
             let (i, n) = billing::insert_document(&mut tx, billing::NewDocument {
                 tenant_id: id, kind: if b.kind == "invoice" { "invoice" } else { "quotation" }, category: "other", description,
-                amount, currency: currency.clone(), issue_date: today, due_date: due(b.due_date)?, period: None, quotation_id: None, created_by: Some(ctx.user_id),
+                price, currency: currency.clone(), issue_date: today, due_date: due(b.due_date)?, period: None, quotation_id: None, created_by: Some(ctx.user_id),
             }).await?;
-            (i, n, amount)
+            (i, n, price)
         }
         _ => return Err(bad("Choose what to bill")),
     };
-    if amount <= Decimal::ZERO {
-        return Err(bad("The amount must be more than zero"));
-    }
     let action = if b.kind == "invoice" { "invoice_issued" } else { "quotation_issued" };
-    let after = json!({ "number": number, "amount": amount, "category": b.category });
+    let after = json!({ "number": number, "amount": amount.total, "price": amount, "category": b.category });
     record_platform(&mut tx, &ctx, id, || Entry::new("billing", action, "billing_document", doc_id).after(after.clone())).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true, "id": doc_id, "number": number })))
@@ -662,6 +838,7 @@ async fn void_document(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
     let (tenant, number, _kind) = row.ok_or_else(|| rule("Only open quotations and invoices can be voided"))?;
     let after = json!({ "number": number, "reason": reason });
     record_platform(&mut tx, &ctx, tenant, || Entry::new("billing", "document_void", "billing_document", id).after(after.clone())).await?;
+    billing::refresh_suspension(&mut tx, tenant, Some(ctx.user_id)).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true })))
 }

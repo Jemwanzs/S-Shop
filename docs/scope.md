@@ -186,6 +186,9 @@ screen, the session check and the background job:
 
  — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
-- ⏳ **29. Email sender & public URL** — verified sending domain in Resend, `MAIL_FROM`, `PUBLIC_URL`.
-- ⏳ **30. `sshop.io` domain** — CNAME `ckyv3su4.up.railway.app` + `_railway-verify` TXT at the registrar.
+- ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as
+  a sending domain in Resend (DNS records) and set `MAIL_FROM` (e.g. `S'Shop <noreply@s-shop.store>`).
+- ◐ **30. Custom domain** — replaced by **s-shop.store** ✅ (2026-10-07: live with HTTPS, Paystack webhook
+  `https://s-shop.store/api/webhooks/paystack`). Pending: `www.s-shop.store` (add it on Railway + CNAME, or redirect at the
+  registrar).
 - ⏳ **31. Region** — move app + database together to an EU region (with a backup/restore window).

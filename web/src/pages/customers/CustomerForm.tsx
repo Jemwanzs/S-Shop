@@ -4,7 +4,7 @@ import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { phone } from "@/lib/format";
 import type { Customer } from "@/lib/types";
-import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS, isDirty } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/Form";
 import { CustomFieldInputs } from "@/components/CustomFields";
@@ -52,7 +52,15 @@ export function CustomerForm({ open, onOpenChange, customer, onSaved }: { open: 
       open={open}
       onOpenChange={onOpenChange}
       title={customer ? "Edit customer" : "New customer"}
-      footer={<Button className="w-full md:w-auto" disabled={!mobile.trim() || !firstName.trim() || save.isPending} onClick={() => save.mutate()}>{customer ? "Save" : "Add customer"}</Button>}
+      footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…"
+        blockedBy={[
+          (!mobile.trim() || !firstName.trim()) && REASONS.completeFields,
+          customer && !isDirty(
+            { m: phone(customer.mobile), f: customer.first_name, o: customer.other_names ?? "", n: customer.nickname ?? "", e: customer.email ?? "", c: customer.custom_fields ?? {} },
+            { m: mobile, f: firstName, o: otherNames, n: nickname, e: email, c: custom },
+          ) && REASONS.nothingToSave,
+        ]}
+        onAction={() => save.mutateAsync()}>{customer ? "Save" : "Add customer"}</ActionButton>}
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Mobile number" className="sm:col-span-2"><Input inputMode="tel" className="num" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="07XXXXXXXX" autoFocus={!customer} /></Field>

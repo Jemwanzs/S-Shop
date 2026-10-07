@@ -10,6 +10,7 @@ import { useCustomFields, type FieldKind } from "@/components/CustomFields";
 
 const OPTIONAL_STATUSES = ["preparing", "dispatched", "on_delivery", "completed"];
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -285,7 +286,8 @@ function FieldsCard({ kind, empty }: { kind: FieldKind; empty: string }) {
         open={!!editing}
         onOpenChange={(o) => !o && setEditing(null)}
         title={editing?.id ? "Edit field" : "New field"}
-        footer={<Button className="w-full md:w-auto" disabled={!editing?.label?.trim() || save.isPending} onClick={() => editing && save.mutate(editing)}>{tr("Save")}</Button>}
+        footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…" blockedBy={[!editing?.label?.trim() && "Enter a label"]}
+          onAction={() => editing && save.mutateAsync(editing)}>{tr("Save")}</ActionButton>}
       >
         {editing && (
           <div className="space-y-4">

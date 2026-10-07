@@ -34,6 +34,8 @@ pub struct AppState {
     pub demo: Arc<std::sync::Mutex<crate::routes::platform::DemoStatus>>,
     /// Rate limits for unauthenticated endpoints.
     pub limits: Arc<crate::ratelimit::Limiter>,
+    /// Duplicate-submission guard for write requests (dedupe.rs).
+    pub dedupe: Arc<crate::dedupe::Dedupe>,
 }
 
 impl AppState {
@@ -52,6 +54,7 @@ impl AppState {
             fx: Arc::new(Mutex::new(None)),
             demo: Arc::new(std::sync::Mutex::new(Default::default())),
             limits: Arc::default(),
+            dedupe: Arc::default(),
         }
     }
 

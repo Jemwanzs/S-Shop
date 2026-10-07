@@ -8,6 +8,7 @@ import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { CreditRow, Money, Outcome } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, Select } from "@/components/Form";
@@ -54,7 +55,6 @@ export function RecallDialog({ open, onOpenChange, credit, items, onDone }: {
   const after = Math.max(balance - value, 0);
   const over = Math.max(value - balance, 0);
   const unscanned = chosen.filter((i) => i.tracked && !scanned[i.id]);
-  const valid = chosen.length > 0 && unscanned.length === 0 && reason.trim().length >= 3;
   const everything = left.length > 0 && left.every((i) => (qty[i.id] ?? 0) === i.quantity - i.returned_qty);
 
   const reset = () => {
@@ -97,9 +97,11 @@ export function RecallDialog({ open, onOpenChange, credit, items, onDone }: {
         title="Recall credit sale"
         description={`${credit.customer_name} · ${credit.receipt_no}`}
         footer={
-          <Button className="w-full md:w-auto" disabled={!valid || busy} onClick={submit}>
+          <ActionButton className="w-full md:w-auto" online busy={busy} busyLabel="Recalling…"
+            blockedBy={[!chosen.length && "Choose items", unscanned.length > 0 && "Scan the items", reason.trim().length < 3 && REASONS.enterReason]}
+            onAction={submit}>
             <RotateCcw /> {t("Recall to stock")}
-          </Button>
+          </ActionButton>
         }
       >
         <div className="space-y-4">

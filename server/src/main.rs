@@ -3,6 +3,7 @@ mod auth;
 mod billing;
 mod bootstrap;
 mod config;
+mod dedupe;
 mod demo;
 mod error;
 mod geo;
@@ -154,7 +155,8 @@ async fn serve() -> anyhow::Result<()> {
         ));
 
     let mut app = Router::new()
-        .nest("/api", routes::api())
+        // Every write request goes through the duplicate-submission guard (roadmap 47).
+        .nest("/api", routes::api().layer(axum::middleware::from_fn_with_state(state.clone(), dedupe::guard)))
         // Healthy only when the database answers (Railway restarts the service otherwise).
         .route("/healthz", axum::routing::get(healthz))
         .merge(assets)

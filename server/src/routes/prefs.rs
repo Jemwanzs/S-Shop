@@ -30,10 +30,12 @@ pub struct Preferences {
     pub language: String,
     pub font: String,
     pub currency: String,
+    /// Quick actions (roadmap 48): the floating Record Sale bubble may be dragged to another edge position.
+    pub quick_sale_draggable: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
-        Self { language: "en".into(), font: "Outfit".into(), currency: BASE_CURRENCY.into() }
+        Self { language: "en".into(), font: "Outfit".into(), currency: BASE_CURRENCY.into(), quick_sale_draggable: false }
     }
 }
 

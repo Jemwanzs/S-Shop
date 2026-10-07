@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, ImagePlus, Loader2, X } from "lucide-react";
+import { AlertTriangle, ImagePlus, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { optimizeImage } from "@/lib/image";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
-import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 
 /** A photo chosen but not yet saved. `ref` makes its upload idempotent (a retry never stores it twice). */
@@ -196,9 +196,10 @@ export function AddPhotosDialog({ productId, existing, max, open, onOpenChange, 
       title="Add photos"
       description={`${t("Up to")} ${max} ${t("photos per product. Review them before saving.")}`}
       footer={
-        <Button className="w-full md:w-auto" disabled={busy || !pending.items.length || !photosValid(pending.items, room)} onClick={save}>
-          {busy ? <Loader2 className="animate-spin" /> : <ImagePlus />} {t("Save photos")}
-        </Button>
+        <ActionButton className="w-full md:w-auto" online busy={busy} busyLabel="Uploading…"
+          blockedBy={[!pending.items.length && REASONS.selectFile, !photosValid(pending.items, room) && "Check the photos"]} onAction={save}>
+          <ImagePlus /> {t("Save photos")}
+        </ActionButton>
       }
     >
       <PhotoPicker photos={pending} room={room} max={max} existing={existing} disabled={busy} />

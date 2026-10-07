@@ -10,6 +10,7 @@ import type { Customer, Money, Paged } from "@/lib/types";
 import { CustomFieldValues } from "@/components/CustomFields";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page";
 import { Medal, Pill, StatusBadge } from "@/components/Badges";
@@ -202,7 +203,9 @@ export default function CustomerDetail() {
         onOpenChange={(o) => !o && setPointsAction(null)}
         title={pointsAction === "redeem" ? "Redeem points" : "Adjust points"}
         description={`${count(c.points_available)} points available`}
-        footer={<Button className="w-full md:w-auto" disabled={!pts || parseInt(pts) === 0 || (pointsAction === "adjust" && !notes.trim()) || points.isPending} onClick={() => points.mutate()}>{t("Save")}</Button>}
+        footer={<ActionButton className="w-full md:w-auto" online busy={points.isPending} busyLabel="Saving…"
+          blockedBy={[(!pts || parseInt(pts) === 0) && "Enter the points", pointsAction === "adjust" && !notes.trim() && REASONS.enterReason]}
+          onAction={() => points.mutateAsync()}>{t("Save")}</ActionButton>}
       >
         <div className="space-y-4">
           <Field label={pointsAction === "redeem" ? "Points to redeem" : "Points (use − to remove)"}>

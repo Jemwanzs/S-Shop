@@ -10,6 +10,7 @@ import type { Money, OrderRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ORDER_FLOW, orderLabel, orderStepEnabled } from "@/lib/orders";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page";
@@ -206,14 +207,17 @@ export default function OrderDetail() {
         title={target ? label(target) : ""}
         description={needsPayment ? "This step completes the order: stock is cleared and a sale is recorded." : undefined}
         footer={
-          <Button
+          <ActionButton
             className="w-full md:w-auto"
             variant={target === "cancelled" || target === "rejected" ? "destructive" : "default"}
-            disabled={move.isPending || unitsMissing || (needsPayment && method === "mpesa" && reference.length < 8)}
-            onClick={() => move.mutate()}
+            online
+            busy={move.isPending}
+            busyLabel="Processing…"
+            blockedBy={[unitsMissing && "Scan the items", needsPayment && method === "mpesa" && reference.length < 8 && "Enter the M-Pesa code"]}
+            onAction={() => move.mutateAsync()}
           >
             {t("Confirm")}
-          </Button>
+          </ActionButton>
         }
       >
         <div className="space-y-4">

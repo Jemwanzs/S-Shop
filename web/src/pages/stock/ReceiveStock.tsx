@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ImagePlus, Images, Loader2, PackagePlus, ScanLine, X } from "lucide-react";
+import { CheckCircle2, ImagePlus, Images, PackagePlus, ScanLine, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -9,6 +9,7 @@ import { useDebounced } from "@/lib/hooks";
 import { count, money, todayIso, toNum } from "@/lib/format";
 import type { Outcome, Paged, Product, Supplier } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { PageHeader, Section } from "@/components/Page";
 import { Field, Select, ToggleRow } from "@/components/Form";
@@ -252,9 +253,10 @@ export default function ReceiveStock() {
                 </div>
               </div>
             </Section>
-            <Button size="lg" className="h-14 w-full text-base" disabled={!valid || save.isPending} onClick={() => save.mutate()}>
-              {save.isPending ? <Loader2 className="animate-spin" /> : <><PackagePlus /> {t("Receive")} {count(quantity)} item{quantity === 1 ? "" : "s"}</>}
-            </Button>
+            <ActionButton size="lg" className="h-14 w-full text-base" online busy={save.isPending} busyLabel="Receiving…"
+              blockedBy={[quantity <= 0 && "Enter the quantity", !valid && REASONS.completeFields]} onAction={() => save.mutateAsync()}>
+              <PackagePlus /> {t("Receive")} {count(quantity)} item{quantity === 1 ? "" : "s"}
+            </ActionButton>
             {save.isSuccess && !save.isPending && <p className="flex items-center justify-center gap-1.5 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> {t("Saved — ready for the next delivery")}</p>}
           </div>
         )}

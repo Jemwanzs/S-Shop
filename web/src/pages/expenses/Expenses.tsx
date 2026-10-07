@@ -8,6 +8,7 @@ import { date, methodLabel, money, todayIso, toNum } from "@/lib/format";
 import { fileToDataUrl, optimizeImage } from "@/lib/image";
 import type { Money, Outcome } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader, EmptyState, Section } from "@/components/Page";
@@ -149,9 +150,10 @@ function NewExpense({ open, onOpenChange, categories, methods }: { open: boolean
     },
     onError: (e) => toast.error(e),
   });
-  const valid = categoryId && toNum(amount) > 0 && (!s.require_description || description.trim()) && (!s.require_attachment || file);
   return (
-    <ResponsiveDialog open={open} onOpenChange={onOpenChange} title="Record expense" footer={<Button className="w-full md:w-auto" disabled={!valid || save.isPending} onClick={() => save.mutate()}>{t("Save expense")}</Button>}>
+    <ResponsiveDialog open={open} onOpenChange={onOpenChange} title="Record expense" footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…"
+      blockedBy={[!categoryId && "Choose a category", toNum(amount) <= 0 && "Enter the amount", s.require_description && !description.trim() && "Add a description", s.require_attachment && !file && "Attach the receipt"]}
+      onAction={() => save.mutateAsync()}>{t("Save expense")}</ActionButton>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Category">
           <Select value={categoryId} onChange={setCategoryId}>

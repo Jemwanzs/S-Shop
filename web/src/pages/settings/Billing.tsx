@@ -24,6 +24,7 @@ import {
   packageLabel,
 } from "@/lib/billing";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Pill, StatusBadge } from "@/components/Badges";
 import { Card, Fact, PriceLines, SettingsPage } from "./shared";
 
@@ -165,9 +166,10 @@ export function BillingSettings() {
               <span className="num font-semibold">{moneyDoc(x.amount, x.currency)}</span>
               <div className="flex w-full gap-2 sm:w-auto">
                 <Button size="sm" variant="outline" className="flex-1 sm:flex-none" onClick={() => download(x)}><Download /> PDF</Button>
-                <Button size="sm" className="flex-1 sm:flex-none" disabled={!d?.paystack || pay.isPending} onClick={() => pay.mutate(x.id)}>
-                  {paying === x.id ? <Loader2 className="animate-spin" /> : <CreditCard />} {t("Pay now")}
-                </Button>
+                <ActionButton size="sm" className="flex-1 sm:flex-none" online busy={paying === x.id} busyLabel="Opening Paystack…" disabled={pay.isPending}
+                  blockedBy={[!d?.paystack && "Pay by bank"]} onAction={() => pay.mutateAsync(x.id)}>
+                  <CreditCard /> {t("Pay now")}
+                </ActionButton>
               </div>
             </div>
           ))}
@@ -186,7 +188,8 @@ export function BillingSettings() {
               <span className="num font-semibold">{moneyDoc(x.amount, x.currency)}</span>
               <div className="flex w-full gap-2 sm:w-auto">
                 <Button size="sm" variant="outline" className="flex-1 sm:flex-none" onClick={() => download(x)}><Download /> PDF</Button>
-                <Button size="sm" className="flex-1 sm:flex-none" disabled={accept.isPending} onClick={() => accept.mutate(x.id)}><CheckCircle2 /> {t("Accept")}</Button>
+                <ActionButton size="sm" className="flex-1 sm:flex-none" online busy={accept.isPending && accept.variables === x.id} disabled={accept.isPending} busyLabel="Accepting…"
+                  onAction={() => accept.mutateAsync(x.id)}><CheckCircle2 /> {t("Accept")}</ActionButton>
               </div>
             </div>
           ))}

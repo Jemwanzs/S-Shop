@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Ban, CalendarClock, CheckCircle2, ChevronRight, CircleDollarSign, Clock, Loader2, Wrench } from "lucide-react";
+import { AlertTriangle, Ban, CalendarClock, CheckCircle2, ChevronRight, CircleDollarSign, Clock, Wrench } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { date, dateTime, moneyDoc } from "@/lib/format";
@@ -12,7 +12,7 @@ import { StatCard } from "@/components/Stat";
 import { Pill } from "@/components/Badges";
 import { Chip } from "@/components/Filters";
 import { Field } from "@/components/Form";
-import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS, isDirty } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Loading } from "@/components/Page";
@@ -139,7 +139,8 @@ function VendorCard() {
         </div>
         <Field label="Payment instructions" optional><Textarea rows={2} value={f.instructions} onChange={(e) => set("instructions", e.target.value)} /></Field>
         <div className="flex justify-end">
-          <Button size="sm" disabled={save.isPending} onClick={() => save.mutate(f)}>{save.isPending ? <Loader2 className="animate-spin" /> : t("Save")}</Button>
+          <ActionButton size="sm" online busy={save.isPending} busyLabel="Saving…" doneLabel="Saved" blockedBy={[q.data && !isDirty(q.data.vendor, f) && REASONS.nothingToSave]}
+            onAction={() => save.mutateAsync(f)}>{t("Save")}</ActionButton>
         </div>
       </div>
     </Card>

@@ -9,6 +9,7 @@ import { ago, initials } from "@/lib/format";
 import type { Hours, Role, UserRow } from "@/lib/types";
 import { HoursEditor, hoursLabel } from "@/components/Hours";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, Select, ToggleRow } from "@/components/Form";
@@ -66,7 +67,8 @@ export function BranchesSettings() {
           </div>
         ))}
       </Card>
-      <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? "Edit branch" : "New branch"} footer={<Button className="w-full md:w-auto" disabled={!edit?.name || !edit?.code || save.isPending} onClick={() => edit && save.mutate(edit)}>{t("Save")}</Button>}>
+      <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? "Edit branch" : "New branch"} footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…" blockedBy={[(!edit?.name || !edit?.code) && REASONS.completeFields]}
+        onAction={() => edit && save.mutateAsync(edit)}>{t("Save")}</ActionButton>}>
         {edit && (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Name"><Input value={edit.name ?? ""} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
@@ -181,7 +183,13 @@ export function UsersSettings() {
         open={!!edit}
         onOpenChange={(o) => !o && setEdit(null)}
         title={edit?.id ? "Edit user" : "New user"}
-        footer={<Button className="w-full md:w-auto" disabled={!edit?.name || !edit?.email || !edit?.role_id || (!edit.id && (edit.pin.length < 4 || edit.pin !== pinConfirm)) || save.isPending} onClick={() => edit && save.mutate(edit)}>{t("Save user")}</Button>}
+        footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…"
+          blockedBy={[
+            (!edit?.name || !edit?.email || !edit?.role_id) && REASONS.completeFields,
+            !!edit && !edit.id && edit.pin.length < 4 && "PIN: 4+ characters",
+            !!edit && !edit.id && edit.pin !== pinConfirm && "PINs do not match",
+          ]}
+          onAction={() => edit && save.mutateAsync(edit)}>{t("Save user")}</ActionButton>}
       >
         {edit && (
           <div className="grid gap-4 sm:grid-cols-2">
@@ -213,7 +221,8 @@ export function UsersSettings() {
           </div>
         )}
       </ResponsiveDialog>
-      <ResponsiveDialog open={!!resetFor} onOpenChange={(o) => !o && setResetFor(null)} title={`Reset PIN for ${resetFor?.name}`} footer={<Button className="w-full md:w-auto" disabled={newPin.length < 4 || newPin !== pinConfirm || reset.isPending} onClick={() => reset.mutate()}>{t("Reset PIN")}</Button>}>
+      <ResponsiveDialog open={!!resetFor} onOpenChange={(o) => !o && setResetFor(null)} title={`Reset PIN for ${resetFor?.name}`} footer={<ActionButton className="w-full md:w-auto" online busy={reset.isPending} busyLabel="Saving…"
+        blockedBy={[newPin.length < 4 && "PIN: 4+ characters", newPin !== pinConfirm && "PINs do not match"]} onAction={() => reset.mutateAsync()}>{t("Reset PIN")}</ActionButton>}>
         <div className="space-y-4">
           <Field label="New PIN" hint="4–12 characters. Share it with the user privately"><PasswordInput autoComplete="new-password" maxLength={12} value={newPin} onChange={(e) => setNewPin(e.target.value)} autoFocus /></Field>
           <Field label="Confirm new PIN" hint={pinConfirm && pinConfirm !== newPin ? "PINs do not match" : undefined}><PasswordInput autoComplete="new-password" maxLength={12} value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value)} /></Field>
@@ -251,7 +260,8 @@ export function RolesSettings() {
           </div>
         ))}
       </Card>
-      <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : "New role"} wide footer={<Button className="w-full md:w-auto" disabled={!edit?.name.trim() || save.isPending} onClick={() => save.mutate()}>{t("Save role")}</Button>}>
+      <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : "New role"} wide footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…" blockedBy={[!edit?.name.trim() && "Enter a name"]}
+        onAction={() => save.mutateAsync()}>{t("Save role")}</ActionButton>}>
         {edit && (
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">

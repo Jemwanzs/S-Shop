@@ -5,6 +5,7 @@ import { todayIso } from "@/lib/format";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { t, tChildren, tx } from "@/lib/i18n";
 
 export interface PeriodValue {
@@ -54,9 +55,10 @@ export function PeriodFilter({ value, onChange, presets = PRESETS.map((p) => p[0
             <Button variant="outline" className="flex-1" onClick={() => { onChange({ from, to: from }); setOpen(false); }}>
               {t("Single day")}
             </Button>
-            <Button className="flex-1" onClick={() => { onChange({ from, to }); setOpen(false); }}>
+            <ActionButton className="flex-1" blockedBy={[!!from && !!to && from > to && "Check the dates", value.from === from && value.to === to && REASONS.noChanges]}
+              onAction={() => { onChange({ from, to }); setOpen(false); }}>
               {t("Apply")}
-            </Button>
+            </ActionButton>
           </div>
         </PopoverContent>
       </Popover>

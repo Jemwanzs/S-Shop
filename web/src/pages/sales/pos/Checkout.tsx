@@ -9,7 +9,7 @@ import { useSession } from "@/lib/session";
 import { count, money, phone as fmtPhone, todayIso, toNum } from "@/lib/format";
 import type { Customer, SaleDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
 import { Field } from "@/components/Form";
@@ -285,15 +285,22 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
                   <Smartphone className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input inputMode="tel" placeholder="07XXXXXXXX" value={payPhone} onChange={(e) => setPayPhone(e.target.value)} className="num ps-9" disabled={stk?.status === "pending"} />
                 </div>
-                <Button
+                <ActionButton
                   type="button"
                   variant="success"
-                  disabled={!stkReady || push.isPending || payPhone.replace(/\D/g, "").length < 9 || payAmount <= 0 || stk?.status === "pending" || stk?.status === "success"}
-                  onClick={() => push.mutate()}
-                  title={stkReady ? undefined : tr("STK not configured")}
+                  online
+                  busy={push.isPending}
+                  blockedBy={[
+                    !stkReady && REASONS.stkNotConfigured,
+                    stk?.status === "pending" && "Waiting…",
+                    stk?.status === "success" && "Paid",
+                    payPhone.replace(/\D/g, "").length < 9 && "Enter number",
+                    payAmount <= 0 && "Nothing to pay",
+                  ]}
+                  onAction={() => push.mutateAsync()}
                 >
-                  {push.isPending ? <Loader2 className="animate-spin" /> : "Push STK"}
-                </Button>
+                  Push STK
+                </ActionButton>
               </div>
             </Field>
             {!stkReady && <p className="-mt-1 text-xs text-muted-foreground">{tr("STK not configured — record the M-Pesa payment manually.")}</p>}
@@ -369,9 +376,12 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
         )}
       </section>
 
-      <Button size="lg" className="h-14 w-full text-base" disabled={blockers.length > 0 || complete.isPending} onClick={() => complete.mutate()}>
-        {complete.isPending ? <Loader2 className="animate-spin" /> : <>Complete sale · <span className="num">{money(t.payable)}</span></>}
-      </Button>
+      {/* Offline sales are queued on the device (cash-style only), so this action does not require a connection. */}
+      <ActionButton size="lg" className="h-14 w-full text-base" busy={complete.isPending} busyLabel="Processing…"
+        blockedBy={[!lines.length && REASONS.emptyCart, blockers.length > 0 && lines.length > 0 && "Complete the details below"]}
+        onAction={() => complete.mutateAsync()}>
+        <>Complete sale · <span className="num">{money(t.payable)}</span></>
+      </ActionButton>
       {blockers.length > 0 && lines.length > 0 && <p className="text-center text-xs text-muted-foreground">{blockers[0]}</p>}
     </div>
   );

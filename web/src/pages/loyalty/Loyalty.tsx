@@ -9,6 +9,7 @@ import { useDebounced } from "@/lib/hooks";
 import { count, date, maskPhone, money, phone } from "@/lib/format";
 import type { Customer, Money, Paged } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { EmptyState, Loading, PageHeader, Section } from "@/components/Page";
 import { Medal, PointsPill } from "@/components/Badges";
@@ -204,7 +205,8 @@ function Referrals() {
         open={adding}
         onOpenChange={setAdding}
         title="Record a referral"
-        footer={<Button className="w-full md:w-auto" disabled={!referrer || !referred || create.isPending} onClick={() => create.mutate()}>{tr("Save referral")}</Button>}
+        footer={<ActionButton className="w-full md:w-auto" online busy={create.isPending} busyLabel="Saving…" blockedBy={[(!referrer || !referred) && "Choose both customers"]}
+          onAction={() => create.mutateAsync()}>{tr("Save referral")}</ActionButton>}
       >
         <div className="space-y-4">
           <CustomerPicker label="Who referred? (referrer)" value={referrer} onPick={setReferrer} exclude={referred?.id} />
@@ -328,7 +330,8 @@ function Awards() {
         busy={close.isPending}
         onConfirm={() => closing && close.mutate(closing.id)}
       />
-      <ResponsiveDialog open={opening} onOpenChange={setOpening} title="Open award period" footer={<Button className="w-full md:w-auto" disabled={!name.trim() || open.isPending} onClick={() => open.mutate()}>{tr("Open period")}</Button>}>
+      <ResponsiveDialog open={opening} onOpenChange={setOpening} title="Open award period" footer={<ActionButton className="w-full md:w-auto" online busy={open.isPending} busyLabel="Opening…" blockedBy={[!name.trim() && "Enter a name"]}
+        onAction={() => open.mutateAsync()}>{tr("Open period")}</ActionButton>}>
         <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Q4 2026 Awards" autoFocus /></Field>
       </ResponsiveDialog>
     </div>

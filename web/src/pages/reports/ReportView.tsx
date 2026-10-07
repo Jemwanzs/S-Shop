@@ -8,7 +8,7 @@ import { useSession } from "@/lib/session";
 import { amount, date, dateTime, titleCase } from "@/lib/format";
 import { tablePdf } from "@/lib/pdf";
 import type { Category, Paged, Product, UserRow } from "@/lib/types";
-import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { ErrorState, Loading, PageHeader, EmptyState } from "@/components/Page";
 import { PeriodFilter, type PeriodValue } from "@/components/Filters";
 import { Select } from "@/components/Form";
@@ -119,8 +119,8 @@ export default function ReportView() {
         actions={
           data.can_export && (
             <>
-              <Button variant="outline" onClick={exportPdf} disabled={!!exporting}>{exporting === "pdf" ? <Loader2 className="animate-spin" /> : <FileDown />} PDF</Button>
-              <Button variant="outline" onClick={exportXlsx} disabled={!!exporting}>{exporting === "xlsx" ? <Loader2 className="animate-spin" /> : <FileSpreadsheet />} Excel</Button>
+              <ActionButton variant="outline" busy={exporting === "pdf"} disabled={!!exporting} blockedBy={[!data.rows.length && REASONS.noRecords]} onAction={exportPdf}><FileDown /> PDF</ActionButton>
+              <ActionButton variant="outline" online busy={exporting === "xlsx"} disabled={!!exporting} blockedBy={[!data.rows.length && REASONS.noRecords]} onAction={exportXlsx}><FileSpreadsheet /> Excel</ActionButton>
             </>
           )
         }

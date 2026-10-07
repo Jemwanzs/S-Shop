@@ -10,6 +10,7 @@ import { useDebounced } from "@/lib/hooks";
 import { ago, count, money, toNum } from "@/lib/format";
 import type { OrderRow, Paged, PosProduct } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { PageHeader, EmptyState } from "@/components/Page";
 import { DataList, Pager, CardRow } from "@/components/DataList";
@@ -124,7 +125,9 @@ function NewOrder({ open, onOpenChange, onCreated }: { open: boolean; onOpenChan
       onOpenChange={onOpenChange}
       title="New phone order"
       wide
-      footer={<Button className="w-full md:w-auto" disabled={!items.length || mobile.replace(/\D/g, "").length < 9 || create.isPending} onClick={() => create.mutate()}>Create order · <span className="num">{money(total)}</span></Button>}
+      footer={<ActionButton className="w-full md:w-auto" online busy={create.isPending} busyLabel="Creating…"
+        blockedBy={[!items.length && "Add products", mobile.replace(/\D/g, "").length < 9 && "Enter the mobile number"]}
+        onAction={() => create.mutateAsync()}>Create order · <span className="num">{money(total)}</span></ActionButton>}
     >
       <div className="grid gap-5 md:grid-cols-2">
         <div className="space-y-3">

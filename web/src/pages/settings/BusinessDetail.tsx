@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRightLeft, Ban, Copy, Download, FilePlus2, KeyRound, Loader2, MapPin, Pencil, Power, RefreshCw, Wallet, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Ban, Copy, Download, FilePlus2, KeyRound, MapPin, Pencil, Power, RefreshCw, Wallet, XCircle } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -27,6 +27,7 @@ import {
   packageLabel,
 } from "@/lib/billing";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS, isDirty } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Pill, StatusBadge } from "@/components/Badges";
@@ -146,7 +147,7 @@ export function BusinessDetail() {
         <Pill tone={STATUS_TONE[s.status]}>{t(STATUS_LABEL[s.status])}</Pill>
         {b.is_demo && <Pill tone="info">{t("Demo")}</Pill>}
         <span className="flex-1" />
-        <Button size="sm" variant="outline" disabled={open.isPending} onClick={() => open.mutate()}><ArrowRightLeft /> {t("Open business")}</Button>
+        <ActionButton size="sm" variant="outline" online busy={open.isPending} busyLabel="Opening…" onAction={() => open.mutateAsync()}><ArrowRightLeft /> {t("Open business")}</ActionButton>
         <Button
           size="sm"
           variant={active ? "destructive" : "default"}
@@ -284,7 +285,8 @@ export function BusinessDetail() {
                 <Button size="sm" variant="outline" onClick={() => setPayDoc(x)}><Wallet /> {t("Record payment")}</Button>
               )}
               {x.status === "open" && x.kind === "quotation" && (
-                <Button size="sm" variant="outline" disabled={docAction.isPending} onClick={() => docAction.mutate({ doc: x, action: "invoice" })}>{t("Invoice it")}</Button>
+                <ActionButton size="sm" variant="outline" online busy={docAction.isPending && docAction.variables?.doc.id === x.id} disabled={docAction.isPending} busyLabel="Invoicing…"
+                  onAction={() => docAction.mutateAsync({ doc: x, action: "invoice" })}>{t("Invoice it")}</ActionButton>
               )}
               {x.status === "open" && (
                 <Button size="icon-sm" variant="ghost" aria-label={t("Void")} onClick={() => setVoidDoc(x)}><XCircle /></Button>
@@ -313,7 +315,8 @@ export function BusinessDetail() {
               <span className="num text-sm font-semibold">{moneyDoc(p.amount, p.currency)}</span>
               {p.status === "success" && doc && <Button size="icon-sm" variant="ghost" aria-label={t("Download receipt")} onClick={() => download(doc, p)}><Download /></Button>}
               {p.method === "paystack" && (p.status === "pending" || p.status === "abandoned") && (
-                <Button size="sm" variant="outline" disabled={verify.isPending} onClick={() => verify.mutate(p.id)}><RefreshCw /> {t("Check")}</Button>
+                <ActionButton size="sm" variant="outline" online busy={verify.isPending && verify.variables === p.id} disabled={verify.isPending} busyLabel="Checking…"
+                  onAction={() => verify.mutateAsync(p.id)}><RefreshCw /> {t("Check")}</ActionButton>
               )}
             </div>
           );
@@ -346,7 +349,7 @@ export function BusinessDetail() {
         destructive={active}
         requireReason={active}
         busy={setStatus.isPending}
-        onConfirm={(reason) => setStatus.mutate({ status: active ? "deactivated" : "active", reason })}
+        onConfirm={(reason) => setStatus.mutateAsync({ status: active ? "deactivated" : "active", reason })}
       />
       <ConfirmDialog
         open={!!resetUser}
@@ -355,7 +358,7 @@ export function BusinessDetail() {
         description={resetUser ? `${resetUser.name} (${resetUser.email}) gets a one-time PIN to pass on; their sign-in lock is cleared.` : ""}
         confirmLabel="Reset PIN"
         busy={resetPin.isPending}
-        onConfirm={() => resetUser && resetPin.mutate(resetUser.id)}
+        onConfirm={() => resetUser && resetPin.mutateAsync(resetUser.id)}
       />
       <ResponsiveDialog
         open={!!tempPin}
@@ -383,7 +386,7 @@ export function BusinessDetail() {
         destructive
         requireReason
         busy={docAction.isPending}
-        onConfirm={(reason) => voidDoc && docAction.mutate({ doc: voidDoc, action: "void", body: { reason } })}
+        onConfirm={(reason) => voidDoc && docAction.mutateAsync({ doc: voidDoc, action: "void", body: { reason } })}
       />
       {planOpen && <PlanDialog tenantId={id} plan={d.billing.plan} catalogue={d.billing.catalogue} onClose={() => setPlanOpen(false)} onSaved={refresh} />}
       {issueOpen && <IssueDialog tenantId={id} plan={d.billing.plan} onClose={() => setIssueOpen(false)} onSaved={refresh} />}
@@ -422,6 +425,7 @@ function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId:
     trial_modules: plan?.trial_modules ?? [],
     notes: plan?.notes ?? "",
   });
+  const [initial] = useState(f);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   const toggle = (k: "modules" | "trial_modules", m: string) => set(k, f[k].includes(m) ? f[k].filter((x) => x !== m) : [...f[k], m]);
   const free = f.access_mode === "free";
@@ -479,7 +483,8 @@ function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId:
       onOpenChange={(o) => !o && onClose()}
       title="Billing plan"
       description="Tenant-specific package, price, discount, tax and access. Every change is recorded with its previous and new value."
-      footer={<Button onClick={() => save.mutate()} disabled={save.isPending}>{save.isPending ? <Loader2 className="animate-spin" /> : t("Save plan")}</Button>}
+      footer={<ActionButton online busy={save.isPending} busyLabel="Saving…" blockedBy={[plan && !isDirty(initial, f) && REASONS.nothingToSave]}
+        onAction={() => save.mutateAsync()}>{t("Save plan")}</ActionButton>}
     >
       <div className="space-y-4">
         <section className="space-y-3">
@@ -627,7 +632,9 @@ function IssueDialog({ tenantId, plan, onClose, onSaved }: { tenantId: string; p
       open
       onOpenChange={(o) => !o && onClose()}
       title="Issue a quotation or invoice"
-      footer={<Button onClick={() => issue.mutate()} disabled={issue.isPending}>{issue.isPending ? <Loader2 className="animate-spin" /> : t("Issue")}</Button>}
+      footer={<ActionButton online busy={issue.isPending} busyLabel="Issuing…"
+        blockedBy={[category === "other" && !(Number(amount) > 0) && "Enter the amount", category === "other" && description.trim().length < 3 && "Add a description"]}
+        onAction={() => issue.mutateAsync()}>{t("Issue")}</ActionButton>}
     >
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
@@ -689,7 +696,8 @@ function RecordPaymentDialog({ doc, onClose, onSaved }: { doc: BillingDocument; 
       onOpenChange={(o) => !o && onClose()}
       title="Record a payment"
       description={`${doc.number} — ${moneyDoc(doc.amount, doc.currency)}. ${t("For money received outside S'Shop (bank transfer, M-Pesa …).")}`}
-      footer={<Button onClick={() => save.mutate()} disabled={save.isPending}>{save.isPending ? <Loader2 className="animate-spin" /> : t("Record payment")}</Button>}
+      footer={<ActionButton online busy={save.isPending} busyLabel="Recording…" blockedBy={[reference.trim().length < 3 && "Enter the reference"]}
+        onAction={() => save.mutateAsync()}>{t("Record payment")}</ActionButton>}
     >
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">

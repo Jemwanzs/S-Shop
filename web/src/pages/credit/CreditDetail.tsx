@@ -9,6 +9,7 @@ import { useSession } from "@/lib/session";
 import { date, dateTime, methodLabel, money, phone, titleCase, toNum } from "@/lib/format";
 import type { CreditRow, Money, Outcome } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page";
 import { StatusBadge } from "@/components/Badges";
@@ -194,7 +195,9 @@ export default function CreditDetail() {
         onOpenChange={setPaying}
         title="Record repayment"
         description={`Outstanding ${money(c.balance)}`}
-        footer={<Button className="w-full md:w-auto" disabled={pay.isPending || toNum(amountStr) <= 0 || (method === "mpesa" && reference.length < 8)} onClick={() => pay.mutate()}>{t("Save payment")}</Button>}
+        footer={<ActionButton className="w-full md:w-auto" online busy={pay.isPending} busyLabel="Saving…"
+          blockedBy={[toNum(c.balance) <= 0 && REASONS.noBalance, toNum(amountStr) <= 0 && "Enter the amount", method === "mpesa" && reference.length < 8 && "Enter the M-Pesa code"]}
+          onAction={() => pay.mutateAsync()}>{t("Save payment")}</ActionButton>}
       >
         <div className="space-y-4">
           <Field label="Amount received">

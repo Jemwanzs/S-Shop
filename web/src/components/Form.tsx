@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { ResponsiveDialog } from "./ResponsiveDialog";
 import { t, tx } from "@/lib/i18n";
 
@@ -58,7 +59,8 @@ export function ConfirmDialog({
   destructive?: boolean;
   requireReason?: boolean;
   busy?: boolean;
-  onConfirm: (reason: string) => void;
+  /** Return the promise (e.g. mutateAsync) so the button shows Processing until the server confirms. */
+  onConfirm: (reason: string) => unknown;
   children?: ReactNode;
 }) {
   const [reason, setReason] = useState("");
@@ -76,14 +78,17 @@ export function ConfirmDialog({
           <Button variant="outline" className="flex-1 md:flex-none" onClick={() => onOpenChange(false)}>
             {t("Back")}
           </Button>
-          <Button
+          <ActionButton
             variant={destructive ? "destructive" : "default"}
             className="flex-1 md:flex-none"
-            disabled={busy || (requireReason && !reason.trim())}
-            onClick={() => onConfirm(reason.trim())}
+            online
+            busy={busy}
+            busyLabel="Working…"
+            blockedBy={[requireReason && !reason.trim() && REASONS.enterReason]}
+            onAction={() => onConfirm(reason.trim())}
           >
-            {busy ? t("Working…") : t(confirmLabel)}
-          </Button>
+            {t(confirmLabel)}
+          </ActionButton>
         </div>
       }
     >

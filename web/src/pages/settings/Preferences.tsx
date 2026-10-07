@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2 } from "lucide-react";
+import { Check } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, session } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -8,12 +8,14 @@ import { CURRENCIES, FONTS, type Preferences } from "@/lib/prefs";
 import { LANGUAGES, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
+import { ToggleRow } from "@/components/Form";
 import { Card, SettingsPage } from "./shared";
 
 /** Settings → User preferences: per person, applies on every device they sign in to. */
 export function PreferencesSettings() {
   const qc = useQueryClient();
-  const { preferences, fx } = useSession();
+  const { preferences, fx, can } = useSession();
   const [draft, setDraft] = useState<Preferences>(preferences);
   useEffect(() => setDraft(preferences), [preferences]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(preferences);
@@ -72,12 +74,22 @@ export function PreferencesSettings() {
         </div>
       </Card>
 
-      {dirty && (
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setDraft(preferences)}>{t("Discard")}</Button>
-          <Button disabled={save.isPending} onClick={() => save.mutate(draft)}>{save.isPending ? <Loader2 className="animate-spin" /> : t("Save preferences")}</Button>
-        </div>
+      {can("sales.create") && (
+        <Card title="Quick actions">
+          <ToggleRow
+            label="Allow the floating sale button to be dragged"
+            hint="Off: the Record Sale bubble stays at the centre of the right edge. On: drag it to another position; it snaps to the nearest edge and is remembered on this device."
+            checked={!!draft.quick_sale_draggable}
+            onChange={(v) => setDraft({ ...draft, quick_sale_draggable: v })}
+          />
+        </Card>
       )}
+
+      <div className="flex justify-end gap-2">
+        {dirty && <Button variant="outline" onClick={() => setDraft(preferences)}>{t("Discard")}</Button>}
+        <ActionButton online busy={save.isPending} busyLabel="Saving…" doneLabel="Saved" blockedBy={[!dirty && REASONS.nothingToSave]}
+          onAction={() => save.mutateAsync(draft)}>{t("Save preferences")}</ActionButton>
+      </div>
     </SettingsPage>
   );
 }

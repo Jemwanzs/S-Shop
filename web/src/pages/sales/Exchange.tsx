@@ -11,6 +11,7 @@ import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { PosProduct, SaleDetail } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorState, Loading, PageHeader, Section } from "@/components/Page";
@@ -188,9 +189,10 @@ export default function Exchange() {
             <Field label="Reason" className="mt-3">
               <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. wrong size, customer preferred another colour" />
             </Field>
-            <Button className="mt-4 w-full" size="lg" disabled={blockers.length > 0 || submit.isPending} onClick={() => submit.mutate()}>
+            <ActionButton className="mt-4 w-full" size="lg" online busy={submit.isPending} busyLabel="Processing…"
+              blockedBy={[blockers.length > 0 && "Complete the details below"]} onAction={() => submit.mutateAsync()}>
               <RefreshCcw /> {t("Complete exchange")}
-            </Button>
+            </ActionButton>
             {blockers.length > 0 && <p className="mt-2 text-center text-xs text-muted-foreground">{t(blockers[0])}</p>}
           </Section>
         </div>

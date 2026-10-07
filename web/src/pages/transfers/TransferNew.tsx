@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowRight, Loader2, Minus, Plus, ScanLine, Trash2, X } from "lucide-react";
+import { ArrowRight, Minus, Plus, ScanLine, Trash2, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -9,6 +9,7 @@ import { useDebounced } from "@/lib/hooks";
 import { count, todayIso } from "@/lib/format";
 import type { Paged, StockLevel } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader, Section } from "@/components/Page";
@@ -92,7 +93,12 @@ export default function TransferNew() {
     },
     onError: (e) => toast.error(e),
   });
-  const valid = to && lines.length > 0 && lines.every((l) => (l.product.track_items ? l.barcodes.length > 0 : l.quantity > 0));
+  // What is still missing, in the order the screen asks for it (first one labels the action).
+  const missing = [
+    !lines.length && "Add products",
+    lines.some((l) => (l.product.track_items ? l.barcodes.length === 0 : l.quantity <= 0)) && "Enter quantities",
+    !to && "Choose destination",
+  ];
 
   return (
     <>
@@ -159,8 +165,10 @@ export default function TransferNew() {
             </div>
           </Section>
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" disabled={!valid || save.isPending} onClick={() => save.mutate(false)}>{t("Save draft")}</Button>
-            <Button disabled={!valid || save.isPending} onClick={() => save.mutate(true)}>{save.isPending ? <Loader2 className="animate-spin" /> : "Submit"}</Button>
+            <ActionButton variant="outline" online quietReason busy={save.isPending && save.variables === false} disabled={save.isPending} busyLabel="Saving…"
+              blockedBy={missing} onAction={() => save.mutateAsync(false)}>{t("Save draft")}</ActionButton>
+            <ActionButton online busy={save.isPending && save.variables === true} disabled={save.isPending} busyLabel="Submitting…"
+              blockedBy={missing} onAction={() => save.mutateAsync(true)}>Submit for approval</ActionButton>
           </div>
         </div>
       </div>

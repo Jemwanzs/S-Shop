@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { ago, dateTime, money } from "@/lib/format";
 import type { Approval, Paged } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, Loading, PageHeader } from "@/components/Page";
 import { Segments } from "@/components/Filters";
@@ -127,7 +128,8 @@ export default function Approvals() {
                     </>
                   )}
                   {status === "mine" && a.status === "pending" && (
-                    <Button size="sm" variant="outline" className="ms-auto" onClick={() => withdraw.mutate(a.id)}><Undo2 /> {t("Withdraw")}</Button>
+                    <ActionButton size="sm" variant="outline" className="ms-auto" online busy={withdraw.isPending && withdraw.variables === a.id} disabled={withdraw.isPending}
+                      busyLabel="Withdrawing…" onAction={() => withdraw.mutateAsync(a.id)}><Undo2 /> {t("Withdraw")}</ActionButton>
                   )}
                 </div>
               </div>
@@ -141,9 +143,10 @@ export default function Approvals() {
         title={deciding?.approve ? "Approve request" : "Reject request"}
         description={deciding?.approval.summary}
         footer={
-          <Button className="w-full md:w-auto" variant={deciding?.approve ? "success" : "destructive"} disabled={decide.isPending} onClick={() => decide.mutate()}>
+          <ActionButton className="w-full md:w-auto" variant={deciding?.approve ? "success" : "destructive"} online busy={decide.isPending}
+            busyLabel={deciding?.approve ? "Approving…" : "Rejecting…"} onAction={() => decide.mutateAsync()}>
             {deciding?.approve ? "Approve" : "Reject"}
-          </Button>
+          </ActionButton>
         }
       >
         <Field label="Comment" optional><Textarea value={comments} onChange={(e) => setComments(e.target.value)} /></Field>

@@ -10,6 +10,7 @@ import { t } from "@/lib/i18n";
 import type { Profile } from "@/lib/types";
 import { STATUS_LABEL, STATUS_TONE, type BillingSummary } from "@/lib/billing";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Pill } from "@/components/Badges";
 import { ConfirmDialog } from "@/components/Form";
 import { Card, SettingsPage } from "./shared";
@@ -102,7 +103,8 @@ export function BusinessesSettings() {
               {current ? (
                 <Pill tone="success">{t("Open now")}</Pill>
               ) : (
-                <Button size="sm" variant="outline" disabled={open.isPending} onClick={() => open.mutate(b.id)}><ArrowRightLeft /> <span className="hidden sm:inline">{t("Open business")}</span></Button>
+                <ActionButton size="sm" variant="outline" online busy={open.isPending && open.variables === b.id} disabled={open.isPending}
+                  onAction={() => open.mutateAsync(b.id)}><ArrowRightLeft /> <span className="hidden sm:inline">{t("Open business")}</span></ActionButton>
               )}
               <Link to={`/settings/businesses/${b.id}`} aria-label={t("Details")} className="text-muted-foreground"><ChevronRight className="h-4 w-4 rtl:rotate-180" /></Link>
             </div>
@@ -128,7 +130,8 @@ export function BusinessesSettings() {
           <div className="flex flex-wrap gap-2">
             {demo.data?.tenant_id ? (
               <>
-                <Button size="sm" disabled={running || open.isPending} onClick={() => open.mutate(demo.data!.tenant_id!)}><FlaskConical /> {t("Open demo")}</Button>
+                <ActionButton size="sm" online busy={open.isPending && open.variables === demo.data.tenant_id} disabled={open.isPending}
+                  blockedBy={[running && "Building…"]} onAction={() => open.mutateAsync(demo.data!.tenant_id!)}><FlaskConical /> {t("Open demo")}</ActionButton>
                 <Button size="sm" variant="outline" disabled={running} onClick={() => setConfirmReset(true)}><RotateCcw /> {t("Reset demo")}</Button>
               </>
             ) : (

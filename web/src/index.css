@@ -21,6 +21,7 @@
     --popover: 36 60% 99%;
     --popover-foreground: 24 28% 11%;
     --primary: 22 88% 48%;
+    --fab: 22 48% 30%;        /* warm brown floating quick actions */
     --primary-foreground: 0 0% 100%;
     --secondary: 32 38% 91%;
     --secondary-foreground: 24 28% 16%;
@@ -65,6 +66,7 @@
     --popover: 24 16% 11%;
     --popover-foreground: 32 30% 94%;
     --primary: 24 92% 56%;
+    --fab: 22 42% 38%;
     --primary-foreground: 24 30% 8%;
     --secondary: 24 12% 15%;
     --secondary-foreground: 32 30% 90%;

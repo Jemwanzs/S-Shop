@@ -11,9 +11,11 @@ export interface Preferences {
   language: string;
   font: string;
   currency: string;
+  /** Quick actions: the floating Record Sale bubble can be dragged (roadmap 48). Default off. */
+  quick_sale_draggable?: boolean;
 }
 
-export const DEFAULT_PREFERENCES: Preferences = { language: "en", font: "Outfit", currency: "KES" };
+export const DEFAULT_PREFERENCES: Preferences = { language: "en", font: "Outfit", currency: "KES", quick_sale_draggable: false };
 
 export interface Fx {
   base: string;

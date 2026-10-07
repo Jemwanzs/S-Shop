@@ -5,6 +5,7 @@ import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { ago, dateTime } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/Form";
 import { Segments } from "@/components/Filters";
@@ -111,7 +112,8 @@ export function AccessRequests() {
               {r.status === "pending" && (
                 <div className="flex gap-2 pt-1">
                   <Button size="sm" variant="outline" className="text-destructive" onClick={() => setRejecting(r)}><X /> {t("Reject")}</Button>
-                  <Button size="sm" variant="success" className="ms-auto" disabled={approve.isPending} onClick={() => approve.mutate(r)}><Check /> {t("Approve & create")}</Button>
+                  <ActionButton size="sm" variant="success" className="ms-auto" online busy={approve.isPending && approve.variables?.id === r.id} disabled={approve.isPending}
+                    busyLabel="Creating…" onAction={() => approve.mutateAsync(r)}><Check /> {t("Approve & create")}</ActionButton>
                 </div>
               )}
             </div>
@@ -124,7 +126,7 @@ export function AccessRequests() {
         onOpenChange={(o) => !o && setRejecting(null)}
         title="Reject request"
         description={rejecting?.business_name}
-        footer={<Button variant="destructive" className="w-full md:w-auto" disabled={reject.isPending} onClick={() => reject.mutate()}>{t("Reject")}</Button>}
+        footer={<ActionButton variant="destructive" className="w-full md:w-auto" online busy={reject.isPending} busyLabel="Rejecting…" onAction={() => reject.mutateAsync()}>{t("Reject")}</ActionButton>}
       >
         <Field label="Reason" optional><Textarea value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       </ResponsiveDialog>

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardCheck, Loader2, ScanLine } from "lucide-react";
+import { ClipboardCheck, ScanLine } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -9,6 +9,7 @@ import { count, signed } from "@/lib/format";
 import type { Paged, StockLevel } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Loading, PageHeader } from "@/components/Page";
 import { SearchInput } from "@/components/Filters";
@@ -97,7 +98,9 @@ export default function StockCount() {
       <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-sidebar">
         <div className="mx-auto flex max-w-[1680px] items-center justify-between gap-3 px-1 md:px-3 lg:px-5">
           <span className="text-sm text-muted-foreground"><span className="num font-semibold text-foreground">{entered.length}</span> counted · <span className="num font-semibold text-foreground">{variances.length}</span> variances</span>
-          <Button disabled={!entered.length || submit.isPending} onClick={() => submit.mutate()}>{submit.isPending ? <Loader2 className="animate-spin" /> : <><ClipboardCheck /> {t("Submit count")}</>}</Button>
+          <ActionButton online busy={submit.isPending} busyLabel="Submitting…" blockedBy={[!entered.length && "Nothing counted"]} onAction={() => submit.mutateAsync()}>
+            <ClipboardCheck /> {t("Submit count")}
+          </ActionButton>
         </div>
       </div>
     </>

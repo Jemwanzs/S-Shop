@@ -8,6 +8,7 @@ import { useDebounced } from "@/lib/hooks";
 import { count } from "@/lib/format";
 import type { Outcome, Paged, Product } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, Select } from "@/components/Form";
@@ -80,7 +81,8 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
         onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}
         title="Adjust stock"
         description="Sensitive adjustments may need approval."
-        footer={<Button className="w-full md:w-auto" disabled={!valid || save.isPending} onClick={() => save.mutate()}>{t("Save adjustment")}</Button>}
+        footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…" blockedBy={[!valid && REASONS.completeFields]}
+          onAction={() => save.mutateAsync()}>{t("Save adjustment")}</ActionButton>}
       >
         <div className="space-y-4">
           {current ? (

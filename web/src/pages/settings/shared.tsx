@@ -1,11 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import type { Money, Settings } from "@/lib/types";
 import { moneyDoc } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Loading } from "@/components/Page";
 import { tx } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
@@ -89,7 +89,7 @@ export function SettingsPage({ title, description, children, dirty, saving, onSa
           <div className="mx-auto flex max-w-[1680px] items-center justify-end gap-2 px-1 md:px-3 lg:px-5">
             <span className="me-auto text-sm text-muted-foreground">{t("Unsaved changes")}</span>
             <Button variant="outline" onClick={onReset}>{t("Discard")}</Button>
-            <Button onClick={onSave} disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : "Save changes"}</Button>
+            <ActionButton online busy={saving} busyLabel="Saving…" blockedBy={[!dirty && REASONS.nothingToSave]} onAction={onSave}>Save changes</ActionButton>
           </div>
         </div>
       )}

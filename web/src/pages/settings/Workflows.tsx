@@ -7,6 +7,7 @@ import { useSession } from "@/lib/session";
 import { money } from "@/lib/format";
 import type { Role, UserRow } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -90,7 +91,7 @@ export function WorkflowSettings() {
         onOpenChange={(o) => !o && setEdit(null)}
         title={edit?.label ?? ""}
         wide
-        footer={<Button className="w-full md:w-auto" disabled={save.isPending} onClick={() => edit && save.mutate(edit)}>{t("Save")}</Button>}
+        footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…" onAction={() => edit && save.mutateAsync(edit)}>{t("Save")}</ActionButton>}
       >
         {edit && (
           <div className="space-y-6">

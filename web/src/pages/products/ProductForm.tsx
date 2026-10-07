@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, ScanLine, X } from "lucide-react";
+import { Plus, ScanLine, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { PhotoPicker, photosValid, uploadPhotos, usePendingPhotos } from "@/components/PhotoPicker";
 import type { Category, Outcome, Product, Supplier } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS, isDirty } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -61,6 +62,8 @@ export default function ProductForm() {
   const [params] = useSearchParams();
   const assignBarcode = params.get("barcode")?.trim() || null;
   const [f, setF] = useState<FormState>(() => (assignBarcode ? { ...EMPTY, barcode: assignBarcode } : EMPTY));
+  // The product as loaded, to tell whether an edit has anything to save.
+  const [loaded, setLoaded] = useState<FormState | null>(null);
   const [scan, setScan] = useState(false);
   const photos = usePendingPhotos();
   const [uploaded, setUploaded] = useState<number | null>(null);
@@ -77,7 +80,7 @@ export default function ProductForm() {
   useEffect(() => {
     const p = existing.data?.product;
     if (!p) return;
-    setF({
+    const next: FormState = {
       code: p.code, name: p.name, nickname: p.nickname, description: p.description, category_id: str(p.category_id), supplier_id: str(p.supplier_id),
       marked_price: str(p.marked_price), max_discount: str(p.max_discount), cost_price: str(p.cost_price), barcode: str(p.barcode),
       track_items: p.track_items, is_active: p.is_active, available_for_orders: p.available_for_orders, transfer_allowed: p.transfer_allowed,
@@ -85,7 +88,9 @@ export default function ProductForm() {
       low_stock_threshold: str(p.low_stock_threshold), all_branches: p.all_branches, branch_ids: existing.data!.branch_ids,
       custom_fields: p.custom_fields ?? {},
       ...(assignBarcode && !p.track_items ? { barcode: assignBarcode } : {}),
-    });
+    };
+    setF(next);
+    setLoaded(next);
   }, [existing.data, assignBarcode]);
 
   const quickAdd = async (kind: "categories" | "suppliers", name: string) => {
@@ -283,14 +288,15 @@ export default function ProductForm() {
         <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-sidebar">
           <div className="mx-auto flex max-w-[1680px] justify-end gap-2 px-1 md:px-3 lg:px-5">
             <Button type="button" variant="outline" onClick={() => navigate(-1)}>{t("Cancel")}</Button>
-            <Button type="submit" disabled={!valid || save.isPending || (!editing && !photosValid(photos.items, maxPhotos))} className="min-w-32">
-              {save.isPending ? (
-                <>
-                  <Loader2 className="animate-spin" />
-                  {uploaded !== null && <span className="num text-xs">{uploaded}/{photos.items.length}</span>}
-                </>
-              ) : editing ? "Save changes" : "Create product"}
-            </Button>
+            <ActionButton type="submit" className="min-w-32" online busy={save.isPending}
+              busyLabel={uploaded !== null ? `${t("Uploading…")} ${uploaded}/${photos.items.length}` : "Saving…"}
+              blockedBy={[
+                !valid && REASONS.completeFields,
+                editing && loaded && !isDirty(loaded, f) && REASONS.nothingToSave,
+                !editing && !photosValid(photos.items, maxPhotos) && "Check the photos",
+              ]}>
+              {editing ? "Save changes" : "Create product"}
+            </ActionButton>
           </div>
         </div>
       </form>

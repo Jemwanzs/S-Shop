@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { count, date, dateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page";
 import { StatusBadge } from "@/components/Badges";
 import { ConfirmDialog, Field } from "@/components/Form";
@@ -126,9 +127,22 @@ export default function TransferDetail() {
             )}
           </Section>
           <div className="flex flex-col gap-2">
-            {data.can.submit && <Button onClick={() => act.mutate({ action: "submit" })} disabled={act.isPending}><Send /> {tr("Submit")}</Button>}
-            {data.can.dispatch && <Button onClick={() => act.mutate({ action: "dispatch" })} disabled={act.isPending}><Truck /> {tr("Dispatch")}</Button>}
-            {data.can.receive && <Button variant="success" onClick={() => setReceiving(true)} disabled={act.isPending}><PackageCheck /> {tr("Confirm receipt")}</Button>}
+            {/* Lifecycle: Draft → Submit for approval → Awaiting approval → Approved → Dispatch → In transit → Receive → Received.
+                The next step is shown as the action when this user may take it, otherwise as its waiting state. */}
+            {data.can.submit && (
+              <ActionButton online busy={act.isPending && act.variables?.action === "submit"} disabled={act.isPending} busyLabel="Submitting…"
+                onAction={() => act.mutateAsync({ action: "submit" })}><Send /> {tr("Submit for approval")}</ActionButton>
+            )}
+            {t.status === "pending_approval" && <ActionButton variant="outline" blockedBy={[REASONS.awaitingApproval]}>{null}</ActionButton>}
+            {data.can.dispatch && (
+              <ActionButton online busy={act.isPending && act.variables?.action === "dispatch"} disabled={act.isPending} busyLabel="Dispatching…"
+                onAction={() => act.mutateAsync({ action: "dispatch" })}><Truck /> {tr("Dispatch")}</ActionButton>
+            )}
+            {t.status === "approved" && !data.can.dispatch && <ActionButton variant="outline" blockedBy={["Awaiting dispatch"]}>{null}</ActionButton>}
+            {data.can.receive && (
+              <ActionButton variant="success" online disabled={act.isPending} onAction={() => setReceiving(true)}><PackageCheck /> {tr("Confirm receipt")}</ActionButton>
+            )}
+            {t.status === "dispatched" && !data.can.receive && <ActionButton variant="outline" blockedBy={["In transit"]}>{null}</ActionButton>}
             {data.can.cancel && <Button variant="outline" className="text-destructive" onClick={() => setCancelling(true)}><X /> {tr("Cancel transfer")}</Button>}
             {t.status === "dispatched" && !data.can.receive && <p className="text-center text-sm text-muted-foreground">{tr("Waiting for")} {t.to_branch_name} to confirm receipt.</p>}
           </div>
@@ -139,7 +153,7 @@ export default function TransferDetail() {
         onOpenChange={setReceiving}
         items={data.items}
         busy={act.isPending}
-        onConfirm={(body) => act.mutate({ action: "receive", body })}
+        onConfirm={(body) => act.mutateAsync({ action: "receive", body })}
       />
       <ConfirmDialog
         open={cancelling}
@@ -150,7 +164,7 @@ export default function TransferDetail() {
         requireReason
         confirmLabel="Cancel transfer"
         busy={act.isPending}
-        onConfirm={(reason) => act.mutate({ action: "cancel", body: { reason } })}
+        onConfirm={(reason) => act.mutateAsync({ action: "cancel", body: { reason } })}
       />
     </>
   );

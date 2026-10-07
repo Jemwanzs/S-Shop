@@ -184,7 +184,19 @@ screen, the session check and the background job:
   with its own frequency, tax and discount; a one-off plan never produces subscription invoices. Every pricing, module,
   discount, tax, trial/grace, free-access and status change is audited with previous and new values.
 
- — deferred, not dropped):
+Added 2026-10-07 (owner requests, delivered 2026-10-07; [module 22](modules/22-actions-and-quick-actions.md)):
+- ✅ **47. Action button states** — one reusable action-state component for the whole app instead of per-page button
+  logic: each action derives visibility, enabled state, label, processing and result from permissions, record/workflow
+  state, unsaved changes, validation, configuration and connectivity (Ready → Processing → Success/Error → next state);
+  short contextual disabled labels (*Nothing to save*, *Select a file*, *Nothing to receive*, *STK not configured* …);
+  no double clicks, no success before the server confirms, work kept on failure; duplicate submissions also refused
+  by the server for every endpoint.
+- ✅ **48. Floating quick sale** — a small warm-brown *Record Sale* bubble (centre-right) on operational screens for
+  users who may record sales (permission, Sales/POS module, branch, trading hours/location, offline rules), opening the
+  existing Record Sale screen; *User preferences → Quick actions*: draggable ON/OFF (default OFF), position remembered
+  per device and snapped to the nearest edge, tap vs drag never confused; built as a reusable floating quick action.
+
+Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as
   a sending domain in Resend (DNS records) and set `MAIL_FROM` (e.g. `S'Shop <noreply@s-shop.store>`).

@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, Loader2, LogOut, Menu, Moon, Search, Store, Sun } from "lucide-react";
+import { Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, Loader2, LogOut, Menu, Moon, Search, ShoppingCart, Store, Sun } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -26,6 +26,8 @@ import { Loading } from "@/components/Page";
 import { Field } from "@/components/Form";
 import { GlobalSearch } from "./GlobalSearch";
 import { OfflineBar } from "@/components/OfflineBar";
+import { FloatingQuickAction } from "@/components/FloatingQuickAction";
+import { useOpenNow } from "@/components/Hours";
 import mark from "@/assets/sshop-mark.png";
 import { allowed, BOTTOM, NAV } from "./nav";
 import { t } from "@/lib/i18n";
@@ -260,6 +262,31 @@ function BillingBanner() {
   );
 }
 
+/**
+ * Floating Record Sale shortcut (roadmap 48): shown on operational screens to users who may record a sale here and now —
+ * the permission (which also covers the Sales/POS module of the package), a Current Branch, billing not suspended and,
+ * when sales are blocked outside trading hours, an open branch. It opens the existing Record Sale screen; offline sales
+ * follow that screen's own rules.
+ */
+function QuickSaleShortcut() {
+  const { profile, branch, can, preferences } = useSession();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const openNow = useOpenNow(branch?.hours, profile?.tenant.timezone);
+  if (!profile || !branch || !can("sales.create") || profile.billing?.suspended) return null;
+  if (/^\/(pos|select-branch)(\/|$)/.test(pathname)) return null;
+  if (profile.settings.workspace.outside_hours === "block" && !can("sales.outside_hours") && !openNow) return null;
+  return (
+    <FloatingQuickAction
+      id="sale"
+      icon={<ShoppingCart />}
+      label="Record sale"
+      draggable={!!preferences.quick_sale_draggable}
+      onAction={() => navigate("/pos")}
+    />
+  );
+}
+
 function Sidebar({ approvals }: { approvals: number }) {
   const { can } = useSession();
   return (
@@ -405,6 +432,7 @@ export function AppShell() {
         <BillingBanner />
         <LocationGuard />
         <OfflineBar />
+        <QuickSaleShortcut />
         <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur no-print">
           <div className="mx-auto flex h-14 max-w-[1680px] items-center gap-2 px-4 md:px-6 lg:h-16 lg:px-8">
             <div className="min-w-0 flex-1 lg:hidden"><Brand /></div>

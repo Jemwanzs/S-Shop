@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { ago } from "@/lib/format";
 import type { Notification } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ActionButton";
 import { EmptyState, Loading, PageHeader } from "@/components/Page";
 import { t } from "@/lib/i18n";
 
@@ -40,7 +40,7 @@ export default function Notifications() {
       <PageHeader
         title="Notifications"
         description={data?.pending_approvals ? `${data.pending_approvals} request(s) awaiting approval` : undefined}
-        actions={data?.unread ? <Button variant="outline" onClick={() => readAll.mutate()}><CheckCheck /> {t("Mark all read")}</Button> : undefined}
+        actions={<ActionButton variant="outline" online busy={readAll.isPending} blockedBy={[!data?.unread && "All read"]} onAction={() => readAll.mutateAsync()}><CheckCheck /> {t("Mark all read")}</ActionButton>}
       />
       {isLoading ? (
         <Loading />

@@ -110,7 +110,7 @@ async fn preview_allowed(state: &AppState, headers: &HeaderMap, tenant: Uuid) ->
         return false;
     }
     let perms: Option<Vec<String>> = sqlx::query_scalar(
-        "SELECT r.permissions || u.extra_permissions FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1 AND u.tenant_id = $2 AND u.is_active",
+        "SELECT effective_permissions(r.permissions, u.extra_permissions) FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1 AND u.tenant_id = $2 AND u.is_active",
     )
     .bind(claims.sub)
     .bind(claims.home.unwrap_or(claims.tid))

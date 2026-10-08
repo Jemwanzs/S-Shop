@@ -43,8 +43,11 @@ pub fn normalise(input: &str, platform_hosts: &[String]) -> Result<String, Strin
 pub struct Record {
     /// TXT | CNAME | ALIAS
     pub kind: String,
-    /// Host / name to enter at the DNS provider.
+    /// Host / name to enter at the DNS provider (relative to the domain's zone: `_sshop-verify`, `www`, `@`).
     pub name: String,
+    /// The full record name (`_sshop-verify.example.com`) — some providers ask for this instead.
+    #[serde(default)]
+    pub fqdn: String,
     pub value: String,
     /// ok | missing | wrong
     pub status: String,
@@ -148,15 +151,43 @@ pub async fn railway_detach(http: &reqwest::Client, api: &RailwayApi, id: &str) 
 }
 
 /// The routing record a person adds for `domain` (CNAME for a subdomain, ALIAS / flattened CNAME for a root domain).
-pub fn routing_record(domain: &str, target: &str, status: &str) -> Record {
+/// The DNS zone a domain lives in (what is bought from the registrar): example.com, or example.co.ke /
+/// example.com.au style (two-letter country code after a generic label).
+pub fn zone(domain: &str) -> String {
     let labels: Vec<&str> = domain.split('.').collect();
-    // Registrable part: example.com, or example.co.ke / example.com.au style (two-letter country code after a generic label).
     let generic = ["co", "com", "net", "org", "ac", "go", "or", "ne", "gov", "edu", "sc", "me"];
     let apex = if labels.len() >= 3 && labels[labels.len() - 1].len() == 2 && generic.contains(&labels[labels.len() - 2]) { 3 } else { 2 };
-    let root = labels.len() <= apex;
+    labels[labels.len().saturating_sub(apex)..].join(".")
+}
+
+/// The host to type at the DNS provider for a full record name: relative to the zone (`@` for the zone itself).
+pub fn host(fqdn: &str, domain: &str) -> String {
+    let z = zone(domain);
+    if fqdn == z {
+        "@".into()
+    } else {
+        fqdn.strip_suffix(&format!(".{z}")).unwrap_or(fqdn).to_string()
+    }
+}
+
+/// Where a record ends up when the full name is typed into a provider that adds the zone itself
+/// (`_sshop-verify.example.com.example.com`) — the most common set-up mistake.
+pub fn doubled(fqdn: &str, domain: &str) -> String {
+    format!("{fqdn}.{}", zone(domain))
+}
+
+/// A TXT record to show, named relative to the zone.
+pub fn txt_record(fqdn: &str, domain: &str, value: String, status: &str, note: &str) -> Record {
+    Record { kind: "TXT".into(), name: host(fqdn, domain), fqdn: fqdn.into(), value, status: status.into(), note: note.into() }
+}
+
+pub fn routing_record(domain: &str, target: &str, status: &str) -> Record {
+    let name = host(domain, domain);
+    let root = name == "@";
     Record {
         kind: if root { "ALIAS".into() } else { "CNAME".into() },
-        name: if root { "@".into() } else { labels[..labels.len() - apex].join(".") },
+        name,
+        fqdn: domain.into(),
         value: target.into(),
         status: status.into(),
         note: if root {
@@ -192,5 +223,13 @@ mod tests {
         assert_eq!(routing_record("myshop.co.ke", "abc.up.railway.app", "missing").kind, "ALIAS");
         assert_eq!(routing_record("www.myshop.co.ke", "abc.up.railway.app", "missing").name, "www");
         assert_eq!(routing_record("a.b.example.com", "abc.up.railway.app", "missing").name, "a.b");
+    }
+
+    #[test]
+    fn record_hosts_relative_to_zone() {
+        assert_eq!(host("_sshop-verify.s-shop.click", "s-shop.click"), "_sshop-verify");
+        assert_eq!(host("_sshop-verify.shop.example.co.ke", "shop.example.co.ke"), "_sshop-verify.shop");
+        assert_eq!(host("example.com", "example.com"), "@");
+        assert_eq!(doubled("_sshop-verify.s-shop.click", "s-shop.click"), "_sshop-verify.s-shop.click.s-shop.click");
     }
 }

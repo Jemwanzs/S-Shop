@@ -82,7 +82,9 @@ struct ListQuery {
 
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Paged<OrderRow>>> {
     ctx.require("orders.view")?;
-    let branches = ctx.branch_scope(q.branch_id)?;
+    // Orders scope (roadmap 64): orders the user created or whose sale is credited to them, their branches, or all.
+    let vis = ctx.visibility(&mut *state.db.acquire().await?, "orders", q.branch_id, None).await?;
+    let branches = vis.branches;
     let (from, to) = q.period.resolve(ctx.today(), "all");
     let select = SELECT.replacen("SELECT", "SELECT COUNT(*) OVER() AS total_count,", 1);
     let rows: Vec<Counted<OrderRow>> = sqlx::query_as(&format!(
@@ -92,6 +94,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
                         ELSE o.status = $3 END)
            AND ($4::text IS NULL OR o.order_no ILIKE $4 OR c.first_name ILIKE $4 OR c.mobile ILIKE $4)
            AND o.business_date BETWEEN $5 AND $6
+           AND ($9::uuid IS NULL OR o.created_by = $9 OR EXISTS (SELECT 1 FROM sales ss WHERE ss.id = o.sale_id AND ss.owner_id = $9))
          ORDER BY (o.status = 'new') DESC, o.created_at DESC LIMIT $7 OFFSET $8"
     ))
     .bind(ctx.tenant_id)
@@ -102,6 +105,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .bind(to)
     .bind(q.page.limit())
     .bind(q.page.offset())
+    .bind(vis.owner)
     .fetch_all(&state.db)
     .await?;
     Ok(Json(rows.into()))
@@ -110,11 +114,15 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
 /// Counts per status for the tab badges.
 async fn summary(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
     ctx.require("orders.view")?;
+    let vis = ctx.visibility(&mut *state.db.acquire().await?, "orders", None, None).await?;
     let rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT status, COUNT(*) FROM orders WHERE tenant_id = $1 AND branch_id = ANY($2) GROUP BY status",
+        "SELECT status, COUNT(*) FROM orders o WHERE tenant_id = $1 AND branch_id = ANY($2)
+           AND ($3::uuid IS NULL OR o.created_by = $3 OR EXISTS (SELECT 1 FROM sales ss WHERE ss.id = o.sale_id AND ss.owner_id = $3))
+         GROUP BY status",
     )
     .bind(ctx.tenant_id)
-    .bind(&ctx.branch_ids)
+    .bind(&vis.branches)
+    .bind(vis.owner)
     .fetch_all(&state.db)
     .await?;
     let map: serde_json::Map<String, Value> = rows.into_iter().map(|(s, n)| (s, json!(n))).collect();
@@ -130,6 +138,27 @@ async fn load(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, lock: bool) -> AppRe
         .await?
         .ok_or(AppError::NotFound("Order"))?;
     ctx.ensure_branch(o.branch_id)?;
+    Ok(o)
+}
+
+/// One order for viewing, within the user's orders scope (operations still need the branch — see `load`).
+async fn load_visible(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<OrderRow> {
+    let o: OrderRow = sqlx::query_as(&format!("{SELECT} WHERE o.id = $1 AND o.tenant_id = $2"))
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or(AppError::NotFound("Order"))?;
+    let mine: Option<bool> = sqlx::query_scalar(
+        "SELECT o.created_by = $2 OR EXISTS (SELECT 1 FROM sales s WHERE s.id = o.sale_id AND s.owner_id = $2) FROM orders o WHERE o.id = $1",
+    )
+    .bind(id)
+    .bind(ctx.user_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    if !ctx.may_view("orders", o.branch_id, mine.unwrap_or(false)) {
+        return Err(AppError::Forbidden("This order is outside the orders you can see".into()));
+    }
     Ok(o)
 }
 
@@ -176,7 +205,7 @@ fn next_statuses(o: &OrderRow, s: &TenantSettings) -> Vec<&'static str> {
 async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     ctx.require("orders.view")?;
     let mut conn = state.db.acquire().await?;
-    let o = load(&mut conn, &ctx, id, false).await?;
+    let o = load_visible(&mut conn, &ctx, id).await?;
     let s = settings::load(&mut conn, ctx.tenant_id).await?;
     let items = order_items(&mut conn, id).await?;
     let mut lines = Vec::new();
@@ -292,14 +321,24 @@ pub async fn create_order(
 
 /// Tell order staff about a new order.
 pub async fn announce_new(state: &AppState, tenant_id: Uuid, branch_id: Uuid, order_id: Uuid, order_no: &str, customer: &str, total: Decimal) {
-    notify::to_permission(
-        state,
-        tenant_id,
-        Some(branch_id),
-        "orders.manage",
-        Note::new("new_order", format!("New order {order_no}"), format!("{customer} · KSh {}", money_str(total)), format!("/orders/{order_id}")),
+    // Roadmap 69: who, where, how much — one notification per order and person, however often it is announced.
+    let (branch, items, source): (String, i64, String) = sqlx::query_as(
+        "SELECT b.name, COALESCE((SELECT SUM(quantity) FROM order_items WHERE order_id = o.id), 0)::bigint, o.source
+         FROM orders o JOIN branches b ON b.id = o.branch_id WHERE o.id = $1",
     )
-    .await;
+    .bind(order_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| (String::new(), 0, String::new()));
+    let title = if source == "internal" { format!("New order {order_no}") } else { format!("New customer order {order_no}") };
+    let mut body = format!("Customer: {customer}");
+    if !branch.is_empty() {
+        body.push_str(&format!(" · {branch}"));
+    }
+    body.push_str(&format!(" · {items} item{} · KSh {}", if items == 1 { "" } else { "s" }, money_str(total)));
+    notify::to_order_staff(state, tenant_id, branch_id, Note::new("new_order", title, body, format!("/orders/{order_id}")).dedupe(format!("order:{order_id}"))).await;
     state.emit(tenant_id, None, "order", json!({ "id": order_id, "status": "new" }));
 }
 
@@ -442,10 +481,13 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
                         order_id: Some(id),
                         client_ref: None,
                         exchange: None,
+                        owner_id: None,
                     },
                     true,
                 )
                 .await?;
+                // The order's sale gets its receipt in the same transaction (roadmap 65).
+                crate::receipts::issue_original(&mut tx, ctx.tenant_id, new_sale, Some(ctx.user_id)).await?;
                 sale_id = Some(new_sale);
             }
         }

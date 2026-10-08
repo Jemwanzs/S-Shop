@@ -33,9 +33,11 @@ pub fn routes() -> Router<AppState> {
         .route("/users", get(list_users).post(create_user))
         .route("/users/{id}", put(update_user))
         .route("/users/{id}/reset-pin", post(reset_user_pin))
+        .route("/users/{id}/access", get(user_access).put(set_user_access))
         .route("/roles", get(list_roles).post(create_role))
         .route("/roles/{id}", put(update_role))
         .route("/permissions", get(permission_catalogue))
+        .route("/permissions/scopes", get(scope_catalogue))
 }
 
 // ───────────────────────────── Settings ─────────────────────────────
@@ -142,6 +144,12 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(body): Json<
         ctx.ensure_branch(b)?;
     }
     body.workspace.hours.validate().map_err(bad)?;
+    if !matches!(body.sales.receipt.font.as_str(), "sans" | "thermal") {
+        return Err(bad("Choose the clean sans or thermal-style receipt font"));
+    }
+    if body.sales.receipt_footer.chars().count() > 80 {
+        return Err(bad("The receipt thank-you message is too long (max 80 characters)"));
+    }
     if let Some(a) = body.workspace.location.areas.iter().find(|a| !crate::geo::AREAS.contains(&a.as_str())) {
         return Err(bad(format!("Unknown location area: {a}")));
     }
@@ -543,6 +551,9 @@ struct UserRow {
     branch_ids: Vec<Uuid>,
     last_login_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
+    /// User-specific access exceptions (grants, "-" restrictions, scopes) — website ones are managed in Website.
+    extra_permissions: Vec<String>,
+    default_branch_id: Option<Uuid>,
 }
 
 async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<UserRow>>> {
@@ -550,7 +561,7 @@ async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<V
     let rows = sqlx::query_as(
         "SELECT u.id, u.name, u.email, u.phone, u.role_id, r.name AS role_name, u.is_active, u.all_branches,
                 COALESCE(ARRAY(SELECT branch_id FROM user_branches ub WHERE ub.user_id = u.id), '{}') AS branch_ids,
-                u.last_login_at, u.created_at
+                u.last_login_at, u.created_at, u.extra_permissions, u.default_branch_id
          FROM users u JOIN roles r ON r.id = u.role_id WHERE u.tenant_id = $1 ORDER BY u.is_active DESC, u.name",
     )
     .bind(ctx.tenant_id)
@@ -782,6 +793,13 @@ fn validate_role(b: &RoleBody) -> AppResult<()> {
     if b.permissions.iter().any(|p| p == "*") {
         return Err(bad("Full access is reserved for the Tenant Administrator role"));
     }
+    // One data-visibility scope per area (roadmap 64).
+    for (area, label) in perms::SCOPE_AREAS {
+        let pre = format!("scope.{area}.");
+        if b.permissions.iter().filter(|p| p.starts_with(&pre)).count() > 1 {
+            return Err(bad(format!("Choose one visibility scope for {label}")));
+        }
+    }
     Ok(())
 }
 
@@ -838,4 +856,161 @@ async fn update_role(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uui
 
 async fn permission_catalogue(_ctx: Ctx) -> Json<&'static [perms::PermGroup]> {
     Json(perms::CATALOGUE)
+}
+
+/// Data-visibility areas and their scopes for the role and user editors (roadmap 64).
+async fn scope_catalogue(_ctx: Ctx) -> Json<Value> {
+    Json(json!({
+        "areas": perms::SCOPE_AREAS.iter().map(|(k, l)| json!({ "key": k, "label": l })).collect::<Vec<_>>(),
+        "scopes": [
+            { "key": "own", "label": "Own records" },
+            { "key": "branches", "label": "Assigned branches" },
+            { "key": "all", "label": "All branches" },
+        ],
+    }))
+}
+
+
+// ───────────────────────────── User access exceptions (roadmap 64) ─────────────────────────────
+
+/// Access exceptions that can be given to one user (website permissions are managed in Website → Users & Access).
+pub const USER_GRANTS: &[&str] = &["sales.assign_owner", "sales.request_owner_change", "dashboard.view", "reports.view", "reports.export", "staff.view_others"];
+
+fn scope_rank(v: &str) -> u8 {
+    match v {
+        "all" => 3,
+        "branches" => 2,
+        _ => 1,
+    }
+}
+
+/// Role permissions, the user's exceptions and the effective result (what the server enforces), with each area's scope.
+async fn user_access(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+    ctx.require("users.manage")?;
+    let row: Option<(String, Vec<String>, Vec<String>, Vec<String>, Option<Uuid>, bool)> = sqlx::query_as(
+        "SELECT r.name, r.permissions, u.extra_permissions, effective_permissions(r.permissions, u.extra_permissions), u.default_branch_id, u.all_branches
+         FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1 AND u.tenant_id = $2",
+    )
+    .bind(id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&state.db)
+    .await?;
+    let (role, role_perms, extra, effective, default_branch, all_branches) = row.ok_or(AppError::NotFound("User"))?;
+    let admin = role_perms.iter().any(|p| p == "*");
+    let scope_of = |perms: &[String], area: &str| -> Option<String> {
+        let pre = format!("scope.{area}.");
+        perms.iter().find_map(|p| p.strip_prefix(&pre).map(str::to_string))
+    };
+    let sees_others = admin || effective.iter().any(|p| p == "staff.view_others");
+    let scopes: Vec<Value> = crate::perms::SCOPE_AREAS
+        .iter()
+        .map(|(area, label)| {
+            let effective_scope = if admin { "all".to_string() } else { scope_of(&effective, area).unwrap_or_else(|| if sees_others { "branches".into() } else { "own".into() }) };
+            json!({ "area": area, "label": label, "role": scope_of(&role_perms, area), "user": scope_of(&extra, area), "effective": effective_scope })
+        })
+        .collect();
+    Ok(Json(json!({
+        "role": role, "administrator": admin, "all_branches": all_branches, "default_branch_id": default_branch,
+        "role_permissions": role_perms, "overrides": extra.iter().filter(|p| !p.starts_with("website.")).collect::<Vec<_>>(),
+        "effective": effective, "scopes": scopes, "grantable": USER_GRANTS,
+    })))
+}
+
+#[derive(Deserialize)]
+struct AccessBody {
+    /// Grants ("reports.export"), restrictions ("-reports.export") and scopes ("scope.sales.own").
+    #[serde(default)]
+    overrides: Vec<String>,
+    default_branch_id: Option<Uuid>,
+}
+
+/// Sets one user's access exceptions and default branch. Nobody can give more than they hold themselves: a grant needs
+/// the permission, a scope cannot be wider than the granting user's own scope for that area.
+async fn set_user_access(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<AccessBody>) -> AppResult<Json<Value>> {
+    ctx.require("users.manage")?;
+    let mut clean: Vec<String> = Vec::new();
+    let mut areas: Vec<&str> = Vec::new();
+    for o in &b.overrides {
+        let o = o.trim();
+        if let Some(p) = o.strip_prefix('-') {
+            if !USER_GRANTS.contains(&p) {
+                return Err(bad(format!("Not an access exception: {o}")));
+            }
+        } else if crate::perms::is_scope(o) {
+            let mut parts = o.split('.').skip(1);
+            let (area, value) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
+            if areas.contains(&area) {
+                return Err(bad(format!("Choose one scope for {area}")));
+            }
+            areas.push(area);
+            let mine = match ctx.scope(area) {
+                crate::auth::DataScope::All => "all",
+                crate::auth::DataScope::Branches => "branches",
+                crate::auth::DataScope::Own => "own",
+            };
+            if scope_rank(value) > scope_rank(mine) {
+                return Err(AppError::Forbidden(format!("You cannot give a wider {area} scope than your own")));
+            }
+        } else if USER_GRANTS.contains(&o) {
+            if !ctx.can(o) {
+                return Err(AppError::Forbidden(format!("You cannot give a permission you do not have: {o}")));
+            }
+        } else {
+            return Err(bad(format!("Not an access exception: {o}")));
+        }
+        if o.starts_with('-') && clean.iter().any(|c| c == &o[1..]) || !o.starts_with('-') && clean.iter().any(|c| c == &format!("-{o}")) {
+            return Err(bad("A permission cannot be both given and restricted"));
+        }
+        if !clean.iter().any(|c| c == o) {
+            clean.push(o.to_string());
+        }
+    }
+    let mut tx = state.db.begin().await?;
+    let row: Option<(Vec<String>, Option<Uuid>, bool, bool)> = sqlx::query_as(
+        "SELECT u.extra_permissions, u.default_branch_id, u.all_branches, '*' = ANY(r.permissions) FROM users u JOIN roles r ON r.id = u.role_id
+         WHERE u.id = $1 AND u.tenant_id = $2 FOR UPDATE OF u",
+    )
+    .bind(id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let (before, before_branch, all_branches, target_admin) = row.ok_or(AppError::NotFound("User"))?;
+    if target_admin && !ctx.is_admin() {
+        return Err(AppError::Forbidden("Only administrators can change an administrator".into()));
+    }
+    if let Some(branch) = b.default_branch_id {
+        let ok: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM branches br WHERE br.id = $1 AND br.tenant_id = $2 AND br.is_active
+                 AND ($3 OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = $4 AND ub.branch_id = br.id)))",
+        )
+        .bind(branch)
+        .bind(ctx.tenant_id)
+        .bind(all_branches || target_admin)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !ok {
+            return Err(bad("The default branch must be one of the user's branches"));
+        }
+    }
+    // Website permissions are managed separately and kept as they are.
+    let mut all: Vec<String> = before.iter().filter(|p| p.starts_with("website.")).cloned().collect();
+    all.extend(clean.iter().cloned());
+    sqlx::query("UPDATE users SET extra_permissions = $3, default_branch_id = $4 WHERE id = $1 AND tenant_id = $2")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .bind(&all)
+        .bind(b.default_branch_id)
+        .execute(&mut *tx)
+        .await?;
+    audit::record(
+        &mut tx,
+        &ctx,
+        Entry::new("users", "access", "user", id)
+            .before(json!({ "overrides": before.iter().filter(|p| !p.starts_with("website.")).collect::<Vec<_>>(), "default_branch_id": before_branch }))
+            .after(json!({ "overrides": clean, "default_branch_id": b.default_branch_id })),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(json!({ "ok": true, "overrides": clean, "default_branch_id": b.default_branch_id })))
 }

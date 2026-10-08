@@ -158,9 +158,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         session.setToken(t);
         qc.setQueryData(["me", t], p);
         setToken(t);
-        if (p.branches.length === 1) {
-          session.setBranch(p.branches[0].id);
-          setBranchId(p.branches[0].id);
+        // One branch, or the user's default branch (roadmap 64), becomes the Current Branch straight away.
+        const preset = p.branches.length === 1 ? p.branches[0].id : p.branches.find((b) => b.id === p.user.default_branch_id)?.id;
+        if (preset) {
+          session.setBranch(preset);
+          setBranchId(preset);
         }
       },
       renewToken: async (t) => {

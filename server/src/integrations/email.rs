@@ -7,12 +7,33 @@ use crate::config::EmailConfig;
 
 /// Sends a plain-text email. Returns an error message on failure; callers log it and carry on.
 pub async fn send(http: &reqwest::Client, cfg: &EmailConfig, to: &[String], subject: &str, text: &str) -> Result<(), String> {
-    send_rich(http, cfg, to, subject, None, text).await.map(|_| ())
+    send_rich(http, cfg, to, subject, None, text, None, &[]).await.map(|_| ())
+}
+
+/// Shows `name` as the sender while keeping the configured (verified) address, e.g. "Pablo Niche <noreply@s-shop.store>".
+pub fn from_as(cfg: &EmailConfig, name: &str) -> String {
+    let address = cfg.from.rsplit_once('<').map(|(_, a)| a.trim_end_matches('>').trim().to_string()).unwrap_or_else(|| cfg.from.clone());
+    let clean: String = name.chars().filter(|c| !matches!(c, '<' | '>' | '"') && !c.is_control()).take(60).collect();
+    format!("{} <{address}>", clean.trim())
 }
 
 /// Sends an email with an HTML body and a plain-text alternative; returns Resend's message id (for delivery tracking).
-pub async fn send_rich(http: &reqwest::Client, cfg: &EmailConfig, to: &[String], subject: &str, html: Option<&str>, text: &str) -> Result<String, String> {
-    let mut body = json!({ "from": cfg.from, "to": to, "subject": subject, "text": text });
+/// `attachments`: (file name, base64 content).
+#[allow(clippy::too_many_arguments)]
+pub async fn send_rich(
+    http: &reqwest::Client,
+    cfg: &EmailConfig,
+    to: &[String],
+    subject: &str,
+    html: Option<&str>,
+    text: &str,
+    from: Option<&str>,
+    attachments: &[(String, String)],
+) -> Result<String, String> {
+    let mut body = json!({ "from": from.unwrap_or(&cfg.from), "to": to, "subject": subject, "text": text });
+    if !attachments.is_empty() {
+        body["attachments"] = json!(attachments.iter().map(|(f, c)| json!({ "filename": f, "content": c })).collect::<Vec<_>>());
+    }
     if let Some(h) = html {
         body["html"] = json!(h);
     }

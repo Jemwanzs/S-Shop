@@ -68,14 +68,17 @@ async fn search(State(state): State<AppState>, ctx: Ctx, Query(q): Query<SearchQ
         }));
     }
     if ctx.can("orders.view") {
+        let vis = ctx.visibility(&mut *state.db.acquire().await?, "orders", None, None).await?;
         let rows: Vec<(Uuid, String, String, Decimal)> = sqlx::query_as(
-            "SELECT id, order_no, status, total FROM orders WHERE tenant_id = $1 AND branch_id = ANY($3) AND order_no ILIKE $2
+            "SELECT id, order_no, status, total FROM orders o WHERE tenant_id = $1 AND branch_id = ANY($3) AND order_no ILIKE $2
+               AND ($5::uuid IS NULL OR o.created_by = $5 OR EXISTS (SELECT 1 FROM sales s WHERE s.id = o.sale_id AND s.owner_id = $5))
              ORDER BY (branch_id = $4) DESC, created_at DESC LIMIT 5",
         )
         .bind(ctx.tenant_id)
         .bind(&pattern)
-        .bind(&ctx.branch_ids)
+        .bind(&vis.branches)
         .bind(ctx.branch_id)
+        .bind(vis.owner)
         .fetch_all(&state.db)
         .await?;
         results.extend(rows.into_iter().map(|(id, no, status, total)| {
@@ -83,14 +86,18 @@ async fn search(State(state): State<AppState>, ctx: Ctx, Query(q): Query<SearchQ
         }));
     }
     if ctx.can("sales.view") {
+        // Same sales scope as Sales History (roadmap 64).
+        let vis = ctx.visibility(&mut *state.db.acquire().await?, "sales", None, None).await?;
         let rows: Vec<(Uuid, String, String, Decimal)> = sqlx::query_as(
             "SELECT id, receipt_no, status, total FROM sales WHERE tenant_id = $1 AND branch_id = ANY($3) AND receipt_no ILIKE $2
+               AND ($5::uuid IS NULL OR owner_id = $5 OR user_id = $5)
              ORDER BY (branch_id = $4) DESC, created_at DESC LIMIT 5",
         )
         .bind(ctx.tenant_id)
         .bind(&pattern)
-        .bind(&ctx.branch_ids)
+        .bind(&vis.branches)
         .bind(ctx.branch_id)
+        .bind(vis.owner)
         .fetch_all(&state.db)
         .await?;
         results.extend(rows.into_iter().map(|(id, no, status, total)| {

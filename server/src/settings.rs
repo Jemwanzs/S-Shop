@@ -102,6 +102,37 @@ pub struct SalesSettings {
     pub credit_enabled: bool,
     pub credit_default_days: i64,
     pub receipt_footer: String,
+    /// Receipt configuration (roadmap 66). The structure is fixed; these choose what it shows.
+    pub receipt: ReceiptSettings,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReceiptSettings {
+    pub show_logo: bool,
+    pub show_branch: bool,
+    pub show_contact: bool,
+    pub show_customer: bool,
+    pub show_salesperson: bool,
+    pub show_loyalty: bool,
+    pub show_payment_ref: bool,
+    /// sans | thermal
+    pub font: String,
+}
+
+impl Default for ReceiptSettings {
+    fn default() -> Self {
+        Self {
+            show_logo: true,
+            show_branch: true,
+            show_contact: true,
+            show_customer: true,
+            show_salesperson: true,
+            show_loyalty: true,
+            show_payment_ref: true,
+            font: "sans".into(),
+        }
+    }
 }
 impl Default for PaymentMethod {
     fn default() -> Self {
@@ -122,6 +153,7 @@ impl Default for SalesSettings {
             credit_enabled: true,
             credit_default_days: 30,
             receipt_footer: "Thank you for shopping with us!".into(),
+            receipt: ReceiptSettings::default(),
         }
     }
 }

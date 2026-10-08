@@ -61,7 +61,7 @@ export function ThemeToggle({ className }: { className?: string }) {
 function useNotificationCounts() {
   return useQuery({
     queryKey: ["notifications"],
-    queryFn: () => api<{ items: Notification[]; unread: number; pending_approvals: number }>("/notifications", { query: { limit: 30 } }),
+    queryFn: () => api<{ items: Notification[]; unread: number; pending_approvals: number; new_orders?: number }>("/notifications", { query: { limit: 30 } }),
     refetchInterval: 120_000,
   });
 }
@@ -289,7 +289,17 @@ function QuickSaleShortcut() {
   );
 }
 
-function Sidebar({ approvals }: { approvals: number }) {
+/** Compact orange counter beside a menu item (99+ above 99); nothing at zero. */
+function CountBadge({ n, className }: { n: number; className?: string }) {
+  if (n <= 0) return null;
+  return (
+    <span className={cn("num inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold leading-none text-primary-foreground", className)}>
+      {n > 99 ? "99+" : n}
+    </span>
+  );
+}
+
+function Sidebar({ approvals, orders }: { approvals: number; orders: number }) {
   const { can } = useSession();
   return (
     <aside className="sticky top-0 hidden h-screen flex-col border-e bg-card/70 backdrop-blur lg:flex print:!hidden">
@@ -318,9 +328,8 @@ function Sidebar({ approvals }: { approvals: number }) {
                 >
                   <i.icon className="h-4 w-4 shrink-0" />
                   <span className="flex-1 truncate">{t(i.label)}</span>
-                  {i.to === "/approvals" && approvals > 0 && (
-                    <span className="num rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{approvals}</span>
-                  )}
+                  {i.to === "/approvals" && <CountBadge n={approvals} />}
+                  {i.to === "/orders" && <CountBadge n={orders} />}
                 </NavLink>
               ))}
             </div>
@@ -334,7 +343,7 @@ function Sidebar({ approvals }: { approvals: number }) {
   );
 }
 
-function BottomNav() {
+function BottomNav({ orders }: { orders: number }) {
   const { can } = useSession();
   const { pathname } = useLocation();
   const items = BOTTOM.filter((i) => allowed(i, can));
@@ -354,6 +363,7 @@ function BottomNav() {
               {({ isActive }) => (
                 <>
                   {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
+                  {i.to === "/orders" && <CountBadge n={orders} className="absolute top-1.5 start-1/2 ms-1.5" />}
                   {sale ? (
                     <span className="-mt-4 flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lift ring-4 ring-background">
                       <i.icon className="h-5 w-5" />
@@ -401,12 +411,12 @@ function LocationGuard() {
 }
 
 export function AppShell() {
-  const { profile } = useSession();
+  const { profile, preferences } = useSession();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [searchOpen, setSearchOpen] = useState(false);
   const notes = useNotificationCounts();
-  useLiveEvents(!!profile);
+  useLiveEvents(!!profile, preferences);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -425,10 +435,11 @@ export function AppShell() {
 
   const unread = notes.data?.unread ?? 0;
   const approvals = notes.data?.pending_approvals ?? 0;
+  const orders = notes.data?.new_orders ?? 0;
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[var(--sidebar-w)_minmax(0,1fr)]">
-      <Sidebar approvals={approvals} />
+      <Sidebar approvals={approvals} orders={orders} />
       <div className="min-w-0">
         <ActingBanner />
         <BillingBanner />
@@ -466,7 +477,7 @@ export function AppShell() {
           </ErrorBoundary>
         </main>
       </div>
-      <BottomNav />
+      <BottomNav orders={orders} />
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
     </div>
   );

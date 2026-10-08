@@ -21,6 +21,7 @@ mod state;
 mod util;
 mod domains;
 mod mailer;
+mod receipts;
 mod website;
 mod workflow;
 

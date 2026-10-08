@@ -7,6 +7,19 @@ Status tabs with counts: **Active** (default) · New · Confirmed · Preparing �
 Completed · Cancelled · All; search by order number, customer or mobile. New orders are flagged and arrive live
 (notification + list refresh). The page header shows the business ordering link.
 
+## New-order alerts & the Orders badge (roadmap 69)
+- **Who is notified:** active users with `orders.manage` at the order's branch whose *orders* data scope reaches it
+  (an *own records* scope never sees customers' orders, so it is not alerted either), unless they switched off
+  *New order notifications* (User preferences → Notifications). One notification per order and person (de-duplicated),
+  e.g. *New customer order ORD-2026-000011 — Customer: James · Main Branch · 4 items · KSh 697,500*, opening the order.
+- **Orders badge:** an orange counter beside *Orders* (sidebar and phone bar) = orders still **New** in the user's
+  orders scope (same filter as the list), `99+` above 99, hidden at zero. It is operational, not a read counter:
+  reading or dismissing notifications never changes it; confirming (or cancelling) the order does.
+- **Live:** order events refresh the list, the bell and the badge for every signed-in user (SSE), with the regular
+  2-minute refresh as a fallback.
+- **Preferences:** new-order notifications (on), in-app pop-up alerts (on), sound — a short chime with new-order
+  alerts (off). Preferences never hide the badge.
+
 **Phone order** button: staff create an order for a customer (mobile + name, products, delivery location, notes).
 
 ## Statuses

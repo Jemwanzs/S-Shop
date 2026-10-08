@@ -59,9 +59,9 @@ sold → payment (or credit record) → customer totals and tier → loyalty poi
 A retried submit with the same `client_ref` returns the original sale instead of selling twice.
 
 ## Receipts
-Business, branch, receipt no., date, customer, items (qty, price, discount), totals, payment & reference, balance
-(credit), points earned, salesperson, footer text. **Print** (browser), **PDF** (80 mm), **Share** (WhatsApp API or
-`wa.me` link).
+A compact 50 mm digital receipt, issued once and stored (never changes), with updated receipts after returns and
+exchanges; PDF, print, image, email (PDF attached), WhatsApp and a secure link — see
+[module 26](26-receipts-and-reconciliation.md).
 
 ## Returns & cancellations
 From the sale page (needs `sales.return` / `sales.cancel`; optionally approval-gated by amount):
@@ -81,10 +81,10 @@ One screen, one transaction: items **come back** from the sale and others **go o
   the **difference** with the chosen method (M-Pesa code optional as at the till), or is **refunded** the surplus by the
   chosen refund method.
 - Stock comes back to and goes out of the original sale's branch; the ledger, loyalty, customer totals and receipts
-  follow from the existing return and sale engines. The new receipt notes *Exchange for RCP-… (RTN-…)*; audited as one
+  follow from the existing return and sale engines. The new receipt notes *Exchange for RCP-… (RTN-…)* and an *Exchange receipt* is issued on the original; audited as one
   exchange. A retried submit returns the same exchange (`client_ref`).
-- Credit sales use **Credit Sales → Recall** and a new sale instead; returns that need approval must be processed (and
-  approved) first.
+- Credit sales use **Credit Sales → Recall** and a new sale instead. When returns of this value need approval, the
+  whole exchange goes for approval and nothing changes until it is approved (roadmap 67).
 
 ## Sales history
 Filters: period (default today), search (receipt, customer, mobile), payment method, status, branch, staff.

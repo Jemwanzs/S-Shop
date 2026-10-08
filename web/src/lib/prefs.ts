@@ -13,9 +13,17 @@ export interface Preferences {
   currency: string;
   /** Quick actions: the floating Record Sale bubble can be dragged (roadmap 48). Default off. */
   quick_sale_draggable?: boolean;
+  /** Roadmap 69: in-app notifications for new orders (the Orders badge is not affected). Default on. */
+  notify_new_orders?: boolean;
+  /** Pop-up alerts when a notification arrives. Default on. */
+  in_app_alerts?: boolean;
+  /** A short sound with new-order alerts. Default off. */
+  sound_alerts?: boolean;
 }
 
-export const DEFAULT_PREFERENCES: Preferences = { language: "en", font: "Outfit", currency: "KES", quick_sale_draggable: false };
+export const DEFAULT_PREFERENCES: Preferences = {
+  language: "en", font: "Outfit", currency: "KES", quick_sale_draggable: false, notify_new_orders: true, in_app_alerts: true, sound_alerts: false,
+};
 
 export interface Fx {
   base: string;

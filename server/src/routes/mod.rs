@@ -27,6 +27,7 @@ pub mod site;
 pub mod stock;
 pub mod transfers;
 pub mod webhooks;
+pub mod receipts;
 pub mod recovery;
 pub mod website;
 
@@ -41,6 +42,7 @@ pub fn api() -> Router<AppState> {
         .merge(auth::routes())
         .merge(access::routes())
         .merge(recovery::routes())
+        .merge(receipts::routes())
         .merge(prefs::routes())
         .merge(platform::routes())
         .merge(billing::routes())

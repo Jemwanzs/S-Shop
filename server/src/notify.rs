@@ -32,7 +32,7 @@ pub async fn to_permission(state: &AppState, tenant_id: Uuid, branch_id: Option<
     let recipients: Result<Vec<Uuid>, _> = sqlx::query_scalar(
         "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
          WHERE u.tenant_id = $1 AND u.is_active
-           AND ('*' = ANY(r.permissions) OR $2 = ANY(r.permissions) OR $2 = ANY(u.extra_permissions))
+           AND ('*' = ANY(r.permissions) OR $2 = ANY(effective_permissions(r.permissions, u.extra_permissions)))
            AND ($3::uuid IS NULL OR u.all_branches OR '*' = ANY(r.permissions)
                 OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = $3))",
     )
@@ -45,6 +45,31 @@ pub async fn to_permission(state: &AppState, tenant_id: Uuid, branch_id: Option<
     match recipients {
         Ok(users) => to_users(state, tenant_id, &users, note).await,
         Err(e) => tracing::warn!(error = %e, "notification recipients lookup failed"),
+    }
+}
+
+/// Roadmap 69: a new order goes to active users who may manage orders at its branch, whose orders scope reaches it
+/// (an *own records* scope never sees orders placed by customers) and who have not switched off new-order alerts.
+pub async fn to_order_staff(state: &AppState, tenant_id: Uuid, branch_id: Uuid, note: Note) {
+    let recipients: Result<Vec<Uuid>, _> = sqlx::query_scalar(
+        "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
+         CROSS JOIN LATERAL (SELECT effective_permissions(r.permissions, u.extra_permissions) AS p) e
+         WHERE u.tenant_id = $1 AND u.is_active
+           AND ('*' = ANY(r.permissions) OR (
+                'orders.manage' = ANY(e.p)
+                AND NOT ('scope.orders.own' = ANY(e.p))
+                AND ('scope.orders.branches' = ANY(e.p) OR 'scope.orders.all' = ANY(e.p) OR 'staff.view_others' = ANY(e.p))))
+           AND (u.all_branches OR '*' = ANY(r.permissions) OR 'scope.orders.all' = ANY(e.p)
+                OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = $2))
+           AND COALESCE((u.preferences->>'notify_new_orders')::boolean, true)",
+    )
+    .bind(tenant_id)
+    .bind(branch_id)
+    .fetch_all(&state.db)
+    .await;
+    match recipients {
+        Ok(users) => to_users(state, tenant_id, &users, note).await,
+        Err(e) => tracing::warn!(error = %e, "order notification recipients lookup failed"),
     }
 }
 

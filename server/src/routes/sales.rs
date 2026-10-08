@@ -35,6 +35,8 @@ pub fn routes() -> Router<AppState> {
         .route("/sales/{id}/exchange", post(exchange))
         .route("/sales/{id}/cancel", post(cancel))
         .route("/sales/{id}/share", post(share))
+        .route("/sales/owners", get(owners))
+        .route("/sales/{id}/owner-change", post(request_owner_change))
 }
 
 // ───────────────────────────── POS product picker ─────────────────────────────
@@ -102,7 +104,7 @@ async fn pos_products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<P
 
 // ───────────────────────────── Sale completion ─────────────────────────────
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct LineInput {
     pub product_id: Uuid,
     pub quantity: i32,
@@ -110,7 +112,7 @@ pub struct LineInput {
     pub barcode: Option<String>,
 }
 
-#[derive(Deserialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct PaymentInput {
     pub method: String,
     #[serde(default)]
@@ -162,6 +164,8 @@ struct CreateBody {
     client_ref: Option<Uuid>,
     /// Offline POS: when the sale was made on the device (sent later). Needs `client_ref`; within 72 hours.
     offline_at: Option<DateTime<Utc>>,
+    /// Sale Owner (roadmap 62): the employee credited with the sale; default the signed-in user.
+    owner_id: Option<Uuid>,
 }
 
 /// Offline sales may be at most this old when they reach the server.
@@ -182,6 +186,8 @@ pub struct SaleInput {
     pub client_ref: Option<Uuid>,
     /// Exchanges: value of goods returned on another sale, applied to this sale before the chosen payment.
     pub exchange: Option<ExchangeCredit>,
+    /// Sale Owner credited with the sale (None = the person recording it, who is always Recorded By).
+    pub owner_id: Option<Uuid>,
 }
 
 pub struct ExchangeCredit {
@@ -477,8 +483,8 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     let receipt_no = next_doc_no(conn, ctx.tenant_id, "RCP", ctx.tz).await?;
     sqlx::query(
         "INSERT INTO sales (id, tenant_id, branch_id, receipt_no, customer_id, user_id, order_id, gross_total, discount_total, total,
-                            redeemed_points, redeemed_value, amount_paid, payment_method, points_earned, approved_by, notes, client_ref)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
+                            redeemed_points, redeemed_value, amount_paid, payment_method, points_earned, approved_by, notes, client_ref, owner_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",
     )
     .bind(sale_id)
     .bind(ctx.tenant_id)
@@ -498,6 +504,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     .bind(input.approved_by)
     .bind(input.notes.trim())
     .bind(input.client_ref)
+    .bind(input.owner_id.unwrap_or(ctx.user_id))
     .execute(&mut *conn)
     .await?;
 
@@ -808,6 +815,17 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
     }
     let sold_at = b.offline_at.unwrap_or_else(Utc::now);
     let mut tx = state.db.begin().await?;
+    // Sale Owner: someone else only with "Assign sale owner", and only an eligible salesperson of this branch.
+    let owner_id = match b.owner_id {
+        Some(o) if o != ctx.user_id => {
+            ctx.require("sales.assign_owner")?;
+            if !eligible_owner(&mut tx, ctx.tenant_id, branch, o).await? {
+                return Err(rule("That person cannot be credited with sales at this branch"));
+            }
+            Some(o)
+        }
+        _ => None,
+    };
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
     if s.workspace.outside_hours == settings::OutsideHours::Block && !ctx.can("sales.outside_hours") {
         let hours = settings::branch_hours(&mut tx, ctx.tenant_id, branch, &s).await?;
@@ -865,6 +883,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             order_id: None,
             client_ref: None,
             exchange: None,
+            owner_id: None,
         };
         let (_, excessive) = prepare_lines(&mut tx, &ctx, &s, &input, false).await?;
         if excessive {
@@ -890,6 +909,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             order_id: None,
             client_ref: b.client_ref,
             exchange: None,
+            owner_id,
         },
         false,
     )
@@ -925,6 +945,8 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
         )
         .await?;
     }
+    // The receipt is issued with the sale and never changes afterwards (roadmap 65).
+    crate::receipts::issue_original(&mut tx, ctx.tenant_id, sale_id, Some(ctx.user_id)).await?;
     tx.commit().await?;
 
     after_sale(&state, &ctx, &s, sale_id, branch, &product_ids).await;
@@ -958,7 +980,10 @@ struct SaleRow {
     customer_id: Option<Uuid>,
     customer_name: Option<String>,
     customer_mobile: Option<String>,
+    /// Sale Owner (credited); `recorded_by_name` is who entered it.
     user_name: Option<String>,
+    owner_id: Option<Uuid>,
+    recorded_by_name: Option<String>,
     status: String,
     total: Decimal,
     discount_total: Decimal,
@@ -994,21 +1019,23 @@ struct SaleListRow {
 
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Value>> {
     ctx.require("sales.view")?;
-    let branches = ctx.branch_scope(q.branch_id)?;
+    let vis = ctx.visibility(&mut *state.db.acquire().await?, "sales", q.branch_id, q.user_id).await?;
+    let branches = vis.branches.clone();
     let (from, to) = q.period.resolve(ctx.today(), "today");
     let rows: Vec<SaleListRow> = sqlx::query_as(
         "SELECT s.id, s.receipt_no, s.created_at, s.business_date, s.synced_at, b.name AS branch_name, s.customer_id,
                 NULLIF(TRIM(c.first_name || ' ' || c.other_names), '') AS customer_name, c.mobile AS customer_mobile,
-                u.name AS user_name, s.status, s.total, s.discount_total, s.payment_method, s.points_earned,
+                ow.name AS user_name, s.owner_id, u.name AS recorded_by_name, s.status, s.total, s.discount_total, s.payment_method, s.points_earned,
                 (SELECT COALESCE(SUM(quantity),0) FROM sale_items si WHERE si.sale_id = s.id)::bigint AS item_count,
                 o.order_no, s.is_legacy,
                 COUNT(*) OVER() AS total_count,
                 COALESCE(SUM(s.total) FILTER (WHERE s.status <> 'cancelled') OVER(), 0) AS sum_total,
                 COALESCE(SUM(s.discount_total) FILTER (WHERE s.status <> 'cancelled') OVER(), 0) AS sum_discount
          FROM sales s JOIN branches b ON b.id = s.branch_id
-         LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN users u ON u.id = s.user_id LEFT JOIN orders o ON o.id = s.order_id
+         LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users ow ON ow.id = s.owner_id
+         LEFT JOIN orders o ON o.id = s.order_id
          WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND s.business_date BETWEEN $3 AND $4
-           AND ($5::uuid IS NULL OR s.user_id = $5) AND ($6::uuid IS NULL OR s.customer_id = $6)
+           AND ($5::uuid IS NULL OR s.owner_id = $5) AND ($6::uuid IS NULL OR s.customer_id = $6)
            AND ($7::text IS NULL OR s.status = $7) AND ($8::text IS NULL OR s.payment_method = $8)
            AND ($9::text IS NULL OR s.receipt_no ILIKE $9 OR c.first_name ILIKE $9 OR c.mobile ILIKE $9)
          ORDER BY s.created_at DESC LIMIT $10 OFFSET $11",
@@ -1017,8 +1044,8 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .bind(&branches)
     .bind(from)
     .bind(to)
-    // Without "view other employees" a user only ever sees their own sales.
-    .bind(if ctx.sees_others() { q.user_id } else { Some(ctx.user_id) })
+    // The data scope decides: own sales only, assigned branches, or every branch (roadmap 64).
+    .bind(vis.owner)
     .bind(q.customer_id)
     .bind(&q.status)
     .bind(&q.payment_method)
@@ -1028,8 +1055,14 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .fetch_all(&state.db)
     .await?;
     let (total, sum_total, sum_discount) = rows.first().map(|r| (r.total_count, r.sum_total, r.sum_discount)).unwrap_or_default();
+    // Branches the user may filter by in this scope (all branches for "all", even unassigned ones).
+    let branch_options: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, name FROM branches WHERE id = ANY($1) ORDER BY name")
+        .bind(&vis.branches)
+        .fetch_all(&state.db)
+        .await?;
     Ok(Json(json!({
-        "from": from, "to": to,
+        "from": from, "to": to, "scope": vis.scope,
+        "branches": branch_options.into_iter().map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
         "items": rows.into_iter().map(|r| r.row).collect::<Vec<_>>(),
         "total": total,
         "summary": { "count": total, "total": sum_total, "discount": sum_discount },
@@ -1041,7 +1074,8 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
         "SELECT jsonb_build_object(
             'id', s.id, 'receipt_no', s.receipt_no, 'created_at', s.created_at, 'status', s.status,
             'branch_id', s.branch_id, 'branch_name', b.name, 'branch_location', b.location, 'branch_phone', b.phone,
-            'user_name', u.name, 'gross_total', s.gross_total, 'discount_total', s.discount_total, 'total', s.total,
+            'user_name', ow.name, 'owner_id', s.owner_id, 'recorded_by_name', u.name, 'business_date', s.business_date,
+            'gross_total', s.gross_total, 'discount_total', s.discount_total, 'total', s.total,
             'redeemed_points', s.redeemed_points, 'redeemed_value', s.redeemed_value, 'amount_paid', s.amount_paid,
             'payment_method', s.payment_method, 'points_earned', s.points_earned, 'notes', s.notes, 'is_legacy', s.is_legacy,
             'approved_by_name', au.name, 'cancel_reason', s.cancel_reason, 'cancelled_at', s.cancelled_at,
@@ -1050,13 +1084,12 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
                 'id', c.id, 'name', TRIM(c.first_name || ' ' || c.other_names), 'nickname', c.nickname, 'mobile', c.mobile,
                 'points_available', c.points_available) END)
          FROM sales s JOIN branches b ON b.id = s.branch_id
-         LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users au ON au.id = s.approved_by
+         LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users au ON au.id = s.approved_by LEFT JOIN users ow ON ow.id = s.owner_id
          LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN orders o ON o.id = s.order_id
-         WHERE s.id = $1 AND s.tenant_id = $2 AND s.branch_id = ANY($3)",
+         WHERE s.id = $1 AND s.tenant_id = $2",
     )
     .bind(id)
     .bind(ctx.tenant_id)
-    .bind(&ctx.branch_ids)
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::NotFound("Sale"))?;
@@ -1109,30 +1142,49 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
     .fetch_one(&state.db)
     .await?;
     let pending: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM approvals WHERE entity_type = 'sale' AND entity_id = $1 AND status = 'pending' LIMIT 1",
+        "SELECT id FROM approvals WHERE entity_type = 'sale' AND entity_id = $1 AND status = 'pending' AND action <> 'sale.owner_change' LIMIT 1",
     )
     .bind(id)
     .fetch_optional(&state.db)
     .await?;
+    let owner_changes: Vec<Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object('id', c.id, 'from_owner', fu.name, 'to_owner', tu.name, 'reason', c.reason, 'status', c.status,
+                'requested_by', ru.name, 'decided_by', du.name, 'decided_at', c.decided_at, 'created_at', c.created_at, 'approval_id', c.approval_id)
+         FROM sale_owner_changes c LEFT JOIN users fu ON fu.id = c.from_owner LEFT JOIN users tu ON tu.id = c.to_owner
+         LEFT JOIN users ru ON ru.id = c.requested_by LEFT JOIN users du ON du.id = c.decided_by
+         WHERE c.sale_id = $1 AND c.tenant_id = $2 ORDER BY c.created_at DESC",
+    )
+    .bind(id)
+    .bind(ctx.tenant_id)
+    .fetch_all(&state.db)
+    .await?;
     Ok(json!({
         "sale": sale, "items": items, "payments": payments, "returns": returns, "credit": credit,
-        "business": business, "pending_approval_id": pending,
+        "business": business, "pending_approval_id": pending, "owner_changes": owner_changes,
     }))
 }
 
-/// Own sales are always visible to their seller; other employees' sales need "view other employees".
+/// A sale is visible within the user's sales scope (roadmap 64): every branch, their assigned branches, or only sales
+/// credited to them. Whoever recorded a sale can always open it again (e.g. to reprint the receipt).
+pub(crate) async fn ensure_visible(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<()> {
+    ensure_sale_visible(state, ctx, id).await
+}
+
 async fn ensure_sale_visible(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<()> {
-    if ctx.sees_others() {
-        return Ok(());
-    }
-    let seller: Option<Uuid> = sqlx::query_scalar("SELECT user_id FROM sales WHERE id = $1 AND tenant_id = $2")
+    let row: Option<(Uuid, Option<Uuid>, Option<Uuid>)> = sqlx::query_as("SELECT branch_id, owner_id, user_id FROM sales WHERE id = $1 AND tenant_id = $2")
         .bind(id)
         .bind(ctx.tenant_id)
         .fetch_optional(&state.db)
-        .await?
-        .flatten();
-    if seller != Some(ctx.user_id) {
-        return Err(AppError::Forbidden("This sale was recorded by another employee".into()));
+        .await?;
+    let (branch, owner, recorder) = row.ok_or(AppError::NotFound("Sale"))?;
+    let mine = owner == Some(ctx.user_id) || recorder == Some(ctx.user_id);
+    let ok = match ctx.scope("sales") {
+        crate::auth::DataScope::All => true,
+        crate::auth::DataScope::Branches => mine || ctx.has_branch(branch),
+        crate::auth::DataScope::Own => mine,
+    };
+    if !ok {
+        return Err(AppError::Forbidden("This sale is outside the sales you can see".into()));
     }
     Ok(())
 }
@@ -1143,44 +1195,25 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     Ok(Json(sale_detail(&state, &ctx, id).await?))
 }
 
-/// Plain-text receipt for WhatsApp; returns (customer phone, text).
+/// Short WhatsApp message with the receipt's secure link (the receipt itself is the formatted document, not a long
+/// text): returns (customer phone, text). Uses the latest receipt of the sale (the updated one after a return).
 async fn receipt_text(state: &AppState, sale_id: Uuid) -> AppResult<(Option<String>, String)> {
-    let (business, receipt_no, at, total, paid, method, points, phone, name, tz): (
-        String, String, DateTime<Utc>, Decimal, Decimal, String, i64, Option<String>, Option<String>, String,
-    ) = sqlx::query_as(
-        "SELECT t.name, s.receipt_no, s.created_at, s.total, s.amount_paid, s.payment_method, s.points_earned, c.mobile, c.first_name, t.timezone
-         FROM sales s JOIN tenants t ON t.id = s.tenant_id LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = $1",
+    let mut conn = state.db.acquire().await?;
+    let tenant: Uuid = sqlx::query_scalar("SELECT tenant_id FROM sales WHERE id = $1").bind(sale_id).fetch_one(&mut *conn).await?;
+    crate::receipts::issue_original(&mut conn, tenant, sale_id, None).await?;
+    let (business, number, token, phone, name): (String, String, Uuid, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT t.name, r.number, r.share_token, c.mobile, c.first_name
+         FROM receipts r JOIN sales s ON s.id = r.sale_id JOIN tenants t ON t.id = s.tenant_id LEFT JOIN customers c ON c.id = s.customer_id
+         WHERE r.sale_id = $1 ORDER BY r.created_at DESC LIMIT 1",
     )
     .bind(sale_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *conn)
     .await?;
-    let items: Vec<(String, i32, Decimal)> = sqlx::query_as(
-        "SELECT p.name, si.quantity, si.line_total FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = $1",
-    )
-    .bind(sale_id)
-    .fetch_all(&state.db)
-    .await?;
-    let local = at.with_timezone(&crate::util::parse_tz(&tz));
-    let mut text = format!("🧾 *{business}*\nReceipt {receipt_no}\n{}\n\n", local.format("%d/%m/%Y %H:%M"));
-    if let Some(n) = &name {
-        text = format!("Hi {n}! 👋\n\n{text}");
-    }
-    for (pname, qty, line) in items {
-        text.push_str(&format!("• {pname} × {qty} — {}\n", money_str(line)));
-    }
-    text.push_str(&format!("\n*Total: {}*\n", money_str(total)));
-    if method == "credit" {
-        if paid > Decimal::ZERO {
-            text.push_str(&format!("Deposit paid: {}\n", money_str(paid)));
-        }
-        text.push_str(&format!("On credit — balance {}\n", money_str(total - paid)));
-    } else {
-        text.push_str(&format!("Paid via {}\n", method.to_uppercase()));
-    }
-    if points > 0 {
-        text.push_str(&format!("🌼 +{points} loyalty points\n"));
-    }
-    text.push_str("\nThank you for shopping with us!");
+    let hello = name.as_deref().map_or("Hello!".to_string(), |n| format!("Hello {n}!"));
+    let text = format!(
+        "{hello} Thank you for shopping with {business}. Here is your receipt {number}: {}/r/{token}\nWe appreciate your business!",
+        state.cfg.public_url
+    );
     Ok((phone, text))
 }
 
@@ -1247,11 +1280,12 @@ struct SaleHead {
     redeemed_value: Decimal,
     payment_method: String,
     order_id: Option<Uuid>,
+    owner_id: Option<Uuid>,
 }
 
 async fn sale_head(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<SaleHead> {
     let head: SaleHead = sqlx::query_as(
-        "SELECT branch_id, receipt_no, status, customer_id, total, redeemed_value, payment_method, order_id
+        "SELECT branch_id, receipt_no, status, customer_id, total, redeemed_value, payment_method, order_id, owner_id
          FROM sales WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
     )
     .bind(id)
@@ -1418,7 +1452,9 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
     // record it as customer credit for follow-up — never silently dropped.
     let customer_credit = if kind == "recall" && b.settle == "credit" { refunded } else { Decimal::ZERO };
     if refunded > Decimal::ZERO && customer_credit == Decimal::ZERO {
+        // No method chosen: the refund goes back the way the sale was paid (cash for credit sales) — recorded as such.
         let method = if b.refund_method.is_empty() { head.payment_method.replace("credit", "cash") } else { b.refund_method.clone() };
+        sqlx::query("UPDATE sale_returns SET refund_method = $2 WHERE id = $1").bind(return_id).bind(&method).execute(&mut *conn).await?;
         sqlx::query(
             "INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, user_id) VALUES ($1,$2,$3,$4,$5,$6,$7)",
         )
@@ -1434,9 +1470,11 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
     }
 
     let reversed = loyalty::reverse_sale(conn, ctx.tenant_id, sale_id, points_to_reverse, Some(ctx.user_id), &return_no).await?;
+    // Points already spent cannot be taken back: the shortfall is recorded (an outstanding liability), never dropped.
+    let unrecovered = (points_to_reverse - reversed).max(0);
     sqlx::query(
         "UPDATE sale_returns SET points_reversed = $2, balance_before = $3, balance_after = $4, customer_credit = $5,
-             refund_method = CASE WHEN $5 > 0 THEN 'customer_credit' ELSE refund_method END
+             refund_method = CASE WHEN $5 > 0 THEN 'customer_credit' ELSE refund_method END, points_unrecovered = $7
          WHERE id = $1 AND tenant_id = $6",
     )
     .bind(return_id)
@@ -1445,6 +1483,7 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
     .bind(balances.map(|b| b.2))
     .bind(customer_credit)
     .bind(ctx.tenant_id)
+    .bind(unrecovered)
     .execute(&mut *conn)
     .await?;
     if let Some(customer) = head.customer_id {
@@ -1518,11 +1557,16 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
         ctx,
         Entry::new("sales", kind, "sale", sale_id)
             .branch(head.branch_id)
-            .after(json!({ "return_no": return_no, "refund": refund, "restock": b.restock, "points_reversed": reversed, "status": status }))
+            .after(json!({ "return_no": return_no, "refund": refund, "restock": b.restock, "points_reversed": reversed,
+                           "points_unrecovered": unrecovered, "status": status }))
             .approval(approval_id)
             .comments(b.reason.trim()),
     )
     .await?;
+    // Adjustment receipt (an exchange issues its own once the replacement sale exists).
+    if b.refund_method != "exchange" {
+        crate::receipts::issue_adjustment(conn, ctx.tenant_id, sale_id, return_id, Some(ctx.user_id)).await?;
+    }
     Ok(json!({ "return_id": return_id, "return_no": return_no, "refund_amount": refund, "refunded": refunded,
                "points_reversed": reversed, "status": status }))
 }
@@ -1664,7 +1708,7 @@ async fn recall_credit(State(state): State<AppState>, ctx: Ctx, Path(credit_id):
     Ok(Json(Outcome::done(r)))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Clone)]
 struct ExchangeBody {
     /// Lines of the original sale coming back.
     return_items: Vec<ReturnLine>,
@@ -1725,20 +1769,49 @@ async fn exchange(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>,
         }
     }
     let value = return_amount(&mut tx, &head, id, &b.return_items).await?;
+    // The exchange follows the return workflow: nothing changes (stock, loyalty, receipts) until final approval.
     if workflow::needs_approval(&mut tx, &ctx, "sale.return", workflow::Gate::branch(head.branch_id).amount(value)).await? {
-        return Err(refused("Return needs approval", "Returns of this value need approval. Process the return first; sell the new items once it is approved."));
+        let approval = workflow::submit(
+            &mut tx,
+            &ctx,
+            workflow::Request {
+                action: "sale.return",
+                entity_type: "sale",
+                entity_id: id,
+                branch_id: Some(head.branch_id),
+                summary: format!("Exchange on {} — {}", head.receipt_no, b.reason.trim()),
+                amount: Some(value),
+                payload: json!({ "exchange": &b }),
+            },
+        )
+        .await?;
+        tx.commit().await?;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
+        return Ok(Json(json!({ "pending_approval": true, "approval_id": approval })));
     }
+    let (sale_id, product_ids) = execute_exchange(&mut tx, &ctx, &s, id, &head, b, value).await?;
+    tx.commit().await?;
+    after_sale(&state, &ctx, &s, sale_id, head.branch_id, &product_ids).await;
+    Ok(Json(sale_detail(&state, &ctx, sale_id).await?))
+}
+
+/// Executes an exchange — at the counter, or on final approval (roadmap 67): the return (stock, loyalty reversal), the
+/// replacement sale paid first by the returned value (credited to the original owner, earning points under the usual
+/// rules, so loyalty nets out), any value left over refunded, the audit entry and both receipts (updated original,
+/// replacement). Returns (replacement sale, its products).
+#[allow(clippy::too_many_arguments)]
+async fn execute_exchange(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, id: Uuid, head: &SaleHead, b: ExchangeBody, value: Decimal) -> AppResult<(Uuid, Vec<Uuid>)> {
     // 1. The return: stock back, ledger, loyalty; its value leaves the old sale as an "exchange" payment.
     let rb = ReturnBody { items: b.return_items, reason: b.reason.trim().to_string(), refund_method: "exchange".into(), restock: true, settle: String::new() };
-    let r = execute_return(&mut tx, &ctx, id, &rb, "return", None).await?;
+    let r = execute_return(conn, ctx, id, &rb, "return", None).await?;
     let return_no = r["return_no"].as_str().unwrap_or_default().to_string();
     let credit: Decimal = r["refunded"].as_str().and_then(|v| v.parse().ok()).or_else(|| r["refunded"].as_f64().and_then(|f| Decimal::try_from(f).ok())).unwrap_or(value);
     // 2. The new sale, paid first by that value.
     let product_ids: Vec<Uuid> = b.items.iter().map(|i| i.product_id).collect();
     let sale_id = record_sale(
-        &mut tx,
-        &ctx,
-        &s,
+        conn,
+        ctx,
+        s,
         SaleInput {
             branch_id: head.branch_id,
             customer_id: head.customer_id,
@@ -1752,6 +1825,8 @@ async fn exchange(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>,
             order_id: None,
             client_ref: b.client_ref,
             exchange: Some(ExchangeCredit { amount: credit, reference: return_no.clone() }),
+            // The replacement goods are credited to whoever owned the original sale (no new attribution).
+            owner_id: head.owner_id,
         },
         false,
     )
@@ -1760,7 +1835,7 @@ async fn exchange(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>,
     let new_total: Decimal = sqlx::query_scalar("SELECT total FROM sales WHERE id = $1 AND tenant_id = $2")
         .bind(sale_id)
         .bind(ctx.tenant_id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut *conn)
         .await?;
     let left_over = credit - new_total;
     if left_over > Decimal::ZERO {
@@ -1776,12 +1851,12 @@ async fn exchange(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>,
             .bind(-left_over)
             .bind(&return_no)
             .bind(ctx.user_id)
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await?;
     }
     audit::record(
-        &mut tx,
-        &ctx,
+        conn,
+        ctx,
         Entry::new("sales", "exchange", "sale", sale_id)
             .branch(head.branch_id)
             .after(json!({ "original_sale": id, "original_receipt": head.receipt_no, "return_no": return_no,
@@ -1790,13 +1865,28 @@ async fn exchange(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>,
             .comments(b.reason.trim()),
     )
     .await?;
-    tx.commit().await?;
-    after_sale(&state, &ctx, &s, sale_id, head.branch_id, &product_ids).await;
-    Ok(Json(sale_detail(&state, &ctx, sale_id).await?))
+    crate::receipts::issue_original(conn, ctx.tenant_id, sale_id, Some(ctx.user_id)).await?;
+    if let Some(rid) = r["return_id"].as_str().and_then(|v| v.parse::<Uuid>().ok()) {
+        crate::receipts::issue_adjustment(conn, ctx.tenant_id, id, rid, Some(ctx.user_id)).await?;
+    }
+    Ok((sale_id, product_ids))
 }
 
 pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) -> AppResult<()> {
     match a.action.as_str() {
+        "sale.return" if a.payload.get("exchange").is_some() => {
+            let b: ExchangeBody = serde_json::from_value(a.payload["exchange"].clone()).map_err(|_| bad("Stored exchange is invalid"))?;
+            let head = sale_head(conn, ctx, a.entity_id).await?;
+            if matches!(head.status.as_str(), "cancelled" | "returned") {
+                return Err(rule("This sale has already been fully reversed"));
+            }
+            let st = settings::load(conn, ctx.tenant_id).await?;
+            let value = return_amount(conn, &head, a.entity_id, &b.return_items).await?;
+            // The replacement is sold at the original sale's branch.
+            let mut at_branch = ctx.clone();
+            at_branch.branch_id = head.branch_id;
+            execute_exchange(conn, &at_branch, &st, a.entity_id, &head, b, value).await?;
+        }
         "sale.return" => {
             let b: ReturnBody = serde_json::from_value(a.payload.clone()).map_err(|_| bad("Stored return is invalid"))?;
             execute_return(conn, ctx, a.entity_id, &b, "return", Some(a.id)).await?;
@@ -1804,6 +1894,10 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
         "credit.recall" => {
             let b: ReturnBody = serde_json::from_value(a.payload.clone()).map_err(|_| bad("Stored recall is invalid"))?;
             execute_return(conn, ctx, a.entity_id, &b, "recall", Some(a.id)).await?;
+        }
+        "sale.owner_change" => {
+            let change: Uuid = a.payload["change_id"].as_str().and_then(|s| s.parse().ok()).ok_or_else(|| bad("Stored ownership change is invalid"))?;
+            apply_owner_change(conn, ctx, change).await?;
         }
         "sale.cancel" => {
             let c: CancelBody = serde_json::from_value(a.payload.clone()).map_err(|_| bad("Stored cancellation is invalid"))?;
@@ -1813,5 +1907,187 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
         }
         _ => {}
     }
+    Ok(())
+}
+
+// ───────────────────────────── Sale ownership (roadmap 62–63) ─────────────────────────────
+
+/// Who may be credited with a sale at a branch: active staff of the business who may record sales and work there.
+pub async fn eligible_owner(conn: &mut PgConnection, tenant_id: Uuid, branch_id: Uuid, user_id: Uuid) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(&format!("SELECT EXISTS (SELECT 1 FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1 AND {ELIGIBLE})"))
+        .bind(user_id)
+        .bind(tenant_id)
+        .bind(branch_id)
+        .fetch_one(&mut *conn)
+        .await?)
+}
+
+/// $2 tenant, $3 branch.
+const ELIGIBLE: &str = "u.tenant_id = $2 AND u.is_active
+    AND ('*' = ANY(r.permissions) OR 'sales.create' = ANY(effective_permissions(r.permissions, u.extra_permissions)))
+    AND ('*' = ANY(r.permissions) OR u.all_branches OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = $3))";
+
+#[derive(Deserialize)]
+struct OwnersQuery {
+    branch_id: Option<Uuid>,
+}
+
+/// Eligible Sale Owners for a branch (searchable list in New Sale and Change Sale Owner).
+async fn owners(State(state): State<AppState>, ctx: Ctx, Query(q): Query<OwnersQuery>) -> AppResult<Json<Value>> {
+    ctx.require_any(&["sales.assign_owner", "sales.request_owner_change"])?;
+    let branch = q.branch_id.unwrap_or(ctx.branch_id);
+    let mut conn = state.db.acquire().await?;
+    let known: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM branches WHERE id = $1 AND tenant_id = $2)").bind(branch).bind(ctx.tenant_id).fetch_one(&mut *conn).await?;
+    if !known {
+        return Err(AppError::NotFound("Branch"));
+    }
+    let rows: Vec<(Uuid, String, String)> = sqlx::query_as(&format!(
+        "SELECT u.id, u.name, r.name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id IS NOT NULL AND {} ORDER BY u.name",
+        ELIGIBLE.replace("$2", "$1").replace("$3", "$2")
+    ))
+    .bind(ctx.tenant_id)
+    .bind(branch)
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(Json(json!({
+        "branch_id": branch,
+        "items": rows.into_iter().map(|(id, name, role)| json!({ "id": id, "name": name, "role": role, "me": id == ctx.user_id })).collect::<Vec<_>>(),
+    })))
+}
+
+#[derive(Deserialize)]
+struct OwnerChangeBody {
+    new_owner_id: Uuid,
+    reason: String,
+}
+
+/// Change Sale Owner: a request through the workflow engine (default: one approval by the Tenant Administrator). The
+/// owner changes only after final approval; the sale, payments, stock and receipt are untouched.
+async fn request_owner_change(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<OwnerChangeBody>) -> AppResult<Json<Outcome<Value>>> {
+    ctx.require("sales.request_owner_change")?;
+    let reason = b.reason.trim().chars().take(500).collect::<String>();
+    if reason.chars().count() < 3 {
+        return Err(bad("Give the reason for the change"));
+    }
+    ensure_sale_visible(&state, &ctx, id).await?;
+    let mut tx = state.db.begin().await?;
+    let (branch, owner, receipt_no, total, status): (Uuid, Option<Uuid>, String, Decimal, String) =
+        sqlx::query_as("SELECT branch_id, owner_id, receipt_no, total, status FROM sales WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+            .bind(id)
+            .bind(ctx.tenant_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(AppError::NotFound("Sale"))?;
+    if status == "cancelled" {
+        return Err(rule("A cancelled sale cannot change owner"));
+    }
+    if owner == Some(b.new_owner_id) {
+        return Err(rule("That person is already the sale owner"));
+    }
+    if !eligible_owner(&mut tx, ctx.tenant_id, branch, b.new_owner_id).await? {
+        return Err(rule("That person cannot be credited with sales at this sale's branch"));
+    }
+    let pending: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM sale_owner_changes WHERE sale_id = $1 AND status = 'pending')")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if pending {
+        return Err(rule("An ownership change for this sale is already awaiting approval"));
+    }
+    let change: Uuid = sqlx::query_scalar(
+        "INSERT INTO sale_owner_changes (tenant_id, sale_id, from_owner, to_owner, reason, requested_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+    )
+    .bind(ctx.tenant_id)
+    .bind(id)
+    .bind(owner)
+    .bind(b.new_owner_id)
+    .bind(&reason)
+    .bind(ctx.user_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if workflow::needs_approval(&mut tx, &ctx, "sale.owner_change", workflow::Gate::branch(branch).amount(total)).await? {
+        let names: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, name FROM users WHERE id = ANY($1)")
+            .bind(vec![owner.unwrap_or_default(), b.new_owner_id])
+            .fetch_all(&mut *tx)
+            .await?;
+        let name = |u: Option<Uuid>| names.iter().find(|n| Some(n.0) == u).map_or("—".to_string(), |n| n.1.clone());
+        let approval = workflow::submit(
+            &mut tx,
+            &ctx,
+            workflow::Request {
+                action: "sale.owner_change",
+                entity_type: "sale",
+                entity_id: id,
+                branch_id: Some(branch),
+                summary: format!("Sale owner {receipt_no}: {} → {} — {reason}", name(owner), name(Some(b.new_owner_id))),
+                amount: Some(total),
+                payload: json!({ "change_id": change, "from_owner": owner, "to_owner": b.new_owner_id, "reason": reason }),
+            },
+        )
+        .await?;
+        sqlx::query("UPDATE sale_owner_changes SET approval_id = $2 WHERE id = $1").bind(change).bind(approval).execute(&mut *tx).await?;
+        audit::record(
+            &mut tx,
+            &ctx,
+            Entry::new("sales", "owner_change_requested", "sale", id)
+                .branch(branch)
+                .approval(Some(approval))
+                .before(json!({ "owner": owner }))
+                .after(json!({ "owner": b.new_owner_id }))
+                .comments(&reason),
+        )
+        .await?;
+        tx.commit().await?;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
+        return Ok(Json(Outcome::pending(approval)));
+    }
+    // The business switched the rule off: the change applies at once (still recorded and audited).
+    apply_owner_change(&mut tx, &ctx, change).await?;
+    tx.commit().await?;
+    Ok(Json(Outcome::done(json!({ "ok": true, "owner_id": b.new_owner_id }))))
+}
+
+/// Applies an ownership change (final approval, or no approval required). Refuses if the sale's owner changed in the
+/// meantime or the new owner is no longer eligible. Only `sales.owner_id` changes — performance figures follow it.
+pub async fn apply_owner_change(conn: &mut PgConnection, ctx: &Ctx, change: Uuid) -> AppResult<()> {
+    let (sale_id, from, to, reason, requested_by, status): (Uuid, Option<Uuid>, Option<Uuid>, String, Option<Uuid>, String) = sqlx::query_as(
+        "SELECT sale_id, from_owner, to_owner, reason, requested_by, status FROM sale_owner_changes WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+    )
+    .bind(change)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(AppError::NotFound("Ownership change"))?;
+    if status != "pending" {
+        return Err(rule(format!("This ownership change was already {status}")));
+    }
+    let to = to.ok_or_else(|| rule("The proposed owner no longer exists"))?;
+    let (branch, current): (Uuid, Option<Uuid>) = sqlx::query_as("SELECT branch_id, owner_id FROM sales WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+        .bind(sale_id)
+        .bind(ctx.tenant_id)
+        .fetch_one(&mut *conn)
+        .await?;
+    if current != from {
+        return Err(rule("The sale's owner changed after this request was made — reject it and request again"));
+    }
+    if !eligible_owner(conn, ctx.tenant_id, branch, to).await? {
+        return Err(rule("The proposed owner can no longer be credited with sales at this branch"));
+    }
+    sqlx::query("UPDATE sales SET owner_id = $3 WHERE id = $1 AND tenant_id = $2").bind(sale_id).bind(ctx.tenant_id).bind(to).execute(&mut *conn).await?;
+    sqlx::query("UPDATE sale_owner_changes SET status = 'approved', decided_by = $2, decided_at = now() WHERE id = $1")
+        .bind(change)
+        .bind(ctx.user_id)
+        .execute(&mut *conn)
+        .await?;
+    audit::record(
+        conn,
+        ctx,
+        Entry::new("sales", "owner_change", "sale", sale_id)
+            .branch(branch)
+            .before(json!({ "owner": from }))
+            .after(json!({ "owner": to, "requested_by": requested_by, "change_id": change }))
+            .comments(&reason),
+    )
+    .await?;
     Ok(())
 }

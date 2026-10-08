@@ -549,10 +549,13 @@ async fn access_set(State(state): State<AppState>, ctx: Ctx, Path(user_id): Path
         .fetch_optional(&mut *tx)
         .await?;
     let before = before.ok_or(AppError::NotFound("User"))?;
+    // Only the website part changes; the user's other access exceptions (roadmap 64) stay as they are.
+    let mut all: Vec<String> = before.iter().filter(|p| !p.starts_with("website.")).cloned().collect();
+    all.extend(perms.iter().cloned());
     sqlx::query("UPDATE users SET extra_permissions = $3 WHERE id = $1 AND tenant_id = $2")
         .bind(user_id)
         .bind(ctx.tenant_id)
-        .bind(&perms)
+        .bind(&all)
         .execute(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("website", "access", "user", user_id).before(json!({ "permissions": before })).after(json!({ "permissions": perms })))
@@ -848,19 +851,28 @@ fn platform_hosts(state: &AppState) -> Vec<String> {
     }
 }
 
-fn ownership_record(r: &DomainRow, ok: Option<bool>) -> domains::Record {
-    domains::Record {
-        kind: "TXT".into(),
-        name: format!("_sshop-verify.{}", r.domain),
-        value: format!("sshop-verify={}", r.token),
-        status: match ok {
-            Some(true) => "ok",
-            Some(false) => "missing",
-            None => "pending",
-        }
-        .into(),
-        note: "Proves the domain is yours. Keep it in place.".into(),
-    }
+fn ownership_record(r: &DomainRow, status: &str) -> domains::Record {
+    domains::txt_record(
+        &format!("_sshop-verify.{}", r.domain),
+        &r.domain,
+        format!("sshop-verify={}", r.token),
+        status,
+        "Proves the domain is yours. Keep it in place.",
+    )
+}
+
+/// A TXT record that is missing at its name but present with the zone added twice (the full name typed into a
+/// provider that appends the domain itself): say exactly how to fix it.
+async fn misplaced_txt(state: &AppState, fqdn: &str, domain: &str, value: &str) -> Option<String> {
+    let wrong = domains::doubled(fqdn, domain);
+    let found = domains::lookup(&state.http, &wrong, "TXT").await.unwrap_or_default();
+    found.iter().any(|v| *v == value.to_lowercase()).then(|| {
+        format!(
+            "Your TXT record was saved as {wrong} — your DNS provider adds {} automatically. Edit the record's Name to just {} and check again.",
+            domains::zone(domain),
+            domains::host(fqdn, domain)
+        )
+    })
 }
 
 fn domain_message(status: &str) -> &'static str {
@@ -880,7 +892,7 @@ fn domain_view(state: &AppState, r: &DomainRow) -> Value {
     let check = r.last_check.as_ref().map(|c| c.0.clone()).unwrap_or_default();
     let mut records = check.records.clone();
     if records.is_empty() {
-        records.push(ownership_record(r, None));
+        records.push(ownership_record(r, "pending"));
     }
     json!({
         "domain": r.domain,
@@ -973,14 +985,17 @@ async fn domain_check(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
     let was_live = matches!(row.status.as_str(), "active" | "misconfigured");
 
     // 1. Ownership.
-    let txt = domains::lookup(&state.http, &format!("_sshop-verify.{d}"), "TXT").await.map_err(AppError::Upstream)?;
-    let owned = txt.iter().any(|v| *v == format!("sshop-verify={}", row.token));
-    let mut records = vec![ownership_record(&row, Some(owned))];
+    let own_name = format!("_sshop-verify.{d}");
+    let own_value = format!("sshop-verify={}", row.token);
+    let txt = domains::lookup(&state.http, &own_name, "TXT").await.map_err(AppError::Upstream)?;
+    let owned = txt.iter().any(|v| *v == own_value);
+    let misplaced = if owned { None } else { misplaced_txt(&state, &own_name, &d, &own_value).await };
+    let mut records = vec![ownership_record(&row, if owned { "ok" } else if misplaced.is_some() { "misplaced" } else { "missing" })];
     let mut first_verified = false;
     let status: &str;
     if !owned {
         status = if was_live { "misconfigured" } else { "dns_required" };
-        check.message = "Add the TXT record below (it can take a few minutes to appear), then check again.".into();
+        check.message = misplaced.unwrap_or_else(|| "Add the TXT record below (it can take a few minutes to appear), then check again.".into());
     } else {
         first_verified = row.verified_at.is_none();
         // 2. Attached to this service (automatically when the Railway API is configured).
@@ -1009,14 +1024,18 @@ async fn domain_check(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
                 let name = format!("_railway-verify.{d}");
                 let value = if token.starts_with("railway-verify=") { token } else { format!("railway-verify={token}") };
                 let present = domains::lookup(&state.http, &name, "TXT").await.unwrap_or_default().contains(&value.to_lowercase());
+                let misplaced = if present { None } else { misplaced_txt(&state, &name, &d, &value).await };
                 check.railway_txt_name = Some(name.clone());
-                records.push(domains::Record {
-                    kind: "TXT".into(),
-                    name,
+                records.push(domains::txt_record(
+                    &name,
+                    &d,
                     value,
-                    status: if present { "ok" } else { "missing" }.into(),
-                    note: "Required by S'Shop's hosting to route your domain.".into(),
-                });
+                    if present { "ok" } else if misplaced.is_some() { "misplaced" } else { "missing" },
+                    "Required by S'Shop's hosting to route your domain.",
+                ));
+                if let Some(m) = misplaced {
+                    check.message = m;
+                }
             }
         }
         // 3. Routing.

@@ -115,6 +115,11 @@ pub struct Outcome {
 
 /// Sends and records one email. Never fails the caller: the outcome says what happened.
 pub async fn send(state: &AppState, m: Mail) -> Outcome {
+    send_ext(state, m, None, &[]).await
+}
+
+/// `send` with a sender display name (the business, for customer-facing email) and attachments.
+pub async fn send_ext(state: &AppState, m: Mail, from_name: Option<&str>, attachments: &[(String, String)]) -> Outcome {
     let recipient = m.to.join(", ");
     let id: Uuid = match sqlx::query_scalar(
         "INSERT INTO email_log (kind, recipient, subject, tenant_id, access_request_id, user_id, created_by, retry_of)
@@ -143,7 +148,7 @@ pub async fn send(state: &AppState, m: Mail) -> Outcome {
             let _ = cfg;
             ("failed", None, "No recipient".to_string())
         }
-        Some(cfg) => match email::send_rich(&state.http, cfg, &m.to, &m.subject, Some(&m.html), &m.text).await {
+        Some(cfg) => match email::send_rich(&state.http, cfg, &m.to, &m.subject, Some(&m.html), &m.text, from_name.map(|n| email::from_as(cfg, n)).as_deref(), attachments).await {
             Ok(pid) => ("sent", (!pid.is_empty()).then_some(pid), String::new()),
             Err(e) => {
                 tracing::warn!(error = %e, kind = m.kind, "email failed");

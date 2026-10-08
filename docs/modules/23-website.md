@@ -147,6 +147,11 @@ or any earlier version cannot be deleted or archived.
    one business only (unique index).
 2. **Prove ownership** with a TXT record: `_sshop-verify.<domain>` = `sshop-verify=<token>`. It is checked over
    DNS-over-HTTPS. Nothing is attached to S'Shop before this, so nobody can claim a domain they do not control.
+   - Records are shown with the **host** to type at the provider, relative to the domain (`_sshop-verify`, `www`, `@`),
+     plus the full name for providers that ask for it (roadmap 68).
+   - The most common mistake — typing the full name into a provider that adds the domain itself, which creates
+     `_sshop-verify.example.com.example.com` — is detected by *Check now*: the record shows *Saved under the wrong name*
+     and the message says which Name to use instead.
 3. **Attach and route.**
    - With `RAILWAY_API_TOKEN` set, the domain is added to this Railway service automatically (`customDomainCreate`),
      and Railway's routing record (CNAME, or ALIAS / flattened CNAME for a root domain) and its own verification TXT

@@ -68,6 +68,7 @@ const Settings = page(() => import("@/pages/settings/Settings"));
 const Audit = page(() => import("@/pages/Audit"));
 const Portal = page(() => import("@/pages/portal/Portal"));
 const Track = page(() => import("@/pages/portal/Track"));
+const ReceiptView = page(() => import("@/pages/portal/ReceiptView"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -105,6 +106,7 @@ export default function App() {
                 <Route path="/access-status" element={<AccessStatusPage />} />
                 <Route path="/order/:slug/*" element={<Portal />} />
                 <Route path="/track/:token" element={<Track />} />
+                <Route path="/r/:token" element={<ReceiptView />} />
                 <Route element={<RequireStaff><AppShell /></RequireStaff>}>
                   <Route index element={<Dashboard />} />
                   <Route path="my" element={<MyDashboard />} />

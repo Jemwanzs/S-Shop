@@ -163,7 +163,7 @@ pub struct Profile {
 /// `acting`: the platform admin's own business when they have opened `tenant_id` from the platform.
 pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acting: Option<Uuid>) -> AppResult<Profile> {
     let (name, email, role, permissions, all_branches, preferences): (String, String, String, Vec<String>, bool, Value) = sqlx::query_as(
-        "SELECT u.name, u.email, r.name, r.permissions || u.extra_permissions, u.all_branches, u.preferences FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1",
+        "SELECT u.name, u.email, r.name, effective_permissions(r.permissions, u.extra_permissions), u.all_branches, u.preferences FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1",
     )
     .bind(user_id)
     .fetch_one(&state.db)
@@ -204,6 +204,8 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
             "preferences": super::prefs::Preferences::from_stored(preferences),
             // Signed in with a one-time PIN: the app asks for a new PIN before anything else (roadmap 59).
             "must_change_pin": sqlx::query_scalar::<_, bool>("SELECT must_change_pin FROM users WHERE id = $1").bind(user_id).fetch_one(&state.db).await?,
+            // Used as the Current Branch after sign-in when the user works at several branches (roadmap 64).
+            "default_branch_id": sqlx::query_scalar::<_, Option<Uuid>>("SELECT default_branch_id FROM users WHERE id = $1").bind(user_id).fetch_one(&state.db).await?,
         }),
         tenant: serde_json::json!({
             "id": tenant_id, "name": tname, "slug": slug, "tagline": tagline, "currency": currency,

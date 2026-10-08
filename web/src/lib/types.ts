@@ -64,6 +64,8 @@ export interface Settings {
     credit_enabled: boolean;
     credit_default_days: number;
     receipt_footer: string;
+    /** Receipt configuration (roadmap 66). */
+    receipt: { show_logo: boolean; show_branch: boolean; show_contact: boolean; show_customer: boolean; show_salesperson: boolean; show_loyalty: boolean; show_payment_ref: boolean; font: "sans" | "thermal" };
   };
   orders: {
     portal_enabled: boolean;
@@ -101,7 +103,9 @@ export interface Settings {
 export interface Profile {
   user: { id: Id; name: string; email: string; role: string; all_branches: boolean; platform_admin: boolean; preferences: Preferences;
     /** Signed in with a one-time PIN: a new PIN is required before anything else (roadmap 59). */
-    must_change_pin?: boolean };
+    must_change_pin?: boolean;
+    /** Current Branch after sign-in when the user works at several branches. */
+    default_branch_id?: Id | null };
   tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null; is_demo: boolean; timezone: string };
   branches: Branch[];
   permissions: string[];
@@ -215,7 +219,10 @@ export interface SaleRow {
   customer_id: Id | null;
   customer_name: string | null;
   customer_mobile: string | null;
+  /** Sale Owner (credited). */
   user_name: string | null;
+  owner_id?: Id | null;
+  recorded_by_name?: string | null;
   status: string;
   total: Money;
   discount_total: Money;
@@ -236,7 +243,12 @@ export interface SaleDetail {
     branch_name: string;
     branch_location: string;
     branch_phone: string;
+    /** Sale Owner — credited with the sale (roadmap 62). */
     user_name: string | null;
+    owner_id: Id | null;
+    /** Who physically entered the sale. */
+    recorded_by_name: string | null;
+    business_date: string;
     gross_total: Money;
     discount_total: Money;
     total: Money;
@@ -278,12 +290,15 @@ export interface SaleDetail {
     refund_method: string;
     restock: boolean;
     points_reversed: number;
+    /** Points already redeemed by the customer, so not taken back (roadmap 67). */
+    points_unrecovered?: number;
     created_at: string;
     user_name: string | null;
   }[];
   credit: { id: Id; original_amount: Money; amount_paid: Money; adjustments: Money; balance: Money; due_date: string; status: string } | null;
   business: { name: string; phone: string; address: string; currency: string; logo_url: string | null; receipt_footer: string };
   pending_approval_id: Id | null;
+  owner_changes?: { id: Id; from_owner: string | null; to_owner: string | null; reason: string; status: string; requested_by: string | null; decided_by: string | null; decided_at: string | null; created_at: string; approval_id: Id | null }[];
 }
 
 export interface CreditRow {

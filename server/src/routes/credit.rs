@@ -60,7 +60,7 @@ pub const CREDIT_SELECT: &str = "SELECT cs.id, cs.sale_id, s.receipt_no, cs.cust
         CASE WHEN cs.status IN ('outstanding','partially_paid') AND cs.due_date < $2 THEN 'overdue' ELSE cs.status END AS status,
         cs.created_at, cs.recall_state
     FROM credit_sales cs JOIN sales s ON s.id = cs.sale_id JOIN customers c ON c.id = cs.customer_id
-    JOIN branches b ON b.id = cs.branch_id LEFT JOIN users u ON u.id = cs.user_id";
+    JOIN branches b ON b.id = cs.branch_id LEFT JOIN users u ON u.id = s.owner_id";
 
 #[derive(Deserialize)]
 struct ListQuery {
@@ -74,7 +74,9 @@ struct ListQuery {
 
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Value>> {
     ctx.require("credit.view")?;
-    let branches = ctx.branch_scope(q.branch_id)?;
+    // Credit scope (roadmap 64): credit sales credited to the user, their branches, or every branch.
+    let vis = ctx.visibility(&mut *state.db.acquire().await?, "credit", q.branch_id, None).await?;
+    let branches = vis.branches;
     let today = ctx.today();
     let select = CREDIT_SELECT.replacen("SELECT", "SELECT COUNT(*) OVER() AS total_count,", 1);
     // status filter: open (default) | overdue | paid | written_off | all | outstanding | partially_paid
@@ -87,6 +89,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
                   ELSE cs.status = $5 END)
            AND ($6::uuid IS NULL OR cs.customer_id = $6)
            AND ($7::text IS NULL OR c.first_name ILIKE $7 OR c.mobile ILIKE $7 OR s.receipt_no ILIKE $7)
+           AND ($10::uuid IS NULL OR s.owner_id = $10)
          ORDER BY cs.due_date, cs.created_at LIMIT $8 OFFSET $9"
     ))
     .bind(ctx.tenant_id)
@@ -98,16 +101,19 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .bind(like(&q.q))
     .bind(q.page.limit())
     .bind(q.page.offset())
+    .bind(vis.owner)
     .fetch_all(&state.db)
     .await?;
     let (outstanding, overdue): (Decimal, Decimal) = sqlx::query_as(
         "SELECT COALESCE(SUM(original_amount - amount_paid - adjustments),0),
                 COALESCE(SUM(original_amount - amount_paid - adjustments) FILTER (WHERE due_date < $3),0)
-         FROM credit_sales WHERE tenant_id = $1 AND branch_id = ANY($2) AND status IN ('outstanding','partially_paid')",
+         FROM credit_sales cs WHERE tenant_id = $1 AND branch_id = ANY($2) AND status IN ('outstanding','partially_paid')
+           AND ($4::uuid IS NULL OR EXISTS (SELECT 1 FROM sales s WHERE s.id = cs.sale_id AND s.owner_id = $4))",
     )
     .bind(ctx.tenant_id)
     .bind(&branches)
     .bind(today)
+    .bind(vis.owner)
     .fetch_one(&state.db)
     .await?;
     let page: Paged<CreditRow> = rows.into();
@@ -140,7 +146,17 @@ async fn branch_of(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Uu
 async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     ctx.require("credit.view")?;
     let mut conn = state.db.acquire().await?;
-    branch_of(&mut conn, &ctx, id).await?;
+    let (branch, owner, recorder): (Uuid, Option<Uuid>, Option<Uuid>) = sqlx::query_as(
+        "SELECT cs.branch_id, s.owner_id, cs.user_id FROM credit_sales cs JOIN sales s ON s.id = cs.sale_id WHERE cs.id = $1 AND cs.tenant_id = $2",
+    )
+    .bind(id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(AppError::NotFound("Credit sale"))?;
+    if !ctx.may_view("credit", branch, owner == Some(ctx.user_id) || recorder == Some(ctx.user_id)) {
+        return Err(AppError::Forbidden("This credit sale is outside the records you can see".into()));
+    }
     let row = load(&mut conn, &ctx, id).await?;
     let payments: Vec<(Uuid, String, Decimal, String, DateTime<Utc>, Option<String>)> = sqlx::query_as(
         "SELECT p.id, p.method, p.amount, p.reference, p.created_at, u.name FROM payments p LEFT JOIN users u ON u.id = p.user_id
@@ -378,7 +394,8 @@ async fn remind(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
 /// Aging buckets of open credit (by days past due).
 async fn aging(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Value>> {
     ctx.require("credit.view")?;
-    let branches = ctx.branch_scope(q.branch_id)?;
+    let vis = ctx.visibility(&mut *state.db.acquire().await?, "credit", q.branch_id, None).await?;
+    let branches = vis.branches;
     let rows: Vec<(String, i64, Decimal)> = sqlx::query_as(
         "SELECT bucket, COUNT(*), COALESCE(SUM(balance),0) FROM (
             SELECT original_amount - amount_paid - adjustments AS balance,
@@ -387,12 +404,14 @@ async fn aging(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuer
                         WHEN $3 - due_date <= 60 THEN '31-60'
                         WHEN $3 - due_date <= 90 THEN '61-90'
                         ELSE '90+' END AS bucket
-            FROM credit_sales WHERE tenant_id = $1 AND branch_id = ANY($2) AND status IN ('outstanding','partially_paid')) t
+            FROM credit_sales cs WHERE tenant_id = $1 AND branch_id = ANY($2) AND status IN ('outstanding','partially_paid')
+              AND ($4::uuid IS NULL OR EXISTS (SELECT 1 FROM sales s WHERE s.id = cs.sale_id AND s.owner_id = $4))) t
          GROUP BY bucket",
     )
     .bind(ctx.tenant_id)
     .bind(&branches)
     .bind(ctx.today())
+    .bind(vis.owner)
     .fetch_all(&state.db)
     .await?;
     let order = ["current", "1-30", "31-60", "61-90", "90+"];

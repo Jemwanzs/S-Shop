@@ -28,7 +28,8 @@ export default function LoginPage() {
     try {
       const res = await api<{ token: string; profile: Profile }>("/auth/login", { body: { email: email.trim(), pin } });
       signIn(res.token, res.profile);
-      navigate(res.profile.branches.length > 1 ? "/select-branch" : "/", { replace: true });
+      const preset = res.profile.branches.some((b) => b.id === res.profile.user.default_branch_id);
+      navigate(res.profile.branches.length > 1 && !preset ? "/select-branch" : "/", { replace: true });
     } catch (err) {
       setError(errorMessage(err));
     } finally {

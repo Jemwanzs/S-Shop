@@ -684,8 +684,8 @@ for m in ["revenue", "transactions", "avg_sale", "orders", "customers", "new_cus
     st = call("GET", f"/leaderboards/staff?period=today&metric={m}")["items"]
     vals = [float(x[m]) for x in st if x[m] is not None]
     check(f"staff ranked by {m}", vals == sorted(vals, reverse=True), vals[:5])
-call("GET", "/leaderboards/staff?period=today", token=reporter, expect=403)
-check("staff board needs permission to view other employees", True)
+rep_staff = call("GET", "/leaderboards/staff?period=today", token=reporter)["items"]
+check("without “view other employees” the staff board shows only the user's own row (roadmap 64)", len(rep_staff) <= 1, [x["name"] for x in rep_staff])
 call("GET", "/leaderboards/products?period=today&metric=profit", token=reporter, expect=403)
 rep_metrics = call("GET", "/leaderboards/products?period=today", token=reporter)["metrics"]
 check("profit metrics hidden without financial access", "profit" not in rep_metrics and "margin" not in rep_metrics, rep_metrics)
@@ -1624,7 +1624,7 @@ call("PUT", "/website/domain", {"domain": "localhost"}, **T2, expect=400)
 check("platform and hosting domains refused", True)
 dv = call("PUT", "/website/domain", {"domain": f"https://{dom.upper()}/about"}, **T2)["domain"]
 check("domain saved, normalised, awaiting DNS with an ownership TXT record", dv["domain"] == dom and dv["status"] == "dns_required"
-      and dv["records"][0]["name"] == f"_sshop-verify.{dom}" and dv["records"][0]["value"].startswith("sshop-verify="), dv)
+      and dv["records"][0]["fqdn"] == f"_sshop-verify.{dom}" and dv["records"][0]["name"] == f"_sshop-verify.shop{suffix.lower()}" and dv["records"][0]["value"].startswith("sshop-verify="), dv)
 check("same domain again keeps its token", call("PUT", "/website/domain", {"domain": dom}, **T2)["domain"]["records"][0]["value"] == dv["records"][0]["value"])
 call("PUT", "/website/domain", {"domain": dom}, **W, expect=403)
 check("connecting a domain needs website.domain", True)
@@ -1774,6 +1774,237 @@ check("courteous rejection email with the reason, never the internal note", rr["
 call("POST", "/auth/forgot", {"email": rej_mail}, token="none")
 rst = call("POST", "/auth/request-status", {"token": link_token(mails_to(rej_mail, "request status")[-1])}, token="none")
 check("rejected status without internal notes", rst["status"] == "rejected" and "internal" not in json.dumps(rst), rst)
+
+step("Roadmap 62–64: sale ownership, ownership changes, data-visibility scopes")
+own_prod = call("POST", "/products", {"name": f"Owner Test {suffix}", "marked_price": 1000, "cost_price": 400})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": own_prod, "quantity": 60, "cost_price": 400})
+call("POST", "/stock/receive", {"product_id": own_prod, "quantity": 20, "cost_price": 400}, branch=b2)
+roles_ = {r["name"]: r["id"] for r in call("GET", "/roles")}
+
+
+def staff_user(tag, role, branches):
+    mail = f"{tag}{suffix.lower()}@sshop.test"
+    u = call("POST", "/users", {"name": f"{tag.title()} {suffix}", "email": mail, "pin": "4321", "role_id": roles_[role], "all_branches": False, "branch_ids": branches})
+    tok = call("POST", "/auth/login", {"email": mail, "pin": "4321"})["token"]
+    return u["id"], tok
+
+
+sp1, sp1_tok = staff_user("ownera", "Salesperson", [BRANCH])
+sp2, sp2_tok = staff_user("ownerb", "Salesperson", [BRANCH])
+sk, _sk_tok = staff_user("ownersk", "Storekeeper", [BRANCH])
+SP1 = {"token": sp1_tok, "branch": BRANCH}
+SP2 = {"token": sp2_tok, "branch": BRANCH}
+owners_ = call("GET", f"/sales/owners?branch_id={BRANCH}")["items"]
+check("eligible owners: active salespeople of the branch, not storekeepers", any(o["id"] == sp1 for o in owners_) and not any(o["id"] == sk for o in owners_))
+line = {"items": [{"product_id": own_prod, "quantity": 1, "unit_price": 1000}], "payment": {"method": "cash"}}
+s1 = call("POST", "/sales", {**line, "owner_id": sp1})["sale"]
+check("recorded by one person, credited to another", s1["user_name"] == f"Ownera {suffix}" and s1["recorded_by_name"] and s1["recorded_by_name"] != s1["user_name"], s1)
+call("POST", "/sales", {**line, "owner_id": sk}, expect=422)
+check("only eligible owners can be credited", True)
+call("POST", "/sales", {**line, "owner_id": sp2}, **SP1, expect=403)
+check("assigning another owner needs “Assign sale owner”", True)
+s_own = call("POST", "/sales", line, **SP1)["sale"]
+check("default owner: the signed-in user", s_own["user_name"] == f"Ownera {suffix}")
+# Own scope: a salesperson sees only sales credited to them
+mine1 = call("GET", "/sales?period=today&limit=200", **SP1)
+check("own scope: only own sales (incl. those recorded by someone else for them)", mine1["scope"] == "own"
+      and {s1["id"], s_own["id"]} <= {x["id"] for x in mine1["items"]} and all(x["owner_id"] == sp1 for x in mine1["items"]))
+call("GET", f"/sales/{s1['id']}", **SP2, expect=403)
+call("GET", f"/sales?period=today&user_id={sp2}", **SP1, expect=403)
+check("others' sales stay hidden, also through filters", True)
+md_before = call("GET", "/dashboard?period=today&mine=true", **SP2)
+biz_before = call("GET", "/dashboard?period=today")
+# Ownership change → approval → recalculated attribution
+call("POST", f"/sales/{s1['id']}/owner-change", {"new_owner_id": sp2, "reason": ""}, **SP1, expect=400)
+oc = call("POST", f"/sales/{s1['id']}/owner-change", {"new_owner_id": sp2, "reason": "Ownerb served the customer"}, **SP1)
+check("ownership change goes for approval; owner unchanged meanwhile", oc["pending_approval"] is True
+      and call("GET", f"/sales/{s1['id']}")["sale"]["user_name"] == f"Ownera {suffix}", oc)
+call("POST", f"/sales/{s1['id']}/owner-change", {"new_owner_id": sp2, "reason": "again please"}, **SP1, expect=422)
+check("one pending change per sale", True)
+call("POST", f"/approvals/{oc['approval_id']}/approve", {}, **SP1, expect=403)
+check("requester cannot approve their own change", True)
+call("POST", f"/approvals/{oc['approval_id']}/approve", {})
+after = call("GET", f"/sales/{s1['id']}")
+check("approved: new owner, same total, payments untouched, history kept", after["sale"]["user_name"] == f"Ownerb {suffix}"
+      and float(after["sale"]["total"]) == float(s1["total"]) and len(after["payments"]) == 1
+      and after["owner_changes"][0]["status"] == "approved" and after["owner_changes"][0]["from_owner"] == f"Ownera {suffix}", after["owner_changes"])
+md_after = call("GET", "/dashboard?period=today&mine=true", **SP2)
+biz_after = call("GET", "/dashboard?period=today")
+check("performance moves to the new owner; business totals unchanged",
+      round(float(md_after["kpis"]["sales"]) - float(md_before["kpis"]["sales"]), 2) == 1000.0
+      and float(biz_after["kpis"]["sales"]) == float(biz_before["kpis"]["sales"]),
+      (md_before["kpis"]["sales"], md_after["kpis"]["sales"]))
+check("old owner no longer sees it; new owner does", s1["id"] not in {x["id"] for x in call("GET", "/sales?period=today&limit=200", **SP1)["items"]}
+      and s1["id"] in {x["id"] for x in call("GET", "/sales?period=today&limit=200", **SP2)["items"]})
+oc2 = call("POST", f"/sales/{s1['id']}/owner-change", {"new_owner_id": sp1, "reason": "Back to Ownera"}, **SP2)
+call("POST", f"/approvals/{oc2['approval_id']}/reject", {"comments": "No"})
+check("rejected: original owner kept", call("GET", f"/sales/{s1['id']}")["sale"]["user_name"] == f"Ownerb {suffix}"
+      and call("GET", f"/sales/{s1['id']}")["owner_changes"][0]["status"] == "rejected")
+aud_oc = call("GET", f"/audit?period=today&entity_id={s1['id']}&limit=20")["items"]
+check("ownership change audited with reason", any(a["action"] == "owner_change" and "served the customer" in (a.get("comments") or "") for a in aud_oc), [a["action"] for a in aud_oc])
+# Leaderboards and reports follow the scope
+call("POST", "/roles", {"name": f"Own analyst {suffix}", "description": "", "permissions": ["dashboard.view", "sales.create", "sales.view", "scope.leaderboards.own"]})
+roles_ = {r["name"]: r["id"] for r in call("GET", "/roles")}
+an_id, an_tok = staff_user("ownan", f"Own analyst {suffix}", [BRANCH])
+call("POST", "/sales", {**line, "owner_id": an_id})
+lb = call("GET", "/leaderboards/staff?period=today", token=an_tok, branch=BRANCH)
+check("own-scope leaderboard: only the user's own row", [x["id"] for x in lb["items"]] == [an_id], [x["name"] for x in lb["items"]][:3])
+lb_all = call("GET", "/leaderboards/staff?period=today")
+check("full leaderboard credits Sale Owners", any(x["id"] == sp2 for x in lb_all["items"]))
+# Scopes on roles: assigned branches vs all branches
+vw = call("POST", "/roles", {"name": f"Branch viewer {suffix}", "description": "", "permissions": ["sales.view", "scope.sales.branches"]})["id"]
+call("POST", "/roles", {"name": f"Bad scope {suffix}", "description": "", "permissions": ["sales.view", "scope.sales.own", "scope.sales.all"]}, expect=400)
+check("one scope per area", True)
+aw = call("POST", "/roles", {"name": f"All viewer {suffix}", "description": "", "permissions": ["sales.view", "scope.sales.all"]})["id"]
+roles_ = {r["name"]: r["id"] for r in call("GET", "/roles")}
+b2_sale = call("POST", "/sales", line, branch=b2)["sale"]
+_v1, v1_tok = staff_user("viewa", f"Branch viewer {suffix}", [BRANCH])
+_v2, v2_tok = staff_user("viewb", f"All viewer {suffix}", [BRANCH])
+seen_b = {x["id"] for x in call("GET", "/sales?period=today&limit=500", token=v1_tok, branch=BRANCH)["items"]}
+check("assigned branches: other employees' sales at their branch, not other branches", s_own["id"] in seen_b and b2_sale["id"] not in seen_b)
+call("GET", f"/sales?period=today&branch_id={b2}", token=v1_tok, branch=BRANCH, expect=403)
+check("cannot ask for an unassigned branch", True)
+seen_a = {x["id"] for x in call("GET", f"/sales?period=today&limit=500&branch_id={b2}", token=v2_tok, branch=BRANCH)["items"]}
+check("all branches: sees other branches' sales without being assigned there", b2_sale["id"] in seen_a)
+call("GET", f"/sales/{b2_sale['id']}", token=v2_tok, branch=BRANCH)
+call("POST", "/sales", line, token=v2_tok, branch=BRANCH, expect=403)
+check("visibility does not grant operations (cannot record sales)", True)
+# User-specific exceptions
+acc = call("GET", f"/users/{sp1}/access")
+check("effective access shown per area", next(x for x in acc["scopes"] if x["area"] == "sales")["effective"] == "own", acc["scopes"][:1])
+call("PUT", f"/users/{sp1}/access", {"overrides": ["scope.sales.branches"], "default_branch_id": BRANCH})
+check("default branch saved and on the profile", call("POST", "/auth/login", {"email": f"ownera{suffix.lower()}@sshop.test", "pin": "4321"})["profile"]["user"]["default_branch_id"] == BRANCH)
+check("user exception widens one area", s_own["id"] in {x["id"] for x in call("GET", "/sales?period=today&limit=500", **SP1)["items"]}
+      and call("GET", "/sales?period=today&limit=500", **SP1)["scope"] == "branches")
+call("PUT", f"/users/{sp1}/access", {"overrides": ["-sales.request_owner_change"]})
+call("POST", f"/sales/{s_own['id']}/owner-change", {"new_owner_id": sp2, "reason": "Should be refused"}, **SP1, expect=403)
+check("explicit restriction removes a role permission", True)
+call("PUT", f"/users/{sp1}/access", {"overrides": ["reports.export", "-reports.export"]}, expect=400)
+call("PUT", f"/users/{sp1}/access", {"overrides": ["sales.cancel"]}, expect=400)
+call("PUT", f"/users/{sp1}/access", {"overrides": []})
+check("contradictory or unknown exceptions refused", True)
+mgr_id, mgr_tok = staff_user("ownmgr", "Manager", [BRANCH])
+call("PUT", f"/users/{sp1}/access", {"overrides": ["scope.sales.all"]}, token=mgr_tok, branch=BRANCH, expect=403)
+check("nobody grants a wider scope than their own", True)
+
+step("Roadmap 65–67: digital receipts, sharing, adjustment receipts, approved exchanges")
+rc_cust = "07" + str(uuid.uuid4().int)[:8]
+rc_full = call("POST", "/sales", {**line, "owner_id": sp1, "customer": {"mobile": rc_cust, "first_name": "Ruth"},
+                                  "items": [{"product_id": own_prod, "quantity": 3, "unit_price": 1000}], "payment": {"method": "cash"}})
+rc_sale = rc_full["sale"]
+rcs = call("GET", f"/sales/{rc_sale['id']}/receipts")["items"]
+snap = rcs[0]["snapshot"]
+check("receipt issued with the sale: number, items, total, owner, signature", len(rcs) == 1 and rcs[0]["kind"] == "original"
+      and snap["number"] == rc_sale["receipt_no"] and snap["title"] == "SALES RECEIPT" and snap["items"][0]["qty"] == 3
+      and float(snap["totals"]["total"]) == 3000 and snap["served_by"] == f"Ownera {suffix}" and snap["customer"] == "Ruth"
+      and snap["signed_by"], snap.get("served_by"))
+# Immutable: later changes never alter an issued receipt
+oc3 = call("POST", f"/sales/{rc_sale['id']}/owner-change", {"new_owner_id": sp2, "reason": "Receipt immutability check"}, **SP1)
+call("POST", f"/approvals/{oc3['approval_id']}/approve", {})
+again = call("GET", f"/sales/{rc_sale['id']}/receipts")["items"]
+check("an issued receipt never changes (owner changed later)", again[0]["snapshot"]["served_by"] == f"Ownera {suffix}"
+      and call("GET", f"/sales/{rc_sale['id']}")["sale"]["user_name"] == f"Ownerb {suffix}")
+# Secure link and public receipt
+lnk = call("POST", f"/receipts/{rcs[0]['id']}/link")["url"]
+tok = lnk.rsplit("/r/", 1)[1]
+pub = call("GET", f"/r/{tok}", token="none", branch="none")
+check("secure link opens the same receipt without signing in", pub["snapshot"]["number"] == rc_sale["receipt_no"] and "/r/" in lnk)
+call("GET", f"/r/{uuid.uuid4()}", token="none", branch="none", expect=404)
+check("unknown receipt links refused", True)
+# WhatsApp: a short message with the link, not a long text receipt
+sh = call("POST", f"/sales/{rc_sale['id']}/share")
+check("WhatsApp message is short and links to the receipt", "/r/" in sh["text"] and "Ruth" in sh["text"] and "•" not in sh["text"] and sh["link"].startswith("https://wa.me/"), sh["text"])
+# Email with the PDF attached, from the business's name
+fake_pdf = base64.b64encode(b"%PDF-1.4\n% receipt\n").decode()
+call("POST", f"/receipts/{rcs[0]['id']}/email", {"to": "ruth@sshop.test", "pdf": base64.b64encode(b"not a pdf").decode()}, expect=400)
+em = call("POST", f"/receipts/{rcs[0]['id']}/email", {"to": "ruth@sshop.test", "pdf": fake_pdf})
+rmail = mails_to("ruth@sshop.test", rc_sale["receipt_no"])
+check("receipt emailed with the PDF attached, from the business", em["email_status"]["status"] == "sent" and rmail
+      and rmail[-1]["attachments"][0]["filename"].endswith(".pdf") and rmail[-1]["from"].split("<")[0].strip() == snap["business"]["name"], rmail[-1].get("from") if rmail else None)
+# Receipt configuration applies to receipts issued from now on
+cfg = call("GET", "/settings")["settings"]
+cfg["sales"]["receipt"]["show_customer"] = False
+cfg["sales"]["receipt"]["font"] = "thermal"
+call("PUT", "/settings", cfg)
+rc2 = call("POST", "/sales", {**line, "customer": {"mobile": rc_cust, "first_name": "Ruth"}})["sale"]
+s2 = call("GET", f"/sales/{rc2['id']}/receipts")["items"][0]["snapshot"]
+check("receipt settings shape new receipts only", s2["customer"] is None and s2["font"] == "thermal"
+      and call("GET", f"/sales/{rc_sale['id']}/receipts")["items"][0]["snapshot"]["customer"] == "Ruth")
+cfg["sales"]["receipt"]["font"] = "fancy"
+call("PUT", "/settings", cfg, expect=400)
+cfg["sales"]["receipt"]["font"] = "sans"
+cfg["sales"]["receipt"]["show_customer"] = True
+call("PUT", "/settings", cfg)
+# Return → adjustment receipt linked to the original; original preserved
+rline = rc_full["items"][0]["id"]
+call("POST", f"/sales/{rc_sale['id']}/return", {"items": [{"sale_item_id": rline, "quantity": 1}], "reason": "Customer changed mind", "restock": True})
+rcs = call("GET", f"/sales/{rc_sale['id']}/receipts")["items"]
+adj = next(r for r in rcs if r["kind"] == "adjustment")["snapshot"]["adjustment"]
+check("adjustment receipt: reference, status, refund, net value; original unchanged", len(rcs) == 2
+      and adj["original_receipt"] == rc_sale["receipt_no"] and adj["reference"].startswith("RTN-")
+      and next(r for r in rcs if r["kind"] == "adjustment")["snapshot"]["status"] == "Partially Returned"
+      and float(adj["refund"]) == 1000 and float(adj["net_sale_value"]) == 2000 and adj["refund_method"] == "Cash"
+      and rcs[0]["snapshot"]["items"][0]["qty"] == 3, adj)
+lp = adj["loyalty"]
+check("loyalty reconciled on the adjustment: earned, reversed, unrecovered, net", lp["original"] == rc_sale["points_earned"]
+      and lp["net"] == lp["original"] - lp["reversed"] and lp["unrecovered"] >= 0
+      and (lp["original"] == 0 or lp["reversed"] > 0), lp)
+# Exchange above the approval limit: nothing changes until approved
+swap = call("POST", "/products", {"name": f"Swap Item {suffix}", "marked_price": 1500, "cost_price": 600})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": swap, "quantity": 10, "cost_price": 600})
+call("PUT", "/settings/workflows/sale.return", {"enabled": True, "min_amount": None, "levels": [{"approver_type": "role", "approver_role_id": roles_["Manager"]}]})
+xs2 = call("POST", "/sales", {**line, "owner_id": sp1, "items": [{"product_id": own_prod, "quantity": 2, "unit_price": 1000}]})["sale"]
+xs2_line = call("GET", f"/sales/{xs2['id']}")["items"][0]["id"]
+def swap_on_hand():
+    return call("GET", f"/stock?q=Swap Item {suffix}")["items"][0]["on_hand"]
+swap_before = swap_on_hand()
+px = call("POST", f"/sales/{xs2['id']}/exchange", {"return_items": [{"sale_item_id": xs2_line, "quantity": 1}],
+                                                   "items": [{"product_id": swap, "quantity": 1, "unit_price": 1500}],
+                                                   "payment": {"method": "cash"}, "reason": "Different size", "client_ref": str(uuid.uuid4())})
+pend_x = call("GET", f"/sales/{xs2['id']}")
+check("exchange waits for approval: stock, sale and receipts untouched", px.get("pending_approval") is True
+      and swap_on_hand() == swap_before
+      and pend_x["items"][0]["returned_qty"] == 0 and len(call("GET", f"/sales/{xs2['id']}/receipts")["items"]) == 1)
+call("POST", f"/approvals/{px['approval_id']}/approve", {}, token=mgr_tok, branch=BRANCH)
+done_x = call("GET", f"/sales/{xs2['id']}")
+xr = call("GET", f"/sales/{xs2['id']}/receipts")["items"]
+xadj = next(r for r in xr if r["kind"] == "adjustment")["snapshot"]
+check("approved exchange executed once: items back, replacement sold, exchange receipt", done_x["items"][0]["returned_qty"] == 1
+      and swap_on_hand() == swap_before - 1
+      and xadj["status"] == "Exchanged" and xadj["adjustment"]["exchange"] is not None and xadj["title"] == "EXCHANGE RECEIPT", xadj.get("status"))
+repl = call("GET", f"/sales?period=today&q={xadj['adjustment']['exchange']['receipt_no']}")["items"]
+check("replacement credited to the original owner (no new attribution)", repl and repl[0]["owner_id"] == sp1, repl[:1])
+call("POST", f"/approvals/{px['approval_id']}/approve", {}, token=mgr_tok, branch=BRANCH, expect=422)
+check("an approval cannot run twice", True)
+call("PUT", "/settings/workflows/sale.return", {"enabled": False, "min_amount": None, "levels": [{"approver_type": "admin"}]})
+
+step("Roadmap 69: new-order notifications and the Orders badge")
+call("POST", "/stock/receive", {"product_id": own_prod, "quantity": 10, "cost_price": 400})
+n_slug = call("GET", "/auth/me")["tenant"]["slug"]
+n_mobile = "07" + str(uuid.uuid4().int)[:8]
+n_tok = call("POST", f"/portal/{n_slug}/session", {"mobile": n_mobile, "first_name": "Wanjiru"}, token="none")["token"]
+def badge(**kw):
+    return call("GET", "/notifications?limit=50", **kw)
+b0 = badge()["new_orders"]
+call("PUT", "/auth/preferences", {"language": "en", "font": "Outfit", "currency": "KES", "notify_new_orders": False}, token=mgr_tok, branch=BRANCH)
+no1 = call("POST", f"/portal/{n_slug}/orders", {"items": [{"product_id": own_prod, "quantity": 2}], "delivery_location": "Shop"}, token=n_tok)
+feed = badge()
+note = next((n for n in feed["items"] if n["link"] == f"/orders/{no1['id']}"), None)
+check("customer order notifies order staff: customer, branch, items, total, link", note is not None
+      and note["title"] == f"New customer order {no1['order_no']}" and "Customer: Wanjiru" in note["body"] and "2 items" in note["body"]
+      and note["read_at"] is None, note)
+check("Orders badge counts new orders", feed["new_orders"] == b0 + 1, (b0, feed["new_orders"]))
+mgr_feed = badge(token=mgr_tok, branch=BRANCH)
+check("alerts switched off: no notification, badge still counts", not any(n["link"] == f"/orders/{no1['id']}" for n in mgr_feed["items"])
+      and mgr_feed["new_orders"] >= 1)
+check("own-records orders scope: not notified about customers' orders", not any(n["link"] == f"/orders/{no1['id']}" for n in badge(**SP1)["items"]))
+call("POST", "/notifications/read-all")
+check("reading notifications leaves the Orders badge unchanged", badge()["new_orders"] == b0 + 1)
+call("POST", f"/orders/{no1['id']}/status", {"status": "confirmed"})
+check("confirming the order lowers the badge", badge()["new_orders"] == b0)
+call("PUT", "/auth/preferences", {"language": "en", "font": "Outfit", "currency": "KES", "notify_new_orders": True}, token=mgr_tok, branch=BRANCH)
+no2 = call("POST", f"/portal/{n_slug}/orders", {"items": [{"product_id": own_prod, "quantity": 1}], "delivery_location": "Shop"}, token=n_tok)
+check("alerts back on: notified again, once", sum(1 for n in badge(token=mgr_tok, branch=BRANCH)["items"] if n["link"] == f"/orders/{no2['id']}") == 1)
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

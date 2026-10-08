@@ -41,6 +41,7 @@ pub const ACTIONS: &[Action] = &[
     Action { key: "sale.return", label: "Sale return / refund", uses_amount: true, uses_category: false },
     Action { key: "sale.cancel", label: "Sale cancellation", uses_amount: true, uses_category: false },
     Action { key: "credit.write_off", label: "Credit write-off", uses_amount: true, uses_category: false },
+    Action { key: "sale.owner_change", label: "Sale ownership change", uses_amount: true, uses_category: false },
     Action { key: "credit.recall", label: "Credit sale recall", uses_amount: true, uses_category: false },
     Action { key: "expense", label: "Expense", uses_amount: true, uses_category: true },
 ];

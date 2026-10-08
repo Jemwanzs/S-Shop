@@ -114,6 +114,22 @@ pub fn client_meta(headers: &HeaderMap) -> (String, String) {
     (ip, ua.chars().take(200).collect())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DataScope {
+    Own,
+    Branches,
+    All,
+}
+
+/// What a list / report may show: these branches, and only this owner's records when `owner` is set.
+#[derive(Debug, Clone)]
+pub struct Visibility {
+    pub scope: DataScope,
+    pub branches: Vec<Uuid>,
+    pub owner: Option<Uuid>,
+}
+
 /// Authenticated staff member + the branch they are currently operating from.
 #[derive(Clone, Debug)]
 pub struct Ctx {
@@ -159,6 +175,62 @@ impl Ctx {
     /// May see sales, figures and performance of employees other than themselves.
     pub fn sees_others(&self) -> bool {
         self.can("staff.view_others")
+    }
+
+    /// Data-visibility scope for an area (roadmap 64): the role's `scope.<area>.*` (a user's own scope replaces it —
+    /// see `effective_permissions`), else derived from the older "view other employees" permission.
+    pub fn scope(&self, area: &str) -> DataScope {
+        if self.permissions.iter().any(|p| p == "*") {
+            return DataScope::All;
+        }
+        let prefix = format!("scope.{area}.");
+        match self.permissions.iter().find_map(|p| p.strip_prefix(&prefix)) {
+            Some("all") => DataScope::All,
+            Some("branches") => DataScope::Branches,
+            Some("own") => DataScope::Own,
+            _ if self.sees_others() => DataScope::Branches,
+            _ => DataScope::Own,
+        }
+    }
+
+    /// May this user open one record of `area` at `branch`? `mine`: the record is credited to / created by them.
+    pub fn may_view(&self, area: &str, branch: Uuid, mine: bool) -> bool {
+        match self.scope(area) {
+            DataScope::All => true,
+            DataScope::Branches => mine || self.has_branch(branch),
+            DataScope::Own => mine,
+        }
+    }
+
+    /// Branches and owner filter for an area, from an optional requested branch and user. Own: only the user's own
+    /// records (another user's figures are refused); Assigned branches: the user's branches; All: every branch of the
+    /// business. Never another business.
+    pub async fn visibility(&self, conn: &mut sqlx::PgConnection, area: &str, branch: Option<Uuid>, user: Option<Uuid>) -> AppResult<Visibility> {
+        let scope = self.scope(area);
+        let branches = match scope {
+            DataScope::Branches => self.branch_scope(branch)?,
+            DataScope::All | DataScope::Own => {
+                let all: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM branches WHERE tenant_id = $1 ORDER BY created_at")
+                    .bind(self.tenant_id)
+                    .fetch_all(&mut *conn)
+                    .await?;
+                match branch {
+                    Some(b) if all.contains(&b) => vec![b],
+                    Some(_) => return Err(AppError::Forbidden("You are not assigned to that branch".into())),
+                    None => all,
+                }
+            }
+        };
+        let owner = match scope {
+            DataScope::Own => {
+                if user.is_some_and(|u| u != self.user_id) {
+                    return Err(AppError::Forbidden("You can only see your own records".into()));
+                }
+                Some(self.user_id)
+            }
+            _ => user,
+        };
+        Ok(Visibility { scope, branches, owner })
     }
 
     /// Today's business date at the Current Branch (a sale at 01:30 with a 02:00 close belongs to yesterday).
@@ -267,7 +339,7 @@ impl FromRequestParts<AppState> for Ctx {
         // every request: losing platform-admin status or the admin role ends the session immediately.
         let home_tenant = claims.home.unwrap_or(claims.tid);
         let row: Option<CtxRow> = sqlx::query_as(
-            "SELECT u.name, u.is_active, u.all_branches, r.permissions || u.extra_permissions AS permissions, t.timezone, lower(u.email) AS email,
+            "SELECT u.name, u.is_active, u.all_branches, effective_permissions(r.permissions, u.extra_permissions) AS permissions, t.timezone, lower(u.email) AS email,
                     t.status AS tenant_status, t.sessions_valid_after, u.sessions_valid_after AS user_sessions_valid_after, u.must_change_pin
              FROM users u JOIN roles r ON r.id = u.role_id JOIN tenants t ON t.id = $3
              WHERE u.id = $1 AND u.tenant_id = $2",

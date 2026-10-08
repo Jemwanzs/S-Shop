@@ -32,10 +32,24 @@ pub struct Preferences {
     pub currency: String,
     /// Quick actions (roadmap 48): the floating Record Sale bubble may be dragged to another edge position.
     pub quick_sale_draggable: bool,
+    /// Roadmap 69: in-app notifications for new orders (website, ordering link, staff). The Orders badge is not affected.
+    pub notify_new_orders: bool,
+    /// Pop-up alerts when a notification arrives (the bell and list always update).
+    pub in_app_alerts: bool,
+    /// A short sound with new-order alerts.
+    pub sound_alerts: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
-        Self { language: "en".into(), font: "Outfit".into(), currency: BASE_CURRENCY.into(), quick_sale_draggable: false }
+        Self {
+            language: "en".into(),
+            font: "Outfit".into(),
+            currency: BASE_CURRENCY.into(),
+            quick_sale_draggable: false,
+            notify_new_orders: true,
+            in_app_alerts: true,
+            sound_alerts: false,
+        }
     }
 }
 

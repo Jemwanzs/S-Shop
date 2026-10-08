@@ -60,7 +60,9 @@ async fn products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query
     if matches!(metric, "profit" | "margin") && !fin {
         return Err(AppError::Forbidden("Profit figures need permission".into()));
     }
-    let branches = ctx.branch_scope(q.branch_id)?;
+    // Leaderboard scope (roadmap 64): own sales only, assigned branches or all branches; sales count for their owner.
+    let vis = ctx.visibility(&mut *state.db.acquire().await?, "leaderboards", q.branch_id, None).await?;
+    let branches = vis.branches;
     let (from, to) = q.period.resolve(ctx.today(), "month");
     let order_by = match metric {
         "units" => "units",
@@ -93,7 +95,7 @@ async fn products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query
     .bind(to)
     .bind(None::<Uuid>)
     .bind(q.category_id)
-    .bind(None::<Uuid>)
+    .bind(vis.owner)
     .bind(q.limit.unwrap_or(25).clamp(1, 100))
     .fetch_all(&state.db)
     .await?;
@@ -111,14 +113,13 @@ async fn products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query
 
 async fn staff(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query_>) -> AppResult<Json<Value>> {
     can_view(&ctx)?;
-    if !ctx.sees_others() {
-        return Err(AppError::Forbidden("Viewing other employees' performance needs permission".into()));
-    }
     let metric = q.metric.as_deref().unwrap_or("revenue");
     if !STAFF_METRICS.contains(&metric) {
         return Err(bad("Unknown metric"));
     }
-    let branches = ctx.branch_scope(q.branch_id)?;
+    // Own scope: only the user's own row; otherwise everyone in the visible branches, credited by Sale Owner.
+    let vis = ctx.visibility(&mut *state.db.acquire().await?, "leaderboards", q.branch_id, None).await?;
+    let branches = vis.branches;
     let (from, to) = q.period.resolve(ctx.today(), "month");
     let order_by = match metric {
         "units" => "units",
@@ -151,6 +152,7 @@ async fn staff(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query_>)
          FROM users u JOIN roles r ON r.id = u.role_id
          LEFT JOIN per ON per.user_id = u.id LEFT JOIN ord ON ord.user_id = u.id LEFT JOIN acq ON acq.user_id = u.id
          WHERE u.tenant_id = $1 AND (per.user_id IS NOT NULL OR ord.user_id IS NOT NULL OR acq.user_id IS NOT NULL)
+           AND ($7::uuid IS NULL OR u.id = $7)
          ORDER BY {order_by} DESC NULLS LAST, revenue DESC, u.name LIMIT $8"
     ))
     .bind(ctx.tenant_id)
@@ -159,7 +161,7 @@ async fn staff(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query_>)
     .bind(to)
     .bind(None::<Uuid>)
     .bind(q.category_id)
-    .bind(None::<Uuid>)
+    .bind(vis.owner)
     .bind(q.limit.unwrap_or(25).clamp(1, 100))
     .fetch_all(&state.db)
     .await?;

@@ -92,7 +92,7 @@ export function AccessTab() {
 
 // ── Domain ────────────────────────────────────────────────────────────
 
-interface DomainRecord { kind: string; name: string; value: string; status: "ok" | "missing" | "wrong" | "pending"; note: string }
+interface DomainRecord { kind: string; name: string; fqdn?: string; value: string; status: "ok" | "missing" | "wrong" | "misplaced" | "pending"; note: string }
 interface DomainView { domain: string; status: string; message: string; records: DomainRecord[]; checked_at: string | null; verified_at: string | null; active_at: string | null; url: string; automatic: boolean }
 
 const DOMAIN_STATUS: Record<string, [string, string]> = {
@@ -151,9 +151,15 @@ export function DomainTab({ ov }: { ov: Overview }) {
                     <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-semibold">{r.kind}</span>
                     {r.status === "ok" ? <span className="inline-flex items-center gap-1 text-xs text-success"><CheckCircle2 className="h-3.5 w-3.5" /> {t("Found")}</span>
                       : r.status === "pending" ? <span className="text-xs text-muted-foreground">{t("Not checked yet")}</span>
-                        : <span className="inline-flex items-center gap-1 text-xs text-destructive"><XCircle className="h-3.5 w-3.5" /> {r.status === "wrong" ? t("Points elsewhere") : t("Not found yet")}</span>}
+                        : <span className="inline-flex items-center gap-1 text-xs text-destructive"><XCircle className="h-3.5 w-3.5" /> {r.status === "wrong" ? t("Points elsewhere") : r.status === "misplaced" ? t("Saved under the wrong name") : t("Not found yet")}</span>}
                   </div>
-                  <div className="grid gap-1 text-xs sm:grid-cols-[4rem_1fr]"><span className="text-muted-foreground">{t("Name")}</span><CopyValue value={r.name} /></div>
+                  <div className="grid gap-1 text-xs sm:grid-cols-[4rem_1fr]">
+                    <span className="text-muted-foreground">{t("Host / Name")}</span>
+                    <div className="min-w-0 space-y-0.5">
+                      <CopyValue value={r.name} />
+                      {r.fqdn && r.fqdn !== r.name && <p className="text-[11px] text-muted-foreground">{t("Most providers add the domain automatically. Full name, if yours asks for it:")} <span className="break-all font-mono">{r.fqdn}</span></p>}
+                    </div>
+                  </div>
                   <div className="grid gap-1 text-xs sm:grid-cols-[4rem_1fr]"><span className="text-muted-foreground">{t("Value")}</span><CopyValue value={r.value} /></div>
                   {r.note && <p className="text-xs text-muted-foreground">{t(r.note)}</p>}
                 </div>

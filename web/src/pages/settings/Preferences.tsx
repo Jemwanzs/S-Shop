@@ -85,6 +85,29 @@ export function PreferencesSettings() {
         </Card>
       )}
 
+      <Card title="Notifications">
+        {can("orders.manage") && (
+          <ToggleRow
+            label="New order notifications"
+            hint="Website, ordering-link and staff orders for your branches. The Orders counter always shows orders waiting to be confirmed."
+            checked={draft.notify_new_orders !== false}
+            onChange={(v) => setDraft({ ...draft, notify_new_orders: v })}
+          />
+        )}
+        <ToggleRow
+          label="In-app alerts"
+          hint="A pop-up when a notification arrives. The bell and its list always update."
+          checked={draft.in_app_alerts !== false}
+          onChange={(v) => setDraft({ ...draft, in_app_alerts: v })}
+        />
+        <ToggleRow
+          label="Sound alerts"
+          hint="A short chime with new-order alerts, on this device."
+          checked={!!draft.sound_alerts}
+          onChange={(v) => setDraft({ ...draft, sound_alerts: v })}
+        />
+      </Card>
+
       <div className="flex justify-end gap-2">
         {dirty && <Button variant="outline" onClick={() => setDraft(preferences)}>{t("Discard")}</Button>}
         <ActionButton online busy={save.isPending} busyLabel="Saving…" doneLabel="Saved" blockedBy={[!dirty && REASONS.nothingToSave]}

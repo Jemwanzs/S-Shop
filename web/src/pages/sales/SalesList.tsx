@@ -34,7 +34,7 @@ export default function SalesList() {
   const query = { ...period, q: term, payment_method: method, status, branch_id: branchId, user_id: userId, limit: LIMIT, offset };
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["sales", query],
-    queryFn: () => api<{ items: SaleRow[]; total: number; summary: { count: number; total: string; discount: string } }>("/sales", { query }),
+    queryFn: () => api<{ items: SaleRow[]; total: number; summary: { count: number; total: string; discount: string }; scope: "own" | "branches" | "all"; branches: { id: string; name: string }[] }>("/sales", { query }),
     placeholderData: (p) => p,
   });
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<UserRow[]>("/users"), enabled: can("users.manage") || can("approvals.approve") });
@@ -62,13 +62,13 @@ export default function SalesList() {
             <option value="returned">{t("Returned")}</option>
             <option value="cancelled">{t("Cancelled")}</option>
           </Select>
-          {(profile?.branches.length ?? 0) > 1 && (
+          {(data?.branches ?? profile?.branches ?? []).length > 1 && (
             <Select value={branchId} onChange={reset(setBranchId)} className="md:w-44" label="Branch">
-              <option value="">{t("All my branches")}</option>
-              {profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              <option value="">{t(data?.scope === "all" ? "All branches" : "All my branches")}</option>
+              {(data?.branches ?? profile?.branches ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </Select>
           )}
-          {users.data && (
+          {users.data && data?.scope !== "own" && (
             <Select value={userId} onChange={reset(setUserId)} className="md:w-44" label="Staff">
               <option value="">{t("All staff")}</option>
               {users.data.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -76,6 +76,7 @@ export default function SalesList() {
           )}
         </div>
       </div>
+      {data?.scope === "own" && <p className="mb-3 text-xs text-muted-foreground">{t("Showing sales credited to you.")}</p>}
       {data && (
         <div className="mb-4 grid grid-cols-3 gap-3 lg:max-w-3xl">
           <StatCard label="Sales" value={count(data.summary.count)} />
@@ -101,7 +102,7 @@ export default function SalesList() {
           ) },
           { key: "customer", header: "Customer", cell: (r) => r.customer_name ?? <span className="text-muted-foreground">{t("Walk-in")}</span> },
           { key: "branch", header: "Branch", cell: (r) => r.branch_name, hideBelow: "xl" },
-          { key: "user", header: "Salesperson", cell: (r) => r.user_name ?? "—", hideBelow: "lg" },
+          { key: "user", header: "Sale owner", cell: (r) => <span>{r.user_name ?? "—"}{r.recorded_by_name && r.recorded_by_name !== r.user_name && <span className="block text-xs text-muted-foreground">{t("recorded by")} {r.recorded_by_name}</span>}</span>, hideBelow: "lg" },
           { key: "items", header: "Items", align: "right", cell: (r) => <span className="num">{count(r.item_count)}</span>, hideBelow: "xl" },
           { key: "method", header: "Payment", cell: (r) => methodLabel(r.payment_method) },
           { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },

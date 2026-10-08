@@ -69,7 +69,7 @@ export default function Exchange() {
 
   const submit = useMutation({
     mutationFn: () =>
-      api<SaleDetail>(`/sales/${id}/exchange`, {
+      api<SaleDetail | { pending_approval: true; approval_id: string }>(`/sales/${id}/exchange`, {
         body: {
           return_items: Object.entries(back).filter(([, n]) => n > 0).map(([sale_item_id, quantity]) => ({ sale_item_id, quantity })),
           items: lines.map((l) => ({ product_id: l.product.id, quantity: l.quantity, unit_price: toNum(l.product.marked_price), barcode: l.barcode })),
@@ -80,10 +80,17 @@ export default function Exchange() {
         },
       }),
     onSuccess: (r) => {
-      toast.success("Exchange recorded");
       qc.invalidateQueries({ queryKey: ["sale", id] });
       qc.invalidateQueries({ queryKey: ["sales"] });
       qc.invalidateQueries({ queryKey: ["pos-products"] });
+      qc.invalidateQueries({ queryKey: ["receipts"] });
+      // Above the approval limit nothing changes until it is approved (roadmap 67).
+      if ("pending_approval" in r) {
+        toast.success("Exchange sent for approval — stock, points and receipts change once it is approved");
+        navigate(`/sales/${id}`, { replace: true });
+        return;
+      }
+      toast.success("Exchange recorded");
       navigate(`/sales/${r.sale.id}`, { replace: true });
     },
     onError: (e) => toast.error(e),

@@ -62,7 +62,7 @@ export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEd
   );
 }
 
-export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLine[]; onDone: (sale: SaleDetail) => void; onQueued: (sale: QueuedSale) => void; clientRef: string }) {
+export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { lines: CartLine[]; onDone: (sale: SaleDetail) => void; onQueued: (sale: QueuedSale) => void; clientRef: string; ownerId?: string }) {
   const { profile, can, branch } = useSession();
   const s = profile!.settings;
   const methods = s.sales.payment_methods.filter((m) => m.enabled && (m.key !== "credit" || s.sales.credit_enabled));
@@ -192,6 +192,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef }: { lines: CartLi
           due_date: isCredit ? dueDate : undefined,
           supervisor: showSupervisor && supEmail ? { email: supEmail, pin: supPin } : undefined,
           client_ref: clientRef,
+          owner_id: ownerId,
       };
       if (!navigator.onLine) return queueOffline(body);
       try {

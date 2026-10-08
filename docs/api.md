@@ -278,6 +278,36 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 |---|---|
 | GET | `/api/search` |
 
+## Sales ownership & data visibility ([module 25](modules/25-sales-ownership-and-visibility.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/sales` (+ `owner_id`) | another owner needs `sales.assign_owner`; eligibility re-checked |
+| GET | `/api/sales/owners?branch_id=` | eligible Sale Owners |
+| POST | `/api/sales/{id}/owner-change` (`new_owner_id`, `reason`) | `sales.request_owner_change`; returns an approval outcome |
+| GET | `/api/sales` | `scope`, `branches`; items carry `owner_id`, `user_name` (owner), `recorded_by_name` |
+| GET | `/api/permissions/scopes` | areas and scopes for the role / user editors |
+| GET / PUT | `/api/users/{id}/access` (`overrides`, `default_branch_id`) | `users.manage` |
+
+## Order alerts (roadmap 69)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/notifications` | adds `new_orders`: orders still *New* in the user's orders scope (0 without `orders.view`) |
+| PUT | `/api/auth/preferences` | adds `notify_new_orders` (default on), `in_app_alerts` (on), `sound_alerts` (off) |
+
+## Receipts ([module 26](modules/26-receipts-and-reconciliation.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/sales/{id}/receipts` | `sales.print` + visibility; original + adjustment receipts (snapshots), customer mobile / email |
+| POST | `/api/receipts/{id}/link` | secure share URL `…/r/{token}` |
+| POST | `/api/receipts/{id}/email` (`to`, `pdf` base64) | PDF ≤ 2 MB; sent from the business's name; 20 per user / 10 min; returns `email_status` |
+| POST | `/api/sales/{id}/share` | WhatsApp: short message with the secure link; `sent` only when the Business API confirmed |
+| GET | `/api/r/{token}` | public, rate-limited; one receipt's snapshot |
+| GET | `/api/receipt-assets/{sha256}` | logos as issued (immutable, cached) |
+| POST | `/api/sales/{id}/exchange` | when approval is needed: `{pending_approval, approval_id}`, executed on final approval |
+
 ## Onboarding & account recovery ([module 24](modules/24-onboarding-and-recovery.md))
 
 | Method | Path | Who |

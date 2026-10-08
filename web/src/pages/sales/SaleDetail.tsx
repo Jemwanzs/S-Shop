@@ -1,12 +1,11 @@
 import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Download, MessageCircle, Printer, RefreshCcw, RotateCcw, ScanLine } from "lucide-react";
+import { Ban, RefreshCcw, RotateCcw, ScanLine } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { amount, count, dateTime, methodLabel, money, phone, toNum } from "@/lib/format";
-import { receiptPdf } from "@/lib/pdf";
+import { amount, dateTime, money, toNum } from "@/lib/format";
 import type { Outcome, SaleDetail as Detail } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +14,12 @@ import { Pill, StatusBadge } from "@/components/Badges";
 import { ConfirmDialog, Field, Select, ToggleRow } from "@/components/Form";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { t } from "@/lib/i18n";
+import { ReceiptPanel } from "@/components/ReceiptPanel";
+import { OwnerPicker, type Owner } from "./SaleOwner";
+import { Textarea } from "@/components/ui/textarea";
+import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { ActionButton } from "@/components/ActionButton";
+import { UserRoundCog } from "lucide-react";
 
 export default function SaleDetail() {
   const { id } = useParams();
@@ -37,6 +42,8 @@ export default function SaleDetail() {
     setQty({});
     qc.invalidateQueries({ queryKey: ["sale", id] });
     qc.invalidateQueries({ queryKey: ["sales"] });
+    // The updated (adjustment) receipt appears straight away (roadmap 67).
+    qc.invalidateQueries({ queryKey: ["receipts", id] });
   };
   const ret = useMutation({
     mutationFn: (reason: string) =>
@@ -51,16 +58,6 @@ export default function SaleDetail() {
     onSuccess: (r) => done(r, "Sale cancelled"),
     onError: (e) => toast.error(e),
   });
-  const share = async () => {
-    try {
-      const r = await api<{ sent: boolean; link: string | null }>(`/sales/${id}/share`, { method: "POST" });
-      if (r.sent) toast.success("Receipt sent on WhatsApp");
-      else if (r.link) window.open(r.link, "_blank");
-      else toast.info("This sale has no customer mobile");
-    } catch (e) {
-      toast.error(e);
-    }
-  };
 
   if (error) return <ErrorState error={error} retry={refetch} />;
   if (isLoading || !data) return <Loading />;
@@ -94,71 +91,21 @@ export default function SaleDetail() {
         title={<span className="num">{s.receipt_no}</span>}
         actions={
           <div className="flex flex-wrap gap-2 no-print">
-            {can("sales.print") && (
-              <>
-                <Button variant="outline" onClick={() => window.print()}><Printer /> {t("Print")}</Button>
-                <Button variant="outline" onClick={() => receiptPdf(data)}><Download /> {t("PDF")}</Button>
-                <Button variant="outline" onClick={share}><MessageCircle /> {t("Share")}</Button>
-              </>
-            )}
+
           </div>
         }
       />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
-        {/* Receipt */}
-        <div className="surface mx-auto w-full max-w-xl p-6 font-sans print:max-w-none print:border-0 print:shadow-none lg:mx-0">
-          <div className="mb-4 text-center">
-            {data.business.logo_url && <img src={data.business.logo_url} alt="" className="mx-auto mb-2 h-14 w-14 rounded-xl object-cover" />}
-            <h2 className="text-lg font-semibold">{data.business.name}</h2>
-            <p className="text-sm text-muted-foreground">{s.branch_name}{s.branch_location && ` · ${s.branch_location}`}</p>
-            {(s.branch_phone || data.business.phone) && <p className="text-sm text-muted-foreground">{s.branch_phone || data.business.phone}</p>}
-            <div className="mt-2 flex justify-center gap-2"><StatusBadge status={s.status} />{s.is_legacy && <Pill>{t("Imported")}</Pill>}</div>
-          </div>
-          {s.customer && (
-            <p className="mb-3 text-center text-sm">
-              <Link to={`/customers/${s.customer.id}`} className="font-medium hover:underline">{s.customer.name}</Link> · <span className="num">{phone(s.customer.mobile)}</span>
-            </p>
-          )}
-          <table className="w-full text-sm">
-            <thead className="border-b text-xs text-muted-foreground">
-              <tr><th className="py-2 text-start font-medium">{t("Item")}</th><th className="text-end font-medium">{t("Qty")}</th><th className="text-end font-medium">{t("Price")}</th><th className="text-end font-medium">{t("Total")}</th></tr>
-            </thead>
-            <tbody className="divide-y">
-              {data.items.map((i) => (
-                <tr key={i.id}>
-                  <td className="py-2 pe-2">
-                    <div className="font-medium">{i.product_name}</div>
-                    <div className="num text-xs text-muted-foreground">
-                      {i.barcode && `${i.barcode} · `}marked {amount(i.marked_price)}
-                      {toNum(i.discount) > 0 && <span className="text-destructive"> · −{amount(i.discount)}</span>}
-                      {i.returned_qty > 0 && <span className="text-warning"> · {i.returned_qty} returned</span>}
-                    </div>
-                  </td>
-                  <td className="num text-end align-top py-2">{count(i.quantity)}</td>
-                  <td className="num text-end align-top py-2">{amount(i.unit_price)}</td>
-                  <td className="num text-end align-top py-2 font-medium">{amount(i.line_total)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-3 space-y-1 border-t pt-3 text-sm">
-            <KV label="Marked total" className="py-0.5"><span className="num">{money(s.gross_total)}</span></KV>
-            {toNum(s.discount_total) !== 0 && <KV label="Discount" className="py-0.5"><span className="num text-destructive">−{money(s.discount_total)}</span></KV>}
-            {toNum(s.redeemed_value) > 0 && <KV label={`Points redeemed (${s.redeemed_points})`} className="py-0.5"><span className="num">−{money(s.redeemed_value)}</span></KV>}
-            <div className="flex justify-between border-t pt-2 text-base font-semibold"><span>{t("Total")}</span><span className="num">{money(s.total)}</span></div>
-            <KV label="Payment" className="py-0.5">{methodLabel(s.payment_method)}</KV>
-            <KV label="Amount paid" className="py-0.5"><span className="num">{money(s.amount_paid)}</span></KV>
-            {data.credit && <KV label="Balance" className="py-0.5"><span className="num text-destructive">{money(data.credit.balance)}</span></KV>}
-            {data.payments.filter((p) => p.reference).map((p) => <KV key={p.id} label={toNum(p.amount) < 0 ? "Refund ref" : "Reference"} className="py-0.5"><span className="num">{p.reference}</span></KV>)}
-            {s.points_earned > 0 && <KV label="Loyalty points earned" className="py-0.5"><span className="text-points">🌼 +{s.points_earned}</span></KV>}
-            <KV label="Served by" className="py-0.5">{s.user_name ?? "—"}</KV>
-          </div>
-          {data.business.receipt_footer && <p className="mt-4 text-center text-sm text-muted-foreground">{data.business.receipt_footer}</p>}
+        {/* Receipt: the stored 50 mm receipt(s), with every sharing channel (roadmap 65–67) */}
+        <div className="surface p-3 sm:p-4">
+          <ReceiptPanel saleId={s.id} />
         </div>
 
         {/* Side panel */}
         <div className="space-y-5 no-print">
-          {data.pending_approval_id && <div className="rounded-xl bg-warning/10 p-4 text-sm text-warning">{t("A return or cancellation for this sale is awaiting approval.")}</div>}
+          <div className="flex flex-wrap items-center gap-2"><StatusBadge status={s.status} />{s.is_legacy && <Pill>{t("Imported")}</Pill>}<span className="text-xs text-muted-foreground">{s.branch_name}</span></div>
+          {data.pending_approval_id && <div className="rounded-xl bg-warning/10 p-4 text-sm text-warning">{t("A return, exchange or cancellation for this sale is awaiting approval. Stock, loyalty points and the receipt change only once it is approved.")}</div>}
+          <OwnershipPanel data={data} onChanged={() => { qc.invalidateQueries({ queryKey: ["sale", id] }); qc.invalidateQueries({ queryKey: ["sales"] }); }} />
           {s.order_no && <Section title="Order"><Link to={`/orders/${s.order_id}`} className="num text-primary">{s.order_no}</Link></Section>}
           {s.approved_by_name && <Section title="Discount approval"><p className="text-sm">{t("Approved by")} {s.approved_by_name}</p></Section>}
           {data.credit && (
@@ -169,6 +116,7 @@ export default function SaleDetail() {
           )}
           {data.returns.length > 0 && (
             <Section title="Returns & reversals">
+              <ReconciliationSummary data={data} />
               <ul className="space-y-3 text-sm">
                 {data.returns.map((r) => (
                   <li key={r.id}>
@@ -251,5 +199,90 @@ function RefundMethod({ value, onChange, methods }: { value: string; onChange: (
         {methods.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
       </Select>
     </Field>
+  );
+}
+
+/** Sale Owner (credited) vs Recorded By, the ownership history, and Change Sale Owner (sent for approval — roadmap 63). */
+function OwnershipPanel({ data, onChanged }: { data: Detail; onChanged: () => void }) {
+  const { can } = useSession();
+  const s = data.sale;
+  const [open, setOpen] = useState(false);
+  const [picker, setPicker] = useState(false);
+  const [next, setNext] = useState<Owner | null>(null);
+  const [reason, setReason] = useState("");
+  const history = data.owner_changes ?? [];
+  const pending = history.find((h) => h.status === "pending");
+  const request = useMutation({
+    mutationFn: () => api<Outcome<unknown>>(`/sales/${s.id}/owner-change`, { body: { new_owner_id: next!.id, reason } }),
+    onSuccess: (r) => {
+      toast.success(r.pending_approval ? "Ownership change sent for approval" : "Sale owner changed");
+      setOpen(false);
+      setNext(null);
+      setReason("");
+      onChanged();
+    },
+    onError: (e) => toast.error(e),
+  });
+  const statusTone: Record<string, string> = { approved: "text-success", rejected: "text-destructive", pending: "text-warning", withdrawn: "text-muted-foreground" };
+  return (
+    <Section title="Sale ownership">
+      <KV label="Sale owner">{s.user_name ?? "—"}</KV>
+      <KV label="Recorded by">{s.recorded_by_name ?? "—"}</KV>
+      {pending && <p className="mt-2 rounded-lg bg-warning/10 p-2.5 text-xs text-warning">{t("Change to")} {pending.to_owner} {t("awaiting approval")} — {pending.reason}</p>}
+      {can("sales.request_owner_change") && !pending && s.status !== "cancelled" && !s.is_legacy && (
+        <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => setOpen(true)}><UserRoundCog /> {t("Change Sale Owner")}</Button>
+      )}
+      {history.length > 0 && (
+        <ul className="mt-3 space-y-2 border-t pt-3 text-xs">
+          {history.map((h) => (
+            <li key={h.id}>
+              <span className="font-medium">{h.from_owner ?? "—"} → {h.to_owner ?? "—"}</span>{" "}
+              <span className={statusTone[h.status] ?? ""}>· {t(h.status)}</span>
+              <div className="text-muted-foreground">{h.reason} · {t("requested by")} {h.requested_by ?? "—"} · {dateTime(h.created_at)}{h.decided_by && ` · ${t(h.status)} ${t("by")} ${h.decided_by}`}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <ResponsiveDialog open={open} onOpenChange={setOpen} title="Change Sale Owner" description="The change is applied only after approval. The sale, payments, stock and receipt stay as they are."
+        footer={<ActionButton online busy={request.isPending} busyLabel="Submitting…" blockedBy={[!next && "Choose the new owner", reason.trim().length < 3 && "Give the reason"]} onAction={() => request.mutateAsync()}>Submit for approval</ActionButton>}>
+        <div className="space-y-3">
+          <KV label="Receipt"><span className="num">{s.receipt_no}</span></KV>
+          <KV label="Current sale owner">{s.user_name ?? "—"}</KV>
+          <Field label="New sale owner">
+            <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setPicker(true)}>{next?.name ?? t("Choose…")}</Button>
+          </Field>
+          <Field label="Reason for change"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} /></Field>
+        </div>
+      </ResponsiveDialog>
+      <OwnerPicker open={picker} onOpenChange={setPicker} branchId={s.branch_id} value={next?.id ?? null} exclude={s.owner_id} title="New sale owner"
+        onPick={(o) => { setNext(o); setPicker(false); }} />
+    </Section>
+  );
+}
+
+/** Original vs adjusted position of a sale after returns / exchanges (roadmap 67). Only applicable lines are shown. */
+function ReconciliationSummary({ data }: { data: Detail }) {
+  const s = data.sale;
+  const refunded = data.returns.reduce((a, r) => a + toNum(r.refund_amount), 0);
+  const exchanged = data.returns.some((r) => r.refund_method === "exchange");
+  const reversed = data.returns.reduce((a, r) => a + (r.points_reversed ?? 0), 0);
+  const unrecovered = data.returns.reduce((a, r) => a + (r.points_unrecovered ?? 0), 0);
+  const refundPaid = data.payments.filter((p) => toNum(p.amount) < 0).reduce((a, p) => a - toNum(p.amount), 0);
+  return (
+    <div className="mb-3 space-y-0.5 rounded-lg bg-muted/50 p-2.5 text-sm">
+      <KV label="Original sale total" className="py-0.5"><span className="num">{money(s.total)}</span></KV>
+      <KV label={exchanged ? "Returned value (exchange)" : "Returned value"} className="py-0.5"><span className="num">−{money(refunded)}</span></KV>
+      {refundPaid > 0 && <KV label="Amount refunded" className="py-0.5"><span className="num">{money(refundPaid)}</span></KV>}
+      <KV label="Net sale value" className="py-0.5 font-semibold"><span className="num">{money(Math.max(0, toNum(s.total) - refunded))}</span></KV>
+      {s.points_earned > 0 && (
+        <>
+          <KV label="Original points" className="py-0.5"><span className="num">{s.points_earned}</span></KV>
+          {reversed > 0 && <KV label="Points reversed" className="py-0.5"><span className="num">−{reversed}</span></KV>}
+          {unrecovered > 0 && <KV label="Points not recoverable (already redeemed)" className="py-0.5"><span className="num text-warning">{unrecovered}</span></KV>}
+          <KV label="Net loyalty points" className="py-0.5 font-semibold"><span className="num">{Math.max(0, s.points_earned - reversed)}</span></KV>
+        </>
+      )}
+      <p className="pt-1 text-xs text-muted-foreground">{t("Amount paid stays as originally paid; refunds are listed separately.")}</p>
+    </div>
   );
 }

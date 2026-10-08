@@ -38,7 +38,7 @@ pub struct Filters {
 /// Binds: $1 tenant, $2 branches, $3 first business day, $4 last business day (dates, inclusive), $5 product,
 /// $6 category, $7 user. Sales are counted on their business date, not the calendar day of the timestamp.
 pub const LINES: &str = "lines AS (
-    SELECT s.id AS sale_id, s.branch_id, s.user_id, s.customer_id, s.created_at, s.business_date, s.payment_method, si.product_id,
+    SELECT s.id AS sale_id, s.branch_id, s.owner_id AS user_id, s.customer_id, s.created_at, s.business_date, s.payment_method, si.product_id,
            (si.quantity - si.returned_qty) AS qty,
            (si.quantity - si.returned_qty) * si.unit_price AS revenue,
            CASE WHEN si.unit_cost IS NOT NULL THEN (si.quantity - si.returned_qty) * (si.unit_price - si.unit_cost) END AS profit,
@@ -46,7 +46,7 @@ pub const LINES: &str = "lines AS (
            (si.quantity - si.returned_qty) * (si.marked_price - si.unit_price) AS discount
     FROM sales s JOIN sale_items si ON si.sale_id = s.id JOIN products p ON p.id = si.product_id
     WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND s.business_date BETWEEN $3 AND $4 AND s.status <> 'cancelled'
-      AND ($5::uuid IS NULL OR si.product_id = $5) AND ($6::uuid IS NULL OR p.category_id = $6) AND ($7::uuid IS NULL OR s.user_id = $7))";
+      AND ($5::uuid IS NULL OR si.product_id = $5) AND ($6::uuid IS NULL OR p.category_id = $6) AND ($7::uuid IS NULL OR s.owner_id = $7))";
 
 struct Scope {
     branches: Vec<Uuid>,
@@ -91,19 +91,23 @@ fn pct_change(now: Decimal, before: Decimal) -> Option<Decimal> {
 
 async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<Filters>) -> AppResult<Json<Value>> {
     let mine = f.mine.unwrap_or(false);
-    if mine {
+    let mut conn = state.db.acquire().await?;
+    let (from, to) = f.period.resolve(ctx.today(), "week");
+    // Sales are credited to their Sale Owner. My Dashboard is always the signed-in user's own performance; the business
+    // dashboard follows the role's dashboard scope (own / assigned branches / all branches — roadmap 64).
+    let branches = if mine {
         // Everyone who sells or serves gets their own dashboard; the user filter cannot be changed.
         ctx.require_any(&["dashboard.view", "sales.create", "sales.view", "orders.manage"])?;
         f.user_id = Some(ctx.user_id);
+        ctx.branch_scope(f.branch_id)?
     } else {
         ctx.require("dashboard.view")?;
-        if f.user_id.is_some_and(|u| u != ctx.user_id) && !ctx.sees_others() {
-            return Err(crate::error::AppError::Forbidden("Viewing other employees' figures needs permission".into()));
-        }
-    }
-    let (from, to) = f.period.resolve(ctx.today(), "week");
-    let scope = Scope { branches: ctx.branch_scope(f.branch_id)?, from, to };
-    let mut conn = state.db.acquire().await?;
+        let vis = ctx.visibility(&mut conn, "dashboard", f.branch_id, f.user_id).await?;
+        f.user_id = vis.owner;
+        vis.branches
+    };
+    let own_scope = !mine && ctx.scope("dashboard") == crate::auth::DataScope::Own;
+    let scope = Scope { branches, from, to };
     let s = settings::load(&mut conn, ctx.tenant_id).await?;
     let fin = ctx.can("sales.view_financials");
 
@@ -164,7 +168,8 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
         .await?;
     let credit_outstanding: Decimal = sqlx::query_scalar(
         "SELECT COALESCE(SUM(original_amount - amount_paid - adjustments),0) FROM credit_sales
-         WHERE tenant_id = $1 AND branch_id = ANY($2) AND status IN ('outstanding','partially_paid') AND ($3::uuid IS NULL OR user_id = $3)",
+         WHERE tenant_id = $1 AND branch_id = ANY($2) AND status IN ('outstanding','partially_paid')
+           AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM sales s WHERE s.id = credit_sales.sale_id AND s.owner_id = $3))",
     )
     .bind(ctx.tenant_id)
     .bind(&scope.branches)
@@ -344,7 +349,7 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     } else {
         None
     };
-    let show_staff = !mine && ctx.sees_others();
+    let show_staff = !mine && !own_scope;
 
     let avg = if now.transactions > 0 { (now.revenue / Decimal::from(now.transactions)).round_dp(2) } else { Decimal::ZERO };
     let gross_profit = fin.then_some(now.profit);
@@ -411,17 +416,21 @@ async fn activity(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Activ
     if !mine {
         ctx.require("dashboard.view")?;
     }
-    let branches = ctx.branch_scope(q.branch_id)?;
     // Shared binds: $1 tenant, $2 branches, $3 user filter (NULL = everyone).
-    let user: Option<Uuid> = (mine || !ctx.sees_others()).then_some(ctx.user_id);
+    let (branches, user) = if mine {
+        (ctx.branch_scope(q.branch_id)?, Some(ctx.user_id))
+    } else {
+        let vis = ctx.visibility(&mut *state.db.acquire().await?, "dashboard", q.branch_id, None).await?;
+        (vis.branches, vis.owner)
+    };
     let mut parts: Vec<&str> = vec![];
     if ctx.can("sales.view") || ctx.can("sales.create") {
         parts.push(
             "(SELECT 'sale' AS kind, s.id, 'Sale ' || s.receipt_no AS title,
                      COALESCE(TRIM(c.first_name || ' ' || c.other_names), 'Walk-in') || ' · ' || s.payment_method AS detail,
                      s.total AS amount, s.created_at AS at, b.name AS branch, u.name AS who, '/sales/' || s.id AS link
-              FROM sales s JOIN branches b ON b.id = s.branch_id LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN users u ON u.id = s.user_id
-              WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND ($3::uuid IS NULL OR s.user_id = $3) ORDER BY s.created_at DESC LIMIT 8)",
+              FROM sales s JOIN branches b ON b.id = s.branch_id LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN users u ON u.id = s.owner_id
+              WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND ($3::uuid IS NULL OR s.owner_id = $3 OR s.user_id = $3) ORDER BY s.created_at DESC LIMIT 8)",
         );
         parts.push(
             "(SELECT 'return', r.id, 'Return ' || r.return_no, r.reason, -r.refund_amount, r.created_at, b.name, u.name, '/sales/' || r.sale_id

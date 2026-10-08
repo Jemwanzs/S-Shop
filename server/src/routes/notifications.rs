@@ -67,7 +67,23 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .bind(&ctx.branch_ids)
     .fetch_one(&state.db)
     .await?;
-    Ok(Json(json!({ "items": rows, "unread": unread, "pending_approvals": if ctx.can("approvals.approve") { approvals } else { 0 } })))
+    // Roadmap 69: orders waiting to be confirmed, in the user's orders scope (the same filter as the Orders list) —
+    // an operational count, not unread notifications: reading or dismissing alerts never changes it.
+    let new_orders: i64 = if ctx.can("orders.view") {
+        let vis = ctx.visibility(&mut *state.db.acquire().await?, "orders", None, None).await?;
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM orders o WHERE o.tenant_id = $1 AND o.branch_id = ANY($2) AND o.status = 'new'
+               AND ($3::uuid IS NULL OR o.created_by = $3 OR EXISTS (SELECT 1 FROM sales ss WHERE ss.id = o.sale_id AND ss.owner_id = $3))",
+        )
+        .bind(ctx.tenant_id)
+        .bind(&vis.branches)
+        .bind(vis.owner)
+        .fetch_one(&state.db)
+        .await?
+    } else {
+        0
+    };
+    Ok(Json(json!({ "items": rows, "unread": unread, "pending_approvals": if ctx.can("approvals.approve") { approvals } else { 0 }, "new_orders": new_orders })))
 }
 
 async fn read_one(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {

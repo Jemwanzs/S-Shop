@@ -63,14 +63,14 @@ const PARAMS: &str = "WITH params AS (SELECT $1::uuid AS tid, $2::uuid[] AS br, 
     $12::int AS low)";
 
 const LINES: &str = "lines AS (
-    SELECT s.id AS sale_id, s.branch_id, s.user_id, s.customer_id, s.created_at, s.business_date, s.payment_method, si.product_id,
+    SELECT s.id AS sale_id, s.branch_id, s.owner_id AS user_id, s.customer_id, s.created_at, s.business_date, s.payment_method, si.product_id,
            si.quantity - si.returned_qty AS qty, (si.quantity - si.returned_qty) * si.unit_price AS revenue,
            (si.quantity - si.returned_qty) * (si.marked_price - si.unit_price) AS discount,
            CASE WHEN si.unit_cost IS NOT NULL THEN (si.quantity - si.returned_qty) * si.unit_cost END AS cost
     FROM sales s JOIN sale_items si ON si.sale_id = s.id JOIN products p ON p.id = si.product_id, params
     WHERE s.tenant_id = params.tid AND s.branch_id = ANY(params.br) AND s.business_date BETWEEN params.fd AND params.td
       AND s.status <> 'cancelled' AND (params.pid IS NULL OR si.product_id = params.pid)
-      AND (params.cid IS NULL OR p.category_id = params.cid) AND (params.uid IS NULL OR s.user_id = params.uid)
+      AND (params.cid IS NULL OR p.category_id = params.cid) AND (params.uid IS NULL OR s.owner_id = params.uid)
       AND (params.cust IS NULL OR s.customer_id = params.cust))";
 
 pub const REPORTS: &[Report] = &[
@@ -78,16 +78,16 @@ pub const REPORTS: &[Report] = &[
         key: "sales", title: "Sales Report", group: "Sales", permission: "sales.view",
         description: "Every sale in the period with totals, discounts and payment method",
         columns: &[c("created_at", "Date", "datetime"), c("business_date", "Business day", "date"), c("receipt_no", "Receipt", "text"), c("branch", "Branch", "text"),
-            c("customer", "Customer", "text"), c("salesperson", "Salesperson", "text"), c("items", "Items", "int"),
+            c("customer", "Customer", "text"), c("salesperson", "Sale owner", "text"), c("recorded_by", "Recorded by", "text"), c("items", "Items", "int"),
             c("gross", "Marked total", "money"), c("discount", "Discount", "money"), c("total", "Total", "money"),
             c("payment_method", "Payment", "text"), c("status", "Status", "text")],
         sql: "SELECT s.created_at, s.business_date, s.receipt_no, b.name AS branch, NULLIF(TRIM(c.first_name || ' ' || c.other_names),'') AS customer,
-                     u.name AS salesperson, (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = s.id) AS items,
+                     ow.name AS salesperson, u.name AS recorded_by, (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = s.id) AS items,
                      s.gross_total AS gross, s.discount_total AS discount, s.total, s.payment_method, s.status
               FROM sales s JOIN branches b ON b.id = s.branch_id LEFT JOIN customers c ON c.id = s.customer_id
-              LEFT JOIN users u ON u.id = s.user_id, params
+              LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users ow ON ow.id = s.owner_id, params
               WHERE s.tenant_id = params.tid AND s.branch_id = ANY(params.br) AND s.business_date BETWEEN params.fd AND params.td
-                AND (params.uid IS NULL OR s.user_id = params.uid) AND (params.cust IS NULL OR s.customer_id = params.cust)
+                AND (params.uid IS NULL OR s.owner_id = params.uid) AND (params.cust IS NULL OR s.customer_id = params.cust)
                 AND (params.pid IS NULL OR EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.product_id = params.pid))
               ORDER BY s.created_at DESC",
     },
@@ -308,9 +308,9 @@ pub const REPORTS: &[Report] = &[
                      cs.original_amount - cs.amount_paid - cs.adjustments AS balance, cs.due_date,
                      CASE WHEN cs.status IN ('outstanding','partially_paid') AND cs.due_date < params.td THEN 'overdue' ELSE cs.status END AS status
               FROM credit_sales cs JOIN sales s ON s.id = cs.sale_id JOIN customers c ON c.id = cs.customer_id
-              JOIN branches b ON b.id = cs.branch_id LEFT JOIN users u ON u.id = cs.user_id, params
+              JOIN branches b ON b.id = cs.branch_id LEFT JOIN users u ON u.id = s.owner_id, params
               WHERE cs.tenant_id = params.tid AND cs.branch_id = ANY(params.br) AND cs.business_date BETWEEN params.fd AND params.td
-                AND (params.cust IS NULL OR cs.customer_id = params.cust) AND (params.uid IS NULL OR cs.user_id = params.uid)
+                AND (params.cust IS NULL OR cs.customer_id = params.cust) AND (params.uid IS NULL OR s.owner_id = params.uid)
               ORDER BY cs.created_at DESC",
     },
     Report {
@@ -378,7 +378,7 @@ async fn catalogue(ctx: Ctx) -> AppResult<Json<Value>> {
     ctx.require("reports.view")?;
     let reports: Vec<&Report> = REPORTS
         .iter()
-        .filter(|r| ctx.can(r.permission) && (ctx.sees_others() || !matches!(r.key, "sales_by_user" | "user_performance")))
+        .filter(|r| ctx.can(r.permission) && (ctx.scope("reports") != crate::auth::DataScope::Own || !matches!(r.key, "sales_by_user" | "user_performance")))
         .collect();
     Ok(Json(json!({ "reports": reports, "can_export": ctx.can("reports.export") })))
 }
@@ -398,17 +398,19 @@ struct RunQuery {
 
 async fn run(State(state): State<AppState>, ctx: Ctx, Path(key): Path<String>, Query(q): Query<RunQuery>) -> AppResult<Response> {
     ctx.require("reports.view")?;
-    // Per-employee reports need "view other employees"; otherwise every report is limited to the user's own records.
-    if matches!(key.as_str(), "sales_by_user" | "user_performance") && !ctx.sees_others() {
+    // Report scope (roadmap 64) — the same for the screen and the Excel export: own records only, assigned branches, or
+    // every branch. Per-employee reports are not available with "own" scope.
+    if matches!(key.as_str(), "sales_by_user" | "user_performance") && ctx.scope("reports") == crate::auth::DataScope::Own {
         return Err(AppError::Forbidden("Viewing other employees' performance needs permission".into()));
     }
-    let user_filter = if ctx.sees_others() { q.user_id } else { Some(ctx.user_id) };
     let report = REPORTS.iter().find(|r| r.key == key).ok_or(AppError::NotFound("Report"))?;
     ctx.require(report.permission)?;
-    let branches = ctx.branch_scope(q.branch_id)?;
+    let mut conn = state.db.acquire().await?;
+    let vis = ctx.visibility(&mut conn, "reports", q.branch_id, q.user_id).await?;
+    let user_filter = vis.owner;
+    let branches = vis.branches;
     let (from, to) = q.period.resolve(ctx.today(), "month");
     let (start, end) = local_range(from, to, ctx.tz);
-    let mut conn = state.db.acquire().await?;
     let s = settings::load(&mut conn, ctx.tenant_id).await?;
 
     let rows: Vec<Value> = if report.key == "stock_position" {

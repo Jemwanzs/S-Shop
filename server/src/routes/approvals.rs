@@ -278,7 +278,7 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
         "product.create" | "product.edit" | "product.deactivate" => super::catalog::on_approved(&mut tx, &ctx, &a).await?,
         "stock.add" | "stock.adjust" | "stock.write_off" => super::stock::on_approved(&mut tx, &ctx, &a).await?,
         "stock.transfer" => super::transfers::on_approved(&mut tx, &ctx, &a).await?,
-        "sale.return" | "sale.cancel" | "credit.recall" => super::sales::on_approved(&mut tx, &ctx, &a).await?,
+        "sale.return" | "sale.cancel" | "credit.recall" | "sale.owner_change" => super::sales::on_approved(&mut tx, &ctx, &a).await?,
         "credit.write_off" => super::credit::on_approved(&mut tx, &ctx, &a).await?,
         "expense" => super::expenses::on_decided(&mut tx, &a, true).await?,
         _ => {}
@@ -310,7 +310,7 @@ async fn reject(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, b
     let mut tx = state.db.begin().await?;
     let a = load_pending(&mut tx, &ctx, id).await?;
     ensure_can_decide(&mut tx, &ctx, &a).await?;
-    on_closed_without_approval(&mut tx, &a).await?;
+    on_closed_without_approval(&mut tx, &ctx, &a, "rejected").await?;
     sqlx::query("UPDATE approvals SET status='rejected', decided_by=$2, decided_at=now(), comments=$3, decisions = decisions || $4 WHERE id=$1 AND tenant_id = $5")
         .bind(id)
         .bind(ctx.user_id)
@@ -338,7 +338,7 @@ async fn withdraw(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
     if a.requested_by != Some(ctx.user_id) {
         return Err(AppError::Forbidden("Only the requester can withdraw a request".into()));
     }
-    on_closed_without_approval(&mut tx, &a).await?;
+    on_closed_without_approval(&mut tx, &ctx, &a, "withdrawn").await?;
     sqlx::query("UPDATE approvals SET status='cancelled', decided_by=$2, decided_at=now() WHERE id=$1 AND tenant_id = $3")
         .bind(id)
         .bind(ctx.user_id)
@@ -351,8 +351,18 @@ async fn withdraw(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
 }
 
 /// Restore entities that were parked in a "pending" state.
-async fn on_closed_without_approval(conn: &mut sqlx::PgConnection, a: &ApprovalRow) -> AppResult<()> {
+async fn on_closed_without_approval(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &ApprovalRow, outcome: &str) -> AppResult<()> {
     match a.action.as_str() {
+        // The original owner stays; the request is closed with who decided and when.
+        "sale.owner_change" => {
+            sqlx::query("UPDATE sale_owner_changes SET status = $3, decided_by = $4, decided_at = now() WHERE approval_id = $1 AND tenant_id = $2 AND status = 'pending'")
+                .bind(a.id)
+                .bind(a.tenant_id)
+                .bind(outcome)
+                .bind(ctx.user_id)
+                .execute(&mut *conn)
+                .await?;
+        }
         "stock.adjust" | "stock.write_off" => {
             sqlx::query("UPDATE stock_adjustments SET status='rejected', decided_at=now() WHERE id=$1 AND status='pending' AND tenant_id = $2")
                 .bind(a.entity_id)

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, LocateFixed, Pencil, Plus } from "lucide-react";
+import { KeyRound, LocateFixed, Pencil, Plus, ShieldCheck } from "lucide-react";
+import { UserAccessDialog } from "./UserAccess";
 import { currentPosition } from "@/lib/location";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
@@ -148,6 +149,7 @@ export function UsersSettings() {
   const branches = useQuery({ queryKey: ["branches"], queryFn: () => api<BranchRow[]>("/branches") });
   const [edit, setEdit] = useState<UserForm | null>(null);
   const [resetFor, setResetFor] = useState<UserRow | null>(null);
+  const [accessFor, setAccessFor] = useState<UserRow | null>(null);
   const [newPin, setNewPin] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
   const save = useMutation({
@@ -174,11 +176,13 @@ export function UsersSettings() {
                 {u.email} · {u.all_branches ? "All branches" : u.branch_ids.map(branchName).join(", ")} · {u.last_login_at ? `active ${ago(u.last_login_at)}` : "never signed in"}
               </div>
             </div>
+            <Button variant="ghost" size="icon-sm" onClick={() => setAccessFor(u)} aria-label={t("Roles & Access")}><ShieldCheck /></Button>
             <Button variant="ghost" size="icon-sm" onClick={() => { setNewPin(""); setPinConfirm(""); setResetFor(u); }} aria-label="Reset PIN"><KeyRound /></Button>
             <Button variant="ghost" size="icon-sm" onClick={() => setEdit({ id: u.id, name: u.name, email: u.email, phone: u.phone, pin: "", role_id: u.role_id, all_branches: u.all_branches, branch_ids: u.branch_ids, is_active: u.is_active })} aria-label="Edit"><Pencil /></Button>
           </div>
         ))}
       </Card>
+      {accessFor && <UserAccessDialog user={accessFor} branches={branches.data ?? []} onClose={() => setAccessFor(null)} />}
       <ResponsiveDialog
         open={!!edit}
         onOpenChange={(o) => !o && setEdit(null)}
@@ -235,6 +239,36 @@ export function UsersSettings() {
 // ───────────────────────────── Roles ─────────────────────────────
 
 interface PermGroup { module: string; label: string; permissions: [string, string][] }
+export interface ScopeCatalogue { areas: { key: string; label: string }[]; scopes: { key: string; label: string }[] }
+
+export function useScopeCatalogue() {
+  return useQuery({ queryKey: ["permission-scopes"], queryFn: () => api<ScopeCatalogue>("/permissions/scopes"), staleTime: Infinity });
+}
+
+/** Data visibility per area (roadmap 64): "" = not set (derived from "View other employees' sales & performance"). */
+function ScopeEditor({ permissions, onChange }: { permissions: string[]; onChange: (p: string[]) => void }) {
+  const cat = useScopeCatalogue();
+  if (!cat.data) return null;
+  const current = (area: string) => permissions.find((p) => p.startsWith(`scope.${area}.`))?.split(".")[2] ?? "";
+  const set = (area: string, v: string) => onChange([...permissions.filter((p) => !p.startsWith(`scope.${area}.`)), ...(v ? [`scope.${area}.${v}`] : [])]);
+  const inherited = permissions.includes("staff.view_others") ? "Assigned branches" : "Own records";
+  return (
+    <div className="rounded-xl border p-3">
+      <p className="font-medium">{t("Data visibility")}</p>
+      <p className="mb-2 text-xs text-muted-foreground">{t("Which records this role sees. Seeing data never allows changing it — operations need their own permissions.")}</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {cat.data.areas.map((a) => (
+          <Field key={a.key} label={a.label}>
+            <Select value={current(a.key)} onChange={(v) => set(a.key, v)}>
+              <option value="">{`${t("Default")} (${t(inherited)})`}</option>
+              {cat.data.scopes.map((sc) => <option key={sc.key} value={sc.key}>{t(sc.label)}</option>)}
+            </Select>
+          </Field>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function RolesSettings() {
   const qc = useQueryClient();
@@ -277,6 +311,7 @@ export function RolesSettings() {
                 onChange={(v) => setEdit({ ...edit, is_active: v })}
               />
             )}
+            <ScopeEditor permissions={edit.permissions} onChange={(p) => setEdit({ ...edit, permissions: p })} />
             <div className="grid gap-3 md:grid-cols-2">
               {catalogue.data?.map((g) => (
                 <div key={g.module} className="rounded-xl border p-3">

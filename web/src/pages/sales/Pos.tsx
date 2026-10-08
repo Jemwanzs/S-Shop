@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Clock, CloudOff, MessageCircle, PackageSearch, Printer, ScanLine, ShoppingCart, Trash2 } from "lucide-react";
+import { CheckCircle2, Clock, CloudOff, PackageSearch, Printer, ScanLine, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -21,6 +21,8 @@ import { loadSnapshot, saveSnapshot, type QueuedSale } from "@/lib/offline";
 import { t as translate } from "@/lib/i18n";
 import { ItemSheet } from "./pos/ItemSheet";
 import { CartLines, Checkout } from "./pos/Checkout";
+import { SaleOwnerBar, type Owner } from "./SaleOwner";
+import { ReceiptPanel } from "@/components/ReceiptPanel";
 
 const newRef = () => crypto.randomUUID();
 
@@ -41,7 +43,7 @@ export default function Pos() {
   const [q, setQ] = useState("");
   const term = useDebounced(q);
   const [category, setCategory] = useState<string | null>(null);
-  const [cart, setCart] = usePersistentState<{ lines: CartLine[]; ref: string }>(`sshop.cart.${branch?.id}`, { lines: [], ref: newRef() });
+  const [cart, setCart] = usePersistentState<{ lines: CartLine[]; ref: string; owner?: Owner | null }>(`sshop.cart.${branch?.id}`, { lines: [], ref: newRef() });
   const [selected, setSelected] = useState<PosProduct | null>(null);
   const [editing, setEditing] = useState<CartLine | null>(null);
   const [prefillBarcode, setPrefillBarcode] = useState<string | undefined>();
@@ -169,17 +171,6 @@ export default function Pos() {
     qc.invalidateQueries({ queryKey: ["dashboard"] });
   };
 
-  const share = async () => {
-    if (!done) return;
-    try {
-      const r = await api<{ sent: boolean; link: string | null }>(`/sales/${done.sale.id}/share`, { method: "POST" });
-      if (r.sent) toast.success("Receipt sent on WhatsApp");
-      else if (r.link) window.open(r.link, "_blank");
-      else toast.info("Add the customer's mobile to share receipts");
-    } catch (e) {
-      toast.error(e);
-    }
-  };
 
   const cartPanel = (
     <div className="space-y-4">
@@ -196,7 +187,7 @@ export default function Pos() {
       ) : (
         <>
           <CartLines lines={cart.lines} onEdit={(l) => { setEditing(l); setSelected(l.product); }} onRemove={(key) => setCart((c) => ({ ...c, lines: c.lines.filter((l) => l.key !== key) }))} />
-          <Checkout lines={cart.lines} onDone={finished} onQueued={savedOffline} clientRef={cart.ref} />
+          <Checkout lines={cart.lines} onDone={finished} onQueued={savedOffline} clientRef={cart.ref} ownerId={cart.owner?.id} />
         </>
       )}
     </div>
@@ -224,6 +215,8 @@ export default function Pos() {
             </span>
           </div>
         )}
+        {/* The Sale Owner stays with the cart until the sale completes (roadmap 62). */}
+        <SaleOwnerBar owner={cart.owner ?? null} onChange={(o) => setCart((c) => ({ ...c, owner: o }))} />
         <div className="sticky top-14 z-20 -mx-3.5 space-y-2 bg-background/90 px-3.5 pb-3 pt-1 backdrop-blur md:-mx-6 md:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
           <SearchInput value={q} onChange={setQ} placeholder="Search name, nickname, code or barcode" autoFocus={desktop} />
           {categories.length > 1 && (
@@ -330,19 +323,20 @@ export default function Pos() {
         title="Sale complete"
         footer={
           <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto">
-            <Button variant="outline" onClick={() => navigate(`/sales/${done?.sale.id}`)}><Printer /> {translate("Receipt")}</Button>
-            {can("sales.print") && <Button variant="outline" onClick={share}><MessageCircle /> {translate("WhatsApp")}</Button>}
-            <Button className="col-span-2" onClick={() => setDone(null)}>{translate("New sale")}</Button>
+            <Button variant="outline" onClick={() => navigate(`/sales/${done?.sale.id}`)}><Printer /> {translate("Open sale")}</Button>
+            <Button onClick={() => setDone(null)}>{translate("New sale")}</Button>
           </div>
         }
       >
         {done && (
-          <div className="space-y-3 py-2 text-center">
-            <CheckCircle2 className="mx-auto h-14 w-14 text-success animate-pop" />
-            <p className="num text-3xl font-bold">{money(done.sale.total)}</p>
-            <p className="text-sm text-muted-foreground">{done.sale.receipt_no} · {done.sale.payment_method === "credit" ? "on credit" : `paid by ${done.sale.payment_method}`}</p>
-            {done.sale.customer && <p className="text-sm">{done.sale.customer.name}</p>}
-            {done.sale.points_earned > 0 && <p className="inline-block rounded-full bg-points/15 px-4 py-1.5 font-semibold text-points">🌼 +{done.sale.points_earned} Loyalty Points</p>}
+          <div className="space-y-3 py-1">
+            <div className="flex items-center justify-center gap-2">
+              <CheckCircle2 className="h-7 w-7 text-success animate-pop" />
+              <p className="num text-2xl font-bold">{money(done.sale.total)}</p>
+            </div>
+            {done.sale.points_earned > 0 && <p className="mx-auto w-fit rounded-full bg-points/15 px-3 py-1 text-sm font-semibold text-points">🌼 +{done.sale.points_earned} {translate("Loyalty Points")}</p>}
+            {/* The issued receipt, ready to print or share (roadmap 65). */}
+            <ReceiptPanel saleId={done.sale.id} zoom={1.3} compact />
           </div>
         )}
       </ResponsiveDialog>

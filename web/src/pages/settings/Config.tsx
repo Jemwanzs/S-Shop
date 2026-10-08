@@ -21,6 +21,8 @@ import { Card, SettingsPage, useSettingsDraft } from "./shared";
 import { HoursEditor, hoursLabel } from "@/components/Hours";
 import { t } from "@/lib/i18n";
 import { t as tr } from "@/lib/i18n";
+import { Receipt } from "@/components/Receipt";
+import type { ReceiptSnapshot } from "@/lib/receipt";
 
 type Draft = ReturnType<typeof useSettingsDraft>;
 
@@ -141,8 +143,8 @@ export function SalesSettings() {
               </Select>
             </Row>
             <ToggleRow label="Require barcode clearance" hint="Products with a barcode must be scanned before they can be sold" checked={s.sales.require_barcode_clearance} onChange={(v) => d.update((x) => { x.sales.require_barcode_clearance = v; })} />
-            <Row label="Receipt footer"><Input value={s.sales.receipt_footer} onChange={(e) => d.update((x) => { x.sales.receipt_footer = e.target.value; })} /></Row>
           </Card>
+          <ReceiptConfig s={s} update={d.update} />
           <Card title="Payment methods">
             {s.sales.payment_methods.map((m, i) => (
               <div key={m.key} className="flex items-center gap-3 py-2.5">
@@ -511,5 +513,57 @@ export function ReportSettings() {
         );
       }}
     </Page>
+  );
+}
+
+/** Settings → Sales & payments → Receipt configuration (roadmap 66): what the standard 50 mm receipt shows, with a live
+ * preview. The structure itself is fixed so every receipt stays clean and complete; new choices apply to receipts issued
+ * from now on (receipts already issued never change). */
+function ReceiptConfig({ s, update }: { s: Settings; update: (fn: (x: Settings) => void) => void }) {
+  const { profile, branch } = useSession();
+  const r = s.sales.receipt;
+  const flag = (k: keyof Omit<Settings["sales"]["receipt"], "font">, label: string, hint?: string) => (
+    <ToggleRow label={label} hint={hint} checked={r[k]} onChange={(v) => update((x) => { x.sales.receipt[k] = v; })} />
+  );
+  const sample: ReceiptSnapshot = {
+    kind: "original", title: "SALES RECEIPT", number: "RCP-2026-000408", receipt_no: "RCP-2026-000408", at: new Date().toISOString(),
+    business_date: "", status: "completed", currency: profile?.tenant.currency ?? "KSh", timezone: profile?.tenant.timezone ?? "Africa/Nairobi",
+    font: r.font, footer: s.sales.receipt_footer, signed_by: profile?.tenant.name ?? "",
+    business: { name: profile?.tenant.name ?? "", logo: null, phone: r.show_contact ? "0712 345 678" : null },
+    branch: { name: r.show_branch ? branch?.name ?? "Main Branch" : null, phone: null },
+    customer: r.show_customer ? "Ruth" : null,
+    served_by: r.show_salesperson ? profile?.user.name ?? "" : null,
+    items: [
+      { name: "Amber Prestige", qty: 1, price: "27500", total: "27500" },
+      { name: "Imperial Pendant Necklace", qty: 1, price: "78000", total: "78000" },
+      { name: "Signature Intense", qty: 1, price: "21500", total: "21500" },
+    ],
+    totals: { subtotal: "127000", discount: "0", redeemed_points: 0, redeemed_value: "0", total: "127000", paid: "127000", balance: null, method: "M-Pesa" },
+    payments: [{ method: "M-Pesa", amount: "127000", reference: r.show_payment_ref ? "SJK3XQ2P1A" : null }],
+    points_earned: r.show_loyalty ? 254 : 0,
+  };
+  return (
+    <Card title="Receipt configuration">
+      <div className="grid gap-4 py-2 md:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="divide-y">
+          {flag("show_logo", "Show business logo")}
+          {flag("show_branch", "Show branch name")}
+          {flag("show_contact", "Show business contact")}
+          {flag("show_customer", "Show customer name")}
+          {flag("show_salesperson", "Show salesperson", "“Served by” the sale owner")}
+          {flag("show_loyalty", "Show loyalty points")}
+          {flag("show_payment_ref", "Show payment reference", "e.g. the confirmed M-Pesa code")}
+          <Row label="Thank-you message"><Input value={s.sales.receipt_footer} maxLength={80} onChange={(e) => update((x) => { x.sales.receipt_footer = e.target.value; })} /></Row>
+          <Row label="Receipt font">
+            <Select value={r.font} onChange={(v) => update((x) => { x.sales.receipt.font = v as "sans"; })}>
+              <option value="sans">{t("Clean sans")}</option>
+              <option value="thermal">{t("Thermal style")}</option>
+            </Select>
+          </Row>
+          <p className="py-2 text-xs text-muted-foreground">{t("Width 50 mm; height follows the items. Changes apply to receipts issued from now on — receipts already issued never change.")}</p>
+        </div>
+        <div className="rounded-xl bg-muted/50 p-3"><p className="label-caps mb-2 text-center">{t("Preview")}</p><Receipt snapshot={sample} zoom={1.25} /></div>
+      </div>
+    </Card>
   );
 }

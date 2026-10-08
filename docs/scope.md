@@ -43,7 +43,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 | 33 | Data-integrity rules | ✅ | Enforced in the database (unique/partial indexes, checks) and in the ledger (row locks). Negative stock only when explicitly enabled. |
 | 34 | Stock reservation: physical − reserved = available | ✅ | `stock_levels.reserved`; counter sales respect reservations. |
 | 35 | Returns, reversals, corrections, refunds, stock restoration | ✅ | Partial returns and full cancellations reverse stock, value, customer totals, loyalty (incl. referral share), credit. Exchange screen: return + new sale in one step, difference only. |
-| 36 | Receipts: view, PDF, print, share | ✅ | 80 mm PDF, browser print, WhatsApp share. |
+| 36 | Receipts: view, PDF, print, share | ✅ | Superseded by 65–67: 50 mm stored receipts, email, WhatsApp file share, secure link. |
 | 37 | Universal search, Current Branch first | ✅ | Ctrl/⌘ K on desktop, search icon on phones. |
 | 38 | In-app notifications; WhatsApp | ✅ | Live via SSE + WhatsApp Cloud API or wa.me links. |
 | 39 | Migrate existing Pablo Loyalty data | ✅ | [migration-from-pablo-loyalty.md](migration-from-pablo-loyalty.md) — `sshop import-legacy`. |
@@ -264,6 +264,72 @@ PIN expiry / forced change and self-service reset were missing.
 - ✅ **61. Applicant status at sign-in** — never revealed on a failed sign-in (neutral message + *Check your request
   status*); an emailed status link (proof of ownership) shows pending / approved (with *Resend Setup Instructions*) /
   rejected (no internal notes), each with Call / WhatsApp support contacts.
+
+Added 2026-10-08 — **Sales ownership & data visibility** (owner request: *Sales Ownership, Ownership Transfers &
+Role-Based Data Visibility*; [module 25](modules/25-sales-ownership-and-visibility.md)).
+- ✅ **62. Sale Owner vs Recorded By** — every sale keeps who recorded it and who is credited; *Sale Owner: Name ✎* at
+  New Sale (default the signed-in user; others only with *Assign sale owner* and only eligible salespeople of the branch,
+  re-checked by the server); receipts say *Served by* the owner; reports show both.
+- ✅ **63. Controlled ownership changes** — *Change Sale Owner* (reason required) through the workflow engine (default:
+  one level, Tenant Administrator; configurable); one pending request per sale; requester never approves; conflict-safe;
+  amount, branch, date, payments, stock and receipt untouched; full history and audit. Performance, dashboards,
+  leaderboards and reports follow the owner immediately in the sale's original period; business totals unchanged.
+- ✅ **64. Data-visibility scopes** — per role and area (sales, dashboards & analytics, reports & exports, leaderboards,
+  orders, credit): own records / assigned branches / all branches; one server-side resolver for lists, dashboards,
+  reports, exports, leaderboards, search and single records; visibility never grants operations; My Dashboard always
+  own; per-user exceptions (scopes, allow / restrict) and default branch, never beyond the granter's own access.
+
+Added 2026-10-08 — **Digital receipts & reconciliation** (owner requests: *Premium Compact Digital Sales Receipt &
+Sharing*; *Automatic Receipt & Loyalty Points Reconciliation After Returns and Exchanges*;
+[module 26](modules/26-receipts-and-reconciliation.md)). Not KRA eTIMS.
+- ✅ **65. Premium compact receipt** — 50 mm, height follows the content; logo → business → branch → contact → SALES
+  RECEIPT → compact items → totals & payments → *Served by* (Sale Owner) → thank-you → *Digitally signed by [Business]*
+  → small S' mark. One template for screen, PDF, print, image, public link and history; issued once as an immutable
+  snapshot (logo content-addressed); receipt configuration with live preview (Settings → Sales & payments).
+- ✅ **66. Receipt sharing** — PDF, print, image; email with the PDF attached from the business's name (tracked in the
+  email log, audited); WhatsApp: Business API when configured, else the phone's share sheet with the PDF file, else
+  WhatsApp with a short message + secure link (never claims *sent* without confirmation); secure, rate-limited
+  `/r/{token}` page.
+- ✅ **67. Reconciliation after returns & exchanges** — nothing changes until final approval (exchanges now go through
+  the `sale.return` workflow instead of being refused); adjustment / exchange receipt linked to the original (original
+  preserved) with status, items returned & remaining, refunds, net sale value, approver and loyalty (original, reversed,
+  not recoverable — recorded as a liability — and net); reconciliation summary on the sale page; every module reads the
+  same records.
+
+Added 2026-10-08 — **Domain check fix & order alerts** (owner reports: *DNS check failing* for s-shop.click; *Real-Time
+Website Order Notifications & Sidebar Order Badges*).
+- ✅ **68. DNS records named the way providers expect** — diagnosis: the TXT record was created as
+  `_sshop-verify.s-shop.click.s-shop.click` because the provider's *Name* field is relative to the domain and the full
+  name had been typed. Records now show the **host** to type (`_sshop-verify`, `www`, `@`) with the full name as a
+  fallback; *Check now* detects a record saved under the doubled name and says exactly how to fix it (*Saved under the
+  wrong name*). Same for Railway's `_railway-verify` record.
+- ✅ **69. New-order alerts & Orders badge** — every new order (website, ordering link, staff) notifies, once, the users
+  who may manage orders at its branch and whose orders scope reaches it: *New customer order ORD-… · Customer · Branch ·
+  items · total*, opening the order. Orange **Orders** counter (sidebar and phone bar) = orders still *New* in the user's
+  scope, 99+ above 99, hidden at zero, live over SSE; independent of read state (reading alerts never lowers it,
+  confirming the order does). User preferences → Notifications: new-order notifications, in-app pop-ups, sound (chime).
+
+Planned (owner requests 2026-10-08, same message) — **Tenant management & secure business access**:
+- ⏳ **70. Tenant accounts** — Platform owner → tenants → businesses → branches → users. Every approved access request
+  creates one tenant account and its first business; existing businesses become their own tenant's first business.
+  Platform → Tenants: cards (administrator, contacts, businesses, branches, users, status, billing status, next due)
+  and a tenant page (overview, businesses & branches, users, billing per business, website services, activity &
+  security, access & status). Activate / deactivate a whole tenant (reason, sessions ended, data kept; platform-owned
+  tenants protected).
+- ⏳ **71. Secure business access** — *Open business* no longer switches silently. Two routes: *Sign in as the tenant's
+  administrator* (their own PIN, entered by them; the platform never sees or stores it) or *Platform support access*
+  (fresh PIN re-entry, reason, scope view-only / full, 15 min – 8 h, the tenant's consent when its policy asks for it,
+  banner with countdown, ended by either side at any time, audited start to end). Old acting tokens stop working.
+- ⏳ **72. Several businesses per tenant, one sign-in** — the platform owner adds businesses to a tenant; a tenant's
+  administrator gives a person access to another business of the same tenant (own role, branches and scopes there);
+  *Switch business* lists only those businesses and needs no new sign-in; other tenants stay out of reach.
+- ⏳ **73. Tenant activity** — logins, stock taking, transfers, sales recording, support sessions, billing and status
+  changes per tenant, with business / branch / user / date filters; no customer or financial details.
+
+Then (same message): **custom domains on every route** (primary domain, redirects, canonical links, `/products`,
+`/orders`, `/contact`; *Awaiting platform configuration* when Railway cannot be automated) and the **premium storefront
+redesign** (2 products per row on phones by default, card actions that never overlap, image reliability, subtle
+animations with an intensity setting, header search, collections from real data, mobile / tablet / desktop preview).
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

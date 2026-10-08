@@ -53,11 +53,16 @@ pub async fn seed_tenant(conn: &mut PgConnection, name: &str, slug: &str) -> any
         .await?;
 
     for a in ACTIONS {
-        sqlx::query("INSERT INTO workflows (tenant_id, action) VALUES ($1, $2)")
-            .bind(tenant_id)
-            .bind(a.key)
-            .execute(&mut *conn)
-            .await?;
+        // Sale ownership changes are always reviewed by default (one level: the Tenant Administrator).
+        sqlx::query(
+            "INSERT INTO workflows (tenant_id, action, enabled, levels) VALUES ($1, $2, $3,
+                 jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'approver_type', 'admin')))",
+        )
+        .bind(tenant_id)
+        .bind(a.key)
+        .bind(a.key == "sale.owner_change")
+        .execute(&mut *conn)
+        .await?;
     }
 
     for c in ["Rent", "Utilities", "Salaries & Wages", "Transport", "Supplies", "Marketing", "Repairs", "Other"] {

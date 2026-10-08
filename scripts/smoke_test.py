@@ -1336,6 +1336,276 @@ call("POST", f"/platform/billing/documents/{sub_inv['id']}/void", {"reason": "Ma
 check("annual maintenance 120,000 + 16% tax", float(mt["summary"]["recurring_price"]["total"]) == 139200 and mt["summary"]["one_off_status"] == "paid", mt["summary"]["recurring_price"])
 call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "access_mode": "free"})
 
+step("Roadmap 51–52: website service, management centre, draft → publish")
+T2 = {"token": t2["token"], "branch": "none"}
+call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "access_mode": "free"})
+ov = call("GET", "/website", **T2)
+check("website service starts locked", ov["status"] == "none", ov.get("status"))
+call("PUT", "/website/draft", {"config": {}}, **T2, expect=422)
+check("nothing to edit before activation", True)
+call("POST", "/website/request", {"message": "We want a shop website"}, **T2)
+call("POST", "/website/request", {"message": "again"}, **T2, expect=422)
+check("request sent once", call("GET", "/website", **T2)["status"] == "requested")
+owner_notes = call("GET", "/notifications")["items"]
+check("platform owner notified of the request", any(n["title"].startswith("Website request:") for n in owner_notes))
+row = next(x for x in call("GET", "/platform/tenants")["items"] if x["id"] == dk)
+check("request visible in the platform directory", row["website_status"] == "requested" and "shop website" in (row["website_request_message"] or ""), row["website_status"])
+call("POST", f"/platform/tenants/{dk}/website", {"action": "activate"}, token=t2["token"], branch="none", expect=403)
+check("a business cannot activate its own website", True)
+call("POST", f"/platform/tenants/{dk}/website", {"action": "activate"})
+ov = call("GET", "/website", **T2)
+d = ov["draft"]
+check("activated with a ready-made draft from the business's details", ov["status"] == "active" and d["brand"]["name"] == dk_name
+      and len(d["testimonials"]["items"]) == 5 and all(x["sample"] and not x["published"] for x in d["testimonials"]["items"])
+      and d["products"]["max_photos"] == 5 and d["products"]["grid"]["mobile"] == 2, d["brand"])
+check("not live until published", ov["live"] is False and ov["has_unpublished"] is True)
+bad_theme = {**d, "theme": {**d["theme"], "light": {**d["theme"]["light"], "text": "#FBFBFB"}}}
+r = call("PUT", "/website/draft", {"config": bad_theme}, **T2, expect=400)
+check("unreadable colours refused", "hard to read" in r["error"]["message"], r)
+bad_link = {**d, "hero": {**d["hero"], "primary": {"label": "Go", "target": "javascript:alert(1)"}}}
+call("PUT", "/website/draft", {"config": bad_link}, **T2, expect=400)
+check("unsafe links refused", True)
+d2 = {**d, "hero": {**d["hero"], "headline": "Shop the Difference."}, "theme": {**d["theme"], "style": "elegant"}}
+saved = call("PUT", "/website/draft", {"config": d2, "base_updated_at": ov["draft_updated_at"]}, **T2)
+check("draft saved with the parts that changed", sorted(saved["changed"]) == ["hero", "theme"], saved)
+call("PUT", "/website/draft", {"config": d, "base_updated_at": ov["draft_updated_at"]}, **T2, expect=422)
+check("a stale editor cannot overwrite someone else's newer draft", True)
+d3 = {**d2, "testimonials": {**d2["testimonials"], "items": [{**x, "published": True} for x in d2["testimonials"]["items"]]}}
+call("PUT", "/website/draft", {"config": d3}, **T2)
+r = call("POST", "/website/publish", {}, **T2, expect=422)
+check("sample testimonials can never be published", "Sample testimonials" in r["error"]["message"], r)
+d4 = {**d3, "testimonials": {**d3["testimonials"], "items": [{**x, "published": False} for x in d3["testimonials"]["items"]]}}
+call("PUT", "/website/draft", {"config": d4}, **T2)
+pub = call("POST", "/website/publish", {"note": "First version"}, **T2)
+ov = call("GET", "/website", **T2)
+check("published: live, version 1, nothing pending", pub["version"] == 1 and ov["live"] and not ov["has_unpublished"] and ov["published_by"], ov.get("version"))
+call("POST", "/website/publish", {}, **T2, expect=422)
+check("nothing new to publish", True)
+d5 = {**d4, "hero": {**d4["hero"], "headline": "Draft only"}}
+call("PUT", "/website/draft", {"config": d5}, **T2)
+check("unpublished changes are flagged", call("GET", "/website", **T2)["has_unpublished"] is True)
+call("POST", "/website/discard", **T2)
+ov = call("GET", "/website", **T2)
+check("discard returns the draft to the published version", ov["draft"]["hero"]["headline"] == "Shop the Difference." and not ov["has_unpublished"])
+d6 = {**ov["draft"], "hero": {**ov["draft"]["hero"], "headline": "Version two"}}
+call("PUT", "/website/draft", {"config": d6}, **T2)
+call("POST", "/website/publish", {}, **T2)
+call("POST", "/website/versions/1/restore", **T2)
+ov = call("GET", "/website", **T2)
+vers = call("GET", "/website/versions", **T2)["items"]
+check("rollback restores version 1 as a new publication", ov["version"] == 3 and ov["draft"]["hero"]["headline"] == "Shop the Difference."
+      and vers[0]["note"] == "Restored version 1", [v["note"] for v in vers])
+# One price setting shared with the ordering link
+call("PUT", "/website/prices", {"show_prices": False}, **T2)
+check("website price visibility is the ordering-link setting", call("GET", "/settings", **T2)["settings"]["orders"]["show_prices"] is False)
+call("PUT", "/website/prices", {"show_prices": True}, **T2)
+# Users & Access: website permissions only, never operational access
+roles_dk = call("GET", "/roles", **T2)
+sales_dk = next(r["id"] for r in roles_dk if r["name"] == "Salesperson")
+web_mail = f"web{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Web Editor", "email": web_mail, "pin": "4321", "role_id": sales_dk, "all_branches": True, "branch_ids": []}, **T2)
+web_user = next(u for u in call("GET", "/website/access", **T2)["users"] if u["email"] == web_mail)
+call("PUT", f"/website/access/{web_user['id']}", {"permissions": ["website.content", "stock.adjust"]}, **T2, expect=400)
+check("only website permissions can be given individually", True)
+call("PUT", f"/website/access/{web_user['id']}", {"permissions": ["website.view", "website.content"]}, **T2)
+web_tok = call("POST", "/auth/login", {"email": web_mail, "pin": "4321"})["token"]
+W = {"token": web_tok, "branch": "none"}
+wd = call("GET", "/website", **W)["draft"]
+call("PUT", "/website/draft", {"config": {**wd, "about": {**wd["about"], "intro": "Edited by the web editor"}}}, **W)
+r = call("PUT", "/website/draft", {"config": {**wd, "theme": {**wd["theme"], "style": "bold"}}}, **W, expect=403)
+check("content editor can edit content but not the design", True)
+call("POST", "/website/publish", {}, **W, expect=403)
+check("editing without permission to publish", True)
+call("GET", "/expenses", **W, expect=403)
+call("POST", "/stock/receive", {"product_id": str(uuid.uuid4()), "quantity": 1}, **W, expect=403)
+check("website access gives no operational access", True)
+# Website billing is its own service in the same engine
+wplan = call("PUT", f"/platform/tenants/{dk}/billing-plan", {"service": "website", "model": "one_off", "one_off_amount": 30000, "maintenance": True,
+                                                            "amount": 1500, "frequency": "monthly", "start_date": later, "discount_type": "fixed", "discount_value": 500})
+check("website billed separately: one-off + maintenance with its own discount", wplan["plan"]["service"] == "website"
+      and float(wplan["summary"]["recurring_price"]["total"]) == 1000, wplan["summary"].get("recurring_price"))
+winv = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "one_off", "service": "website", "amount": 30000})
+mb = call("GET", "/billing", **T2)
+check("website invoice shown with its service; platform plan untouched", mb["plan"]["model"] == "subscription" and float(mb["website"]["summary"]["outstanding"]) == 29500
+      and any(x["id"] == winv["id"] and x["service"] == "website" for x in mb["documents"]), mb["website"]["summary"])
+call("POST", f"/platform/billing/documents/{winv['id']}/void", {"reason": "Test"})
+call("POST", f"/platform/tenants/{dk}/website", {"action": "disable", "reason": ""}, expect=422)
+call("POST", f"/platform/tenants/{dk}/website", {"action": "disable", "reason": "Subscription ended"})
+ov = call("GET", "/website", **T2)
+check("disabled: not live, configuration kept", ov["status"] == "disabled" and not ov["live"] and ov["version"] == 3)
+call("PUT", "/website/draft", {"config": wd}, **T2, expect=422)
+call("POST", f"/platform/tenants/{dk}/website", {"action": "activate"})
+check("re-activated with everything intact", call("GET", "/website", **T2)["live"] is True)
+# Another business cannot see or change this website
+call("GET", "/website/versions")
+mine = call("GET", "/website")
+check("each business sees only its own website", mine["status"] != "active" or mine.get("slug") != dk_slug, mine.get("status"))
+
+step("Roadmap 53–57: public website, prices, ordering, media, domain, analytics")
+PUB = {"token": "none", "branch": "none"}
+dk_branch = call("GET", "/branches", **T2)[0]["id"]
+T2B = {"token": t2["token"], "branch": dk_branch}
+wcat = call("POST", "/categories", {"name": f"Bags {suffix}"}, **T2B)["id"]
+bag = call("POST", "/products", {"name": f"Leather Bag {suffix}", "marked_price": 4321, "cost_price": 2000, "category_id": wcat}, **T2B)["result"]["id"]
+hat = call("POST", "/products", {"name": f"Straw Hat {suffix}", "marked_price": 777, "cost_price": 300, "category_id": wcat}, **T2B)["result"]["id"]
+call("POST", "/stock/receive", {"product_id": bag, "quantity": 5, "cost_price": 2000}, **T2B)
+call("POST", "/stock/receive", {"product_id": hat, "quantity": 5, "cost_price": 300}, **T2B)
+site = call("GET", f"/site?slug={dk_slug}", **PUB)
+check("public website served by slug with business, categories and ordering", site["available"] and site["business"]["name"] == dk_name
+      and any(c["id"] == wcat for c in site["categories"]) and site["ordering"]["enabled"], site.get("ordering"))
+check("sample testimonials never reach the public", all(not t.get("sample") for t in site["config"]["testimonials"]["items"]))
+check("internal product settings not exposed", not site["config"]["products"].get("items"))
+plist = call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"]
+pbag = next(p for p in plist if p["id"] == bag)
+check("new products appear automatically with price and slug", float(pbag["price"]) == 4321 and pbag["action"] == "add_to_cart"
+      and pbag["slug"].startswith("leather-bag-"), pbag)
+detail = call("GET", f"/site/products/{pbag['slug']}?slug={dk_slug}", **PUB)
+check("product page by slug with related products", detail["product"]["id"] == bag and any(r["id"] == hat for r in detail["related"]))
+sug = call("GET", f"/site/products?slug={dk_slug}&q=leath&suggest=true", **PUB)["items"]
+check("search suggestions", [p["id"] for p in sug] == [bag], [p["name"] for p in sug])
+# Hidden prices never leak — list, suggestions, detail, site data
+call("PUT", "/website/prices", {"show_prices": False}, **T2)
+raw_all = json.dumps([call("GET", f"/site/products?slug={dk_slug}", **PUB), call("GET", f"/site/products?slug={dk_slug}&q=leath&suggest=true", **PUB),
+                      call("GET", f"/site/products/{pbag['slug']}?slug={dk_slug}", **PUB), call("GET", f"/site?slug={dk_slug}", **PUB)])
+check("hidden prices never leak anywhere", "4321" not in raw_all and "777" not in raw_all)
+hid = next(p for p in call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"] if p["id"] == bag)
+check("hidden price: no price, business's chosen action", hid["price"] is None and hid["action"] in ("enquire", "contact", "whatsapp", "add_to_cart"), hid)
+# Per-product overrides (draft → publish)
+ov = call("GET", "/website", **T2)
+dd = ov["draft"]
+base = {"published": True, "featured": False, "sort": 0, "marketing_name": "", "marketing_description": "", "badge": "", "price": "inherit",
+        "hidden_action": "", "use_product_photos": True, "photos": [], "hidden_photos": [], "seo_title": "", "seo_description": "",
+        "category_id": None, "cta_label": ""}
+dd = {**dd, "products": {**dd["products"], "items": [
+    {**base, "product_id": hat, "price": "show", "featured": True, "badge": "offer", "marketing_name": "Summer Straw Hat"},
+    {**base, "product_id": bag, "hidden_action": "order"}]}}
+call("PUT", "/website/draft", {"config": dd}, **T2)
+pre = next(p for p in call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"] if p["id"] == hat)
+check("draft changes are not public before publishing", pre["name"] != "Summer Straw Hat")
+call("POST", "/website/publish", {}, **T2)
+items = {p["id"]: p for p in call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"]}
+check("per-product: price shown on one product while hidden website-wide", float(items[hat]["price"]) == 777 and items[hat]["name"] == "Summer Straw Hat")
+check("per-product: hidden price can still be ordered when allowed", items[bag]["price"] is None and items[bag]["action"] == "add_to_cart", items[bag])
+feat = call("GET", f"/site/products?slug={dk_slug}&section=featured", **PUB)["items"]
+check("featured section", [p["id"] for p in feat] == [hat])
+# Ordering through the website → existing orders engine
+wmobile = "07" + str(uuid.uuid4().int)[:8]
+call("POST", "/site/identify", {"slug": dk_slug, "mobile": wmobile}, **PUB)
+wsess = call("POST", "/site/session", {"slug": dk_slug, "mobile": wmobile, "first_name": "Wanjiru"}, **PUB)
+WC = {"token": wsess["token"], "branch": "none"}
+vis = "v" + uuid.uuid4().hex[:12]
+for kind, pid in [("visit", None), ("product_view", bag), ("product_view", bag), ("add_to_cart", bag), ("order_start", None)]:
+    call("POST", "/site/events", {"slug": dk_slug, "kind": kind, "visitor": vis, "product_id": pid}, **PUB)
+call("POST", "/site/events", {"slug": dk_slug, "kind": "order_complete", "visitor": vis}, **PUB, expect=400)
+check("visitors cannot fake completed orders", True)
+call("POST", "/site/orders", {"slug": dk_slug, "items": [{"product_id": bag, "quantity": 1}], "delivery_location": "Ngong Rd"}, **PUB, expect=401)
+check("ordering needs a customer session", True)
+wo = call("POST", "/site/orders", {"slug": dk_slug, "items": [{"product_id": bag, "quantity": 1}], "delivery_location": "Ngong Rd", "visitor": vis}, **WC)
+check("website order placed; hidden total not revealed", wo["order_no"].startswith("ORD-") and wo["total"] is None and wo["price_note"], wo)
+dk_items = call("GET", "/orders", **T2B)["items"]
+check("order lands in Orders with source website", any(o["id"] == wo["id"] and o.get("source") == "website" for o in dk_items),
+      [o.get("source") for o in dk_items[:3]])
+call("POST", "/site/orders", {"slug": dk_slug, "items": [{"product_id": str(uuid.uuid4()), "quantity": 1}], "delivery_location": "X"}, **WC, expect=400)
+check("unknown or unpublished products cannot be ordered", True)
+home_slug = call("GET", "/auth/me")["tenant"]["slug"]
+try:
+    call("POST", "/site/orders", {"slug": home_slug, "items": [{"product_id": bag, "quantity": 1}], "delivery_location": "X"}, **WC)
+    cross = False
+except AssertionError as e:
+    cross = any(f"→ {c}" in str(e) for c in (401, 404, 422))
+check("a customer session cannot order from another business's website", cross)
+# Analytics reconcile with orders
+an = call("GET", "/website/analytics?period=today", **T2)
+check("analytics: visitors, views, carts, starts, orders", an["visitors"] >= 1 and an["product_views"] >= 2 and an["add_to_carts"] >= 1
+      and an["order_starts"] >= 1 and an["orders"] >= 1 and an["conversion"] > 0, {k: an[k] for k in ("visitors", "product_views", "orders")})
+check("most viewed products", an["top_products"] and an["top_products"][0]["id"] == bag, an["top_products"][:1])
+call("GET", "/website/analytics?period=custom&from=2026-01-01&to=2025-01-01", **T2, expect=400)
+call("GET", "/website/analytics", **W, expect=403)
+check("analytics need their own permission", True)
+# Media library: quality checks, tenant isolation
+def wupload(kind, w, h, tok, expect=200, ref=None):
+    png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + w.to_bytes(4, "big") + h.to_bytes(4, "big") + b"\x08\x06\x00\x00\x00" + b"\x00" * 4000
+    boundary = "sshop" + uuid.uuid4().hex
+    parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="kind"\r\n\r\n{kind}\r\n'.encode()]
+    if ref:
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="upload_ref"\r\n\r\n{ref}\r\n'.encode())
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="m.png"\r\nContent-Type: image/png\r\n\r\n'.encode() + png + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    req = urllib.request.Request(BASE + "/api/website/media", data=b"".join(parts), method="POST")
+    req.add_header("Authorization", "Bearer " + tok)
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    try:
+        with urllib.request.urlopen(req) as r:
+            status, raw = r.status, r.read()
+    except urllib.error.HTTPError as e:
+        status, raw = e.code, e.read()
+    if status != expect:
+        raise AssertionError(f"media upload → {status} (expected {expect}): {raw[:200]}")
+    return json.loads(raw)
+good = wupload("product", 1000, 1000, t2["token"])
+check("✓ good image accepted", good["quality"] == "good", good)
+mref = str(uuid.uuid4())
+warn = wupload("banner", 600, 600, t2["token"], ref=mref)
+check("⚠ low-resolution / square banner accepted with warnings", warn["quality"] == "warning" and len(warn["warnings"]) >= 2, warn)
+check("retried upload stored once", wupload("banner", 600, 600, t2["token"], ref=mref)["id"] == warn["id"])
+check("✕ tiny image refused", "too small" in wupload("product", 120, 120, t2["token"], expect=422)["error"]["message"])
+dm = call("GET", "/website/media", **T2)["items"]
+check("media library lists the business's images", {good["id"], warn["id"]} <= {m["id"] for m in dm})
+call("PATCH", f"/website/media/{good['id']}", {"name": "Hacked"}, expect=404)
+check("another business cannot touch this media", True)
+dd = call("GET", "/website", **T2)["draft"]
+dd = {**dd, "hero": {**dd["hero"], "image": good["id"]}}
+call("PUT", "/website/draft", {"config": dd}, **T2)
+call("DELETE", f"/website/media/{good['id']}", **T2, expect=422)
+check("media in use cannot be deleted", True)
+foreign = {**dd, "hero": {**dd["hero"], "image": str(uuid.uuid4())}}
+call("PUT", "/website/draft", {"config": foreign}, **T2, expect=400)
+check("only the business's own media can be used", True)
+# Custom domain: guarded, unique, verification records
+dom = f"shop{suffix.lower()}.example.com"
+call("PUT", "/website/domain", {"domain": "x.up.railway.app"}, **T2, expect=400)
+call("PUT", "/website/domain", {"domain": "localhost"}, **T2, expect=400)
+check("platform and hosting domains refused", True)
+dv = call("PUT", "/website/domain", {"domain": f"https://{dom.upper()}/about"}, **T2)["domain"]
+check("domain saved, normalised, awaiting DNS with an ownership TXT record", dv["domain"] == dom and dv["status"] == "dns_required"
+      and dv["records"][0]["name"] == f"_sshop-verify.{dom}" and dv["records"][0]["value"].startswith("sshop-verify="), dv)
+check("same domain again keeps its token", call("PUT", "/website/domain", {"domain": dom}, **T2)["domain"]["records"][0]["value"] == dv["records"][0]["value"])
+call("PUT", "/website/domain", {"domain": dom}, **W, expect=403)
+check("connecting a domain needs website.domain", True)
+home_t = call("GET", "/auth/me")["tenant"]["id"]
+if call("GET", "/website")["status"] != "active":
+    call("POST", f"/platform/tenants/{home_t}/website", {"action": "activate"})
+r = call("PUT", "/website/domain", {"domain": dom}, expect=422)
+check("a domain belongs to one business only", "another business" in r["error"]["message"], r)
+req_h = urllib.request.Request(BASE + f"/api/site", method="GET")
+req_h.add_header("Host", dom)
+try:
+    urllib.request.urlopen(req_h)
+    unverified = False
+except urllib.error.HTTPError as e:
+    unverified = e.code in (400, 404)
+check("an unverified domain serves nothing", unverified)
+call("DELETE", "/website/domain", **T2)
+check("domain removed; website stays on its S'Shop address", call("GET", "/website/domain", **T2)["domain"] is None
+      and call("GET", "/website", **T2)["public_url"].endswith(f"/s/{dk_slug}"))
+# A product's hidden price stays hidden everywhere: website, ordering link, order history, tracking
+call("PUT", "/website/prices", {"show_prices": True}, **T2)
+hd = call("GET", "/website", **T2)["draft"]
+hd = {**hd, "products": {**hd["products"], "items": [{**x, "price": "hide"} if x["product_id"] == bag else x for x in hd["products"]["items"]]}}
+call("PUT", "/website/draft", {"config": hd}, **T2)
+call("POST", "/website/publish", {}, **T2)
+wi = {p["id"]: p for p in call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"]}
+check("website: hidden product has no price while others show theirs", wi[bag]["price"] is None and float(wi[hat]["price"]) == 777)
+pc = {p["id"]: p for p in call("GET", f"/portal/{dk_slug}/catalogue", **PUB)["products"]}
+check("ordering link: the same product shows no price", bag in pc and "price" not in pc[bag] and float(pc[hat]["price"]) == 777, pc.get(bag))
+check("ordering link product page: no price", "price" not in call("GET", f"/portal/{dk_slug}/products/{bag}", **PUB)["product"])
+tr = call("GET", f"/portal/track/{wo['track_token']}", **PUB)
+check("tracking an order with a hidden-price product shows no prices", "4321" not in json.dumps(tr) and tr["business"]["show_prices"] is False)
+mo = call("GET", f"/portal/{dk_slug}/orders", **WC)["orders"]
+check("order history: no prices for that order", "4321" not in json.dumps(mo), mo[:1])
+po = call("POST", f"/portal/{dk_slug}/orders", {"items": [{"product_id": bag, "quantity": 1}], "delivery_location": "Shop"}, **WC)
+check("ordering link confirmation: no total", "total" not in po, po)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

@@ -12,6 +12,7 @@ import {
   ClipboardList,
   CreditCard,
   FileBarChart,
+  Globe,
   KeyRound,
   Package,
   Plug,
@@ -39,7 +40,11 @@ import { BusinessDetail } from "./BusinessDetail";
 import { BillingSettings } from "./Billing";
 import { PlatformActivity } from "./PlatformActivity";
 import { PlatformBilling } from "./PlatformBilling";
+import { WebsiteSettings } from "./website/Website";
 import { t } from "@/lib/i18n";
+
+const WEBSITE_PERMS = ["website.view", "website.content", "website.products", "website.photos", "website.categories", "website.media", "website.services",
+  "website.testimonials", "website.design", "website.navigation", "website.seo", "website.domain", "website.preview", "website.publish", "website.analytics"];
 
 interface SectionDef {
   path: string;
@@ -67,6 +72,8 @@ const SECTIONS: SectionDef[] = [
   { path: "reports", label: "Reports", group: "Configuration", icon: FileBarChart, perm: "settings.reports", element: <ReportSettings /> },
   { path: "workflows", label: "Workflow engine", group: "Control", icon: ShieldCheck, perm: "settings.workflows", element: <WorkflowSettings /> },
   { path: "integrations", label: "M-Pesa & WhatsApp", group: "Control", icon: Plug, perm: "settings.integrations", element: <IntegrationsSettings /> },
+  // Website Add-On: integrations admins (request / overview) and anyone given a website permission.
+  { path: "website", label: "Website", group: "Control", icon: Globe, perm: "website", element: <WebsiteSettings /> },
   // Everyone: their own preferences.
   { path: "preferences", label: "User preferences", group: "Personal", icon: SlidersHorizontal, perm: "", element: <PreferencesSettings /> },
   // "platform": only platform administrators (PLATFORM_ADMIN_EMAILS) see this section.
@@ -79,7 +86,10 @@ const SECTIONS: SectionDef[] = [
 export default function Settings() {
   const { can, profile } = useSession();
   const { pathname } = useLocation();
-  const sections = SECTIONS.filter((s) => (s.perm === "platform" ? !!profile?.user.platform_admin : !s.perm || can(s.perm)));
+  const sections = SECTIONS.filter((s) =>
+    s.perm === "platform" ? !!profile?.user.platform_admin
+      : s.perm === "website" ? can("settings.integrations") || WEBSITE_PERMS.some((p) => can(p))
+        : !s.perm || can(s.perm));
   const groups = [...new Set(sections.map((s) => s.group))];
   const atIndex = /\/settings\/?$/.test(pathname);
 

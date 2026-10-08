@@ -20,6 +20,9 @@ export interface TenantRow {
   name: string;
   slug: string;
   is_demo: boolean;
+  website_status: string | null;
+  website_requested_at: string | null;
+  website_request_message: string | null;
   status: "active" | "deactivated";
   ownership: "customer" | "platform";
   billing_suspended: boolean;
@@ -92,6 +95,8 @@ export function BusinessesSettings() {
                 <div className="flex flex-wrap items-center gap-1.5 font-medium">
                   <span className="truncate">{b.name}</span>
                   {b.is_demo && <Pill tone="info">{t("Demo")}</Pill>}
+                  {b.website_status === "requested" && <Pill tone="warning">{t("Website requested")}</Pill>}
+                  {b.website_status === "active" && <Pill tone="primary">{t("Website")}</Pill>}
                   {b.id === tenants.data.home_tenant_id && <Pill>{t("Yours")}</Pill>}
                   {b.status !== "active" && <Pill tone="danger">{t("Deactivated")}</Pill>}
                   {!b.is_demo && b.billing.status !== "not_set" && <Pill tone={STATUS_TONE[b.billing.status]}>{t(STATUS_LABEL[b.billing.status])}</Pill>}

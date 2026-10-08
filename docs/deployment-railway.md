@@ -31,6 +31,7 @@ S'Shop runs as **one service** (built from the repository `Dockerfile`) plus **o
 | `MAIL_FROM` | Optional; sender, default `S'Shop <onboarding@resend.dev>` |
 | `BACKGROUND_JOBS` | Test runs only: `off` stops the scheduler (renewals, trial ends, suspension, reminders). **Never set it in production.** |
 | `PAYSTACK_SECRET_KEY` | Optional; enables *Pay now* on Settings → Billing ([module 21](modules/21-platform-billing.md)). Set the Paystack webhook URL to `{PUBLIC_URL}/api/webhooks/paystack` |
+| `RAILWAY_API_TOKEN` | Optional; lets S'Shop attach businesses' verified website domains to this service automatically ([module 23](modules/23-website.md#56--custom-domains)). An account or team token; Railway supplies the project, environment and service ids itself. Without it, the platform owner adds each verified domain in Railway and records its CNAME target on the business page. Railway plans limit custom domains per service (Pro: 20 by default). |
 | `PEXELS_API_KEY` | Optional; product photos for the demo business ([module 20](modules/20-platform-and-demo.md)) |
 | `ACCESS_REQUEST_NOTIFY_EMAILS` | Optional; who is emailed about requests (default: the platform admins) |
 

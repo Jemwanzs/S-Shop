@@ -4,6 +4,9 @@
 //! billing suspension. Used by the platform owner screens (routes/platform.rs), the business's own Billing page
 //! (routes/billing.rs), the session check (auth.rs), the Paystack webhook and the background jobs — one
 //! implementation for all of them.
+//!
+//! Billing has a **service** dimension (roadmap 51): `platform` (the S'Shop subscription / licence) and `website` (the
+//! Website Add-On) each have their own plan, documents, renewal, grace and suspension for the same business.
 
 use chrono::{DateTime, Months, NaiveDate, Utc};
 use rust_decimal::Decimal;
@@ -27,6 +30,13 @@ pub fn today() -> NaiveDate {
 }
 
 pub const FREQUENCIES: [&str; 5] = ["monthly", "quarterly", "semi_annual", "annual", "custom"];
+
+/// Billable services.
+pub const SERVICES: [&str; 2] = ["platform", "website"];
+
+pub fn service_label(service: &str) -> &'static str {
+    if service == "website" { "S'Shop Website" } else { "S'Shop" }
+}
 
 // ───────────────────────────── Modules (roadmap 41) ─────────────────────────────
 
@@ -110,7 +120,7 @@ impl AccessRow {
 pub async fn access(conn: &mut PgConnection, tenant_id: Uuid) -> AppResult<AccessRow> {
     Ok(sqlx::query_as(
         "SELECT t.ownership, t.billing_suspended, p.package, p.modules, p.access_mode, p.trial_end, p.trial_modules
-         FROM tenants t LEFT JOIN billing_plans p ON p.tenant_id = t.id WHERE t.id = $1",
+         FROM tenants t LEFT JOIN billing_plans p ON p.tenant_id = t.id AND p.service = 'platform' WHERE t.id = $1",
     )
     .bind(tenant_id)
     .fetch_one(&mut *conn)
@@ -138,6 +148,7 @@ pub fn period(start: NaiveDate, n: u32) -> (NaiveDate, NaiveDate) {
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct Plan {
     pub tenant_id: Uuid,
+    pub service: String,
     pub model: String,
     pub currency: String,
     pub one_off_amount: Decimal,
@@ -168,13 +179,19 @@ pub struct Plan {
     pub updated_at: DateTime<Utc>,
 }
 
-pub const PLAN_COLUMNS: &str = "tenant_id, model, currency, one_off_amount, one_off_paid_on, recurring, amount, frequency, custom_months,
+pub const PLAN_COLUMNS: &str = "tenant_id, service, model, currency, one_off_amount, one_off_paid_on, recurring, amount, frequency, custom_months,
     start_date, next_due_date, grace_days, grace_until, auto_renew, auto_suspend, package, modules, module_prices, discount_type,
     discount_value, tax_enabled, tax_rate, access_mode, trial_start, trial_end, trial_modules, notes, updated_at";
 
+/// The platform plan of a business.
 pub async fn plan(conn: &mut PgConnection, tenant_id: Uuid) -> AppResult<Option<Plan>> {
-    Ok(sqlx::query_as(&format!("SELECT {PLAN_COLUMNS} FROM billing_plans WHERE tenant_id = $1"))
+    plan_of(conn, tenant_id, "platform").await
+}
+
+pub async fn plan_of(conn: &mut PgConnection, tenant_id: Uuid, service: &str) -> AppResult<Option<Plan>> {
+    Ok(sqlx::query_as(&format!("SELECT {PLAN_COLUMNS} FROM billing_plans WHERE tenant_id = $1 AND service = $2"))
         .bind(tenant_id)
+        .bind(service)
         .fetch_optional(&mut *conn)
         .await?)
 }
@@ -222,6 +239,7 @@ pub fn plain(amount: Decimal) -> Price {
 /// Billing page and the session.
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct Summary {
+    pub service: String,
     /// platform_owned | not_set | free | trial | suspended | active | one_off_paid | payment_due | maintenance_due |
     /// grace | overdue
     pub status: String,
@@ -260,57 +278,80 @@ pub struct Summary {
 }
 
 /// SQL predicate: an open invoice `d` of plan `p` is overdue on `$today` (past due + grace days and any extension).
-pub const OVERDUE_SQL: &str = "(d.kind = 'invoice' AND d.status = 'open' AND d.due_date + COALESCE(p.grace_days, 0) < $2
-     AND (p.grace_until IS NULL OR p.grace_until < $2))";
+pub const OVERDUE_SQL: &str = "(d.kind = 'invoice' AND d.status = 'open' AND d.service = p.service
+     AND d.due_date + COALESCE(p.grace_days, 0) < $2 AND (p.grace_until IS NULL OR p.grace_until < $2))";
 
+/// The platform billing position of a business.
 pub async fn summary(conn: &mut PgConnection, tenant_id: Uuid) -> AppResult<Summary> {
-    let (ownership, suspended): (String, bool) = sqlx::query_as("SELECT ownership, billing_suspended FROM tenants WHERE id = $1")
+    summary_of(conn, tenant_id, "platform").await
+}
+
+pub async fn summary_of(conn: &mut PgConnection, tenant_id: Uuid, service: &str) -> AppResult<Summary> {
+    let (ownership, platform_suspended): (String, bool) = sqlx::query_as("SELECT ownership, billing_suspended FROM tenants WHERE id = $1")
         .bind(tenant_id)
         .fetch_one(&mut *conn)
         .await?;
+    let suspended = if service == "website" {
+        sqlx::query_scalar::<_, bool>("SELECT billing_suspended FROM websites WHERE tenant_id = $1").bind(tenant_id).fetch_optional(&mut *conn).await?.unwrap_or(false)
+    } else {
+        platform_suspended
+    };
     let (outstanding, open, oldest): (Option<Decimal>, i64, Option<NaiveDate>) = sqlx::query_as(
-        "SELECT SUM(amount), COUNT(*), MIN(due_date) FROM billing_documents WHERE tenant_id = $1 AND kind = 'invoice' AND status = 'open'",
+        "SELECT SUM(amount), COUNT(*), MIN(due_date) FROM billing_documents WHERE tenant_id = $1 AND service = $2 AND kind = 'invoice' AND status = 'open'",
     )
     .bind(tenant_id)
+    .bind(service)
     .fetch_one(&mut *conn)
     .await?;
-    let base = Summary { ownership: ownership.clone(), suspended, currency: "KES".into(), outstanding: outstanding.unwrap_or_default(), open_invoices: open, ..Default::default() };
+    let base = Summary {
+        service: service.into(), ownership: ownership.clone(), suspended, currency: "KES".into(),
+        outstanding: outstanding.unwrap_or_default(), open_invoices: open, ..Default::default()
+    };
     if ownership == "platform" {
         return Ok(Summary { status: "platform_owned".into(), suspended: false, ..base });
     }
-    let Some(p) = plan(conn, tenant_id).await? else {
+    let Some(p) = plan_of(conn, tenant_id, service).await? else {
         return Ok(Summary { status: if suspended { "suspended" } else { "not_set" }.into(), ..base });
     };
     let last: Option<(DateTime<Utc>, Decimal)> = sqlx::query_as(
-        "SELECT paid_at, amount FROM billing_payments WHERE tenant_id = $1 AND status = 'success' ORDER BY paid_at DESC LIMIT 1",
+        "SELECT b.paid_at, b.amount FROM billing_payments b JOIN billing_documents d ON d.id = b.invoice_id
+         WHERE b.tenant_id = $1 AND d.service = $2 AND b.status = 'success' ORDER BY b.paid_at DESC LIMIT 1",
     )
     .bind(tenant_id)
+    .bind(service)
     .fetch_optional(&mut *conn)
     .await?;
-    let paid_total: Option<Decimal> = sqlx::query_scalar("SELECT SUM(amount) FROM billing_payments WHERE tenant_id = $1 AND status = 'success'")
-        .bind(tenant_id)
-        .fetch_one(&mut *conn)
-        .await?;
+    let paid_total: Option<Decimal> = sqlx::query_scalar(
+        "SELECT SUM(b.amount) FROM billing_payments b JOIN billing_documents d ON d.id = b.invoice_id
+         WHERE b.tenant_id = $1 AND d.service = $2 AND b.status = 'success'",
+    )
+    .bind(tenant_id)
+    .bind(service)
+    .fetch_one(&mut *conn)
+    .await?;
     let covered: Option<(NaiveDate, NaiveDate)> = sqlx::query_as(
         "SELECT period_start, period_end FROM billing_documents
-         WHERE tenant_id = $1 AND kind = 'invoice' AND status = 'paid' AND category = $2 AND period_end IS NOT NULL
+         WHERE tenant_id = $1 AND service = $3 AND kind = 'invoice' AND status = 'paid' AND category = $2 AND period_end IS NOT NULL
          ORDER BY period_end DESC LIMIT 1",
     )
     .bind(tenant_id)
     .bind(recurring_category(&p))
+    .bind(service)
     .fetch_optional(&mut *conn)
     .await?;
     let oldest_category: Option<String> = sqlx::query_scalar(
-        "SELECT category FROM billing_documents WHERE tenant_id = $1 AND kind = 'invoice' AND status = 'open' ORDER BY due_date LIMIT 1",
+        "SELECT category FROM billing_documents WHERE tenant_id = $1 AND service = $2 AND kind = 'invoice' AND status = 'open' ORDER BY due_date LIMIT 1",
     )
     .bind(tenant_id)
+    .bind(service)
     .fetch_optional(&mut *conn)
     .await?;
     let one_off_status = if p.model == "one_off" {
         let paid: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM billing_documents WHERE tenant_id = $1 AND kind = 'invoice' AND category = 'one_off' AND status = 'paid')",
+            "SELECT EXISTS (SELECT 1 FROM billing_documents WHERE tenant_id = $1 AND service = $2 AND kind = 'invoice' AND category = 'one_off' AND status = 'paid')",
         )
         .bind(tenant_id)
+        .bind(service)
         .fetch_one(&mut *conn)
         .await?;
         Some(if paid || p.one_off_paid_on.is_some() { "paid" } else { "pending" }.to_string())
@@ -408,6 +449,7 @@ pub async fn next_number(conn: &mut PgConnection, kind: &str) -> AppResult<Strin
 
 pub struct NewDocument<'a> {
     pub tenant_id: Uuid,
+    pub service: &'a str,
     pub kind: &'a str,
     pub category: &'a str,
     pub description: String,
@@ -431,8 +473,8 @@ pub async fn insert_document(conn: &mut PgConnection, d: NewDocument<'_>) -> App
     let number = next_number(conn, d.kind).await?;
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO billing_documents (tenant_id, kind, number, category, description, amount, currency, issue_date, due_date,
-                                        period_start, period_end, quotation_id, created_by, subtotal, discount, tax_rate, tax)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id",
+                                        period_start, period_end, quotation_id, created_by, subtotal, discount, tax_rate, tax, service)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id",
     )
     .bind(d.tenant_id)
     .bind(d.kind)
@@ -451,6 +493,7 @@ pub async fn insert_document(conn: &mut PgConnection, d: NewDocument<'_>) -> App
     .bind(d.price.discount)
     .bind(d.price.tax_rate)
     .bind(d.price.tax)
+    .bind(d.service)
     .fetch_one(&mut *conn)
     .await
     .map_err(|e| match &e {
@@ -491,12 +534,18 @@ pub async fn issue_next_period(conn: &mut PgConnection, p: &Plan, created_by: Op
     }
     let start = p.next_due_date.ok_or_else(|| rule("Set the next due date first"))?;
     let (start, end) = period(start, months(&p.frequency, p.custom_months));
-    let what = if p.model == "subscription" { format!("S'Shop subscription ({})", package_label(p)) } else { "S'Shop maintenance".to_string() };
+    let what = match (p.service.as_str(), p.model.as_str()) {
+        ("website", "subscription") => "S'Shop Website subscription".to_string(),
+        ("website", _) => "S'Shop Website maintenance".to_string(),
+        (_, "subscription") => format!("S'Shop subscription ({})", package_label(p)),
+        _ => "S'Shop maintenance".to_string(),
+    };
     let issue = today().min(start);
     insert_document(
         conn,
         NewDocument {
             tenant_id: p.tenant_id,
+            service: &p.service,
             kind: "invoice",
             category: recurring_category(p),
             description: format!("{what} — {} ({} – {})", frequency_label(&p.frequency, p.custom_months), start.format("%d %b %Y"), end.format("%d %b %Y")),
@@ -519,31 +568,48 @@ pub async fn issue_next_period(conn: &mut PgConnection, p: &Plan, created_by: Op
 /// grace period and any extension. Lifted as soon as that is no longer true (paid, voided, grace extended,
 /// switched to free …). Audited when it changes.
 pub async fn refresh_suspension(conn: &mut PgConnection, tenant_id: Uuid, actor: Option<Uuid>) -> AppResult<bool> {
+    let platform = refresh_suspension_of(conn, tenant_id, "platform", actor).await?;
+    refresh_suspension_of(conn, tenant_id, "website", actor).await?;
+    Ok(platform)
+}
+
+/// Suspension of one service: the platform suspends the business's S'Shop access, the website only takes the public
+/// website offline ("temporarily unavailable") — POS and operations carry on.
+pub async fn refresh_suspension_of(conn: &mut PgConnection, tenant_id: Uuid, service: &str, actor: Option<Uuid>) -> AppResult<bool> {
     let should: bool = sqlx::query_scalar(&format!(
         "SELECT t.ownership = 'customer' AND COALESCE(p.auto_suspend, false) AND p.access_mode = 'billed'
                 AND EXISTS (SELECT 1 FROM billing_documents d WHERE d.tenant_id = t.id AND {OVERDUE_SQL})
-         FROM tenants t LEFT JOIN billing_plans p ON p.tenant_id = t.id WHERE t.id = $1"
+         FROM tenants t LEFT JOIN billing_plans p ON p.tenant_id = t.id AND p.service = $3 WHERE t.id = $1"
     ))
     .bind(tenant_id)
     .bind(today())
+    .bind(service)
     .fetch_optional(&mut *conn)
     .await?
     .unwrap_or(false);
-    let changed: Option<bool> = sqlx::query_scalar(
-        "UPDATE tenants SET billing_suspended = $2 WHERE id = $1 AND billing_suspended <> $2 AND ownership = 'customer' RETURNING billing_suspended",
-    )
-    .bind(tenant_id)
-    .bind(should)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let changed: Option<bool> = if service == "website" {
+        sqlx::query_scalar("UPDATE websites SET billing_suspended = $2 WHERE tenant_id = $1 AND billing_suspended <> $2 RETURNING billing_suspended")
+            .bind(tenant_id)
+            .bind(should)
+            .fetch_optional(&mut *conn)
+            .await?
+    } else {
+        sqlx::query_scalar(
+            "UPDATE tenants SET billing_suspended = $2 WHERE id = $1 AND billing_suspended <> $2 AND ownership = 'customer' RETURNING billing_suspended",
+        )
+        .bind(tenant_id)
+        .bind(should)
+        .fetch_optional(&mut *conn)
+        .await?
+    };
     if let Some(now) = changed {
         audit::system(
             conn,
             tenant_id,
             actor,
             Entry::new("billing", if now { "billing_suspended" } else { "billing_restored" }, "tenant", tenant_id)
-                .before(json!({ "billing_suspended": !now }))
-                .after(json!({ "billing_suspended": now })),
+                .before(json!({ "service": service, "billing_suspended": !now }))
+                .after(json!({ "service": service, "billing_suspended": now })),
             "",
             "",
         )
@@ -589,8 +655,8 @@ pub async fn settle(
     if !matches!(p.status.as_str(), "pending" | "abandoned") {
         return Ok(None);
     }
-    let (inv_status, inv_number, category, period_end): (String, String, String, Option<NaiveDate>) = sqlx::query_as(
-        "SELECT status, number, category, period_end FROM billing_documents WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+    let (inv_status, inv_number, category, period_end, service): (String, String, String, Option<NaiveDate>, String) = sqlx::query_as(
+        "SELECT status, number, category, period_end, service FROM billing_documents WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
     )
     .bind(p.invoice_id)
     .bind(p.tenant_id)
@@ -619,10 +685,12 @@ pub async fn settle(
         if matches!(category.as_str(), "subscription" | "maintenance") {
             if let Some(end) = period_end {
                 sqlx::query(
-                    "UPDATE billing_plans SET next_due_date = GREATEST(COALESCE(next_due_date, $2), $2), updated_at = now() WHERE tenant_id = $1",
+                    "UPDATE billing_plans SET next_due_date = GREATEST(COALESCE(next_due_date, $2), $2), updated_at = now()
+                     WHERE tenant_id = $1 AND service = $3",
                 )
                 .bind(p.tenant_id)
                 .bind(end.succ_opt().unwrap_or(end))
+                .bind(&service)
                 .execute(&mut *conn)
                 .await?;
             }
@@ -634,7 +702,7 @@ pub async fn settle(
         actor,
         Entry::new("billing", "payment_received", "billing_payment", payment_id).after(json!({
             "invoice": inv_number, "amount": p.amount, "currency": p.currency, "method": p.method, "reference": p.reference,
-            "receipt": receipt, "note": note,
+            "receipt": receipt, "note": note, "service": service,
         })),
         ip,
         "",
@@ -710,30 +778,33 @@ pub async fn verify_paystack(state: &crate::state::AppState, payment_id: Uuid) -
 /// invoices, and reconciliation of Paystack payments left pending (closed browser, missed webhook).
 pub async fn run_jobs(state: &crate::state::AppState) -> anyhow::Result<()> {
     let today = today();
-    let ended: Vec<(Uuid, NaiveDate)> = sqlx::query_as(
-        "SELECT p.tenant_id, p.trial_end FROM billing_plans p JOIN tenants t ON t.id = p.tenant_id
+    let ended: Vec<(Uuid, String, NaiveDate)> = sqlx::query_as(
+        "SELECT p.tenant_id, p.service, p.trial_end FROM billing_plans p JOIN tenants t ON t.id = p.tenant_id
          WHERE p.access_mode = 'trial' AND p.trial_end < $1 AND t.ownership = 'customer'",
     )
     .bind(today)
     .fetch_all(&state.db)
     .await?;
-    for (tenant_id, end) in ended {
+    for (tenant_id, service, end) in ended {
         let mut tx = state.db.begin().await?;
         let first_due = end.succ_opt().unwrap_or(end);
         sqlx::query(
             "UPDATE billing_plans SET access_mode = 'billed', updated_at = now(),
                     next_due_date = CASE WHEN recurring THEN GREATEST(COALESCE(next_due_date, $2), $2) ELSE next_due_date END
-             WHERE tenant_id = $1 AND access_mode = 'trial'",
+             WHERE tenant_id = $1 AND service = $3 AND access_mode = 'trial'",
         )
         .bind(tenant_id)
         .bind(first_due)
+        .bind(&service)
         .execute(&mut *tx)
         .await?;
         audit::system(
             &mut tx,
             tenant_id,
             None,
-            Entry::new("billing", "trial_ended", "tenant", tenant_id).before(json!({ "access_mode": "trial", "trial_end": end })).after(json!({ "access_mode": "billed", "first_due": first_due })),
+            Entry::new("billing", "trial_ended", "tenant", tenant_id)
+                .before(json!({ "service": service, "access_mode": "trial", "trial_end": end }))
+                .after(json!({ "service": service, "access_mode": "billed", "first_due": first_due })),
             "",
             "",
         )
@@ -743,20 +814,20 @@ pub async fn run_jobs(state: &crate::state::AppState) -> anyhow::Result<()> {
     }
 
     let soon = today + chrono::Duration::days(DUE_SOON_DAYS);
-    let due: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT p.tenant_id FROM billing_plans p JOIN tenants t ON t.id = p.tenant_id
+    let due: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT p.tenant_id, p.service FROM billing_plans p JOIN tenants t ON t.id = p.tenant_id
          WHERE p.recurring AND p.auto_renew AND p.access_mode = 'billed' AND t.status = 'active' AND t.ownership = 'customer'
            AND p.next_due_date <= $1
-           AND NOT EXISTS (SELECT 1 FROM billing_documents d WHERE d.tenant_id = p.tenant_id AND d.kind = 'invoice'
+           AND NOT EXISTS (SELECT 1 FROM billing_documents d WHERE d.tenant_id = p.tenant_id AND d.service = p.service AND d.kind = 'invoice'
                            AND d.status <> 'void' AND d.period_start = p.next_due_date
                            AND d.category = CASE WHEN p.model = 'subscription' THEN 'subscription' ELSE 'maintenance' END)",
     )
     .bind(soon)
     .fetch_all(&state.db)
     .await?;
-    for tenant_id in due {
+    for (tenant_id, service) in due {
         let mut tx = state.db.begin().await?;
-        let Some(p) = plan(&mut tx, tenant_id).await? else { continue };
+        let Some(p) = plan_of(&mut tx, tenant_id, &service).await? else { continue };
         match issue_next_period(&mut tx, &p, None).await {
             Ok((id, number)) => {
                 audit::system(&mut tx, tenant_id, None, Entry::new("billing", "invoice_issued", "billing_document", id).after(json!({ "number": number, "price": price(&p, p.amount), "auto": true })), "", "").await?;
@@ -768,8 +839,8 @@ pub async fn run_jobs(state: &crate::state::AppState) -> anyhow::Result<()> {
     }
 
     let tenants: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT t.id FROM tenants t LEFT JOIN billing_plans p ON p.tenant_id = t.id
-         WHERE t.ownership = 'customer' AND (t.billing_suspended OR COALESCE(p.auto_suspend, false))",
+        "SELECT DISTINCT t.id FROM tenants t LEFT JOIN billing_plans p ON p.tenant_id = t.id LEFT JOIN websites w ON w.tenant_id = t.id
+         WHERE t.ownership = 'customer' AND (t.billing_suspended OR COALESCE(w.billing_suspended, false) OR COALESCE(p.auto_suspend, false))",
     )
     .fetch_all(&state.db)
     .await?;

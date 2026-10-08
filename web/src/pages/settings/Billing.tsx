@@ -36,6 +36,8 @@ interface MyBilling {
   vendor: VendorPublic;
   paystack: boolean;
   catalogue: ModuleDef[];
+  /** The Website Add-On, billed as its own service (roadmap 51). */
+  website: { plan: BillingPlan | null; summary: BillingSummary } | null;
 }
 
 /** Settings → Billing: the business's own plan, invoices, receipts and *Pay now* (roadmap 39). */
@@ -151,6 +153,25 @@ export function BillingSettings() {
         </Card>
       )}
 
+      {d?.website && d.website.summary.status !== "not_set" && (() => {
+        const w = d.website.summary;
+        return (
+          <Card title="Website" action={<Pill tone={STATUS_TONE[w.status]}>{t(STATUS_LABEL[w.status])}</Pill>}>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 py-2 sm:grid-cols-3">
+              <Fact label={t("Billing model")}>{t(w.model === "one_off" ? "One-off" : "Subscription")}</Fact>
+              {w.model === "one_off" && <Fact label={t("One-off payment")}>{t(w.one_off_status === "paid" ? "Paid" : "Pending")}</Fact>}
+              {w.next_due && <Fact label={t(w.model === "one_off" ? "Next maintenance due" : "Next payment due")}>{date(w.next_due)}</Fact>}
+              <Fact label={t("Outstanding")}><span className={Number(w.outstanding) > 0 ? "font-semibold text-destructive" : ""}>{moneyDoc(w.outstanding, w.currency)}</span></Fact>
+            </div>
+            {w.status === "suspended" && <p className="rounded-lg bg-destructive/10 p-2.5 text-sm text-destructive">{t("Your website shows “temporarily unavailable” until its invoice is paid. Everything else keeps working.")}</p>}
+            <div className="grid gap-3 py-2 sm:grid-cols-2">
+              {w.one_off_price && w.one_off_status !== "paid" && <PriceLines price={w.one_off_price} currency={w.currency} label="One-off payable" />}
+              {w.recurring_price && <PriceLines price={w.recurring_price} currency={w.currency} label={w.model === "one_off" ? "Maintenance payable" : "Payable per period"} />}
+            </div>
+          </Card>
+        );
+      })()}
+
       {open.length > 0 && (
         <Card title="To pay">
           {open.map((x) => (
@@ -160,6 +181,7 @@ export function BillingSettings() {
                 <div className="flex items-center gap-1.5 font-medium">
                   <span className="num">{x.number}</span>
                   {x.overdue ? <Pill tone="danger">{t("Overdue")}</Pill> : <Pill tone="warning">{t("Due")} {date(x.due_date)}</Pill>}
+                  {(x as BillingDocument & { service?: string }).service === "website" && <Pill tone="info">{t("Website")}</Pill>}
                 </div>
                 <p className="truncate text-xs text-muted-foreground">{x.description}</p>
               </div>

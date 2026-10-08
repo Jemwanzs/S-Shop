@@ -48,6 +48,8 @@ pub fn routes() -> Router<AppState> {
 #[derive(Serialize, sqlx::FromRow)]
 pub struct DocumentRow {
     id: Uuid,
+    /// platform | website
+    service: String,
     kind: String,
     number: String,
     category: String,
@@ -89,12 +91,12 @@ pub struct PaymentRow {
     created_at: DateTime<Utc>,
 }
 
-const DOCUMENTS: &str = "SELECT d.id, d.kind, d.number, d.category, d.description, d.amount, d.currency, d.issue_date, d.due_date,
+const DOCUMENTS: &str = "SELECT d.id, d.service, d.kind, d.number, d.category, d.description, d.amount, d.currency, d.issue_date, d.due_date,
         d.period_start, d.period_end, d.status, d.quotation_id, d.paid_at, d.void_reason, d.created_at,
         d.subtotal, d.discount, d.tax_rate, d.tax,
         (d.kind = 'invoice' AND d.status = 'open' AND d.due_date + COALESCE(p.grace_days, 0) < $2
          AND (p.grace_until IS NULL OR p.grace_until < $2)) AS overdue
- FROM billing_documents d LEFT JOIN billing_plans p ON p.tenant_id = d.tenant_id WHERE d.tenant_id = $1";
+ FROM billing_documents d LEFT JOIN billing_plans p ON p.tenant_id = d.tenant_id AND p.service = d.service WHERE d.tenant_id = $1";
 
 const PAYMENTS: &str = "SELECT b.id, b.invoice_id, d.number AS invoice_number, b.amount, b.currency, b.method, b.reference, b.status, b.channel,
         b.receipt_no, b.paid_at, b.note, b.created_at
@@ -165,6 +167,7 @@ async fn my_billing(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<V
     let mut conn = state.db.acquire().await?;
     let summary = billing::summary(&mut conn, ctx.tenant_id).await?;
     let plan = billing::plan(&mut conn, ctx.tenant_id).await?;
+    let website = website_billing(&mut conn, ctx.tenant_id).await?;
     drop(conn);
     Ok(Json(json!({
         "summary": summary,
@@ -174,7 +177,22 @@ async fn my_billing(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<V
         "vendor": vendor_public(&vendor(&state).await?),
         "paystack": state.cfg.paystack.is_some(),
         "catalogue": billing::modules_catalogue(),
+        "website": website,
     })))
+}
+
+/// The Website Add-On's billing position (None when the business has no website service and no website plan).
+async fn website_billing(conn: &mut sqlx::PgConnection, tenant_id: Uuid) -> AppResult<Option<Value>> {
+    let has_site: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM websites WHERE tenant_id = $1 AND status IN ('active', 'disabled'))")
+        .bind(tenant_id)
+        .fetch_one(&mut *conn)
+        .await?;
+    let plan = billing::plan_of(conn, tenant_id, "website").await?;
+    if !has_site && plan.is_none() {
+        return Ok(None);
+    }
+    let summary = billing::summary_of(conn, tenant_id, "website").await?;
+    Ok(Some(json!({ "summary": summary, "plan": plan.as_ref().map(plan_public) })))
 }
 
 /// One quotation / invoice with its payments and both parties' details, for viewing and the downloadable PDF
@@ -306,24 +324,30 @@ async fn accept_quotation(State(state): State<AppState>, ctx: Ctx, Path(id): Pat
 
 async fn quotation_to_invoice(tx: &mut sqlx::PgConnection, tenant_id: Uuid, id: Uuid, by: Option<Uuid>) -> AppResult<(Uuid, String)> {
     #[allow(clippy::type_complexity)]
-    let q: Option<(String, String, String, Decimal, String, Option<NaiveDate>, Option<NaiveDate>, Decimal, Decimal, Decimal, Decimal)> = sqlx::query_as(
-        "SELECT status, category, description, amount, currency, period_start, period_end, subtotal, discount, tax_rate, tax
+    let q: Option<(String, String, String, Decimal, String, Option<NaiveDate>, Option<NaiveDate>, Decimal, Decimal, Decimal, Decimal, String)> = sqlx::query_as(
+        "SELECT status, category, description, amount, currency, period_start, period_end, subtotal, discount, tax_rate, tax, service
          FROM billing_documents WHERE id = $1 AND tenant_id = $2 AND kind = 'quotation' FOR UPDATE",
     )
     .bind(id)
     .bind(tenant_id)
     .fetch_optional(&mut *tx)
     .await?;
-    let (status, category, description, amount, currency, ps, pe, subtotal, discount, tax_rate, tax) = q.ok_or(AppError::NotFound("Quotation"))?;
+    let (status, category, description, amount, currency, ps, pe, subtotal, discount, tax_rate, tax, service) = q.ok_or(AppError::NotFound("Quotation"))?;
     if status != "open" {
         return Err(rule(format!("This quotation is already {status}")));
     }
     let today = billing::today();
-    let grace: i32 = sqlx::query_scalar("SELECT grace_days FROM billing_plans WHERE tenant_id = $1").bind(tenant_id).fetch_optional(&mut *tx).await?.unwrap_or(7);
+    let grace: i32 = sqlx::query_scalar("SELECT grace_days FROM billing_plans WHERE tenant_id = $1 AND service = $2")
+        .bind(tenant_id)
+        .bind(&service)
+        .fetch_optional(&mut *tx)
+        .await?
+        .unwrap_or(7);
     let created = billing::insert_document(
         tx,
         billing::NewDocument {
             tenant_id,
+            service: &service,
             kind: "invoice",
             category: &category,
             description,
@@ -349,9 +373,12 @@ pub async fn platform_view(state: &AppState, tenant_id: Uuid) -> AppResult<Value
     let mut conn = state.db.acquire().await?;
     let plan = billing::plan(&mut conn, tenant_id).await?;
     let summary = billing::summary(&mut conn, tenant_id).await?;
+    let website_plan = billing::plan_of(&mut conn, tenant_id, "website").await?;
+    let website_summary = billing::summary_of(&mut conn, tenant_id, "website").await?;
     drop(conn);
     Ok(json!({
         "plan": plan, "summary": summary,
+        "website": { "plan": website_plan, "summary": website_summary },
         "documents": documents(state, tenant_id).await?,
         "payments": payments(state, tenant_id, true).await?,
         "paystack": state.cfg.paystack.is_some(),
@@ -369,11 +396,12 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Va
     let month_start = today.with_day(1).unwrap_or(today);
     let year_start = NaiveDate::from_ymd_opt(today.year(), 1, 1).unwrap_or(today);
     let revenue: Vec<(String, Decimal, Decimal, Decimal)> = sqlx::query_as(
-        "SELECT d.category,
+        "SELECT CASE WHEN d.service = 'website' THEN 'website' ELSE d.category END,
                 COALESCE(SUM(b.amount) FILTER (WHERE b.paid_at >= $1), 0),
                 COALESCE(SUM(b.amount) FILTER (WHERE b.paid_at >= $2), 0),
                 COALESCE(SUM(b.amount), 0)
-         FROM billing_payments b JOIN billing_documents d ON d.id = b.invoice_id WHERE b.status = 'success' GROUP BY d.category",
+         FROM billing_payments b JOIN billing_documents d ON d.id = b.invoice_id WHERE b.status = 'success'
+         GROUP BY CASE WHEN d.service = 'website' THEN 'website' ELSE d.category END",
     )
     .bind(month_start.and_hms_opt(0, 0, 0).map(|d| d.and_utc()))
     .bind(year_start.and_hms_opt(0, 0, 0).map(|d| d.and_utc()))
@@ -424,6 +452,7 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Va
             "one_off": { "month": by("one_off", 0), "year": by("one_off", 1), "all": by("one_off", 2) },
             "maintenance": { "month": by("maintenance", 0), "year": by("maintenance", 1), "all": by("maintenance", 2) },
             "other": { "month": by("other", 0), "year": by("other", 1), "all": by("other", 2) },
+            "website": { "month": by("website", 0), "year": by("website", 1), "all": by("website", 2) },
             "monthly_recurring": monthly_recurring.map(crate::util::round2).unwrap_or_default(),
         },
         "outstanding": rows.iter().map(|r| r.billing.outstanding).sum::<Decimal>(),
@@ -480,6 +509,9 @@ async fn vendor_put(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Vendo
 
 #[derive(Deserialize)]
 struct PlanBody {
+    /// platform (default) | website
+    #[serde(default)]
+    service: Option<String>,
     model: String,
     #[serde(default)]
     currency: Option<String>,
@@ -571,6 +603,7 @@ fn plan_changes(before: &Option<billing::Plan>, after: &Option<billing::Plan>) -
 /// (roadmap 37, 41–43). Every change is audited with the previous and new value of each field.
 async fn save_plan(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<PlanBody>) -> AppResult<Json<Value>> {
     require_platform_admin(&state, &ctx).await?;
+    let service = service_of(&b.service)?;
     if !matches!(b.model.as_str(), "subscription" | "one_off") {
         return Err(bad("Billing model must be Subscription or One-off"));
     }
@@ -579,7 +612,8 @@ async fn save_plan(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>
         return Err(bad("Access must be billed, free or trial"));
     }
     let free = access_mode == "free";
-    let package = b.package.clone().unwrap_or_else(|| "full".into());
+    // Modules are a platform matter: the website service is always the whole website.
+    let package = if service == "website" { "full".to_string() } else { b.package.clone().unwrap_or_else(|| "full".into()) };
     if !matches!(package.as_str(), "full" | "modules") {
         return Err(bad("Package must be the full platform or selected modules"));
     }
@@ -676,14 +710,14 @@ async fn save_plan(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>
     if ownership == "platform" {
         return Err(refused("Not billable", "Platform billing does not apply to the platform owner's business"));
     }
-    let before = billing::plan(&mut tx, id).await?;
+    let before = billing::plan_of(&mut tx, id, &service).await?;
     sqlx::query(
-        "INSERT INTO billing_plans (tenant_id, model, currency, one_off_amount, recurring, amount, frequency, custom_months, start_date,
+        "INSERT INTO billing_plans (service, tenant_id, model, currency, one_off_amount, recurring, amount, frequency, custom_months, start_date,
                                     next_due_date, grace_days, auto_renew, notes, updated_by, package, modules, module_prices,
                                     discount_type, discount_value, tax_enabled, tax_rate, access_mode, trial_start, trial_end,
                                     trial_modules, grace_until, auto_suspend, one_off_paid_on)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
-         ON CONFLICT (tenant_id) DO UPDATE SET model = EXCLUDED.model, currency = EXCLUDED.currency, one_off_amount = EXCLUDED.one_off_amount,
+         VALUES ($29,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+         ON CONFLICT (tenant_id, service) DO UPDATE SET model = EXCLUDED.model, currency = EXCLUDED.currency, one_off_amount = EXCLUDED.one_off_amount,
              recurring = EXCLUDED.recurring, amount = EXCLUDED.amount, frequency = EXCLUDED.frequency, custom_months = EXCLUDED.custom_months,
              start_date = EXCLUDED.start_date, next_due_date = EXCLUDED.next_due_date, grace_days = EXCLUDED.grace_days,
              auto_renew = EXCLUDED.auto_renew, notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = now(),
@@ -721,16 +755,17 @@ async fn save_plan(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>
     .bind(b.grace_until)
     .bind(b.auto_suspend)
     .bind(if b.model == "one_off" { b.one_off_paid_on } else { None })
+    .bind(&service)
     .execute(&mut *tx)
     .await?;
-    let after = billing::plan(&mut tx, id).await?;
+    let after = billing::plan_of(&mut tx, id, &service).await?;
     let changes = plan_changes(&before, &after);
     if changes.as_object().is_some_and(|c| !c.is_empty()) {
         let entry = json!({ "changes": changes, "plan": after });
         record_platform(&mut tx, &ctx, id, || Entry::new("billing", "plan_updated", "tenant", id).before(before.clone()).after(entry.clone())).await?;
     }
-    billing::refresh_suspension(&mut tx, id, Some(ctx.user_id)).await?;
-    let summary = billing::summary(&mut tx, id).await?;
+    billing::refresh_suspension_of(&mut tx, id, &service, Some(ctx.user_id)).await?;
+    let summary = billing::summary_of(&mut tx, id, &service).await?;
     // Recurring invoices issued under the previous plan that the new plan no longer charges: left as they are (they are
     // financial records) but reported so the owner can void them if they are no longer due.
     let still_charged = match (b.model.as_str(), recurring) {
@@ -739,11 +774,12 @@ async fn save_plan(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>
         _ => "",
     };
     let stale_invoices: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM billing_documents WHERE tenant_id = $1 AND kind = 'invoice' AND status = 'open'
+        "SELECT COUNT(*) FROM billing_documents WHERE tenant_id = $1 AND service = $3 AND kind = 'invoice' AND status = 'open'
            AND category IN ('subscription', 'maintenance') AND category <> $2",
     )
     .bind(id)
     .bind(still_charged)
+    .bind(&service)
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -760,6 +796,18 @@ struct DocumentBody {
     description: String,
     amount: Option<Decimal>,
     due_date: Option<NaiveDate>,
+    /// platform (default) | website
+    #[serde(default)]
+    service: Option<String>,
+}
+
+fn service_of(s: &Option<String>) -> AppResult<String> {
+    let s = s.clone().unwrap_or_else(|| "platform".into());
+    if billing::SERVICES.contains(&s.as_str()) {
+        Ok(s)
+    } else {
+        Err(bad("Unknown billing service"))
+    }
 }
 
 /// Issues a quotation or invoice to a business (roadmap 37).
@@ -768,8 +816,10 @@ async fn issue_document(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
     if !matches!(b.kind.as_str(), "quotation" | "invoice") {
         return Err(bad("Choose quotation or invoice"));
     }
+    let service = service_of(&b.service)?;
+    let svc: &str = &service;
     let mut tx = state.db.begin().await?;
-    let plan = billing::plan(&mut tx, id).await?;
+    let plan = billing::plan_of(&mut tx, id, svc).await?;
     let today = billing::today();
     let grace = plan.as_ref().map_or(7, |p| p.grace_days).max(1) as i64;
     let currency = plan.as_ref().map_or_else(|| "KES".to_string(), |p| p.currency.clone());
@@ -790,8 +840,8 @@ async fn issue_document(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
                 let start = p.next_due_date.ok_or_else(|| rule("This billing plan has no recurring fee"))?;
                 let period = billing::period(start, billing::months(&p.frequency, p.custom_months));
                 let (i, n) = billing::insert_document(&mut tx, billing::NewDocument {
-                    tenant_id: id, kind: "quotation", category: billing::recurring_category(p),
-                    description: format!("{} — {}", if p.model == "subscription" { "S'Shop subscription" } else { "S'Shop maintenance" }, billing::frequency_label(&p.frequency, p.custom_months)),
+                    tenant_id: id, service: svc, kind: "quotation", category: billing::recurring_category(p),
+                    description: format!("{} {} — {}", billing::service_label(svc), if p.model == "subscription" { "subscription" } else { "maintenance" }, billing::frequency_label(&p.frequency, p.custom_months)),
                     price: billing::price(p, p.amount), currency: currency.clone(), issue_date: today, due_date: due(b.due_date)?, period: Some(period), quotation_id: None, created_by: Some(ctx.user_id),
                 }).await?;
                 (i, n, billing::price(p, p.amount))
@@ -800,9 +850,9 @@ async fn issue_document(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
         "one_off" => {
             let p = plan.as_ref().filter(|p| p.model == "one_off").ok_or_else(|| rule("This business is not on the one-off model"))?;
             let price = billing::price(p, b.amount.unwrap_or(p.one_off_amount));
-            let description = if b.description.trim().is_empty() { "S'Shop one-off licence".to_string() } else { b.description.trim().chars().take(300).collect() };
+            let description = if b.description.trim().is_empty() { format!("{} one-off licence", billing::service_label(svc)) } else { b.description.trim().chars().take(300).collect() };
             let (i, n) = billing::insert_document(&mut tx, billing::NewDocument {
-                tenant_id: id, kind: if b.kind == "invoice" { "invoice" } else { "quotation" }, category: "one_off", description,
+                tenant_id: id, service: svc, kind: if b.kind == "invoice" { "invoice" } else { "quotation" }, category: "one_off", description,
                 price, currency: currency.clone(), issue_date: today, due_date: due(b.due_date)?, period: None, quotation_id: None, created_by: Some(ctx.user_id),
             }).await?;
             (i, n, price)
@@ -816,7 +866,7 @@ async fn issue_document(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
             // Ad-hoc charges follow the business's discount and tax settings.
             let price = plan.as_ref().map_or_else(|| billing::plain(amount), |p| billing::price(p, amount));
             let (i, n) = billing::insert_document(&mut tx, billing::NewDocument {
-                tenant_id: id, kind: if b.kind == "invoice" { "invoice" } else { "quotation" }, category: "other", description,
+                tenant_id: id, service: svc, kind: if b.kind == "invoice" { "invoice" } else { "quotation" }, category: "other", description,
                 price, currency: currency.clone(), issue_date: today, due_date: due(b.due_date)?, period: None, quotation_id: None, created_by: Some(ctx.user_id),
             }).await?;
             (i, n, price)
@@ -824,7 +874,7 @@ async fn issue_document(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
         _ => return Err(bad("Choose what to bill")),
     };
     let action = if b.kind == "invoice" { "invoice_issued" } else { "quotation_issued" };
-    let after = json!({ "number": number, "amount": amount.total, "price": amount, "category": b.category });
+    let after = json!({ "number": number, "amount": amount.total, "price": amount, "category": b.category, "service": svc });
     record_platform(&mut tx, &ctx, id, || Entry::new("billing", action, "billing_document", doc_id).after(after.clone())).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true, "id": doc_id, "number": number })))

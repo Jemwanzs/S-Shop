@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { ago, count, date, dateTime, moneyDoc, todayIso } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { PlatformWebsiteCard, type PlatformWebsiteInfo } from "./website/PlatformWebsite";
 import type { Profile } from "@/lib/types";
 import {
   billingPdf,
@@ -43,7 +44,9 @@ interface Detail {
   branches: { id: string; name: string; code: string; location: string; latitude: number | null; longitude: number | null; is_active: boolean }[];
   onboarding: { contact_name: string; email: string; phone: string; location: string; business_type: string; branches: number | null; message: string; created_at: string; decided_at: string | null; decided_by_name: string | null } | null;
   status_history: { created_at: string; by_name: string | null; action: string; after: { reason?: string; changes?: Record<string, unknown> } | null }[];
-  billing: { plan: (BillingPlan & { notes: string }) | null; summary: BillingSummary; documents: BillingDocument[]; payments: BillingPayment[]; paystack: boolean; catalogue: ModuleDef[] };
+  billing: { plan: (BillingPlan & { notes: string }) | null; summary: BillingSummary; documents: BillingDocument[]; payments: BillingPayment[]; paystack: boolean; catalogue: ModuleDef[];
+    website?: { plan: (BillingPlan & { notes: string }) | null; summary: BillingSummary } };
+  website: PlatformWebsiteInfo;
   is_home: boolean;
 }
 
@@ -264,6 +267,9 @@ export function BusinessDetail() {
         {d.billing.plan?.notes && <p className="py-2 text-xs text-muted-foreground">{d.billing.plan.notes}</p>}
       </Card>
 
+      <PlatformWebsiteCard tenantId={id} info={d.website} billing={d.billing.website} catalogue={d.billing.catalogue} owned={owned} onChanged={refresh}
+        PlanDialog={PlanDialog} IssueDialog={IssueDialog} />
+
       <Card title="Quotations & invoices">
         {d.billing.documents.length === 0 && <p className="py-2 text-sm text-muted-foreground">{t("Nothing issued yet.")}</p>}
         {d.billing.documents.map((x) => (
@@ -273,6 +279,7 @@ export function BusinessDetail() {
                 <span className="num">{x.number}</span>
                 <StatusBadge status={x.overdue ? "overdue" : x.status} />
                 <Pill>{t(CATEGORY_LABEL[x.category])}</Pill>
+                {(x as BillingDocument & { service?: string }).service === "website" && <Pill tone="info">{t("Website")}</Pill>}
               </div>
               <p className="truncate text-xs text-muted-foreground">
                 {x.description} · {t(x.kind === "quotation" ? "valid until" : "due")} {date(x.due_date)}{x.void_reason && ` · ${x.void_reason}`}
@@ -395,7 +402,7 @@ export function BusinessDetail() {
   );
 }
 
-function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId: string; plan: (BillingPlan & { notes: string }) | null; catalogue: ModuleDef[]; onClose: () => void; onSaved: () => void }) {
+export function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved, service = "platform" }: { tenantId: string; plan: (BillingPlan & { notes: string }) | null; catalogue: ModuleDef[]; onClose: () => void; onSaved: () => void; service?: "platform" | "website" }) {
   const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
   const [f, setF] = useState({
     model: plan?.model ?? "subscription",
@@ -440,7 +447,7 @@ function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId:
       api<{ changes: Record<string, unknown>; stale_invoices?: number }>(`/platform/tenants/${tenantId}/billing-plan`, {
         method: "PUT",
         body: {
-          model: f.model, access_mode: f.access_mode, package: f.package, modules: f.package === "modules" ? f.modules : [],
+          service, model: f.model, access_mode: f.access_mode, package: f.package, modules: f.package === "modules" ? f.modules : [],
           module_prices: Object.fromEntries(Object.entries(f.module_prices).filter(([k, v]) => v !== "" && f.modules.includes(k)).map(([k, v]) => [k, Number(v)])),
           currency: f.currency, one_off_amount: Number(f.one_off_amount || 0), one_off_paid_on: f.model === "one_off" && f.one_off_paid_on ? f.one_off_paid_on : null,
           maintenance: f.maintenance, amount: Number(f.amount || 0), frequency: f.frequency, custom_months: Number(f.custom_months || 1),
@@ -484,7 +491,7 @@ function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId:
       open
       wide
       onOpenChange={(o) => !o && onClose()}
-      title="Billing plan"
+      title={service === "website" ? "Website billing plan" : "Billing plan"}
       description="Tenant-specific package, price, discount, tax and access. Every change is recorded with its previous and new value."
       footer={<ActionButton online busy={save.isPending} busyLabel="Saving…" blockedBy={[plan && !isDirty(initial, f) && REASONS.nothingToSave]}
         onAction={() => save.mutateAsync()}>{t("Save plan")}</ActionButton>}
@@ -515,12 +522,12 @@ function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId:
                 <Field label="Trial end"><Input type="date" min={f.trial_start} value={f.trial_end} onChange={(e) => set("trial_end", e.target.value)} /></Field>
               </div>
               <p className="text-xs text-muted-foreground">{t("Modules during the trial (none ticked = the package's modules). After the trial ends the plan below applies and billing starts the next day.")}</p>
-              {moduleChecks("trial_modules", false)}
+              {service === "platform" && moduleChecks("trial_modules", false)}
             </div>
           )}
         </section>
 
-        <section className="space-y-3">
+        {service === "platform" && <section className="space-y-3">
           <p className="label-caps">{t("Package")}</p>
           <Field label="Package">
             <Select value={f.package} onChange={(v) => set("package", v as typeof f.package)}>
@@ -534,7 +541,7 @@ function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId:
               {moduleChecks("modules", f.model === "subscription")}
             </>
           )}
-        </section>
+        </section>}
 
         <section className="space-y-3">
           <p className="label-caps">{t("Pricing")}</p>
@@ -612,7 +619,7 @@ function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId:
   );
 }
 
-function IssueDialog({ tenantId, plan, onClose, onSaved }: { tenantId: string; plan: BillingPlan | null; onClose: () => void; onSaved: () => void }) {
+export function IssueDialog({ tenantId, plan, onClose, onSaved, service = "platform" }: { tenantId: string; plan: BillingPlan | null; onClose: () => void; onSaved: () => void; service?: "platform" | "website" }) {
   const [kind, setKind] = useState<"invoice" | "quotation">("invoice");
   const [category, setCategory] = useState(plan?.recurring ? "next_period" : plan?.model === "one_off" ? "one_off" : "other");
   const [amount, setAmount] = useState("");
@@ -621,7 +628,7 @@ function IssueDialog({ tenantId, plan, onClose, onSaved }: { tenantId: string; p
   const issue = useMutation({
     mutationFn: () =>
       api<{ number: string }>(`/platform/tenants/${tenantId}/billing-documents`, {
-        body: { kind, category, description, amount: amount ? Number(amount) : null, due_date: due || null },
+        body: { service, kind, category, description, amount: amount ? Number(amount) : null, due_date: due || null },
       }),
     onSuccess: (r) => {
       toast.success(`${t("Issued")} ${r.number}`);
@@ -634,7 +641,7 @@ function IssueDialog({ tenantId, plan, onClose, onSaved }: { tenantId: string; p
     <ResponsiveDialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title="Issue a quotation or invoice"
+      title={service === "website" ? "Issue a website quotation or invoice" : "Issue a quotation or invoice"}
       footer={<ActionButton online busy={issue.isPending} busyLabel="Issuing…"
         blockedBy={[category === "other" && !(Number(amount) > 0) && "Enter the amount", category === "other" && description.trim().length < 3 && "Add a description"]}
         onAction={() => issue.mutateAsync()}>{t("Issue")}</ActionButton>}

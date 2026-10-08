@@ -19,6 +19,8 @@ mod routes;
 mod settings;
 mod state;
 mod util;
+mod domains;
+mod website;
 mod workflow;
 
 use std::net::SocketAddr;
@@ -161,6 +163,8 @@ async fn serve() -> anyhow::Result<()> {
         .route("/healthz", axum::routing::get(healthz))
         .merge(assets)
         .fallback_service(spa)
+        // Business websites (custom domains, /s/{slug}) are answered before the S'Shop app (roadmap 53).
+        .layer(axum::middleware::from_fn_with_state(state.clone(), routes::site::host_pages))
         .with_state(state)
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http());

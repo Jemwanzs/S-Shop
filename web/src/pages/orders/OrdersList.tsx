@@ -1,3 +1,4 @@
+import { t } from "@/lib/i18n";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -70,7 +71,7 @@ export default function OrdersList() {
           { key: "no", header: "Order", cell: (r) => <span className="num font-medium">{r.order_no}</span> },
           { key: "customer", header: "Customer", cell: (r) => <div><div>{r.customer_name}</div><div className="truncate text-xs text-muted-foreground">{r.delivery_location}</div></div> },
           { key: "items", header: "Items", align: "right", cell: (r) => <span className="num">{count(r.item_count)}</span>, hideBelow: "lg" },
-          { key: "source", header: "Source", cell: (r) => <Pill>{r.source === "portal" ? "Online" : "Staff"}</Pill>, hideBelow: "xl" },
+          { key: "source", header: "Source", cell: (r) => <Pill>{t(r.source === "portal" ? "Online" : r.source === "website" ? "Website" : "Staff")}</Pill>, hideBelow: "xl" },
           { key: "branch", header: "Branch", cell: (r) => r.branch_name, hideBelow: "xl" },
           { key: "age", header: "Placed", cell: (r) => <span className="whitespace-nowrap text-muted-foreground">{ago(r.created_at)}</span> },
           { key: "status", header: "Status", cell: (r) => <div className="flex gap-1.5"><StatusBadge status={r.status} label={orderLabel(profile?.settings, r.status)} />{r.reserved && <Pill tone="info">reserved</Pill>}</div> },

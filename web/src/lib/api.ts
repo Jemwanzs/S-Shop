@@ -65,7 +65,7 @@ export function qs(query?: Query): string {
 }
 
 interface Options {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   query?: Query;
   /** Use a different bearer token (ordering portal) — `null` sends none. */

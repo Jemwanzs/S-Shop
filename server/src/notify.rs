@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::state::AppState;
 
+#[derive(Clone)]
 pub struct Note {
     pub kind: &'static str,
     pub title: String,
@@ -31,7 +32,7 @@ pub async fn to_permission(state: &AppState, tenant_id: Uuid, branch_id: Option<
     let recipients: Result<Vec<Uuid>, _> = sqlx::query_scalar(
         "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
          WHERE u.tenant_id = $1 AND u.is_active
-           AND ('*' = ANY(r.permissions) OR $2 = ANY(r.permissions))
+           AND ('*' = ANY(r.permissions) OR $2 = ANY(r.permissions) OR $2 = ANY(u.extra_permissions))
            AND ($3::uuid IS NULL OR u.all_branches OR '*' = ANY(r.permissions)
                 OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = $3))",
     )
@@ -75,6 +76,26 @@ pub async fn to_users(state: &AppState, tenant_id: Uuid, users: &[Uuid], note: N
             ),
             Ok(None) => {}
             Err(e) => tracing::warn!(error = %e, "notification insert failed"),
+        }
+    }
+}
+
+/// The platform owner(s) (PLATFORM_ADMIN_EMAILS): in-app in whichever business they sign in to, and by email when email
+/// is configured. Best-effort, like every notification.
+pub async fn to_platform_admins(state: &AppState, note: Note, email_subject: &str, email_text: &str) {
+    let admins: Vec<(Uuid, Uuid)> = sqlx::query_as("SELECT id, tenant_id FROM users WHERE is_active AND lower(email) = ANY($1)")
+        .bind(&state.cfg.platform_admins)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+    for (user, tenant) in admins {
+        to_users(state, tenant, &[user], note.clone()).await;
+    }
+    if let Some(cfg) = &state.cfg.email {
+        if !state.cfg.access_request_notify.is_empty() {
+            if let Err(e) = crate::integrations::email::send(&state.http, cfg, &state.cfg.access_request_notify, email_subject, email_text).await {
+                tracing::warn!(error = %e, "platform email failed");
+            }
         }
     }
 }

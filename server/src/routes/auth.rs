@@ -150,7 +150,7 @@ pub struct Profile {
 /// `acting`: the platform admin's own business when they have opened `tenant_id` from the platform.
 pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acting: Option<Uuid>) -> AppResult<Profile> {
     let (name, email, role, permissions, all_branches, preferences): (String, String, String, Vec<String>, bool, Value) = sqlx::query_as(
-        "SELECT u.name, u.email, r.name, r.permissions, u.all_branches, u.preferences FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1",
+        "SELECT u.name, u.email, r.name, r.permissions || u.extra_permissions, u.all_branches, u.preferences FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1",
     )
     .bind(user_id)
     .fetch_one(&state.db)

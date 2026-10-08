@@ -23,9 +23,11 @@ pub mod prefs;
 pub mod reports;
 pub mod sales;
 pub mod search;
+pub mod site;
 pub mod stock;
 pub mod transfers;
 pub mod webhooks;
+pub mod website;
 
 use axum::Router;
 use chrono::{Datelike, Duration, NaiveDate};
@@ -61,6 +63,8 @@ pub fn api() -> Router<AppState> {
         .merge(audit::routes())
         .merge(search::routes())
         .merge(webhooks::routes())
+        .merge(website::routes())
+        .merge(site::routes())
 }
 
 /// Date filter shared by lists, dashboard and reports.

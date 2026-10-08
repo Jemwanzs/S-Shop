@@ -35,10 +35,21 @@ pub fn routes() -> Router<AppState> {
         .route("/portal/track/{token}", get(track))
 }
 
-struct Tenant {
-    id: Uuid,
-    name: String,
-    settings: TenantSettings,
+/// A business taking orders (the ordering link, or its website — routes/site.rs).
+pub(crate) struct Tenant {
+    pub id: Uuid,
+    pub name: String,
+    pub settings: TenantSettings,
+}
+
+/// The business without the ordering-link checks (the website decides for itself whether it takes orders).
+pub(crate) async fn tenant_by_id(state: &AppState, id: Uuid) -> AppResult<Tenant> {
+    let (name, raw): (String, Value) = sqlx::query_as("SELECT name, settings FROM tenants WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Business"))?;
+    Ok(Tenant { id, name, settings: serde_json::from_value(raw).unwrap_or_default() })
 }
 
 async fn tenant(state: &AppState, slug: &str) -> AppResult<Tenant> {
@@ -67,7 +78,7 @@ async fn tenant(state: &AppState, slug: &str) -> AppResult<Tenant> {
 }
 
 /// Branch fulfilling portal orders: configured default or the first active branch.
-async fn portal_branch(state: &AppState, t: &Tenant) -> AppResult<Uuid> {
+pub(crate) async fn portal_branch(state: &AppState, t: &Tenant) -> AppResult<Uuid> {
     if let Some(b) = t.settings.orders.default_branch_id {
         return Ok(b);
     }
@@ -78,7 +89,7 @@ async fn portal_branch(state: &AppState, t: &Tenant) -> AppResult<Uuid> {
         .ok_or_else(|| rule("This shop is not taking orders right now"))
 }
 
-fn otp_required(state: &AppState, t: &Tenant) -> bool {
+pub(crate) fn otp_required(state: &AppState, t: &Tenant) -> bool {
     t.settings.orders.verify_with_otp && whatsapp::is_configured(state)
 }
 
@@ -106,6 +117,38 @@ fn priced(st: &TenantSettings, mut v: Value) -> Value {
     v
 }
 
+/// Products whose price the business hides on its website (per-product "Hide price"). The same products never show a
+/// price through the ordering link, an order confirmation, order history or tracking either — one rule everywhere.
+pub(crate) async fn hidden_prices(state: &AppState, tenant_id: Uuid) -> AppResult<std::collections::HashSet<Uuid>> {
+    let published: Option<sqlx::types::Json<crate::website::SiteConfig>> =
+        sqlx::query_scalar("SELECT published FROM websites WHERE tenant_id = $1 AND status = 'active' AND published IS NOT NULL")
+            .bind(tenant_id)
+            .fetch_optional(&state.db)
+            .await?
+            .flatten();
+    Ok(published.map(|c| c.0.products.items.into_iter().filter(|p| p.price == "hide").map(|p| p.product_id).collect()).unwrap_or_default())
+}
+
+/// Removes every price from an order (summary or detail) that contains a product with a hidden price.
+fn strip_order_prices(order: &mut Value, hidden: &std::collections::HashSet<Uuid>) {
+    let has_hidden = order["items"].as_array().is_some_and(|items| {
+        items.iter().any(|i| i["product_id"].as_str().and_then(|s| Uuid::parse_str(s).ok()).is_some_and(|id| hidden.contains(&id)))
+    });
+    if has_hidden {
+        if let Some(o) = order.as_object_mut() {
+            o.remove("total");
+        }
+        if let Some(items) = order["items"].as_array_mut() {
+            for i in items {
+                if let Some(m) = i.as_object_mut() {
+                    m.remove("unit_price");
+                    m.remove("line_total");
+                }
+            }
+        }
+    }
+}
+
 async fn business(State(state): State<AppState>, Path(slug): Path<String>) -> AppResult<Json<Value>> {
     let t = tenant(&state, &slug).await?;
     let (tagline, phone, currency, has_logo): (String, String, String, bool) =
@@ -127,20 +170,25 @@ async fn business(State(state): State<AppState>, Path(slug): Path<String>) -> Ap
 }
 
 #[derive(Deserialize)]
-struct IdentifyBody {
+pub(crate) struct IdentifyBody {
     mobile: String,
 }
 
 async fn identify(State(state): State<AppState>, headers: HeaderMap, Path(slug): Path<String>, Json(b): Json<IdentifyBody>) -> AppResult<Json<Value>> {
-    state.limits.check(&crate::auth::client_meta(&headers).0, "portal_auth", 30, std::time::Duration::from_secs(600))?;
     let t = tenant(&state, &slug).await?;
+    identify_for(&state, &headers, &t, b).await.map(Json)
+}
+
+/// Mobile number → existing customer? (sends a WhatsApp code when verification is on). Shared with the website.
+pub(crate) async fn identify_for(state: &AppState, headers: &HeaderMap, t: &Tenant, b: IdentifyBody) -> AppResult<Value> {
+    state.limits.check(&crate::auth::client_meta(headers).0, "portal_auth", 30, std::time::Duration::from_secs(600))?;
     let mobile = normalize_mobile(&b.mobile)?;
     let existing: Option<(String, String)> = sqlx::query_as("SELECT first_name, nickname FROM customers WHERE tenant_id = $1 AND mobile = $2")
         .bind(t.id)
         .bind(&mobile)
         .fetch_optional(&state.db)
         .await?;
-    let needs_otp = otp_required(&state, &t);
+    let needs_otp = otp_required(state, t);
 
     if needs_otp {
         let recent: i64 = sqlx::query_scalar(
@@ -161,23 +209,23 @@ async fn identify(State(state): State<AppState>, headers: HeaderMap, Path(slug):
             .bind(Utc::now() + Duration::minutes(10))
             .execute(&state.db)
             .await?;
-        whatsapp::send_notification(&state, Some(t.id), &mobile, &format!("Your {} verification code is *{code}*. It expires in 10 minutes.", t.name))
+        whatsapp::send_notification(state, Some(t.id), &mobile, &format!("Your {} verification code is *{code}*. It expires in 10 minutes.", t.name))
             .await
             .map_err(|_| AppError::Upstream("We could not send your code on WhatsApp. Please try again.".into()))?;
     }
 
     // Names are only revealed before verification when verification is off.
-    Ok(Json(json!({
+    Ok(json!({
         "mobile": mobile,
         "exists": existing.is_some(),
         "first_name": if needs_otp { None } else { existing.as_ref().map(|e| e.0.clone()) },
         "nickname": if needs_otp { None } else { existing.as_ref().map(|e| e.1.clone()) },
         "otp_required": needs_otp,
-    })))
+    }))
 }
 
 #[derive(Deserialize)]
-struct SessionBody {
+pub(crate) struct SessionBody {
     mobile: String,
     code: Option<String>,
     #[serde(default)]
@@ -187,12 +235,18 @@ struct SessionBody {
 }
 
 async fn session(State(state): State<AppState>, headers: HeaderMap, Path(slug): Path<String>, Json(b): Json<SessionBody>) -> AppResult<Json<Value>> {
-    state.limits.check(&crate::auth::client_meta(&headers).0, "portal_auth", 30, std::time::Duration::from_secs(600))?;
     let t = tenant(&state, &slug).await?;
+    session_for(&state, &headers, &t, b).await.map(Json)
+}
+
+/// Verifies the code (when required), creates or finds the customer and returns a customer session. Shared with the
+/// website, so a customer is the same S'Shop customer whichever way they order.
+pub(crate) async fn session_for(state: &AppState, headers: &HeaderMap, t: &Tenant, b: SessionBody) -> AppResult<Value> {
+    state.limits.check(&crate::auth::client_meta(headers).0, "portal_auth", 30, std::time::Duration::from_secs(600))?;
     let mobile = normalize_mobile(&b.mobile)?;
     let mut tx = state.db.begin().await?;
 
-    if otp_required(&state, &t) {
+    if otp_required(state, t) {
         let code = b.code.as_deref().map(str::trim).unwrap_or_default();
         let row: Option<(Uuid, String, i32)> = sqlx::query_as(
             "SELECT id, code_hash, attempts FROM portal_otps WHERE tenant_id = $1 AND mobile = $2 AND NOT used AND expires_at > now()
@@ -221,11 +275,11 @@ async fn session(State(state): State<AppState>, headers: HeaderMap, Path(slug): 
         .await?;
     tx.commit().await?;
     let token = issue_token(&state.cfg.jwt_secret, customer_id, t.id, "portal", Duration::days(PORTAL_TOKEN_DAYS))?;
-    Ok(Json(json!({
+    Ok(json!({
         "token": token,
         "customer": { "first_name": first_name, "nickname": nickname, "mobile": mobile },
         "created": created,
-    })))
+    }))
 }
 
 fn ensure_same_tenant(c: &PortalCustomer, t: &Tenant) -> AppResult<()> {
@@ -322,7 +376,11 @@ async fn my_orders(State(state): State<AppState>, Path(slug): Path<String>, c: P
         .bind(c.customer_id)
         .fetch_one(&state.db)
         .await?;
-    let orders = serde_json::to_value(load_orders(&state, &t.settings, c.customer_id, 3).await?).unwrap_or_default();
+    let mut orders = serde_json::to_value(load_orders(&state, &t.settings, c.customer_id, 3).await?).unwrap_or_default();
+    let hidden = hidden_prices(&state, t.id).await?;
+    if let Some(list) = orders.as_array_mut() {
+        list.iter_mut().for_each(|o| strip_order_prices(o, &hidden));
+    }
     Ok(Json(json!({ "total_orders": total, "orders": priced(&t.settings, orders) })))
 }
 
@@ -372,6 +430,15 @@ async fn catalogue(State(state): State<AppState>, Path(slug): Path<String>, Quer
     .bind(t.id)
     .fetch_all(&state.db)
     .await?;
+    let hidden = hidden_prices(&state, t.id).await?;
+    let mut items = serde_json::to_value(items).unwrap_or_default();
+    if let Some(list) = items.as_array_mut() {
+        for i in list.iter_mut() {
+            if i["id"].as_str().and_then(|s| Uuid::parse_str(s).ok()).is_some_and(|id| hidden.contains(&id)) {
+                i.as_object_mut().map(|m| m.remove("price"));
+            }
+        }
+    }
     Ok(Json(priced(&t.settings, json!({
         "products": items,
         "categories": categories.into_iter().map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
@@ -398,6 +465,10 @@ async fn product(State(state): State<AppState>, Path((slug, id)): Path<(String, 
         .bind(id)
         .fetch_all(&state.db)
         .await?;
+    let mut item = serde_json::to_value(item).unwrap_or_default();
+    if hidden_prices(&state, t.id).await?.contains(&id) {
+        item.as_object_mut().map(|m| m.remove("price"));
+    }
     Ok(Json(priced(&t.settings, json!({ "product": item, "photos": photos.into_iter().map(|p| format!("/api/photos/{p}")).collect::<Vec<_>>() }))))
 }
 
@@ -426,6 +497,8 @@ async fn place_order(State(state): State<AppState>, headers: HeaderMap, Path(slu
         .fetch_one(&mut *tx)
         .await?;
     tx.commit().await?;
+    let hidden = hidden_prices(&state, t.id).await?;
+    let price_hidden = b.items.iter().any(|l| hidden.contains(&l.product_id));
 
     announce_new(&state, t.id, branch, id, &order_no, &name, total).await;
     if t.settings.orders.notify_customer_whatsapp {
@@ -439,24 +512,32 @@ async fn place_order(State(state): State<AppState>, headers: HeaderMap, Path(slu
             ),
         );
     }
-    Ok(Json(priced(&t.settings, json!({ "id": id, "order_no": order_no, "track_token": track_token, "total": total }))))
+    let mut out = json!({ "id": id, "order_no": order_no, "track_token": track_token, "total": total });
+    if price_hidden {
+        out.as_object_mut().map(|m| m.remove("total"));
+    }
+    Ok(Json(priced(&t.settings, out)))
 }
 
 /// Public tracking by unguessable token — no account needed.
 async fn track(State(state): State<AppState>, headers: HeaderMap, Path(token): Path<Uuid>) -> AppResult<Json<Value>> {
     state.limits.check(&crate::auth::client_meta(&headers).0, "portal_track", 120, std::time::Duration::from_secs(600))?;
-    let row: Option<(Uuid, String, String, Decimal, DateTime<Utc>, String, String, String, bool, Value)> = sqlx::query_as(
-        "SELECT o.id, o.order_no, o.status, o.total, o.created_at, o.delivery_location, t.name, t.slug, t.logo IS NOT NULL, t.settings
+    let row: Option<(Uuid, String, String, Decimal, DateTime<Utc>, String, String, String, bool, Value, Uuid)> = sqlx::query_as(
+        "SELECT o.id, o.order_no, o.status, o.total, o.created_at, o.delivery_location, t.name, t.slug, t.logo IS NOT NULL, t.settings, t.id
          FROM orders o JOIN tenants t ON t.id = o.tenant_id WHERE o.track_token = $1",
     )
     .bind(token)
     .fetch_optional(&state.db)
     .await?;
-    let (id, order_no, status, total, created_at, location, business, slug, has_logo, raw) = row.ok_or(AppError::NotFound("Order"))?;
-    let st: TenantSettings = serde_json::from_value(raw).unwrap_or_default();
+    let (id, order_no, status, total, created_at, location, business, slug, has_logo, raw, tenant_id) = row.ok_or(AppError::NotFound("Order"))?;
+    let mut st: TenantSettings = serde_json::from_value(raw).unwrap_or_default();
     let mut conn = state.db.acquire().await?;
-    let items: Vec<Value> = order_items(&mut conn, id)
-        .await?
+    let lines = order_items(&mut conn, id).await?;
+    let hidden = hidden_prices(&state, tenant_id).await?;
+    if lines.iter().any(|l| hidden.contains(&l.0)) {
+        st.orders.show_prices = false;
+    }
+    let items: Vec<Value> = lines
         .into_iter()
         .map(|(_, name, qty, price, line, _)| json!({ "name": name, "quantity": qty, "unit_price": price, "line_total": line }))
         .collect();

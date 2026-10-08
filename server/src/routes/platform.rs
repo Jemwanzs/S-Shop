@@ -54,6 +54,10 @@ pub struct TenantRow {
     pub admin_name: Option<String>,
     pub admin_email: Option<String>,
     pub admin_phone: Option<String>,
+    /// Website Add-On: none | requested | declined | active | disabled
+    pub website_status: Option<String>,
+    pub website_requested_at: Option<DateTime<Utc>>,
+    pub website_request_message: Option<String>,
     #[sqlx(skip)]
     pub billing: crate::billing::Summary,
 }
@@ -65,8 +69,10 @@ const TENANT_ROW: &str = "SELECT t.id, t.name, t.slug, t.is_demo, t.status, t.ow
         (SELECT COUNT(*) FROM sales s WHERE s.tenant_id = t.id) AS sales,
         (SELECT max(created_at) FROM sales s WHERE s.tenant_id = t.id) AS last_sale_at,
         (SELECT max(last_login_at) FROM users u WHERE u.tenant_id = t.id) AS last_login_at,
-        a.name AS admin_name, a.email AS admin_email, a.phone AS admin_phone
+        a.name AS admin_name, a.email AS admin_email, a.phone AS admin_phone,
+        w.status AS website_status, w.requested_at AS website_requested_at, w.request_message AS website_request_message
  FROM tenants t
+ LEFT JOIN websites w ON w.tenant_id = t.id
  LEFT JOIN LATERAL (SELECT u.name, u.email, u.phone FROM users u JOIN roles r ON r.id = u.role_id
                     WHERE u.tenant_id = t.id AND u.is_active AND '*' = ANY(r.permissions) ORDER BY u.created_at LIMIT 1) a ON true";
 
@@ -177,9 +183,10 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     .fetch_all(&state.db)
     .await?;
     let billing = super::billing::platform_view(&state, id).await?;
+    let website = super::website::platform_summary(&state, id).await?;
     Ok(Json(json!({
         "tenant": tenant, "users": users, "branches": branches, "onboarding": onboarding, "status_history": history,
-        "billing": billing, "is_home": id == ctx.acting_from.unwrap_or(ctx.tenant_id),
+        "billing": billing, "website": website, "is_home": id == ctx.acting_from.unwrap_or(ctx.tenant_id),
     })))
 }
 

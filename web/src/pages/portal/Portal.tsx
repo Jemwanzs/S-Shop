@@ -24,8 +24,9 @@ interface Business { name: string; slug: string; tagline: string; phone: string;
   show_prices: boolean }
 interface PortalSession { token: string; customer: { first_name: string; nickname: string; mobile: string } }
 interface Me { customer: PortalSession["customer"]; total_orders: number; loyalty: { points: number; value: string | null } | null }
-interface Item { id: string; name: string; description: string; category_id: string | null; price: string; available: number; primary_photo_id: string | null }
-interface PortalOrder { id: string; order_no: string; status: string; status_label: string; total: string; created_at: string; track_token: string; items: { name: string; quantity: number; line_total: string }[]; steps: Step[] }
+interface Item { id: string; name: string; description: string; category_id: string | null; /** Absent when the business hides this product's price. */
+  price?: string; available: number; primary_photo_id: string | null }
+interface PortalOrder { id: string; order_no: string; status: string; status_label: string; total?: string; created_at: string; track_token: string; items: { name: string; quantity: number; line_total?: string }[]; steps: Step[] }
 type Cart = Record<string, { item: Item; qty: number }>;
 interface Ident { mobile: string; exists: boolean; first_name: string | null; otp_required: boolean }
 
@@ -187,6 +188,8 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
   const lines = Object.values(cart);
   const units = lines.reduce((a, l) => a + l.qty, 0);
   const total = lines.reduce((a, l) => a + toNum(l.item.price) * l.qty, 0);
+  // A total is shown only when every line has a price (a hidden price is confirmed by the shop).
+  const priced = b.show_prices && lines.every((l) => l.item.price != null);
   const setQty = (item: Item, qty: number) =>
     setCart((c) => {
       const next = { ...c };
@@ -256,7 +259,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
                   </div>
                   <div className="space-y-1 p-3">
                     <p className="line-clamp-2 font-medium leading-snug">{p.name}</p>
-                    {b.show_prices && <p className="num font-semibold">{b.currency} {amount(p.price)}</p>}
+                    {b.show_prices && p.price != null && <p className="num font-semibold">{b.currency} {amount(p.price)}</p>}
                     <p className={cn("text-xs font-medium", out ? "text-destructive" : "text-success")}>{out ? "Out of stock" : "In stock"}</p>
                   </div>
                 </button>
@@ -282,7 +285,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
         footer={
           <ActionButton variant="ink" size="lg" className="h-14 w-full rounded-xl" online busy={submit.isPending} busyLabel="Sending…"
             blockedBy={[!lines.length && REASONS.emptyCart, !location.trim() && "Enter your location"]} onAction={() => submit.mutateAsync()}>
-            <>Submit Order{b.show_prices && <> · <span className="num">{b.currency} {amount(total)}</span></>}</>
+            <>Submit Order{priced && <> · <span className="num">{b.currency} {amount(total)}</span></>}</>
           </ActionButton>
         }
       >
@@ -292,18 +295,19 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
               <li key={l.item.id} className="flex items-center gap-3 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{l.item.name}</p>
-                  {b.show_prices && <p className="num text-sm text-muted-foreground">{b.currency} {amount(l.item.price)}</p>}
+                  {b.show_prices && l.item.price != null && <p className="num text-sm text-muted-foreground">{b.currency} {amount(l.item.price)}</p>}
                 </div>
                 <div className="flex items-center rounded-full border">
                   <button className="p-2" onClick={() => setQty(l.item, l.qty - 1)} aria-label="Less">{l.qty === 1 ? <Trash2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}</button>
                   <span className="num w-6 text-center">{l.qty}</span>
                   <button className="p-2" onClick={() => setQty(l.item, l.qty + 1)} disabled={l.qty >= l.item.available} aria-label="More"><Plus className="h-4 w-4" /></button>
                 </div>
-                {b.show_prices && <span className="num w-20 text-end font-semibold">{amount(toNum(l.item.price) * l.qty)}</span>}
+                {b.show_prices && l.item.price != null && <span className="num w-20 text-end font-semibold">{amount(toNum(l.item.price) * l.qty)}</span>}
               </li>
             ))}
           </ul>
-          {b.show_prices && <div className="flex justify-between text-lg font-semibold"><span>{t("Total")}</span><span className="num">{b.currency} {amount(total)}</span></div>}
+          {priced ? <div className="flex justify-between text-lg font-semibold"><span>{t("Total")}</span><span className="num">{b.currency} {amount(total)}</span></div>
+            : b.show_prices && <p className="text-sm text-muted-foreground">{t("We will confirm the final price with you before any payment.")}</p>}
           <div className="space-y-1 rounded-xl bg-muted/60 p-4 text-sm">
             <p><span className="text-muted-foreground">{t("Customer:")}</span> {sess.customer.first_name}{sess.customer.nickname && ` (${sess.customer.nickname})`}</p>
             <p><span className="text-muted-foreground">{t("Mobile:")}</span> <span className="num">{phone(sess.customer.mobile)}</span></p>
@@ -337,7 +341,7 @@ function ProductSheet({ b, item, qty, onClose, onAdd }: { b: Business; item: Ite
             <button className="p-3" onClick={() => setN(Math.min(item.available, n + 1))} aria-label="More"><Plus className="h-4 w-4" /></button>
           </div>
           <Button variant="ink" size="lg" className="h-12 flex-1 rounded-xl" disabled={out} onClick={() => onAdd(item, qty + n)}>
-            {out ? "Out of stock" : <>Add to Cart{b.show_prices && <> · <span className="num">{b.currency} {amount(toNum(item.price) * n)}</span></>}</>}
+            {out ? "Out of stock" : <>Add to Cart{b.show_prices && item.price != null && <> · <span className="num">{b.currency} {amount(toNum(item.price) * n)}</span></>}</>}
           </Button>
         </div>
       }
@@ -356,7 +360,7 @@ function ProductSheet({ b, item, qty, onClose, onAdd }: { b: Business; item: Ite
           )}
         </div>
         <div className="space-y-3">
-          {b.show_prices && <p className="num text-2xl font-bold">{b.currency} {amount(item.price)}</p>}
+          {b.show_prices && item.price != null && <p className="num text-2xl font-bold">{b.currency} {amount(item.price)}</p>}
           <p className={cn("text-sm font-medium", out ? "text-destructive" : "text-success")}>{out ? "Out of stock" : item.available <= 5 ? `Only ${item.available} left` : "In stock"}</p>
           {item.description && <p className="whitespace-pre-line text-muted-foreground">{item.description}</p>}
           {qty > 0 && <p className="text-sm text-muted-foreground">{qty} already in your cart</p>}
@@ -383,7 +387,7 @@ function MyOrders({ b, sess }: { b: Business; sess: PortalSession }) {
             <div key={o.id} className="surface card-body space-y-4">
               <Link to={`/track/${o.track_token}`} className="flex items-start justify-between gap-3">
                 <div><p className="num font-medium">{o.order_no}</p><p className="num text-sm text-muted-foreground">{date(o.created_at)}</p></div>
-                <div className="text-end">{b.show_prices && <p className="num font-semibold">{amount(o.total)}</p>}<p className="text-sm text-muted-foreground">{o.status_label}</p></div>
+                <div className="text-end">{b.show_prices && o.total != null && <p className="num font-semibold">{amount(o.total)}</p>}<p className="text-sm text-muted-foreground">{o.status_label}</p></div>
               </Link>
               {active && i === 0 && <Steps steps={o.steps} compact />}
             </div>

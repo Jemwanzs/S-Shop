@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Ban, CalendarClock, CheckCircle2, ChevronRight, CircleDollarSign, Clock, Wrench } from "lucide-react";
+import { AlertTriangle, Ban, CalendarClock, CheckCircle2, ChevronRight, CircleDollarSign, Clock, Globe, Wrench } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { date, dateTime, moneyDoc } from "@/lib/format";
@@ -23,7 +23,7 @@ type Rev = { month: Money; year: Money; all: Money };
 interface Dashboard {
   counts: Record<"businesses" | "active" | "deactivated", number>;
   by_status: Record<BillingStatus, number>;
-  revenue: { subscription: Rev; one_off: Rev; maintenance: Rev; other: Rev; monthly_recurring: Money };
+  revenue: { subscription: Rev; one_off: Rev; maintenance: Rev; other: Rev; website?: Rev; monthly_recurring: Money };
   outstanding: Money;
   maintenance_due: { count: number; amount: Money };
   attention: { id: string; business: string; invoice_number: string; amount: Money; reference: string; receipt_no: string | null; note: string; paid_at: string | null }[];
@@ -64,6 +64,7 @@ export function PlatformBilling() {
         <StatCard label="Subscription revenue" value={k(d.revenue.subscription.month)} icon={CalendarClock} hint={`${t("This year")} ${k(d.revenue.subscription.year)} · MRR ${k(d.revenue.monthly_recurring)}`} />
         <StatCard label="One-off revenue" value={k(d.revenue.one_off.year)} icon={CircleDollarSign} hint={`${t("All time")} ${k(d.revenue.one_off.all)}`} />
         <StatCard label="Maintenance due" value={d.maintenance_due.count} icon={Wrench} hint={`${k(d.maintenance_due.amount)} · ${t("next 30 days")}`} />
+        {d.revenue.website && <StatCard label="Website revenue" value={k(d.revenue.website.year)} icon={Globe} hint={`${t("This month")} ${k(d.revenue.website.month)} · ${t("All time")} ${k(d.revenue.website.all)}`} />}
         <StatCard label="Deactivated" value={c.deactivated} icon={Ban} />
       </div>
 

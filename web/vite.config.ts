@@ -14,6 +14,8 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 900,
     rollupOptions: {
+      // The S'Shop app, and the businesses' public websites (served by the server with their content — routes/site.rs).
+      input: { main: fileURLToPath(new URL("./index.html", import.meta.url)), site: fileURLToPath(new URL("./site.html", import.meta.url)) },
       output: {
         manualChunks: {
           react: ["react", "react-dom", "react-router-dom", "@tanstack/react-query"],

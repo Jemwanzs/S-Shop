@@ -278,6 +278,47 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 |---|---|
 | GET | `/api/search` |
 
+## Website Add-On — management ([module 23](modules/23-website.md))
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/api/website` | `settings.integrations` or any `website.*` |
+| POST | `/api/website/request` | `settings.integrations` |
+| PUT | `/api/website/draft` (`config`, `base_updated_at`) | per changed part |
+| POST | `/api/website/publish` · `/api/website/discard` | `website.publish` |
+| GET | `/api/website/versions` | any website access |
+| POST | `/api/website/versions/{version}/restore` | `website.publish` |
+| PUT | `/api/website/prices` (`show_prices`) | `website.products` |
+| GET | `/api/website/catalogue` | `website.products` / `categories` / `content` / `view` |
+| GET | `/api/website/access` · PUT `/api/website/access/{user_id}` | `users.manage` (read: also `website.view`) |
+| GET/POST | `/api/website/media` (multipart: `kind`, `name`, `blurry`, `upload_ref`, `file`, `thumb`) | `website.media` / `website.photos` |
+| PATCH/DELETE | `/api/website/media/{id}` | `website.media` / `website.photos` |
+| GET/PUT/DELETE | `/api/website/domain` · POST `/api/website/domain/check` | `website.domain` (read: also `website.view`) |
+| GET | `/api/website/analytics?period=today\|7d\|30d\|90d\|custom&from&to` | `website.analytics` |
+| POST | `/api/platform/tenants/{id}/website` (`activate` \| `decline` \| `disable`, `reason`) | platform owner |
+| PUT | `/api/platform/tenants/{id}/website/domain` (`routing_target`) | platform owner |
+
+Website billing uses the billing endpoints with `"service": "website"` (`PUT /platform/tenants/{id}/billing-plan`,
+`POST /platform/tenants/{id}/billing-documents`).
+
+## Website — public
+
+On a custom domain the host identifies the business; on the S'Shop host pass `slug`. `preview=true` with a staff token
+of the same business reads the draft.
+
+| Method | Path |
+|---|---|
+| GET | `/api/site` |
+| GET | `/api/site/products?q&category&section=featured\|new_arrivals\|popular&limit&suggest` |
+| GET | `/api/site/products/{slug}` |
+| GET | `/api/site/media/{id}?size=thumb` |
+| POST | `/api/site/identify` · `/api/site/session` |
+| POST | `/api/site/orders` (customer session) |
+| POST | `/api/site/events` (`visit`, `product_view`, `add_to_cart`, `order_start`) |
+| GET | `/api/site/whoami` (domain check) |
+
+Pages: `/s/{slug}/…` or `/…` on a verified domain, incl. `/sitemap.xml` and `/robots.txt`.
+
 ## Webhooks (public)
 
 | Method | Path |

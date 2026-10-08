@@ -265,7 +265,7 @@ impl FromRequestParts<AppState> for Ctx {
         // every request: losing platform-admin status or the admin role ends the session immediately.
         let home_tenant = claims.home.unwrap_or(claims.tid);
         let row: Option<CtxRow> = sqlx::query_as(
-            "SELECT u.name, u.is_active, u.all_branches, r.permissions, t.timezone, lower(u.email) AS email,
+            "SELECT u.name, u.is_active, u.all_branches, r.permissions || u.extra_permissions AS permissions, t.timezone, lower(u.email) AS email,
                     t.status AS tenant_status, t.sessions_valid_after
              FROM users u JOIN roles r ON r.id = u.role_id JOIN tenants t ON t.id = $3
              WHERE u.id = $1 AND u.tenant_id = $2",

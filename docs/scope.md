@@ -209,6 +209,40 @@ Added 2026-10-08 (owner request):
 - ✅ **50. Larger floating sale bubble** — radius 1.5× (66 px phones/tablets, 72 px larger screens), icon scaled and
   centred, edge tuck scaled to 21 px; position, dragging, tap-to-open, permissions and responsiveness unchanged.
 
+Added 2026-10-08 — **Website Add-On** (owner requests: *Complete Tenant Website, Marketing Storefront & Online Ordering*
+and *Premium Website UI/UX, Product Pricing, User Access, Themes & Shopping Experience*; [module 23](modules/23-website.md)).
+An optional, billable, standalone branded website per business — S'Shop stays the engine behind it (products, orders,
+customers, stock, payments). Built in this order, reusing the ordering link, products, orders, billing, roles and audit:
+- ✅ **51. Website service** — *Settings → Integrations → Website* locked until activated; *Request Website Service* →
+  platform owner (email + in-app) → approve / decline / activate / disable; billed through the existing engine as its own
+  service (one-off, subscription, maintenance, trial, grace, tax, % / fixed / 100% discount); disabling keeps everything
+  and shows *Temporarily unavailable*; POS and operations unaffected.
+- ✅ **52. Website Management Centre** — Overview · Content · Design · Products · Categories · Services · Testimonials ·
+  Media · Users & Access · Domain · SEO · Analytics; draft → preview (mobile / tablet / desktop) → publish, discard,
+  publication history and rollback; branding (logo, colours with contrast checks), typography (Outfit, Poppins, Inter,
+  Roboto, Nunito; compact / balanced / spacious), style (modern / minimal / elegant / bold), light / dark / both;
+  navigation (show / hide / reorder / rename), home sections (show / hide / edit / reorder), about, contact, social,
+  cookie consent; website permissions granted to existing users without operational access; everything audited.
+- ✅ **53. Public website** — mobile-first, fast, accessible, independently branded: home (hero, featured, new arrivals,
+  most popular, promotions, categories, services, testimonials carousel, CTA), about, products (search with suggestions,
+  categories, grid / carousel), product detail (gallery, availability, quantity), services, contact, cart → existing
+  S'Shop ordering (customers, orders, branch, stock, loyalty); SEO metadata, sitemap and canonical URLs from the server.
+- ✅ **54. Website products & pricing** — S'Shop products as the source: publish / feature / reorder, marketing name and
+  description, badges, categories presentation, own gallery or the product's photos (default 5), website-wide price
+  visibility (= the ordering-link setting) with per-product override (inherit / show / hide) and hidden-price action
+  (enquire / contact / WhatsApp / order); hidden prices never leave the server.
+- ✅ **55. Media library & image quality** — tenant-isolated uploads (logos, banners, products, services, testimonials,
+  about, promotions), responsive sizes, quality checks (✓ good / ⚠ warning / ✕ cannot upload).
+- ✅ **56. Custom domains** — add, check, DNS instructions (type / name / value, copy), verify ownership and routing,
+  states (unconfigured … active / misconfigured); the verified domain alone decides the business.
+- ✅ **57. Website analytics** — visitors, product views, most viewed, add-to-carts, order starts, completed orders,
+  conversion by period; orders reconcile with S'Shop orders.
+
+  Built 2026-10-08 as specified. Details, permissions, domain states and tests: [module 23](modules/23-website.md).
+  Additions found while building: a product's hidden price is hidden on the ordering link, order history and tracking
+  too (one rule everywhere); website revenue on the platform billing dashboard; automatic domain attachment needs
+  `RAILWAY_API_TOKEN` (otherwise the platform owner records the routing target).
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

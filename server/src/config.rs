@@ -19,6 +19,23 @@ pub struct Config {
     pub platform_admins: Vec<String>,
     /// Who is emailed when a business requests access.
     pub access_request_notify: Vec<String>,
+    /// Railway public API — attaches business websites' custom domains to this service automatically (optional).
+    pub railway: Option<RailwayApi>,
+}
+
+/// `RAILWAY_API_TOKEN` (account or team token) plus the ids Railway injects into every deployment.
+#[derive(Clone)]
+pub struct RailwayApi {
+    pub token: String,
+    pub project_id: String,
+    pub environment_id: String,
+    pub service_id: String,
+}
+
+impl std::fmt::Debug for RailwayApi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RailwayApi").field("token", &"<redacted>").field("project_id", &self.project_id).field("service_id", &self.service_id).finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -159,6 +176,11 @@ impl Config {
             base_url: var("PAYSTACK_BASE_URL").unwrap_or_else(|| "https://api.paystack.co".into()).trim_end_matches('/').to_string(),
         });
 
+        let railway = match (var("RAILWAY_API_TOKEN"), var("RAILWAY_PROJECT_ID"), var("RAILWAY_ENVIRONMENT_ID"), var("RAILWAY_SERVICE_ID")) {
+            (Some(token), Some(project_id), Some(environment_id), Some(service_id)) => Some(RailwayApi { token, project_id, environment_id, service_id }),
+            _ => None,
+        };
+
         Ok(Self {
             port: var("PORT").and_then(|p| p.parse().ok()).unwrap_or(8080),
             jwt_secret,
@@ -174,6 +196,7 @@ impl Config {
             paystack,
             platform_admins,
             access_request_notify,
+            railway,
         })
     }
 }

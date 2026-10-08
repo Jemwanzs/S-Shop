@@ -205,6 +205,10 @@ Added 2026-10-08 (owner request, delivered 2026-10-08; [module 15](modules/15-ap
   new approvers notified and queues refreshed, out-of-order or fully-approved cases flagged for an administrator,
   every change audited (who, previous/new workflow, affected requests, previous/new next approver).
 
+Added 2026-10-08 (owner request):
+- ✅ **50. Larger floating sale bubble** — radius 1.5× (66 px phones/tablets, 72 px larger screens), icon scaled and
+  centred, edge tuck scaled to 21 px; position, dragging, tap-to-open, permissions and responsiveness unchanged.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

@@ -13,7 +13,10 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-const SIZE = 48; // px — small but comfortably tappable
+/** Diameter: 66 px on phones and tablets, 72 px on larger screens (1.5× the original radius). */
+const size = () => (window.innerWidth < 1024 ? 66 : 72);
+/** How far the bubble tucks into the screen edge on phones and tablets (a third of it). */
+const TUCK = 21;
 const EDGE = 10; // gap to the screen edge
 const DRAG_THRESHOLD = 6; // px of movement before a press becomes a drag
 
@@ -48,13 +51,13 @@ function bounds() {
   const h = window.innerHeight;
   const phone = window.innerWidth < 1024;
   const top = (phone ? 64 : 80) + EDGE;
-  const bottom = h - (phone ? 72 : 24) - SIZE - EDGE; // bottom navigation on phones and tablets
+  const bottom = h - (phone ? 72 : 24) - size() - EDGE; // bottom navigation on phones and tablets
   return { top, bottom: Math.max(bottom, top) };
 }
 
 function topFor(y: number) {
   const { top, bottom } = bounds();
-  return Math.min(Math.max(y * window.innerHeight - SIZE / 2, top), bottom);
+  return Math.min(Math.max(y * window.innerHeight - size() / 2, top), bottom);
 }
 
 export function FloatingQuickAction({
@@ -101,7 +104,7 @@ export function FloatingQuickAction({
     if (!p || p.id !== e.pointerId) return;
     if (!p.moved && Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD) return;
     p.moved = true;
-    setDrag({ x: e.clientX - SIZE / 2, y: e.clientY - SIZE / 2 });
+    setDrag({ x: e.clientX - size() / 2, y: e.clientY - size() / 2 });
   };
   const finish = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -127,13 +130,13 @@ export function FloatingQuickAction({
     onAction();
   };
 
-  // Phones and tablets: tucked into the screen edge as a tab (30 of its 44 px showing), so it stays in the page margin
+  // Phones and tablets: tucked into the screen edge as a tab (two thirds showing), so it stays mostly in the page margin
   // instead of over buttons and figures at the end of rows. Larger screens: a full bubble just off the edge.
   const tucked = !drag && window.innerWidth < 1024;
   const style: React.CSSProperties = drag
     ? { left: drag.x, top: drag.y, transition: "none" }
     : tucked
-      ? { top: topFor(place.y), [place.side]: `env(safe-area-inset-${place.side}, 0px)`, transform: `translateX(${place.side === "right" ? 14 : -14}px)` }
+      ? { top: topFor(place.y), [place.side]: `env(safe-area-inset-${place.side}, 0px)`, transform: `translateX(${place.side === "right" ? TUCK : -TUCK}px)` }
       : { top: topFor(place.y), [place.side]: `calc(${EDGE}px + env(safe-area-inset-${place.side}, 0px))` };
 
   return (
@@ -148,14 +151,14 @@ export function FloatingQuickAction({
       onClick={onClick}
       style={style}
       className={cn(
-        "group fixed z-30 flex h-11 w-11 items-center justify-center rounded-full text-white opacity-90 shadow-lg ring-1 ring-black/10 transition-[top,left,right,transform,opacity] duration-200 hover:opacity-100 lg:h-12 lg:w-12 lg:opacity-100",
+        "group fixed z-30 flex h-[66px] w-[66px] items-center justify-center rounded-full text-white opacity-90 shadow-lg ring-1 ring-black/10 transition-[top,left,right,transform,opacity] duration-200 hover:opacity-100 lg:h-[72px] lg:w-[72px] lg:opacity-100",
         "bg-[hsl(var(--fab))] hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-95 print:hidden",
         draggable ? "cursor-grab touch-none active:cursor-grabbing" : "cursor-pointer",
         drag && "scale-110 opacity-90",
         className,
       )}
     >
-      <span className="[&_svg]:h-5 [&_svg]:w-5" style={tucked ? { transform: `translateX(${place.side === "right" ? -7 : 7}px)` } : undefined}>{icon}</span>
+      <span className="[&_svg]:h-[30px] [&_svg]:w-[30px]" style={tucked ? { transform: `translateX(${place.side === "right" ? -TUCK / 2 : TUCK / 2}px)` } : undefined}>{icon}</span>
       {/* Desktop hover label, on the side away from the edge. */}
       <span
         className={cn(

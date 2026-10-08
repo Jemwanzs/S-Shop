@@ -1317,6 +1317,10 @@ gr = call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription
                                                           "grace_days": 3, "grace_until": later, "auto_suspend": True})
 check("grace extension and automatic suspension saved", gr["plan"]["grace_until"] == later and gr["plan"]["auto_suspend"] is True
       and gr["summary"]["suspended"] is False, gr["plan"])
+# Recurring invoices left open by the earlier plans are voided first (as an owner would when changing the model).
+for d_ in call("GET", f"/platform/tenants/{dk}")["billing"]["documents"]:
+    if d_["status"] == "open":
+        call("POST", f"/platform/billing/documents/{d_['id']}/void", {"reason": "Model changed"})
 oo2 = call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "one_off", "one_off_amount": 80000, "one_off_paid_on": today_,
                                                            "tax_enabled": True, "tax_rate": 16})
 call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period"}, expect=422)
@@ -1324,6 +1328,11 @@ check("one-off without maintenance never produces a recurring invoice", oo2["sum
 mt = call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "one_off", "one_off_amount": 80000, "one_off_paid_on": today_,
                                                           "maintenance": True, "amount": 120000, "frequency": "annual", "start_date": later,
                                                           "tax_enabled": True, "tax_rate": 16})
+sub_inv = call("POST", f"/platform/tenants/{dk}/billing-documents", {"kind": "invoice", "category": "next_period"})
+stale = call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "one_off", "one_off_amount": 80000, "one_off_paid_on": today_})
+check("maintenance switched off: open maintenance invoice reported, not deleted", stale["stale_invoices"] == 1
+      and next(d for d in call("GET", f"/platform/tenants/{dk}")["billing"]["documents"] if d["id"] == sub_inv["id"])["status"] == "open", stale.get("stale_invoices"))
+call("POST", f"/platform/billing/documents/{sub_inv['id']}/void", {"reason": "Maintenance dropped"})
 check("annual maintenance 120,000 + 16% tax", float(mt["summary"]["recurring_price"]["total"]) == 139200 and mt["summary"]["one_off_status"] == "paid", mt["summary"]["recurring_price"])
 call("PUT", f"/platform/tenants/{dk}/billing-plan", {"model": "subscription", "access_mode": "free"})
 

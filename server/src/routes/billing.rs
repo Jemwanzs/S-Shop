@@ -731,8 +731,23 @@ async fn save_plan(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>
     }
     billing::refresh_suspension(&mut tx, id, Some(ctx.user_id)).await?;
     let summary = billing::summary(&mut tx, id).await?;
+    // Recurring invoices issued under the previous plan that the new plan no longer charges: left as they are (they are
+    // financial records) but reported so the owner can void them if they are no longer due.
+    let still_charged = match (b.model.as_str(), recurring) {
+        ("subscription", _) => "subscription",
+        ("one_off", true) => "maintenance",
+        _ => "",
+    };
+    let stale_invoices: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM billing_documents WHERE tenant_id = $1 AND kind = 'invoice' AND status = 'open'
+           AND category IN ('subscription', 'maintenance') AND category <> $2",
+    )
+    .bind(id)
+    .bind(still_charged)
+    .fetch_one(&mut *tx)
+    .await?;
     tx.commit().await?;
-    Ok(Json(json!({ "ok": true, "plan": after, "summary": summary, "changes": changes })))
+    Ok(Json(json!({ "ok": true, "plan": after, "summary": summary, "changes": changes, "stale_invoices": stale_invoices })))
 }
 
 #[derive(Deserialize)]

@@ -1797,4 +1797,5 @@ export const DICT: Record<string, [string, string, string]> = {
   "Low stock: {}": ["Stoki ndogo: {}", "Stock faible : {}", "مخزون منخفض: {}"],
   "{} available at {}": ["{} zinapatikana katika {}", "{} disponible(s) à {}", "{} متاح في {}"],
   "Earlier step": ["Hatua ya awali", "Étape précédente", "خطوة سابقة"],
+  "open invoice(s) from the previous plan are no longer charged by this plan — void them if they are not due": ["ankara zilizo wazi za mpango uliopita hazitozwi tena na mpango huu — zibatilishe kama hazidaiwi", "facture(s) ouverte(s) de l’ancien plan ne sont plus facturées par ce plan — annulez-les si elles ne sont pas dues", "فاتورة/فواتير مفتوحة من الخطة السابقة لم تعد هذه الخطة تحتسبها — ألغها إن لم تكن مستحقة"],
 };

@@ -29,6 +29,7 @@ S'Shop runs as **one service** (built from the repository `Dockerfile`) plus **o
 | `PLATFORM_ADMIN_EMAILS` | Comma-separated platform admins who review access requests (falls back to `BOOTSTRAP_ADMIN_EMAIL` — set it before removing the bootstrap variables) |
 | `RESEND_API_KEY` | Optional; enables email alerts for access requests ([module 18](modules/18-access-requests.md)) |
 | `MAIL_FROM` | Optional; sender, default `S'Shop <onboarding@resend.dev>` |
+| `BACKGROUND_JOBS` | Test runs only: `off` stops the scheduler (renewals, trial ends, suspension, reminders). **Never set it in production.** |
 | `PAYSTACK_SECRET_KEY` | Optional; enables *Pay now* on Settings → Billing ([module 21](modules/21-platform-billing.md)). Set the Paystack webhook URL to `{PUBLIC_URL}/api/webhooks/paystack` |
 | `PEXELS_API_KEY` | Optional; product photos for the demo business ([module 20](modules/20-platform-and-demo.md)) |
 | `ACCESS_REQUEST_NOTIFY_EMAILS` | Optional; who is emailed about requests (default: the platform admins) |

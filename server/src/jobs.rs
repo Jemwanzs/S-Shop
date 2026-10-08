@@ -13,6 +13,11 @@ use crate::state::AppState;
 use crate::util::{money_str, parse_tz, today_in};
 
 pub fn spawn(state: AppState) {
+    // Test runs switch the scheduler off so results never depend on when it happens to run (BACKGROUND_JOBS=off).
+    if std::env::var("BACKGROUND_JOBS").is_ok_and(|v| v.eq_ignore_ascii_case("off")) {
+        tracing::warn!("background jobs are switched off (BACKGROUND_JOBS=off) — never do this in production");
+        return;
+    }
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(30)).await;
         let mut tick = tokio::time::interval(Duration::from_secs(15 * 60));

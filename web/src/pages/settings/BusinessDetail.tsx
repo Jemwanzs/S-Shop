@@ -437,7 +437,7 @@ function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId:
   const calc = (b: number) => calculate(b, f.discount_type, Number(f.discount_value || 0), f.tax_enabled, Number(f.tax_rate || 0));
   const save = useMutation({
     mutationFn: () =>
-      api<{ changes: Record<string, unknown> }>(`/platform/tenants/${tenantId}/billing-plan`, {
+      api<{ changes: Record<string, unknown>; stale_invoices?: number }>(`/platform/tenants/${tenantId}/billing-plan`, {
         method: "PUT",
         body: {
           model: f.model, access_mode: f.access_mode, package: f.package, modules: f.package === "modules" ? f.modules : [],
@@ -454,6 +454,9 @@ function PlanDialog({ tenantId, plan, catalogue, onClose, onSaved }: { tenantId:
     onSuccess: (r) => {
       const n = Object.keys(r.changes ?? {}).length;
       toast.success(n ? `${t("Billing plan saved")} · ${n} ${t("changes recorded")}` : t("No changes"));
+      if (r.stale_invoices) {
+        toast.info(`${r.stale_invoices} ${t("open invoice(s) from the previous plan are no longer charged by this plan — void them if they are not due")}`);
+      }
       onSaved();
       onClose();
     },

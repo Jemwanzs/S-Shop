@@ -1,5 +1,9 @@
 //! Approval inbox: list, approve, reject. Approving executes the deferred action
 //! in the owning module, inside the same transaction as the decision.
+//!
+//! A request follows its own chain of steps (`approvals.steps`, copied from the workflow when it was raised) and each
+//! decision records the step it approved. When a workflow is edited, `sync_pending` reconciles every pending request of
+//! that action with the new chain (roadmap 49).
 
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
@@ -8,6 +12,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sqlx::types::Json as DbJson;
 use uuid::Uuid;
 
 use super::{Page, Paged};
@@ -16,7 +21,7 @@ use crate::auth::Ctx;
 use crate::error::{rule, AppError, AppResult};
 use crate::notify::{self, Note};
 use crate::state::AppState;
-use crate::workflow;
+use crate::workflow::{self, Level};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -46,9 +51,15 @@ pub struct ApprovalRow {
     pub decided_by_name: Option<String>,
     pub decided_at: Option<DateTime<Utc>>,
     pub comments: String,
+    /// 1-based position of the step the request waits for (pending) or was decided at.
     pub level: i32,
-    /// [{level, user_id, user_name, decision, comments, at}]
+    /// [{level, step_id, user_id, user_name, decision, comments, at}]
     pub decisions: Value,
+    /// The chain of steps this request follows.
+    pub steps: DbJson<Vec<Level>>,
+    /// Set when a workflow change needed an exception (see `workflow::reconcile`).
+    pub sync_note: String,
+    pub synced_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -60,11 +71,34 @@ impl ApprovalRow {
             .map(|d| d.iter().filter_map(|x| x["user_id"].as_str().and_then(|u| Uuid::parse_str(u).ok())).collect())
             .unwrap_or_default()
     }
+
+    /// Steps already approved (by step id).
+    fn completed_steps(&self) -> Vec<Uuid> {
+        self.decisions
+            .as_array()
+            .map(|d| {
+                d.iter()
+                    .filter(|x| x["decision"] == "approved")
+                    .filter_map(|x| x["step_id"].as_str().and_then(|u| Uuid::parse_str(u).ok()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The step the request waits for (None: no configured chain — anyone holding approvals.approve).
+    fn step(&self) -> Option<&Level> {
+        self.steps.0.get((self.level - 1).max(0) as usize)
+    }
+
+    /// Steps this request must pass (at least one).
+    fn total(&self) -> i32 {
+        (self.steps.0.len() as i32).max(1).max(self.level)
+    }
 }
 
 const SELECT: &str = "SELECT a.id, a.tenant_id, a.action, a.entity_type, a.entity_id, a.branch_id, b.name AS branch_name, a.summary, a.amount,
         a.payload, a.status, a.requested_by, ru.name AS requested_by_name, du.name AS decided_by_name, a.decided_at,
-        a.comments, a.level, a.decisions, a.created_at
+        a.comments, a.level, a.decisions, a.steps, a.sync_note, a.synced_at, a.created_at
     FROM approvals a
     LEFT JOIN branches b ON b.id = a.branch_id
     LEFT JOIN users ru ON ru.id = a.requested_by
@@ -86,6 +120,30 @@ struct Item {
     can_decide: bool,
     /// Total levels this request must pass.
     levels: i32,
+    /// Who approves next (pending requests).
+    next_approvers: Vec<String>,
+}
+
+/// The people a step designates — "who approves next". Administrators may decide any step, so they are listed only for
+/// an administrator step or when nobody else is designated.
+async fn responsible(conn: &mut sqlx::PgConnection, step: Option<&Level>, ids: &[Uuid]) -> AppResult<Vec<Uuid>> {
+    if ids.is_empty() || step.is_none_or(|s| s.approver_type == "admin") {
+        return Ok(ids.to_vec());
+    }
+    let named: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ANY($1) AND NOT ('*' = ANY(r.permissions))",
+    )
+    .bind(ids)
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(if named.is_empty() { ids.to_vec() } else { ids.iter().filter(|u| named.contains(u)).copied().collect() })
+}
+
+async fn names(conn: &mut sqlx::PgConnection, ids: &[Uuid]) -> AppResult<Vec<String>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(sqlx::query_scalar("SELECT name FROM users WHERE id = ANY($1) ORDER BY name").bind(ids).fetch_all(&mut *conn).await?)
 }
 
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Paged<Item>>> {
@@ -110,20 +168,20 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     let mut items = Vec::with_capacity(rows.len());
     for row in rows {
         let decided = row.decided_by();
-        let can_decide = row.status == "pending"
-            && workflow::can_decide(
-                &mut conn,
-                ctx.tenant_id,
-                &row.action,
-                row.branch_id,
-                row.requested_by,
-                workflow::Decider { approver: ctx.user_id, level: row.level, decided_by: &decided },
-            )
-            .await?;
+        let pending = row.status == "pending";
+        let can_decide =
+            pending && workflow::can_decide_step(&mut conn, ctx.tenant_id, row.step(), row.branch_id, row.requested_by, ctx.user_id, &decided).await?;
         // Users only see requests they raised or can decide, unless they hold audit visibility.
         if can_decide || row.requested_by == Some(ctx.user_id) || ctx.can("audit.view") || ctx.can("approvals.approve") {
-            let levels = workflow::level_count(&mut conn, ctx.tenant_id, &row.action).await?.max(row.level);
-            items.push(Item { row, can_decide, levels });
+            let next_approvers = if pending {
+                let ids = workflow::approvers_for(&mut conn, ctx.tenant_id, row.step(), row.branch_id, row.requested_by, &decided).await?;
+                let ids = responsible(&mut conn, row.step(), &ids).await?;
+                names(&mut conn, &ids).await?
+            } else {
+                Vec::new()
+            };
+            let levels = row.total();
+            items.push(Item { row, can_decide, levels, next_approvers });
         }
     }
     let total = items.len() as i64;
@@ -151,15 +209,7 @@ async fn load_pending(conn: &mut sqlx::PgConnection, ctx: &Ctx, id: Uuid) -> App
 
 async fn ensure_can_decide(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &ApprovalRow) -> AppResult<()> {
     let decided = a.decided_by();
-    let ok = workflow::can_decide(
-        conn,
-        ctx.tenant_id,
-        &a.action,
-        a.branch_id,
-        a.requested_by,
-        workflow::Decider { approver: ctx.user_id, level: a.level, decided_by: &decided },
-    )
-    .await?;
+    let ok = workflow::can_decide_step(conn, ctx.tenant_id, a.step(), a.branch_id, a.requested_by, ctx.user_id, &decided).await?;
     if ok {
         Ok(())
     } else {
@@ -167,8 +217,11 @@ async fn ensure_can_decide(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &Approva
     }
 }
 
-fn decision(ctx: &Ctx, level: i32, verdict: &str, comments: &str) -> Value {
-    json!([{ "level": level, "user_id": ctx.user_id, "user_name": ctx.name, "decision": verdict, "comments": comments, "at": Utc::now() }])
+fn decision(ctx: &Ctx, a: &ApprovalRow, verdict: &str, comments: &str) -> Value {
+    json!([{
+        "level": a.level, "step_id": a.step().and_then(|s| s.id), "user_id": ctx.user_id, "user_name": ctx.name,
+        "decision": verdict, "comments": comments, "at": Utc::now(),
+    }])
 }
 
 async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, body: Option<Json<DecisionBody>>) -> AppResult<Json<Value>> {
@@ -176,14 +229,21 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
     let mut tx = state.db.begin().await?;
     let a = load_pending(&mut tx, &ctx, id).await?;
     ensure_can_decide(&mut tx, &ctx, &a).await?;
-    let total = workflow::level_count(&mut tx, ctx.tenant_id, &a.action).await?;
+    let total = a.total();
+    // The next step still needing a decision (steps approved earlier out of order are not asked again).
+    let mut completed = a.completed_steps();
+    if let Some(step) = a.step().and_then(|s| s.id) {
+        completed.push(step);
+    }
+    let next = workflow::next_level(&a.steps.0, a.level, &completed);
 
     // An intermediate level: record the decision and pass the request on.
-    if a.level < total {
-        sqlx::query("UPDATE approvals SET level = level + 1, decisions = decisions || $2 WHERE id = $1 AND tenant_id = $3")
+    if let Some(next) = next {
+        sqlx::query("UPDATE approvals SET level = $4, decisions = decisions || $2 WHERE id = $1 AND tenant_id = $3")
             .bind(id)
-            .bind(decision(&ctx, a.level, "approved", &comments))
+            .bind(decision(&ctx, &a, "approved", &comments))
             .bind(ctx.tenant_id)
+            .bind(next)
             .execute(&mut *tx)
             .await?;
         audit::record(
@@ -191,15 +251,17 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
             &ctx,
             Entry::new("approvals", "approve_level", &a.entity_type, a.entity_id)
                 .approval(Some(id))
-                .after(json!({ "level": a.level, "of": total }))
+                .after(json!({ "level": a.level, "of": total, "next": next }))
                 .comments(&comments),
         )
         .await?;
         tx.commit().await?;
         let mut decided = a.decided_by();
         decided.push(ctx.user_id);
+        let mut moved = a.clone();
+        moved.level = next;
+        notify_level(&state, ctx.tenant_id, &moved, &decided, "").await;
         if let Some(requester) = a.requested_by {
-            notify_level(&state, ctx.tenant_id, &a, requester, a.level + 1, &decided).await;
             notify::to_users(
                 &state,
                 ctx.tenant_id,
@@ -208,8 +270,8 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
             )
             .await;
         }
-        state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "pending", "level": a.level + 1 }));
-        return Ok(Json(json!({ "ok": true, "status": "pending", "level": a.level + 1, "levels": total })));
+        state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "pending", "level": next }));
+        return Ok(Json(json!({ "ok": true, "status": "pending", "level": next, "levels": total })));
     }
 
     match a.action.as_str() {
@@ -226,7 +288,7 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
         .bind(id)
         .bind(ctx.user_id)
         .bind(&comments)
-        .bind(decision(&ctx, a.level, "approved", &comments))
+        .bind(decision(&ctx, &a, "approved", &comments))
         .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
@@ -253,7 +315,7 @@ async fn reject(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, b
         .bind(id)
         .bind(ctx.user_id)
         .bind(&comments)
-        .bind(decision(&ctx, a.level, "rejected", &comments))
+        .bind(decision(&ctx, &a, "rejected", &comments))
         .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
@@ -325,31 +387,123 @@ async fn notify_requester(state: &AppState, ctx: &Ctx, a: &ApprovalRow, approved
     }
 }
 
-/// Tell the approvers of `level` that a request is waiting for them.
-async fn notify_level(state: &AppState, tenant_id: Uuid, a: &ApprovalRow, requested_by: Uuid, level: i32, decided_by: &[Uuid]) {
+/// Tell the approvers of the request's current step that it is waiting for them (`only` limits it to some users).
+async fn notify_level(state: &AppState, tenant_id: Uuid, a: &ApprovalRow, decided_by: &[Uuid], why: &str) {
     let Ok(mut conn) = state.db.acquire().await else { return };
-    let total = workflow::level_count(&mut conn, tenant_id, &a.action).await.unwrap_or(1);
-    match workflow::approvers(&mut conn, tenant_id, &a.action, a.branch_id, requested_by, level, decided_by).await {
-        Ok(users) => {
-            let step = if total > 1 { format!(" (level {level} of {total})") } else { String::new() };
-            let from = a.requested_by_name.clone().unwrap_or_default();
-            notify::to_users(
-                state,
-                tenant_id,
-                &users,
-                Note::new("approval_pending", format!("Approval needed{step} — from {from}"), a.summary.clone(), "/approvals"),
-            )
-            .await;
-        }
+    match workflow::approvers_for(&mut conn, tenant_id, a.step(), a.branch_id, a.requested_by, decided_by).await {
+        Ok(users) => notify_users(state, tenant_id, a, &users, why).await,
         Err(e) => tracing::warn!(error = %e, "approver lookup failed"),
     }
+}
+
+async fn notify_users(state: &AppState, tenant_id: Uuid, a: &ApprovalRow, users: &[Uuid], why: &str) {
+    if users.is_empty() {
+        return;
+    }
+    let total = a.total();
+    let step = if total > 1 { format!(" (level {} of {total})", a.level) } else { String::new() };
+    let from = a.requested_by_name.clone().unwrap_or_default();
+    let title = if why.is_empty() { format!("Approval needed{step} — from {from}") } else { format!("Approval needed{step} — {why}") };
+    notify::to_users(state, tenant_id, users, Note::new("approval_pending", title, a.summary.clone(), "/approvals")).await;
 }
 
 /// Tell level-1 approvers a new request is waiting (called by modules right after `workflow::submit`).
 pub async fn notify_approvers(state: &AppState, ctx: &Ctx, approval_id: Uuid) {
     let row: Result<Option<ApprovalRow>, _> = sqlx::query_as(&format!("{SELECT} WHERE a.id = $1")).bind(approval_id).fetch_optional(&state.db).await;
     if let Ok(Some(a)) = row {
-        notify_level(state, ctx.tenant_id, &a, ctx.user_id, 1, &[]).await;
+        notify_level(state, ctx.tenant_id, &a, &[], "").await;
         state.emit(ctx.tenant_id, None, "approval", json!({ "id": approval_id, "status": "pending" }));
+    }
+}
+
+// ───────────────────────────── Workflow changes (roadmap 49) ─────────────────────────────
+
+/// One pending request moved by a workflow change.
+#[derive(Serialize, Clone)]
+pub struct Synced {
+    pub id: Uuid,
+    pub summary: String,
+    pub previous_level: i32,
+    pub level: i32,
+    pub levels: i32,
+    pub previous_next_approvers: Vec<String>,
+    pub next_approvers: Vec<String>,
+    pub note: String,
+    #[serde(skip)]
+    newly_responsible: Vec<Uuid>,
+    #[serde(skip)]
+    row: Option<ApprovalRow>,
+}
+
+/// Reconciles every pending request of `action` with the workflow's new chain of steps, inside the transaction that
+/// saves the workflow: approvals already given are kept and never asked again, each request waits for its first step
+/// not yet approved (never back to the start, never approved automatically), responsibility moves to the new
+/// approvers, exceptions are flagged on the request and every moved request is audited with its previous and new next
+/// approvers. Call `after_sync` once committed to notify and refresh queues.
+pub async fn sync_pending(tx: &mut sqlx::PgConnection, ctx: &Ctx, action: &str, new_steps: &[Level]) -> AppResult<Vec<Synced>> {
+    let rows: Vec<ApprovalRow> = sqlx::query_as(&format!(
+        "{SELECT} WHERE a.tenant_id = $1 AND a.action = $2 AND a.status = 'pending' ORDER BY a.created_at FOR UPDATE OF a"
+    ))
+    .bind(ctx.tenant_id)
+    .bind(action)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut out = Vec::new();
+    for a in rows {
+        let decided = a.decided_by();
+        let position = workflow::reconcile(new_steps, &a.completed_steps());
+        let before_ids = workflow::approvers_for(tx, ctx.tenant_id, a.step(), a.branch_id, a.requested_by, &decided).await?;
+        let mut moved = a.clone();
+        moved.steps = DbJson(position.steps.clone());
+        moved.level = position.level;
+        moved.sync_note = position.note.clone();
+        let after_ids = workflow::approvers_for(tx, ctx.tenant_id, moved.step(), a.branch_id, a.requested_by, &decided).await?;
+        if a.steps.0 == position.steps && a.level == position.level && before_ids == after_ids && a.sync_note == position.note {
+            continue; // not affected
+        }
+        sqlx::query("UPDATE approvals SET steps = $2, level = $3, sync_note = $4, synced_at = now() WHERE id = $1 AND tenant_id = $5")
+            .bind(a.id)
+            .bind(DbJson(&position.steps))
+            .bind(position.level)
+            .bind(&position.note)
+            .bind(ctx.tenant_id)
+            .execute(&mut *tx)
+            .await?;
+        let shown_before = responsible(tx, a.step(), &before_ids).await?;
+        let shown_after = responsible(tx, moved.step(), &after_ids).await?;
+        let previous_next_approvers = names(tx, &shown_before).await?;
+        let next_approvers = names(tx, &shown_after).await?;
+        audit::record(
+            tx,
+            ctx,
+            Entry::new("approvals", "workflow_sync", &a.entity_type, a.entity_id)
+                .approval(Some(a.id))
+                .before(json!({ "level": a.level, "levels": a.total(), "steps": a.steps.0, "next_approvers": previous_next_approvers }))
+                .after(json!({ "level": moved.level, "levels": moved.total(), "steps": position.steps, "next_approvers": next_approvers, "note": position.note })),
+        )
+        .await?;
+        out.push(Synced {
+            id: a.id,
+            summary: a.summary.clone(),
+            previous_level: a.level,
+            level: moved.level,
+            levels: moved.total(),
+            previous_next_approvers,
+            next_approvers,
+            note: position.note,
+            newly_responsible: after_ids.iter().filter(|u| !before_ids.contains(u)).copied().collect(),
+            row: Some(moved),
+        });
+    }
+    Ok(out)
+}
+
+/// After the workflow change is committed: notify newly responsible approvers and refresh every open inbox.
+pub async fn after_sync(state: &AppState, tenant_id: Uuid, synced: &[Synced]) {
+    for s in synced {
+        if let Some(row) = &s.row {
+            notify_users(state, tenant_id, row, &s.newly_responsible, "workflow updated").await;
+        }
+        state.emit(tenant_id, None, "approval", json!({ "id": s.id, "status": "pending", "level": s.level }));
     }
 }

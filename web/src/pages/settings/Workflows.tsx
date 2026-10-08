@@ -41,7 +41,14 @@ export function WorkflowSettings() {
           min_amount: w.min_amount === "" || w.min_amount === null ? null : Number(w.min_amount),
         },
       }),
-    onSuccess: () => { toast.success("Workflow saved"); setEdit(null); qc.invalidateQueries({ queryKey: ["settings"] }); },
+    onSuccess: (r) => {
+      // Requests already pending follow the changed workflow (roadmap 49).
+      const n = (r as { affected_pending?: unknown[] })?.affected_pending?.length ?? 0;
+      toast.success(n ? `${t("Workflow saved")} · ${n} ${t("pending requests updated")}` : t("Workflow saved"));
+      setEdit(null);
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+    },
     onError: (e) => toast.error(e),
   });
 

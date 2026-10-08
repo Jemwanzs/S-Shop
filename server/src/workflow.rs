@@ -6,6 +6,10 @@
 //! stored with the original request as `payload`. The request moves through the
 //! workflow's ordered **levels**; when the last level approves, `routes::approvals`
 //! executes it in the owning module.
+//!
+//! Each level (step) has a stable id. A request keeps its own copy of the chain it follows (`approvals.steps`) and
+//! every decision records the step it approved, so when a workflow is edited its pending requests are reconciled step
+//! by step (`reconcile`, roadmap 49) rather than by position.
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -42,8 +46,11 @@ pub const ACTIONS: &[Action] = &[
 ];
 
 /// One approval level: who may decide at this step.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Level {
+    /// Stable identity of the step across workflow edits (assigned when the step is created).
+    #[serde(default)]
+    pub id: Option<Uuid>,
     /// admin | role | user | branch_manager
     pub approver_type: String,
     #[serde(default)]
@@ -168,9 +175,11 @@ pub struct Request<'a> {
 }
 
 pub async fn submit(conn: &mut PgConnection, ctx: &Ctx, r: Request<'_>) -> AppResult<Uuid> {
+    // The request follows the workflow's chain as it is now; later edits reach it through `reconcile`.
+    let steps = rule_for(conn, ctx.tenant_id, r.action).await?.map(|rule| rule.levels).unwrap_or_default();
     let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO approvals (tenant_id, action, entity_type, entity_id, branch_id, summary, amount, payload, requested_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
+        "INSERT INTO approvals (tenant_id, action, entity_type, entity_id, branch_id, summary, amount, payload, requested_by, steps)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id",
     )
     .bind(ctx.tenant_id)
     .bind(r.action)
@@ -181,14 +190,10 @@ pub async fn submit(conn: &mut PgConnection, ctx: &Ctx, r: Request<'_>) -> AppRe
     .bind(r.amount)
     .bind(&r.payload)
     .bind(ctx.user_id)
+    .bind(Json(&steps))
     .fetch_one(&mut *conn)
     .await?;
     Ok(id)
-}
-
-/// Number of levels a request for `action` must pass (at least one).
-pub async fn level_count(conn: &mut PgConnection, tenant_id: Uuid, action: &str) -> AppResult<i32> {
-    Ok(rule_for(conn, tenant_id, action).await?.map(|r| r.levels.len().max(1) as i32).unwrap_or(1))
 }
 
 /// Who is asking to decide, and what they have already done on this request.
@@ -199,8 +204,8 @@ pub struct Decider<'a> {
     pub decided_by: &'a [Uuid],
 }
 
-/// Can `approver` decide `level` of a request for `action` raised in `branch_id` by `requested_by`?
-/// Makers never check their own requests, and nobody decides two levels of the same request.
+/// Can `approver` decide `level` of a request for `action`, using the workflow as it is now? (The counter discount
+/// supervisor check, which has no stored request; stored requests use `can_decide_step` with their own chain.)
 pub async fn can_decide(
     conn: &mut PgConnection,
     tenant_id: Uuid,
@@ -209,6 +214,24 @@ pub async fn can_decide(
     requested_by: Option<Uuid>,
     d: Decider<'_>,
 ) -> AppResult<bool> {
+    let rule = rule_for(conn, tenant_id, action).await?;
+    let step = rule.as_ref().and_then(|r| r.levels.get((d.level - 1).max(0) as usize)).cloned();
+    can_decide_step(conn, tenant_id, step.as_ref(), branch_id, requested_by, d.approver, d.decided_by).await
+}
+
+/// Can `approver` decide `step` of a request raised in `branch_id` by `requested_by`? No step = a request without a
+/// configured chain: anyone holding `approvals.approve`. Makers never check their own requests, and nobody decides two
+/// levels of the same request.
+pub async fn can_decide_step(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    step: Option<&Level>,
+    branch_id: Option<Uuid>,
+    requested_by: Option<Uuid>,
+    approver: Uuid,
+    decided_by: &[Uuid],
+) -> AppResult<bool> {
+    let d = Decider { approver, level: 0, decided_by };
     if requested_by == Some(d.approver) || d.decided_by.contains(&d.approver) {
         return Ok(false);
     }
@@ -225,8 +248,7 @@ pub async fn can_decide(
         return Ok(true);
     }
     let may_approve = perms.iter().any(|p| p == "approvals.approve");
-    let rule = rule_for(conn, tenant_id, action).await?;
-    let Some(level) = rule.as_ref().and_then(|r| r.levels.get((d.level - 1).max(0) as usize)) else { return Ok(may_approve) };
+    let Some(level) = step else { return Ok(may_approve) };
     Ok(match level.approver_type.as_str() {
         "user" => level.approver_user_id == Some(d.approver),
         "role" => level.approver_role_id == Some(role_id),
@@ -241,25 +263,169 @@ pub async fn can_decide(
     })
 }
 
-/// Users who may decide `level` of a request — used to notify them.
-pub async fn approvers(
+/// Users who may decide `step` of a request — the "who approves next" list, used for queues and notifications.
+pub async fn approvers_for(
     conn: &mut PgConnection,
     tenant_id: Uuid,
-    action: &str,
+    step: Option<&Level>,
     branch_id: Option<Uuid>,
-    requested_by: Uuid,
-    level: i32,
+    requested_by: Option<Uuid>,
     decided_by: &[Uuid],
 ) -> AppResult<Vec<Uuid>> {
-    let candidates: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE tenant_id = $1 AND is_active")
+    let candidates: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE tenant_id = $1 AND is_active ORDER BY name")
         .bind(tenant_id)
         .fetch_all(&mut *conn)
         .await?;
     let mut out = Vec::new();
     for u in candidates {
-        if can_decide(conn, tenant_id, action, branch_id, Some(requested_by), Decider { approver: u, level, decided_by }).await? {
+        if can_decide_step(conn, tenant_id, step, branch_id, requested_by, u, decided_by).await? {
             out.push(u);
         }
     }
     Ok(out)
+}
+
+/// Steps sent without an id (API clients, older screens) keep the identity of an existing step with the same definition
+/// (approver type, role, user), in order — so saving the same workflow again never turns approved steps into new ones.
+pub fn inherit_ids(levels: &mut [Level], previous: &[Level]) {
+    let mut taken: Vec<Uuid> = levels.iter().filter_map(|l| l.id).collect();
+    for l in levels.iter_mut().filter(|l| l.id.is_none()) {
+        if let Some(old) = previous.iter().find(|o| {
+            o.id.is_some_and(|id| !taken.contains(&id))
+                && o.approver_type == l.approver_type
+                && o.approver_role_id == l.approver_role_id
+                && o.approver_user_id == l.approver_user_id
+        }) {
+            l.id = old.id;
+            taken.extend(old.id);
+        }
+    }
+}
+
+/// Gives every step an id (new steps get a new one; a repeated id is treated as a new step).
+pub fn with_ids(levels: &mut [Level]) {
+    let mut seen = Vec::new();
+    for l in levels.iter_mut() {
+        match l.id {
+            Some(id) if !seen.contains(&id) => seen.push(id),
+            _ => {
+                let id = Uuid::new_v4();
+                l.id = Some(id);
+                seen.push(id);
+            }
+        }
+    }
+}
+
+/// Where a pending request stands under a (changed) chain of steps.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Position {
+    /// The chain the request follows from now on.
+    pub steps: Vec<Level>,
+    /// 1-based index of the step it waits for.
+    pub level: i32,
+    /// Why the result is exceptional, if it is ("" otherwise).
+    pub note: String,
+}
+
+pub const NOTE_OUT_OF_ORDER: &str =
+    "The workflow now has a step before an approval already given: that approval is kept and not asked again, and the request waits for the new step";
+pub const NOTE_ALL_DONE: &str =
+    "Every step of the changed workflow was already approved: an administrator confirms the final decision";
+
+/// Reconciles a pending request with `steps` (roadmap 49). Steps already approved (`completed`, by step id) stay
+/// approved and are never asked again; the request waits for the first step not yet approved — never back to the start,
+/// and a step is never approved automatically. Exceptions are reported in `note`: a not-yet-approved step placed before
+/// an approved one, and a chain whose steps are all approved already (then an administrator gives the final decision
+/// as an extra step, instead of the action running unattended).
+pub fn reconcile(steps: &[Level], completed: &[Uuid]) -> Position {
+    let done = |l: &Level| l.id.is_some_and(|id| completed.contains(&id));
+    match steps.iter().position(|l| !done(l)) {
+        Some(i) => {
+            let out_of_order = steps[i + 1..].iter().any(done);
+            Position { steps: steps.to_vec(), level: i as i32 + 1, note: if out_of_order { NOTE_OUT_OF_ORDER.into() } else { String::new() } }
+        }
+        None => {
+            let mut chain = steps.to_vec();
+            chain.push(Level { id: Some(Uuid::new_v4()), approver_type: "admin".into(), approver_role_id: None, approver_user_id: None });
+            Position { level: chain.len() as i32, steps: chain, note: NOTE_ALL_DONE.into() }
+        }
+    }
+}
+
+/// After step `level` (1-based) of `steps` is approved: the next step that still needs a decision (steps approved
+/// earlier out of order are skipped, never asked twice), or None when the request is fully approved.
+pub fn next_level(steps: &[Level], level: i32, completed: &[Uuid]) -> Option<i32> {
+    steps
+        .iter()
+        .enumerate()
+        .skip(level.max(0) as usize)
+        .find(|(_, l)| !l.id.is_some_and(|id| completed.contains(&id)))
+        .map(|(i, _)| i as i32 + 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn step(n: u128, kind: &str) -> Level {
+        Level { id: Some(Uuid::from_u128(n)), approver_type: kind.into(), approver_role_id: None, approver_user_id: None }
+    }
+
+    #[test]
+    fn insert_after_current_step() {
+        // Initiator → Manager → Finance, Manager approved; Operations inserted before Finance.
+        let (mgr, ops, fin) = (step(1, "role"), step(2, "role"), step(3, "role"));
+        let p = reconcile(&[mgr.clone(), ops.clone(), fin.clone()], &[Uuid::from_u128(1)]);
+        assert_eq!((p.level, p.note.as_str()), (2, ""));
+        assert_eq!(p.steps[1], ops);
+    }
+
+    #[test]
+    fn nothing_completed_stays_at_the_start() {
+        let p = reconcile(&[step(1, "admin"), step(2, "admin")], &[]);
+        assert_eq!((p.level, p.note.as_str()), (1, ""));
+    }
+
+    #[test]
+    fn insert_before_completed_step_is_flagged_not_rewritten() {
+        // Manager approved; a new Audit step placed before Manager.
+        let p = reconcile(&[step(9, "role"), step(1, "role"), step(3, "role")], &[Uuid::from_u128(1)]);
+        assert_eq!(p.level, 1);
+        assert_eq!(p.note, NOTE_OUT_OF_ORDER);
+        // After Audit approves, Manager (already approved) is skipped, Finance is next.
+        assert_eq!(next_level(&p.steps, 1, &[Uuid::from_u128(1), Uuid::from_u128(9)]), Some(3));
+    }
+
+    #[test]
+    fn removed_future_steps_and_all_done() {
+        // Manager approved; Finance removed: every remaining step is done → an administrator decides, never automatic.
+        let p = reconcile(&[step(1, "role")], &[Uuid::from_u128(1)]);
+        assert_eq!((p.level, p.steps.len(), p.note.as_str()), (2, 2, NOTE_ALL_DONE));
+        assert_eq!(p.steps[1].approver_type, "admin");
+    }
+
+    #[test]
+    fn same_steps_without_ids_keep_their_identity() {
+        let old = vec![step(1, "role"), step(2, "admin")];
+        let mut new = vec![
+            Level { id: None, approver_type: "admin".into(), approver_role_id: None, approver_user_id: None },
+            Level { id: None, approver_type: "role".into(), approver_role_id: None, approver_user_id: None },
+            Level { id: None, approver_type: "admin".into(), approver_role_id: None, approver_user_id: None },
+        ];
+        inherit_ids(&mut new, &old);
+        with_ids(&mut new);
+        assert_eq!(new[0].id, Some(Uuid::from_u128(2)));
+        assert_eq!(new[1].id, Some(Uuid::from_u128(1)));
+        assert!(new[2].id.is_some() && new[2].id != Some(Uuid::from_u128(2)));
+    }
+
+    #[test]
+    fn ids_assigned_once() {
+        let mut l = vec![step(1, "admin"), Level { id: None, approver_type: "admin".into(), approver_role_id: None, approver_user_id: None }, step(1, "role")];
+        with_ids(&mut l);
+        assert_eq!(l[0].id, Some(Uuid::from_u128(1)));
+        assert!(l[1].id.is_some() && l[2].id.is_some() && l[2].id != Some(Uuid::from_u128(1)));
+        assert_eq!(next_level(&l, 3, &[]), None);
+    }
 }

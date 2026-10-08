@@ -360,9 +360,16 @@ export interface Approval {
   comments: string;
   created_at: string;
   can_decide: boolean;
+  /** Who approves next (pending requests). */
+  next_approvers: string[];
+  /** Set when a workflow change needed an exception for this request (roadmap 49). */
+  sync_note: string;
+  synced_at: string | null;
   level: number;
   levels: number;
-  decisions: { level: number; user_name: string; decision: "approved" | "rejected"; comments: string; at: string }[];
+  decisions: { level: number; step_id?: string | null; user_name: string; decision: "approved" | "rejected"; comments: string; at: string }[];
+  /** The chain of steps the request follows (ids are stable across workflow edits). */
+  steps: { id?: string | null }[];
 }
 
 export interface Notification {

@@ -252,7 +252,7 @@ struct WorkflowBody {
 
 const MAX_LEVELS: usize = 5;
 
-async fn put_workflow(State(state): State<AppState>, ctx: Ctx, Path(action): Path<String>, Json(b): Json<WorkflowBody>) -> AppResult<Json<Value>> {
+async fn put_workflow(State(state): State<AppState>, ctx: Ctx, Path(action): Path<String>, Json(mut b): Json<WorkflowBody>) -> AppResult<Json<Value>> {
     ctx.require("settings.workflows")?;
     let Some(def) = workflow::ACTIONS.iter().find(|a| a.key == action) else { return Err(AppError::NotFound("Workflow")) };
     if b.levels.is_empty() || b.levels.len() > MAX_LEVELS {
@@ -295,6 +295,12 @@ async fn put_workflow(State(state): State<AppState>, ctx: Ctx, Path(action): Pat
     {
         return Err(bad("A condition refers to an unknown role, branch or category"));
     }
+    // Steps keep their identity across edits (new ones get an id), so pending requests can be reconciled by step.
+    let previous = workflow::rule_for(&mut tx, ctx.tenant_id, &action).await?;
+    if let Some(p) = &previous {
+        workflow::inherit_ids(&mut b.levels, &p.levels);
+    }
+    workflow::with_ids(&mut b.levels);
     let levels = serde_json::to_value(&b.levels).map_err(|e| AppError::Other(e.into()))?;
     let conditions = serde_json::to_value(&b.conditions).map_err(|e| AppError::Other(e.into()))?;
     sqlx::query(
@@ -309,16 +315,24 @@ async fn put_workflow(State(state): State<AppState>, ctx: Ctx, Path(action): Pat
     .bind(&conditions)
     .execute(&mut *tx)
     .await?;
+    // Requests already pending follow the changed workflow from their current position (roadmap 49).
+    let synced = super::approvals::sync_pending(&mut tx, &ctx, &action, &b.levels).await?;
     audit::record(
         &mut tx,
         &ctx,
-        Entry::new("settings", "workflow", "workflow", ctx.tenant_id).after(json!({
-            "action": action, "enabled": b.enabled, "levels": levels, "min_amount": b.min_amount, "conditions": conditions
-        })),
+        Entry::new("settings", "workflow", "workflow", ctx.tenant_id)
+            .before(previous.as_ref().map(|p| json!({
+                "action": p.action, "enabled": p.enabled, "levels": p.levels, "min_amount": p.min_amount, "conditions": p.conditions
+            })))
+            .after(json!({
+                "action": action, "enabled": b.enabled, "levels": levels, "min_amount": b.min_amount, "conditions": conditions,
+                "affected_pending": synced,
+            })),
     )
     .await?;
     tx.commit().await?;
-    Ok(Json(json!({ "ok": true })))
+    super::approvals::after_sync(&state, ctx.tenant_id, &synced).await;
+    Ok(Json(json!({ "ok": true, "levels": b.levels, "affected_pending": synced })))
 }
 
 // ───────────────────────────── Branches ─────────────────────────────

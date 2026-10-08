@@ -64,7 +64,8 @@ constraints, row locks).
 `web/src/components/FloatingQuickAction.tsx` (reusable) + `QuickSaleShortcut` in the app shell.
 
 * Small warm-brown bubble (token `--fab`), centre of the right edge, above content but below dialogs; tooltip
-  *Record sale* on desktop.
+  *Record sale* on desktop. On phones and tablets it is tucked into the screen edge as a tab (30 of 44 px showing, in the
+  page margin) so it does not cover buttons or figures at the end of rows.
 * Shown only when the user may record a sale now: `sales.create` (module-aware, so the Sales/POS package too), a Current
   Branch, billing not suspended, and — when the business blocks sales outside trading hours and the user has no override —
   an open branch. Hidden on the Record Sale screen itself. Offline: the existing Record Sale screen's offline rules apply.

@@ -127,9 +127,14 @@ export function FloatingQuickAction({
     onAction();
   };
 
+  // Phones and tablets: tucked into the screen edge as a tab (30 of its 44 px showing), so it stays in the page margin
+  // instead of over buttons and figures at the end of rows. Larger screens: a full bubble just off the edge.
+  const tucked = !drag && window.innerWidth < 1024;
   const style: React.CSSProperties = drag
     ? { left: drag.x, top: drag.y, transition: "none" }
-    : { top: topFor(place.y), [place.side]: `calc(${EDGE}px + env(safe-area-inset-${place.side}, 0px))` };
+    : tucked
+      ? { top: topFor(place.y), [place.side]: `env(safe-area-inset-${place.side}, 0px)`, transform: `translateX(${place.side === "right" ? 14 : -14}px)` }
+      : { top: topFor(place.y), [place.side]: `calc(${EDGE}px + env(safe-area-inset-${place.side}, 0px))` };
 
   return (
     <button
@@ -150,7 +155,7 @@ export function FloatingQuickAction({
         className,
       )}
     >
-      <span className="[&_svg]:h-5 [&_svg]:w-5">{icon}</span>
+      <span className="[&_svg]:h-5 [&_svg]:w-5" style={tucked ? { transform: `translateX(${place.side === "right" ? -7 : 7}px)` } : undefined}>{icon}</span>
       {/* Desktop hover label, on the side away from the edge. */}
       <span
         className={cn(

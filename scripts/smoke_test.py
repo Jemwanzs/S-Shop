@@ -276,6 +276,79 @@ call("POST", f"/approvals/{w['approval_id']}/approve", {"comments": "final"})
 check("applied after the last level", adj_status() == "applied", adj_status())
 call("PUT", "/settings/workflows/stock.write_off", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
 
+step("Roadmap 49: workflow changes reach pending approvals")
+sales_role = next(r["id"] for r in roles if r["name"] == "Salesperson")
+for who in ("ops", "fin"):
+    mail = f"{who}{suffix.lower()}@sshop.test"
+    call("POST", "/users", {"name": f"{who.title()} {suffix}", "email": mail, "pin": "4321", "role_id": sales_role, "all_branches": False, "branch_ids": [BRANCH]})
+    users[who] = call("POST", "/auth/login", {"email": mail, "pin": "4321"})["token"]
+ops, fin = users["ops"], users["fin"]
+ops_id = call("GET", "/auth/me", token=ops)["user"]["id"]
+fin_id = call("GET", "/auth/me", token=fin)["user"]["id"]
+wf_prod = call("POST", "/products", {"name": f"Workflow {suffix}", "marked_price": 100, "cost_price": 60})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": wf_prod, "quantity": 10})
+def write_off(reason):
+    return call("POST", "/stock/adjustments", {"product_id": wf_prod, "kind": "write_off", "quantity": 1, "reason": reason}, token=clerk)["approval_id"]
+def item(aid, token=None):
+    # None when the request is not in that user's view (not theirs to decide, not raised by them).
+    return next((a for a in call("GET", "/approvals?status=all&limit=200", token=token)["items"] if a["id"] == aid), None)
+# Initiator → Manager → Finance
+saved = call("PUT", "/settings/workflows/stock.write_off", {"enabled": True, "min_amount": None,
+              "levels": [{"approver_type": "role", "approver_role_id": mgr_role}, {"approver_type": "user", "approver_user_id": fin_id}]})
+M, F = saved["levels"]
+check("workflow steps get stable ids", M.get("id") and F.get("id") and M["id"] != F["id"], saved["levels"])
+w1 = write_off("Expired A")
+call("POST", f"/approvals/{w1}/approve", {"comments": "manager ok"}, token=mgr2)
+w2 = write_off("Expired B")
+check("before the change: w1 waits for Finance", item(w1)["level"] == 2 and item(w1)["next_approvers"] == [f"Fin {suffix}"], item(w1)["next_approvers"])
+same = call("PUT", "/settings/workflows/stock.write_off", {"enabled": True, "min_amount": None,
+             "levels": [{"approver_type": "role", "approver_role_id": mgr_role}, {"approver_type": "user", "approver_user_id": fin_id}]})
+check("saving the same workflow without step ids changes nothing", [l["id"] for l in same["levels"]] == [M["id"], F["id"]]
+      and not same["affected_pending"] and item(w1)["level"] == 2, same["affected_pending"])
+# Initiator → Manager → Operations → Finance
+O = {"approver_type": "user", "approver_user_id": ops_id}
+saved = call("PUT", "/settings/workflows/stock.write_off", {"enabled": True, "min_amount": None, "levels": [M, O, F]})
+aff = {a["id"]: a for a in saved["affected_pending"]}
+check("save reports the affected pending requests", w1 in aff, saved["affected_pending"])
+check("w1: Manager kept, now waits for the new Operations step", aff[w1]["previous_level"] == 2 and aff[w1]["level"] == 2 and aff[w1]["levels"] == 3
+      and aff[w1]["previous_next_approvers"] == [f"Fin {suffix}"] and aff[w1]["next_approvers"] == [f"Ops {suffix}"], aff[w1])
+check("w2: nothing approved yet — stays at the start of the new chain", item(w2)["level"] == 1 and item(w2)["levels"] == 3, item(w2)["level"])
+check("old approver no longer has it to decide (gone from their queue)", (item(w1, token=fin) or {}).get("can_decide") is not True)
+check("new approver has it to decide", item(w1, token=ops)["can_decide"] is True)
+check("newly responsible approver notified", any("workflow updated" in n["title"] for n in call("GET", "/notifications", token=ops)["items"]))
+call("POST", f"/approvals/{w1}/approve", {"comments": "ops ok"}, token=ops)
+call("POST", f"/approvals/{w1}/approve", {"comments": "finance ok"}, token=fin)
+done = item(w1)
+check("w1 completes once through the new chain, no approval repeated", done["status"] == "approved"
+      and [d["level"] for d in done["decisions"]] == [1, 2, 3], done["decisions"])
+# A new step placed before the Manager approval already given
+w3 = write_off("Expired C")
+call("POST", f"/approvals/{w3}/approve", {"comments": "manager ok"}, token=mgr2)
+A = {"approver_type": "user", "approver_user_id": ops_id}
+saved = call("PUT", "/settings/workflows/stock.write_off", {"enabled": True, "min_amount": None, "levels": [A, M, F]})
+a3 = next(a for a in saved["affected_pending"] if a["id"] == w3)
+check("step inserted before an approval already given: flagged, not rewritten", a3["level"] == 1 and "already given" in a3["note"], a3)
+call("POST", f"/approvals/{w3}/approve", {"comments": "audit ok"}, token=ops)
+check("the Manager approval already given is not asked again", item(w3)["level"] == 3 and item(w3)["next_approvers"] == [f"Fin {suffix}"], item(w3))
+call("POST", f"/approvals/{w3}/approve", {"comments": "finance ok"}, token=fin)
+check("w3 completes", item(w3)["status"] == "approved" and sum(1 for d in item(w3)["decisions"] if d["decision"] == "approved") == 3)
+# Remaining steps removed: never approved automatically
+w4 = write_off("Expired D")
+first = item(w4)["steps"][0]
+call("POST", f"/approvals/{w4}/approve", {"comments": "audit ok"}, token=ops)
+saved = call("PUT", "/settings/workflows/stock.write_off", {"enabled": True, "min_amount": None, "levels": [first]})
+a4 = next(a for a in saved["affected_pending"] if a["id"] == w4)
+check("all steps already approved: waits for an administrator, nothing automatic", item(w4)["status"] == "pending" and a4["level"] == 2
+      and "administrator" in a4["note"], a4)
+call("POST", f"/approvals/{w4}/approve", {"comments": "admin confirms"})
+check("administrator gives the final decision", item(w4)["status"] == "approved")
+sync_audit = [x for x in call("GET", "/audit?period=today&module=approvals&limit=200")["items"] if x["action"] == "workflow_sync"]
+check("each sync audited with previous and new next approver", any(x["before"]["next_approvers"] == [f"Fin {suffix}"] and x["after"]["next_approvers"] == [f"Ops {suffix}"] for x in sync_audit), len(sync_audit))
+wf_audit = next(x for x in call("GET", "/audit?period=today&module=settings&limit=200")["items"] if x["action"] == "workflow")
+check("workflow change audited with previous and new workflow and affected requests", wf_audit["before"] is not None and "affected_pending" in wf_audit["after"])
+call("POST", f"/approvals/{w2}/withdraw", token=clerk)
+call("PUT", "/settings/workflows/stock.write_off", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+
 step("Maker-checker (roadmap 2): conditional expense rule")
 cats = call("GET", "/expense-categories")
 rent, transport = next(c["id"] for c in cats if c["name"] == "Rent"), next(c["id"] for c in cats if c["name"] == "Transport")

@@ -196,6 +196,15 @@ Added 2026-10-07 (owner requests, delivered 2026-10-07; [module 22](modules/22-a
   existing Record Sale screen; *User preferences → Quick actions*: draggable ON/OFF (default OFF), position remembered
   per device and snapped to the nearest edge, tap vs drag never confused; built as a reusable floating quick action.
 
+Added 2026-10-08 (owner request, delivered 2026-10-08; [module 15](modules/15-approvals.md)):
+- ✅ **49. Workflow changes reach pending approvals** — audit found the engine read workflows by position (🟡 partial:
+  steps inserted before a completed one shifted history, removed steps left requests decidable by any approver, no
+  notifications, no sync audit). Steps get stable ids; each pending request keeps its own chain and every decision
+  records its step; saving a workflow reconciles pending requests of that action — completed steps kept and never
+  repeated, the request moves to the first step not yet approved (never back to the start, never auto-approved),
+  new approvers notified and queues refreshed, out-of-order or fully-approved cases flagged for an administrator,
+  every change audited (who, previous/new workflow, affected requests, previous/new next approver).
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

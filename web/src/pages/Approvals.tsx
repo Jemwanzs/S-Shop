@@ -50,6 +50,13 @@ function entityLink(a: Approval) {
   }
 }
 
+/** A decision shown at its step's position in the request's current chain (a workflow change can move steps). */
+function decisionStep(a: Approval, d: Approval["decisions"][number]): string {
+  const i = d.step_id ? a.steps.findIndex((s) => s.id === d.step_id) : -1;
+  if (i >= 0) return `${t("Level")} ${i + 1}`;
+  return d.step_id ? t("Earlier step") : `${t("Level")} ${d.level}`;
+}
+
 export default function Approvals() {
   
   const qc = useQueryClient();
@@ -110,11 +117,19 @@ export default function Approvals() {
                   {a.requested_by_name} · {ago(a.created_at)}{a.branch_name && ` · ${a.branch_name}`}
                   {a.decided_by_name && <><br />{a.status} by {a.decided_by_name} · {dateTime(a.decided_at)}{a.comments && ` — “${a.comments}”`}</>}
                 </p>
+                {a.status === "pending" && a.next_approvers.length > 0 && (
+                  <p className="text-xs">
+                    <span className="text-muted-foreground">{t("Next approver")}:</span> <span className="font-medium">{a.next_approvers.join(", ")}</span>
+                  </p>
+                )}
+                {a.status === "pending" && a.sync_note && (
+                  <p className="rounded-lg bg-warning/10 p-2 text-xs text-warning">{t("Workflow changed")}: {t(a.sync_note)}</p>
+                )}
                 {a.decisions.length > 0 && (
                   <ol className="space-y-1 border-s-2 ps-3 text-xs">
                     {a.decisions.map((d, n) => (
                       <li key={n} className={d.decision === "approved" ? "text-success" : "text-destructive"}>
-                        {t("Level")} {d.level} {d.decision} by {d.user_name} · {ago(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
+                        {decisionStep(a, d)} {d.decision} by {d.user_name} · {ago(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
                       </li>
                     ))}
                   </ol>

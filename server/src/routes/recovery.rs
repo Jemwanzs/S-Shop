@@ -66,7 +66,7 @@ async fn forgot(State(state): State<AppState>, headers: HeaderMap, Json(b): Json
 }
 
 async fn forgot_work(state: &AppState, email: &str, ip: &str, ua: &str) -> AppResult<()> {
-    let user: Option<(Uuid, Uuid, String, bool)> = sqlx::query_as("SELECT id, tenant_id, name, is_active FROM users WHERE lower(email) = $1")
+    let user: Option<(Uuid, Uuid, String, bool)> = sqlx::query_as("SELECT id, tenant_id, name, is_active FROM users WHERE lower(email) = $1 AND login_user_id IS NULL")
         .bind(email)
         .fetch_optional(&state.db)
         .await?;

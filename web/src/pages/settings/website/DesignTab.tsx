@@ -71,6 +71,9 @@ export function DesignTab({ c, set }: TabProps) {
         <Field label="Theme"><Choice value={modes} onChange={(v) => set((x) => { x.theme.modes = v; })} options={[["light", "Light"], ["dark", "Dark"], ["both", "Both (visitors choose)"]]} /></Field>
         <Field label="Style"><Choice value={c.theme.style} onChange={(v) => set((x) => { x.theme.style = v; })} options={[["modern", "Modern"], ["minimal", "Minimal"], ["elegant", "Elegant"], ["bold", "Bold"]]} /></Field>
         <Field label="Spacing"><Choice value={c.theme.scale} onChange={(v) => set((x) => { x.theme.scale = v; })} options={[["compact", "Compact"], ["balanced", "Balanced"], ["spacious", "Spacious"]]} /></Field>
+        <Field label="Animations" hint="Gentle fades, card lift and cart feedback. Always off for visitors who ask their device for reduced motion.">
+          <Choice value={c.theme.motion ?? "subtle"} onChange={(v) => set((x) => { x.theme.motion = v; })} options={[["off", "Off"], ["subtle", "Subtle"], ["standard", "Standard"]]} />
+        </Field>
         <Grid2>
           <Field label="Heading font"><Select value={c.theme.heading_font} onChange={(v) => set((x) => { x.theme.heading_font = v; })}>{FONTS.map((f) => <option key={f} value={f}>{f}</option>)}</Select></Field>
           <Field label="Body font"><Select value={c.theme.body_font} onChange={(v) => set((x) => { x.theme.body_font = v; })}>{FONTS.map((f) => <option key={f} value={f}>{f}</option>)}</Select></Field>

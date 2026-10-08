@@ -56,10 +56,22 @@ pub fn request_host(headers: &HeaderMap) -> String {
 
 /// The business whose verified, active custom domain this host is.
 pub async fn domain_tenant(state: &AppState, host: &str) -> AppResult<Option<Uuid>> {
+    Ok(domain_match(state, host).await?.map(|m| m.0))
+}
+
+/// Roadmap 74: the active domain this host belongs to — the domain itself, or its `www.` / bare twin (redirected to
+/// the domain as registered, provided the twin also reaches this server).
+pub async fn domain_match(state: &AppState, host: &str) -> AppResult<Option<(Uuid, String)>> {
     if host.is_empty() {
         return Ok(None);
     }
-    Ok(sqlx::query_scalar("SELECT tenant_id FROM website_domains WHERE domain = $1 AND status = 'active'").bind(host).fetch_optional(&state.db).await?)
+    Ok(sqlx::query_as(
+        "SELECT tenant_id, domain FROM website_domains WHERE status = 'active' AND (domain = $1 OR domain = 'www.' || $1 OR 'www.' || domain = $1)
+         ORDER BY domain = $1 DESC LIMIT 1",
+    )
+    .bind(host)
+    .fetch_optional(&state.db)
+    .await?)
 }
 
 pub struct Site {
@@ -118,8 +130,19 @@ async fn preview_allowed(state: &AppState, headers: &HeaderMap, tenant: Uuid) ->
     .await
     .ok()
     .flatten();
+    if claims.home.is_some() {
+        // The platform owner inside the business: only while the support session is live (roadmap 71).
+        return sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM support_sessions WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND status = 'active' AND expires_at > now())",
+        )
+        .bind(claims.sid)
+        .bind(claims.sub)
+        .bind(tenant)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(false);
+    }
     perms.is_some_and(|p| p.iter().any(|x| x == "*" || x.starts_with("website.")))
-        || (claims.home.is_some()) // the platform owner inside the business
 }
 
 pub async fn resolve(state: &AppState, headers: &HeaderMap, slug: Option<&str>, want_preview: bool) -> AppResult<Resolved> {
@@ -130,7 +153,7 @@ pub async fn resolve(state: &AppState, headers: &HeaderMap, slug: Option<&str>, 
         "SELECT t.id, t.slug, t.name, t.currency, t.logo IS NOT NULL AS has_logo, t.status AS tenant_status, w.status, w.billing_suspended,
                 w.draft, w.published, w.version, w.published_at, d.domain
          FROM tenants t LEFT JOIN websites w ON w.tenant_id = t.id
-         LEFT JOIN website_domains d ON d.tenant_id = t.id AND d.status = 'active'
+         LEFT JOIN website_domains d ON d.tenant_id = t.id AND d.status = 'active' AND d.is_primary
          WHERE ($1::uuid IS NOT NULL AND t.id = $1) OR ($1::uuid IS NULL AND t.slug = $2)",
     )
     .bind(by_domain)
@@ -326,7 +349,7 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
         };
         let thumb = match e {
             Some(e) if !e.use_product_photos => e.photos.first().map(|m| format!("{}?size=thumb", media_url(*m))),
-            _ => photos.first().cloned(),
+            _ => photos.first().map(|p| format!("{p}?size=thumb")),
         };
         let name = e.map(|e| e.marketing_name.trim()).filter(|n| !n.is_empty()).unwrap_or(&r.name).to_string();
         let description = e.map(|e| e.marketing_description.trim()).filter(|n| !n.is_empty()).unwrap_or(&r.description).to_string();
@@ -789,7 +812,7 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
         "/services" => meta.title = page_title("Services"),
         "/contact" => meta.title = page_title("Contact"),
         "/testimonials" => meta.title = page_title("Testimonials"),
-        "/order" | "/cart" => {
+        "/order" | "/orders" | "/cart" => {
             meta.title = page_title("Your order");
             meta.noindex = true;
         }
@@ -830,10 +853,13 @@ pub async fn host_pages(
         return next.run(req).await;
     }
     let host = request_host(req.headers());
-    let custom = match domain_tenant(&state, &host).await {
-        Ok(t) => t.is_some(),
-        Err(_) => false,
-    };
+    let matched = domain_match(&state, &host).await.ok().flatten();
+    let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
+    // www ↔ bare twin of a connected domain: one address only (roadmap 74).
+    if let Some((_, domain)) = matched.as_ref().filter(|(_, d)| *d != host) {
+        return axum::response::Redirect::permanent(&format!("https://{domain}{path}{query}")).into_response();
+    }
+    let custom = matched.is_some();
     let (slug, rest) = if custom {
         // Static files shipped with the build (icons, fonts …) are served as they are.
         let file = format!("{}{}", state.cfg.web_dir, path);
@@ -846,6 +872,21 @@ pub async fn host_pages(
         let (slug, rest) = after.split_once('/').map_or((after, "/".to_string()), |(a, b)| (a, format!("/{b}")));
         if slug.is_empty() {
             return next.run(req).await;
+        }
+        // The business's own domain is its main address: the S'Shop address forwards there (previews stay here).
+        if !query.contains("preview=") {
+            let primary: Option<String> = sqlx::query_scalar(
+                "SELECT d.domain FROM website_domains d JOIN tenants t ON t.id = d.tenant_id WHERE t.slug = $1 AND d.status = 'active' AND d.is_primary",
+            )
+            .bind(slug)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+            if let Some(d) = primary {
+                // Temporary: the business can switch its main address back or remove the domain at any time.
+                return axum::response::Redirect::temporary(&format!("https://{d}{rest}{query}")).into_response();
+            }
         }
         (Some(slug.to_string()), rest)
     } else {

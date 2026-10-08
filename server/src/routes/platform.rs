@@ -14,7 +14,7 @@ use uuid::Uuid;
 use super::access::require_platform_admin;
 use super::{Counted, Page, Paged, Period};
 use crate::audit::{self, Entry};
-use crate::auth::{issue_acting_token, issue_token, Ctx, STAFF_TOKEN_HOURS};
+use crate::auth::{issue_token, Ctx, STAFF_TOKEN_HOURS};
 use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::state::AppState;
 
@@ -224,40 +224,58 @@ async fn set_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
         return Err(refused("Reason required", "Give the reason for deactivating this business"));
     }
     let mut tx = state.db.begin().await?;
+    let current: String = sqlx::query_scalar("SELECT status FROM tenants WHERE id = $1").bind(id).fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound("Business"))?;
+    if current == b.status {
+        return Err(rule(if current == "active" { "This business is already active" } else { "This business is already deactivated" }));
+    }
+    if !change_status(&mut tx, &state, &ctx, id, &b.status, &reason).await? {
+        return Err(refused("Not allowed", "The platform owner's own business cannot be deactivated"));
+    }
+    tx.commit().await?;
+    Ok(Json(json!({ "ok": true, "status": b.status })))
+}
+
+/// Applies a business status change (and audits it). `false` when nothing changed: already in that status, or a
+/// platform-owned business that can never be deactivated. Used for one business and for a whole tenant (roadmap 70).
+pub async fn change_status(tx: &mut sqlx::PgConnection, state: &AppState, ctx: &Ctx, id: Uuid, status: &str, reason: &str) -> AppResult<bool> {
     let (name, current, ownership): (String, String, String) = sqlx::query_as("SELECT name, status, ownership FROM tenants WHERE id = $1 FOR UPDATE")
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(AppError::NotFound("Business"))?;
-    if current == b.status {
-        return Err(rule(if current == "active" { "This business is already active" } else { "This business is already deactivated" }));
+    if current == status {
+        return Ok(false);
     }
-    if b.status == "deactivated" {
+    if status == "deactivated" {
         // The platform owner's own business (any business with a platform administrator) can never be switched off.
         let emails: Vec<String> = sqlx::query_scalar("SELECT lower(email) FROM users WHERE tenant_id = $1 AND is_active")
             .bind(id)
             .fetch_all(&mut *tx)
             .await?;
         if ownership == "platform" || id == ctx.acting_from.unwrap_or(ctx.tenant_id) || emails.iter().any(|e| state.cfg.platform_admins.contains(e)) {
-            return Err(refused("Not allowed", "The platform owner's own business cannot be deactivated"));
+            return Ok(false);
         }
+        // Support sessions end with the business's sessions.
+        sqlx::query("UPDATE support_sessions SET status = 'ended', ended_at = now(), end_note = 'Business deactivated' WHERE tenant_id = $1 AND status IN ('requested', 'approved', 'active')")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("UPDATE tenants SET status = 'deactivated', status_reason = $2, status_changed_at = now(), sessions_valid_after = now() WHERE id = $1")
             .bind(id)
-            .bind(&reason)
+            .bind(reason)
             .execute(&mut *tx)
             .await?;
     } else {
         sqlx::query("UPDATE tenants SET status = 'active', status_reason = $2, status_changed_at = now() WHERE id = $1")
             .bind(id)
-            .bind(&reason)
+            .bind(reason)
             .execute(&mut *tx)
             .await?;
     }
-    let action = if b.status == "deactivated" { "deactivate_business" } else { "reactivate_business" };
-    let after = json!({ "business": name, "status": b.status, "reason": reason, "by": ctx.name });
-    record_platform(&mut tx, &ctx, id, || Entry::new("platform", action, "tenant", id).before(json!({ "status": current })).after(after.clone())).await?;
-    tx.commit().await?;
-    Ok(Json(json!({ "ok": true, "status": b.status })))
+    let action = if status == "deactivated" { "deactivate_business" } else { "reactivate_business" };
+    let after = json!({ "business": name, "status": status, "reason": reason, "by": ctx.name });
+    record_platform(tx, ctx, id, || Entry::new("platform", action, "tenant", id).before(json!({ "status": current })).after(after.clone())).await?;
+    Ok(true)
 }
 
 /// The platform owner resets a business user's PIN (typically a locked-out administrator): a one-time PIN is
@@ -289,13 +307,16 @@ const ACTIVITIES: &[(&str, &str, &[&str])] = &[
     ("stock_receive", "stock", &["receive"]),
     ("transfer", "transfers", &["create", "submit", "dispatch", "receive", "cancel"]),
     ("pin_reset", "platform", &["reset_pin"]),
-    ("platform", "platform", &["open_business", "deactivate_business", "reactivate_business", "approve_access"]),
+    ("platform", "platform", &["open_business", "deactivate_business", "reactivate_business", "approve_access", "add_business", "move_business", "update_tenant"]),
+    ("support", "platform", &["support_requested", "support_approved", "support_denied", "support_started", "support_ended", "support_revoked"]),
     ("billing", "billing", &["payment_received", "invoice_issued", "quotation_issued", "quotation_accepted", "document_void", "plan_updated", "payment_started",
                              "billing_suspended", "billing_restored", "trial_ended"]),
 ];
 
 #[derive(Deserialize)]
 struct ActivityQuery {
+    /// Roadmap 73: every business of one tenant.
+    account_id: Option<Uuid>,
     tenant_id: Option<Uuid>,
     branch_id: Option<Uuid>,
     user_id: Option<Uuid>,
@@ -341,12 +362,13 @@ async fn activity(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Activ
     let (modules, actions): (Vec<String>, Vec<String>) = pairs.into_iter().unzip();
     const FILTER: &str = "JOIN unnest($1::text[], $2::text[]) AS f(module, action) ON f.module = a.module AND f.action = a.action
          WHERE a.created_at >= $3 AND a.created_at < $4
-           AND ($5::uuid IS NULL OR a.tenant_id = $5) AND ($6::uuid IS NULL OR a.branch_id = $6) AND ($7::uuid IS NULL OR a.user_id = $7)";
+           AND ($5::uuid IS NULL OR a.tenant_id = $5) AND ($6::uuid IS NULL OR a.branch_id = $6) AND ($7::uuid IS NULL OR a.user_id = $7)
+           AND ($8::uuid IS NULL OR a.tenant_id IN (SELECT id FROM tenants WHERE account_id = $8))";
     let rows: Vec<Counted<ActivityRow>> = sqlx::query_as(&format!(
         "SELECT COUNT(*) OVER() AS total_count, a.id, a.created_at, a.tenant_id, t.name AS business, a.user_id, u.name AS user_name,
                 u.email AS user_email, b.name AS branch_name, a.module, a.action, a.entity_type, a.after, a.ip, a.location
          FROM audit_log a JOIN tenants t ON t.id = a.tenant_id LEFT JOIN users u ON u.id = a.user_id LEFT JOIN branches b ON b.id = a.branch_id
-         {FILTER} ORDER BY a.created_at DESC LIMIT $8 OFFSET $9"
+         {FILTER} ORDER BY a.created_at DESC LIMIT $9 OFFSET $10"
     ))
     .bind(&modules)
     .bind(&actions)
@@ -355,6 +377,7 @@ async fn activity(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Activ
     .bind(q.tenant_id)
     .bind(q.branch_id)
     .bind(q.user_id)
+    .bind(q.account_id)
     .bind(q.page.limit())
     .bind(q.page.offset())
     .fetch_all(&state.db)
@@ -367,6 +390,7 @@ async fn activity(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Activ
         .bind(q.tenant_id)
         .bind(q.branch_id)
         .bind(q.user_id)
+        .bind(q.account_id)
         .fetch_all(&state.db)
         .await?;
     let mut totals = serde_json::Map::new();
@@ -391,11 +415,18 @@ async fn open(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> 
         .await?
         .ok_or(AppError::NotFound("Business"))?;
     let home = ctx.acting_from.unwrap_or(ctx.tenant_id);
-    let token = if id == home {
-        issue_token(&state.cfg.jwt_secret, ctx.user_id, home, "staff", chrono::Duration::hours(STAFF_TOKEN_HOURS))?
-    } else {
-        issue_acting_token(&state.cfg.jwt_secret, ctx.user_id, home, id)?
-    };
+    // Roadmap 71: only the platform owner's own business opens directly. Every other business needs a support
+    // session (POST /platform/tenants/{id}/support) or its administrator's own sign-in.
+    if id != home {
+        return Err(refused("Support access needed", "Open this business with support access (PIN, reason and time limit) or sign in as its administrator"));
+    }
+    if let Some(s) = &ctx.support {
+        sqlx::query("UPDATE support_sessions SET status = 'ended', ended_at = now(), ended_by = user_id, end_note = 'Returned to own business' WHERE id = $1 AND status = 'active'")
+            .bind(s.id)
+            .execute(&state.db)
+            .await?;
+    }
+    let token = issue_token(&state.cfg.jwt_secret, ctx.user_id, home, "staff", chrono::Duration::hours(STAFF_TOKEN_HOURS))?;
     // Recorded in the business being opened (its own audit trail shows platform access) and at home.
     let mut tx = state.db.begin().await?;
     for tenant in [id, home] {

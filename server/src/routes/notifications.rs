@@ -106,7 +106,27 @@ async fn read_all(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Val
 /// One SSE connection per signed-in device. Events carry ids only; clients refetch.
 async fn stream(State(state): State<AppState>, ctx: Ctx) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let (tenant, user) = (ctx.tenant_id, ctx.user_id);
-    let events = BroadcastStream::new(state.events.subscribe()).filter_map(move |msg| {
+    // A support session's stream closes within 15 s of the session ending, expiring or being revoked (roadmap 71).
+    let live = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    if let Some(s) = ctx.support.as_ref().map(|s| s.id) {
+        let (db, flag) = (state.db.clone(), live.clone());
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(15)).await;
+                let ok: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM support_sessions WHERE id = $1 AND status = 'active' AND expires_at > now())")
+                    .bind(s)
+                    .fetch_one(&db)
+                    .await
+                    .unwrap_or(false);
+                if !ok || std::sync::Arc::strong_count(&flag) == 1 {
+                    flag.store(false, std::sync::atomic::Ordering::Relaxed);
+                    break;
+                }
+            }
+        });
+    }
+    let open = live.clone();
+    let events = BroadcastStream::new(state.events.subscribe()).take_while(move |_| open.load(std::sync::atomic::Ordering::Relaxed)).filter_map(move |msg| {
         let ev = msg.ok()?;
         if ev.tenant_id != tenant || ev.user_id.is_some_and(|u| u != user) {
             return None;

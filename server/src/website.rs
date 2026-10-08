@@ -102,6 +102,8 @@ pub struct Theme {
     pub body_font: String,
     /// compact | balanced | spacious
     pub scale: String,
+    /// Roadmap 77: off | subtle (default) | standard — always off for visitors who ask for reduced motion.
+    pub motion: String,
 }
 
 impl Default for Theme {
@@ -114,6 +116,7 @@ impl Default for Theme {
             heading_font: "Outfit".into(),
             body_font: "Outfit".into(),
             scale: "balanced".into(),
+            motion: "subtle".into(),
         }
     }
 }
@@ -627,6 +630,7 @@ pub fn validate(c: &SiteConfig) -> AppResult<()> {
     one_of(&c.theme.modes, &["light", "dark", "both"], "Themes")?;
     one_of(&c.theme.style, &["modern", "minimal", "elegant", "bold"], "Style")?;
     one_of(&c.theme.scale, &["compact", "balanced", "spacious"], "Typography scale")?;
+    one_of(&c.theme.motion, &["off", "subtle", "standard"], "Animations")?;
     one_of(&c.theme.heading_font, &FONTS, "Heading font")?;
     one_of(&c.theme.body_font, &FONTS, "Body font")?;
 

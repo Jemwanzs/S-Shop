@@ -289,6 +289,34 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | GET | `/api/permissions/scopes` | areas and scopes for the role / user editors |
 | GET / PUT | `/api/users/{id}/access` (`overrides`, `default_branch_id`) | `users.manage` |
 
+## Website domains & photos (roadmap 74–75)
+
+| Method | Path | Notes |
+|---|---|---|
+| PUT | `/api/website/domain/primary` (`primary`) | the domain is the main address (S'Shop address forwards) or not; `website.domain` |
+| GET | `/api/website/domain` | adds `is_primary`, `awaiting_platform` |
+| POST | `/api/products/{id}/photos` (+ optional `thumb` part) | small copy for grids (≤ 400 KB, JPEG / PNG / WebP) |
+| GET | `/api/photos/{id}?size=thumb` | the thumbnail, or the original when there is none |
+
+## Tenants & secure access ([module 27](modules/27-tenants-and-secure-access.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/platform/accounts` | platform owner: tenants with totals, status, billing status, next due |
+| GET / PUT | `/api/platform/accounts/{id}` | tenant detail (businesses, people, sessions, websites, policies); edit name, notes, primary administrator |
+| POST | `/api/platform/accounts/{id}/status` (`status`, `reason`) | every business of the tenant; platform-owned refused |
+| POST | `/api/platform/accounts/{id}/businesses` (`name`) | another business; the primary administrator is linked as its administrator |
+| POST | `/api/platform/tenants/{id}/account` (`account_id`) | group a business under another tenant |
+| POST | `/api/platform/tenants/{id}/support` (`pin`, `reason`, `scope` view/full, `minutes` 15–480) | `{status: "active", token, profile}` or `{status: "requested", id}` |
+| POST | `/api/platform/support/{id}/start` (`pin`) · `/end` | start an approved session · end / withdraw (returns the home session) |
+| GET | `/api/platform/support?account_id=` | the platform owner's sessions |
+| POST | `/api/platform/tenants/{id}/open` | own business only (others: 422 *Support access needed*) |
+| GET | `/api/support-access` · PUT `/policy` (`notify` / `approval`) | business administrators |
+| POST | `/api/support-access/{id}/approve` · `/deny` · `/revoke` | `users.manage`; never from a support session |
+| POST | `/api/auth/switch-business` (`tenant_id`) | same tenant only; the profile lists `businesses` and `linked_from` |
+| GET | `/api/users/linkable` · POST `/api/users/link` (`user_id`, `role_id`, `all_branches`, `branch_ids`) | people of the tenant's other businesses |
+| GET | `/api/platform/activity?account_id=` | adds the tenant filter and the `support` activity |
+
 ## Order alerts (roadmap 69)
 
 | Method | Path | Notes |

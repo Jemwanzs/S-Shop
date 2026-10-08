@@ -1,15 +1,13 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRightLeft, Ban, Copy, Download, FilePlus2, KeyRound, MapPin, Pencil, Power, RefreshCw, Wallet, XCircle } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
-import { useSession } from "@/lib/session";
 import { ago, count, date, dateTime, moneyDoc, todayIso } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { EmailHistory, type EmailRow } from "./EmailHistory";
 import { PlatformWebsiteCard, type PlatformWebsiteInfo } from "./website/PlatformWebsite";
-import type { Profile } from "@/lib/types";
 import {
   billingPdf,
   CATEGORY_LABEL,
@@ -33,6 +31,7 @@ import { ActionButton, REASONS, isDirty } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Pill, StatusBadge } from "@/components/Badges";
+import { OpenBusinessDialog, type OpenTarget } from "@/components/OpenBusinessDialog";
 import { ConfirmDialog, Field, Select, ToggleRow } from "@/components/Form";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { Loading } from "@/components/Page";
@@ -65,8 +64,6 @@ const HISTORY_LABEL: Record<string, string> = {
 export function BusinessDetail() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
-  const navigate = useNavigate();
-  const { switchBusiness } = useSession();
   const key = ["platform-tenant", id];
   const q = useQuery({ queryKey: key, queryFn: () => api<Detail>(`/platform/tenants/${id}`) });
   const refresh = () => {
@@ -82,15 +79,7 @@ export function BusinessDetail() {
   const [payDoc, setPayDoc] = useState<BillingDocument | null>(null);
   const [voidDoc, setVoidDoc] = useState<BillingDocument | null>(null);
 
-  const open = useMutation({
-    mutationFn: () => api<{ token: string; profile: Profile }>(`/platform/tenants/${id}/open`, { method: "POST" }),
-    onSuccess: (r) => {
-      switchBusiness(r.token, r.profile);
-      toast.success(`${t("Now in")} ${r.profile.tenant.name}`);
-      navigate(r.profile.branches.length > 1 ? "/select-branch" : "/", { replace: true });
-    },
-    onError: (e) => toast.error(e),
-  });
+  const [openTarget, setOpenTarget] = useState<OpenTarget | null>(null);
   const setStatus = useMutation({
     mutationFn: (b: { status: string; reason: string }) => api(`/platform/tenants/${id}/status`, { body: b }),
     onSuccess: (_r, b) => {
@@ -152,7 +141,11 @@ export function BusinessDetail() {
         <Pill tone={STATUS_TONE[s.status]}>{t(STATUS_LABEL[s.status])}</Pill>
         {b.is_demo && <Pill tone="info">{t("Demo")}</Pill>}
         <span className="flex-1" />
-        <ActionButton size="sm" variant="outline" online busy={open.isPending} busyLabel="Opening…" onAction={() => open.mutateAsync()}><ArrowRightLeft /> {t("Open business")}</ActionButton>
+        {!d.is_home && (
+          <Button size="sm" variant="outline" onClick={() => setOpenTarget({ id, name: b.name, admin_email: b.admin_email, platform_owned: owned })}>
+            <ArrowRightLeft /> {t("Open business")}
+          </Button>
+        )}
         <Button
           size="sm"
           variant={active ? "destructive" : "default"}
@@ -351,6 +344,7 @@ export function BusinessDetail() {
         </Card>
       )}
 
+      <OpenBusinessDialog target={openTarget} onClose={() => setOpenTarget(null)} />
       <ConfirmDialog
         open={statusOpen}
         onOpenChange={setStatusOpen}

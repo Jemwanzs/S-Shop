@@ -309,27 +309,45 @@ Website Order Notifications & Sidebar Order Badges*).
   scope, 99+ above 99, hidden at zero, live over SSE; independent of read state (reading alerts never lowers it,
   confirming the order does). User preferences → Notifications: new-order notifications, in-app pop-ups, sound (chime).
 
-Planned (owner requests 2026-10-08, same message) — **Tenant management & secure business access**:
-- ⏳ **70. Tenant accounts** — Platform owner → tenants → businesses → branches → users. Every approved access request
+Added 2026-10-08 — **Tenant management & secure business access** (owner request: *Centralized Tenant Management, Secure
+Business Access & Multi-Business Architecture*; [module 27](modules/27-tenants-and-secure-access.md)):
+- ✅ **70. Tenant accounts** — Platform owner → tenants → businesses → branches → users. Every approved access request
   creates one tenant account and its first business; existing businesses become their own tenant's first business.
   Platform → Tenants: cards (administrator, contacts, businesses, branches, users, status, billing status, next due)
   and a tenant page (overview, businesses & branches, users, billing per business, website services, activity &
   security, access & status). Activate / deactivate a whole tenant (reason, sessions ended, data kept; platform-owned
   tenants protected).
-- ⏳ **71. Secure business access** — *Open business* no longer switches silently. Two routes: *Sign in as the tenant's
+- ✅ **71. Secure business access** — *Open business* no longer switches silently. Two routes: *Sign in as the tenant's
   administrator* (their own PIN, entered by them; the platform never sees or stores it) or *Platform support access*
   (fresh PIN re-entry, reason, scope view-only / full, 15 min – 8 h, the tenant's consent when its policy asks for it,
   banner with countdown, ended by either side at any time, audited start to end). Old acting tokens stop working.
-- ⏳ **72. Several businesses per tenant, one sign-in** — the platform owner adds businesses to a tenant; a tenant's
+- ✅ **72. Several businesses per tenant, one sign-in** — the platform owner adds businesses to a tenant; a tenant's
   administrator gives a person access to another business of the same tenant (own role, branches and scopes there);
   *Switch business* lists only those businesses and needs no new sign-in; other tenants stay out of reach.
-- ⏳ **73. Tenant activity** — logins, stock taking, transfers, sales recording, support sessions, billing and status
+- ✅ **73. Tenant activity** — logins, stock taking, transfers, sales recording, support sessions, billing and status
   changes per tenant, with business / branch / user / date filters; no customer or financial details.
 
-Then (same message): **custom domains on every route** (primary domain, redirects, canonical links, `/products`,
-`/orders`, `/contact`; *Awaiting platform configuration* when Railway cannot be automated) and the **premium storefront
-redesign** (2 products per row on phones by default, card actions that never overlap, image reliability, subtle
-animations with an intensity setting, header search, collections from real data, mobile / tablet / desktop preview).
+Added 2026-10-08 — **Custom domains & premium storefront** (owner requests: *Tenant Custom Domain & Automatic Website
+Mapping*; *Premium Website Redesign, Product Experience, Animations & Seamless Custom Domains*;
+[module 23](modules/23-website.md), section 74–77). Audit first: domain
+verification, host routing, canonical links, the orders engine on custom domains, 2-per-row phone grids, collections
+from real data (*Popular* only from actual sales), header search with suggestions, light / dark / both and the
+mobile / tablet / desktop preview already existed (✅).
+- ✅ **74. Custom domains everywhere** — *Main website address* switch: the S'Shop address forwards to the business's
+  own domain (temporary redirect, so it can be switched back or removed safely; previews stay put); `www.` and bare twins
+  of a connected domain forward to it; `/orders` works like `/order`; *Awaiting platform configuration* shown honestly
+  when ownership is proven but the hosting side is set up by hand; *Test domain connection*. A domain is never *Active*
+  before `https://<domain>` answers from S'Shop for that host.
+- ✅ **75. Product photos** — thumbnails made in the browser at upload (480 px) and served with `?size=thumb` on the
+  website and in grids (older photos fall back to the optimised original); responsive `sizes`, lazy loading, fade-in
+  on load; a branded placeholder (product initial on the brand colours) when a product has no photo or a photo fails —
+  never a broken-image icon, never a stock photo.
+- ✅ **76. Premium product cards** — image → name → availability (dot) → an action row of its own (price + *Add*):
+  nothing floats over names or prices; equal heights per row; three per row on phones switches to a compact card with
+  an icon-only *Add* under the price.
+- ✅ **77. Animations** — Website → Design → *Animations: Off / Subtle (default) / Standard*: page fade, sections fading
+  in on scroll, card hover lift, button press, cart badge bump, *Added to cart · View cart* confirmation; always off
+  for visitors whose device asks for reduced motion; CSS only, no animation library.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

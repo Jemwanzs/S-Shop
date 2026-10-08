@@ -5,7 +5,9 @@ import { session } from "./api";
 
 /** Which query caches each live topic invalidates. */
 const TOPICS: Record<string, string[][]> = {
-  notification: [["notifications"]],
+  notification: [["notifications"], ["support-access"]],
+  // Roadmap 71: a business approved, declined or ended support access.
+  support: [["platform-accounts"], ["platform-account"], ["notifications"]],
   // The Orders badge (pending new orders) lives in the notifications feed.
   order: [["orders"], ["order"], ["dashboard"], ["notifications"]],
   stock: [["stock"], ["pos-products"], ["products"], ["product"]],

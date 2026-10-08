@@ -276,3 +276,62 @@ textarea.field { min-height: 90px; resize: vertical; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .skel { background: linear-gradient(90deg, color-mix(in srgb, var(--text) 6%, transparent) 25%, color-mix(in srgb, var(--text) 11%, transparent) 50%, color-mix(in srgb, var(--text) 6%, transparent) 75%); background-size: 200% 100%; animation: sh 1.4s infinite; border-radius: var(--card-r); }
 @keyframes sh { to { background-position: -200% 0; } }
+
+/* ── Roadmap 76: premium product cards — own action row, equal heights, branded placeholder ── */
+.card .card-link { display: flex; flex-direction: column; flex: 1; text-decoration: none; color: inherit; min-width: 0; }
+.card .img img { opacity: 0; }
+.card .img img.ok { opacity: 1; }
+.site[data-motion="off"] .card .img img { opacity: 1; }
+.card .img .ph { background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 16%, var(--surface)), color-mix(in srgb, var(--accent) 12%, var(--surface))); }
+.card .img .ph .ph-mark { font-family: var(--heading-font), sans-serif; font-weight: 700; font-size: clamp(1.6rem, 9vw, 2.6rem); color: color-mix(in srgb, var(--primary) 70%, var(--heading)); opacity: .55; letter-spacing: -.02em; }
+.card .body { gap: 6px; }
+.card .stock { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78em; color: var(--muted); }
+.card .stock i { width: 6px; height: 6px; border-radius: 99px; background: #16a34a; flex-shrink: 0; }
+.card .stock.out i { background: #dc2626; }
+.card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 var(--card-pad, 12px) var(--card-pad, 12px); margin-top: auto; min-width: 0; }
+.card .foot .price { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1em; letter-spacing: -.01em; min-width: 0; }
+.card .add { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 34px; min-width: 34px; padding: 0 12px 0 10px; border-radius: 999px; border: 0; background: var(--primary); color: var(--on-primary); font: inherit; font-size: 0.84em; font-weight: 600; cursor: pointer; transition: transform .15s ease, background-color .2s ease, box-shadow .2s ease; }
+.card .add svg { width: 16px; height: 16px; }
+.card .add:active { transform: scale(.94); }
+.card .add.done { background: #16a34a; color: #fff; }
+.card .add:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.card .cta { padding: 0 var(--card-pad, 12px) var(--card-pad, 12px); }
+.card .foot + .cta { padding-top: 0; }
+.card.compact .add .lbl { display: none; }
+.card.compact .add { padding: 0; width: 32px; min-width: 32px; height: 32px; }
+/* Three per row on a phone: smaller type, icon-only Add under the price — nothing collides. */
+@media (max-width: 639px) {
+  .products.m3 { --card-pad: 8px; gap: 8px; }
+  .products.m3 .card { font-size: 0.82em; }
+  .products.m3 .card .foot { flex-direction: column; align-items: stretch; gap: 6px; }
+  .products.m3 .card .add { width: 100%; height: 30px; padding: 0; }
+  .products.m3 .card .add .lbl { display: none; }
+  .products.m3 .card .badge { font-size: 10px; padding: 2px 6px; }
+}
+
+/* ── Roadmap 77: motion — off | subtle (default) | standard; always off when the visitor prefers reduced motion ── */
+.site:not([data-motion="off"]) .card .img img { transition: opacity .35s ease, transform .5s ease; }
+.site:not([data-motion="off"]) .card { transition: box-shadow .25s ease, transform .25s ease; }
+.site[data-motion="standard"] .card:hover { transform: translateY(-3px); box-shadow: 0 14px 34px rgb(0 0 0 / .12); }
+.site[data-motion="subtle"] .card:hover { box-shadow: 0 10px 26px rgb(0 0 0 / .1); }
+.site[data-motion="off"] .card:hover .img img { transform: none; }
+.site:not([data-motion="off"]) .btn { transition: transform .15s ease, filter .2s ease; }
+.site:not([data-motion="off"]) .btn:active { transform: scale(.97); }
+.site:not([data-motion="off"]) .reveal { opacity: 0; transform: translateY(14px); transition: opacity .55s ease, transform .55s ease; }
+.site[data-motion="standard"] .reveal { transform: translateY(24px); transition-duration: .7s; }
+.site .reveal.in { opacity: 1; transform: none; }
+.site:not([data-motion="off"]) .page-in { animation: page-in .3s ease both; }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.site:not([data-motion="off"]) .dot.bump, .site:not([data-motion="off"]) .float-cart.bump { animation: bump .45s ease; }
+@keyframes bump { 0% { transform: scale(1); } 35% { transform: scale(1.35); } 100% { transform: scale(1); } }
+.added-toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: 12px; max-width: min(92vw, 420px); padding: 10px 10px 10px 16px; border-radius: 999px; background: var(--heading); color: var(--bg); box-shadow: 0 12px 30px rgb(0 0 0 / .25); font-size: .92em; }
+.added-toast span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.added-toast button { flex-shrink: 0; border: 0; border-radius: 999px; padding: 8px 14px; background: var(--primary); color: var(--on-primary); font: inherit; font-weight: 600; cursor: pointer; }
+.site:not([data-motion="off"]) .added-toast { animation: toast-in .25s ease both; }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .site .reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
+  .site .page-in, .site .dot.bump, .site .float-cart.bump, .site .added-toast { animation: none !important; }
+  .site .card, .site .card:hover { transform: none !important; transition: none !important; }
+  .site .card .img img { transition: none !important; }
+}

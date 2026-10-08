@@ -242,7 +242,7 @@ async fn announce(state: &AppState, id: Uuid) {
     mailer::send(state, ack_mail(&r)).await;
 
     // In-app notification for every platform admin, whichever business they sign in to.
-    let admins: Vec<(Uuid, Uuid)> = sqlx::query_as("SELECT id, tenant_id FROM users WHERE is_active AND lower(email) = ANY($1)")
+    let admins: Vec<(Uuid, Uuid)> = sqlx::query_as("SELECT id, tenant_id FROM users WHERE is_active AND lower(email) = ANY($1) AND login_user_id IS NULL")
         .bind(&state.cfg.platform_admins)
         .fetch_all(&state.db)
         .await
@@ -264,7 +264,10 @@ pub async fn require_platform_admin(state: &AppState, ctx: &Ctx) -> AppResult<()
     if !ctx.can("*") {
         return Err(AppError::Forbidden("Only platform administrators can review access requests".into()));
     }
-    let email: String = sqlx::query_scalar("SELECT lower(email) FROM users WHERE id = $1").bind(ctx.user_id).fetch_one(&state.db).await?;
+    let email: String = sqlx::query_scalar("SELECT CASE WHEN login_user_id IS NULL THEN lower(email) ELSE '' END FROM users WHERE id = $1")
+        .bind(ctx.user_id)
+        .fetch_one(&state.db)
+        .await?;
     if !state.cfg.platform_admins.contains(&email) {
         return Err(AppError::Forbidden("Only platform administrators can review access requests".into()));
     }

@@ -21,6 +21,20 @@ pub struct TenantSettings {
     pub reports: ReportSettings,
     pub notifications: NotificationSettings,
     pub workspace: WorkspaceSettings,
+    /// Roadmap 71: changed only through Settings → Support access (administrators), never through the settings form.
+    pub security: SecuritySettings,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct SecuritySettings {
+    /// Platform support access: `notify` (support may enter; administrators are told) | `approval` (asked first).
+    pub support_access: String,
+}
+impl Default for SecuritySettings {
+    fn default() -> Self {
+        Self { support_access: "notify".into() }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

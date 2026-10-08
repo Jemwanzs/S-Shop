@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ActionButton } from "@/components/ActionButton";
-import { ConfirmDialog, Field } from "@/components/Form";
+import { ConfirmDialog, Field, ToggleRow } from "@/components/Form";
 import { Loading } from "@/components/Page";
 import { StatCard as Stat } from "@/components/Stat";
 import { t } from "@/lib/i18n";
@@ -93,7 +93,7 @@ export function AccessTab() {
 // ── Domain ────────────────────────────────────────────────────────────
 
 interface DomainRecord { kind: string; name: string; fqdn?: string; value: string; status: "ok" | "missing" | "wrong" | "misplaced" | "pending"; note: string }
-interface DomainView { domain: string; status: string; message: string; records: DomainRecord[]; checked_at: string | null; verified_at: string | null; active_at: string | null; url: string; automatic: boolean }
+interface DomainView { domain: string; status: string; message: string; records: DomainRecord[]; checked_at: string | null; verified_at: string | null; active_at: string | null; url: string; automatic: boolean; is_primary: boolean; awaiting_platform: boolean }
 
 const DOMAIN_STATUS: Record<string, [string, string]> = {
   dns_required: ["DNS records needed", "bg-warning/15 text-warning"],
@@ -125,8 +125,11 @@ export function DomainTab({ ov }: { ov: Overview }) {
   const connect = useMutation({ mutationFn: () => api("/website/domain", { method: "PUT", body: { domain: input } }), onSuccess: () => { setInput(""); done(); }, onError: (e) => toast.error(e) });
   const check = useMutation({ mutationFn: () => api<{ domain: DomainView }>("/website/domain/check", { body: {} }), onSuccess: (r) => { done(); if (r.domain.status === "active") toast.success("Your domain is live"); else toast(r.domain.message); }, onError: (e) => toast.error(e) });
   const del = useMutation({ mutationFn: () => api("/website/domain", { method: "DELETE" }), onSuccess: () => { setRemove(false); done(); }, onError: (e) => toast.error(e) });
+  const primary = useMutation({ mutationFn: (p: boolean) => api("/website/domain/primary", { method: "PUT", body: { primary: p } }), onSuccess: done, onError: (e) => toast.error(e) });
   if (isLoading) return <Loading />;
   const d = data?.domain;
+  // Roadmap 74: never "active" before the domain really serves the website over HTTPS; honest about manual set-up.
+  const badge = d ? (d.awaiting_platform ? ["Awaiting platform configuration", "bg-warning/15 text-warning"] : DOMAIN_STATUS[d.status]) : undefined;
   return (
     <div className="space-y-4">
       <Block title="Your S'Shop address" hint="Always works, with or without your own domain.">
@@ -140,8 +143,18 @@ export function DomainTab({ ov }: { ov: Overview }) {
           </form>
         </Block>
       ) : (
-        <Block title={d.domain} action={<span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", DOMAIN_STATUS[d.status]?.[1] ?? "bg-muted")}>{t(DOMAIN_STATUS[d.status]?.[0] ?? d.status)}</span>}>
+        <Block title={d.domain} action={<span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", badge?.[1] ?? "bg-muted")}>{t(badge?.[0] ?? d.status)}</span>}>
           <p className="text-sm">{t(d.message)}</p>
+          {d.status === "active" && (
+            <ToggleRow
+              label="Main website address"
+              hint={d.is_primary
+                ? `${t("Links, search engines and the S'Shop address all go to")} ${d.domain}.`
+                : t("Off: your S'Shop address stays the main one; the domain shows the same website.")}
+              checked={d.is_primary}
+              onChange={(v) => primary.mutate(v)}
+            />
+          )}
           {d.status !== "active" && (
             <div className="space-y-2">
               <p className="text-sm font-medium">{t("Add these records at your domain provider:")}</p>
@@ -169,7 +182,7 @@ export function DomainTab({ ov }: { ov: Overview }) {
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
-            <ActionButton size="sm" variant="outline" online busy={check.isPending} busyLabel="Checking…" onAction={() => check.mutateAsync()}><RefreshCw /> {t("Check now")}</ActionButton>
+            <ActionButton size="sm" variant="outline" online busy={check.isPending} busyLabel="Checking…" onAction={() => check.mutateAsync()}><RefreshCw /> {t("Test domain connection")}</ActionButton>
             {d.status === "active" && <Button size="sm" variant="outline" asChild><a href={d.url} target="_blank" rel="noreferrer"><ExternalLink /> {t("Open")}</a></Button>}
             <Button size="sm" variant="ghost" onClick={() => setRemove(true)}><Trash2 /> {t("Remove domain")}</Button>
             {d.checked_at && <span className="ms-auto text-xs text-muted-foreground">{t("Checked")} {dateTime(d.checked_at)}</span>}

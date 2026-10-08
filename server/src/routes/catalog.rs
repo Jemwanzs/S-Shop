@@ -539,10 +539,13 @@ async fn upload_photo(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
     ctx.require_any(&["products.create", "products.edit"])?;
     let mut upload_ref: Option<Uuid> = None;
     let mut data: Option<Bytes> = None;
+    let mut thumb: Option<Bytes> = None;
     while let Some(field) = mp.next_field().await.map_err(|_| bad("The photo could not be read. Try again."))? {
         match field.name() {
             Some("upload_ref") => upload_ref = field.text().await.ok().and_then(|t| Uuid::parse_str(t.trim()).ok()),
             Some("file") => data = Some(field.bytes().await.map_err(|_| bad("The photo could not be read. Try again."))?),
+            // Roadmap 75: a small copy made in the browser for product grids (optional).
+            Some("thumb") => thumb = Some(field.bytes().await.map_err(|_| bad("The photo could not be read. Try again."))?),
             _ => {}
         }
     }
@@ -551,6 +554,7 @@ async fn upload_photo(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
     if data.len() > 3 * 1024 * 1024 {
         return Err(refused("Photo too large", "Each photo must be under 3 MB."));
     }
+    let thumb = thumb.filter(|t| t.len() <= 400 * 1024).and_then(|t| sniff_image(&t).map(|m| (t.to_vec(), m)));
 
     let mut tx = state.db.begin().await?;
     let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM products WHERE id=$1 AND tenant_id=$2 FOR UPDATE")
@@ -578,7 +582,7 @@ async fn upload_photo(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
         return Err(refused("Photo limit reached", format!("A product can have at most {} photos.", s.product.max_photos)));
     }
     let photo_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO product_photos (tenant_id, product_id, data, mime, is_primary, sort_order, upload_ref) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+        "INSERT INTO product_photos (tenant_id, product_id, data, mime, is_primary, sort_order, upload_ref, thumb, thumb_mime) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
     )
     .bind(ctx.tenant_id)
     .bind(id)
@@ -587,6 +591,8 @@ async fn upload_photo(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
     .bind(count == 0)
     .bind(count as i32)
     .bind(upload_ref)
+    .bind(thumb.as_ref().map(|t| t.0.clone()))
+    .bind(thumb.as_ref().map(|t| t.1))
     .fetch_one(&mut *tx)
     .await?;
     sqlx::query("UPDATE products SET updated_at = now() WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).execute(&mut *tx).await?;
@@ -642,12 +648,23 @@ async fn set_primary(State(state): State<AppState>, ctx: Ctx, Path((id, photo_id
 }
 
 /// Public: photo ids are unguessable and photos are shown on the ordering portal.
-async fn photo(State(state): State<AppState>, Path(id): Path<Uuid>) -> AppResult<impl IntoResponse> {
-    let (data, mime): (Vec<u8>, String) = sqlx::query_as("SELECT data, mime FROM product_photos WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound("Photo"))?;
+#[derive(Deserialize)]
+struct PhotoQuery {
+    size: Option<String>,
+}
+
+/// A product photo; `?size=thumb` serves the small copy when there is one (older photos: the optimised original).
+async fn photo(State(state): State<AppState>, Path(id): Path<Uuid>, Query(q): Query<PhotoQuery>) -> AppResult<impl IntoResponse> {
+    let thumb = q.size.as_deref() == Some("thumb");
+    let (data, mime): (Vec<u8>, String) = sqlx::query_as(
+        "SELECT CASE WHEN $2 AND thumb IS NOT NULL THEN thumb ELSE data END, CASE WHEN $2 AND thumb IS NOT NULL THEN thumb_mime ELSE mime END
+         FROM product_photos WHERE id = $1",
+    )
+    .bind(id)
+    .bind(thumb)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("Photo"))?;
     Ok(([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "public, max-age=31536000, immutable".into())], data))
 }
 

@@ -224,7 +224,9 @@ struct PreparedLine {
 
 async fn verify_supervisor(conn: &mut PgConnection, ctx: &Ctx, sup: &Supervisor) -> AppResult<Uuid> {
     let row: Option<(Uuid, String, bool)> = sqlx::query_as(
-        "SELECT id, pin_hash, is_active FROM users WHERE tenant_id = $1 AND lower(email) = lower($2)",
+        // A person linked from another business of the tenant approves with their own (sign-in) PIN — roadmap 72.
+        "SELECT u.id, i.pin_hash, u.is_active AND i.is_active FROM users u JOIN users i ON i.id = COALESCE(u.login_user_id, u.id)
+         WHERE u.tenant_id = $1 AND lower(u.email) = lower($2)",
     )
     .bind(ctx.tenant_id)
     .bind(sup.email.trim())

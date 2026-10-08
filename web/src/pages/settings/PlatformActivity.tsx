@@ -43,6 +43,7 @@ const LABEL: Record<string, string> = {
   transfer: "Transfers",
   pin_reset: "PIN resets",
   platform: "Platform actions",
+  support: "Support access",
   billing: "Billing",
 };
 
@@ -64,6 +65,15 @@ const ACTION_LABEL: Record<string, [string, Tone]> = {
   "platform.deactivate_business": ["Business deactivated", "danger"],
   "platform.reactivate_business": ["Business reactivated", "success"],
   "platform.approve_access": ["Access approved", "success"],
+  "platform.add_business": ["Business added to tenant", "success"],
+  "platform.move_business": ["Business moved to tenant", "neutral"],
+  "platform.update_tenant": ["Tenant updated", "neutral"],
+  "platform.support_requested": ["Support access requested", "warning"],
+  "platform.support_approved": ["Support access approved", "success"],
+  "platform.support_denied": ["Support access declined", "danger"],
+  "platform.support_started": ["Support session started", "warning"],
+  "platform.support_ended": ["Support session ended", "neutral"],
+  "platform.support_revoked": ["Support session revoked", "danger"],
   "billing.payment_received": ["Payment received", "success"],
   "billing.payment_started": ["Payment started", "neutral"],
   "billing.invoice_issued": ["Invoice issued", "neutral"],
@@ -77,6 +87,15 @@ const LIMIT = 50;
 
 /** Platform owner: activity across businesses from the audit trail (roadmap 35). */
 export function PlatformActivity() {
+  return (
+    <SettingsPage title="Activity" description="Sign-ins, failed sign-ins, sales, stock counts, transfers, support access and platform actions across every business, from the audit trail.">
+      <ActivityFeed />
+    </SettingsPage>
+  );
+}
+
+/** The activity feed; with `accountId`, one tenant's businesses only (roadmap 73). */
+export function ActivityFeed({ accountId, businesses }: { accountId?: string; businesses?: { id: string; name: string }[] }) {
   const [tenant, setTenant] = useState("");
   const [branch, setBranch] = useState("");
   const [user, setUser] = useState("");
@@ -84,13 +103,15 @@ export function PlatformActivity() {
   const [period, setPeriod] = useState<PeriodValue>({ period: "week" });
   const [offset, setOffset] = useState(0);
 
-  const tenants = useQuery({ queryKey: ["platform-tenants"], queryFn: () => api<{ items: TenantRow[] }>("/platform/tenants") });
+  const tenants = useQuery({ queryKey: ["platform-tenants"], queryFn: () => api<{ items: TenantRow[] }>("/platform/tenants"), enabled: !businesses });
+  const choices = businesses ?? tenants.data?.items ?? [];
   const detail = useQuery({
     queryKey: ["platform-tenant", tenant],
     queryFn: () => api<{ users: { id: string; name: string }[]; branches: { id: string; name: string }[] }>(`/platform/tenants/${tenant}`),
     enabled: !!tenant,
   });
   const params = new URLSearchParams();
+  if (accountId) params.set("account_id", accountId);
   if (tenant) params.set("tenant_id", tenant);
   if (branch) params.set("branch_id", branch);
   if (user) params.set("user_id", user);
@@ -107,12 +128,12 @@ export function PlatformActivity() {
   };
 
   return (
-    <SettingsPage title="Activity" description="Sign-ins, failed sign-ins, sales, stock counts, transfers and platform actions across every business, from the audit trail.">
+    <div className="space-y-4">
       <div className="space-y-2.5">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <Select value={tenant} placeholder={t("All businesses")} label={t("Business")} onChange={(v) => reset(() => { setTenant(v); setBranch(""); setUser(""); })}>
             <option value="">{t("All businesses")}</option>
-            {tenants.data?.items.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            {choices.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
           <Select value={branch} placeholder={t("All branches")} label={t("Branch")} disabled={!tenant} onChange={(v) => reset(() => setBranch(v))}>
             <option value="">{t("All branches")}</option>
@@ -158,6 +179,6 @@ export function PlatformActivity() {
         </Card>
       )}
       {q.data && q.data.total > LIMIT && <Pager total={q.data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}
-    </SettingsPage>
+    </div>
   );
 }

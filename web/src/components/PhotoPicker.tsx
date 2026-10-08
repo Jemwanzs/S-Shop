@@ -140,9 +140,12 @@ export async function uploadPhotos(productId: string, items: PendingPhoto[], onP
   for (const [i, p] of items.entries()) {
     try {
       const blob = await optimizeImage(p.file);
+      // Roadmap 75: a small copy for product grids and the website (fast on mobile data).
+      const thumb = await optimizeImage(p.file, 480, 0.78).catch(() => null);
       const fd = new FormData();
       fd.append("upload_ref", p.ref);
       fd.append("file", blob, blob.type === "image/webp" ? "photo.webp" : "photo.jpg");
+      if (thumb) fd.append("thumb", thumb, thumb.type === "image/webp" ? "thumb.webp" : "thumb.jpg");
       await api(`/products/${productId}/photos`, { body: fd });
       result.saved++;
     } catch (e) {

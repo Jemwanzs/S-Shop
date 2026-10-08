@@ -2,7 +2,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
-  Check, Clock, Coffee, Gift, Heart, Home, ImageOff, Mail, MapPin, MessageCircle, Package, Palette, Phone, Plus, Ruler, Scissors, Shield, Shirt,
+  Check, Clock, Coffee, Gift, Heart, Home, Mail, MapPin, MessageCircle, Package, Palette, Phone, Plus, Ruler, Scissors, Shield, Shirt,
   Sparkles, Star, Truck, Wrench, type LucideIcon,
 } from "lucide-react";
 import type { Category, Cta, Product, SiteData, Testimonial } from "./types";
@@ -51,6 +51,35 @@ export function productAction(data: SiteData, p: Product): { label: string; to?:
 export function addToCart(p: Product, qty = 1) {
   cartStore.add({ id: p.id, slug: p.slug, name: p.name, price: p.price, photo: p.photo_thumb }, qty);
   track("add_to_cart", p.id);
+  // Roadmap 77: a short confirmation with a way to the cart (shown by the site shell).
+  window.dispatchEvent(new CustomEvent("sshop:added", { detail: { name: p.name, qty } }));
+}
+
+/** A product photo that fades in when loaded and falls back to a branded placeholder when missing or broken —
+ * never a broken-image icon, never an unrelated stock photo (roadmap 75). */
+export function Photo({ src, alt, name, sizes, priority }: { src: string | null | undefined; alt: string; name: string; sizes?: string; priority?: boolean }) {
+  const [state, setState] = useState<"load" | "ok" | "err">(src ? "load" : "err");
+  useEffect(() => setState(src ? "load" : "err"), [src]);
+  if (!src || state === "err") {
+    return (
+      <span className="ph" aria-hidden>
+        <span className="ph-mark">{(name.trim()[0] ?? "•").toUpperCase()}</span>
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      sizes={sizes}
+      loading={priority ? "eager" : "lazy"}
+      decoding="async"
+      className={state === "ok" ? "ok" : ""}
+      ref={(el) => { if (el?.complete && el.naturalWidth > 0 && state === "load") setState("ok"); }}
+      onLoad={() => setState("ok")}
+      onError={() => setState("err")}
+    />
+  );
 }
 
 export function ProductCard({ data, p }: { data: SiteData; p: Product }) {
@@ -63,26 +92,33 @@ export function ProductCard({ data, p }: { data: SiteData; p: Product }) {
   }, [added]);
   const act = productAction(data, p);
   const orderable = p.action === "add_to_cart" && data.ordering.enabled && p.in_stock !== false;
+  // Roadmap 76: image → name → availability, then an action row of its own (price + Add): nothing floats over the
+  // name or the price, and cards in a row line up whatever the name length.
+  const quick = g.quick_add && orderable;
   return (
     <article className={`card ${g.card} ${g.shadow ? "shadow" : ""}`}>
-      <Link to={`/products/${p.slug}`} style={{ textDecoration: "none", color: "inherit", display: "contents" }}>
+      <Link to={`/products/${p.slug}`} className="card-link">
         <div className="img">
           {g.show_badges && p.badge && <span className="badge">{badgeLabel(p.badge)}</span>}
-          {p.photo_thumb || p.photo ? <img src={p.photo_thumb ?? p.photo!} alt={p.name} loading="lazy" decoding="async" /> : <span className="ph"><ImageOff aria-hidden /></span>}
+          <Photo src={p.photo_thumb ?? p.photo} alt={p.name} name={p.name} sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw" />
         </div>
         <div className="body">
           <span className="name">{p.name}</span>
-          {p.price != null && <span className="price">{money(data.business.currency, p.price)}</span>}
-          {g.show_availability && p.in_stock != null && <span className={`stock ${p.in_stock ? "" : "out"}`}>{p.in_stock ? "In stock" : "Out of stock"}</span>}
+          {g.show_availability && p.in_stock != null && <span className={`stock ${p.in_stock ? "" : "out"}`}><i aria-hidden />{p.in_stock ? "In stock" : "Out of stock"}</span>}
         </div>
       </Link>
-      {g.quick_add && orderable && (
-        <button type="button" className="quick" aria-label={`Add ${p.name} to cart`} onClick={() => { addToCart(p); setAdded(true); }}>
-          {added ? <Check /> : <Plus />}
-        </button>
+      {(p.price != null || quick) && (
+        <div className="foot">
+          {p.price != null ? <span className="price">{money(data.business.currency, p.price)}</span> : <span />}
+          {quick && (
+            <button type="button" className={`add ${added ? "done" : ""}`} aria-label={`Add ${p.name} to cart`} onClick={() => { addToCart(p); setAdded(true); }}>
+              {added ? <Check aria-hidden /> : <Plus aria-hidden />}<span className="lbl">{added ? "Added" : "Add"}</span>
+            </button>
+          )}
+        </div>
       )}
       {act && g.card !== "compact" && (
-        <div style={{ padding: "0 var(--card-pad, 12px) var(--card-pad, 12px)" }}>
+        <div className="cta">
           {act.to ? <Link className="btn sm outline block" to={act.to}>{act.label}</Link> : <a className="btn sm outline block" href={act.href} target="_blank" rel="noopener noreferrer">{act.label}</a>}
         </div>
       )}
@@ -96,7 +132,7 @@ export function badgeLabel(b: string) {
 
 export function ProductGrid({ data, items, rail }: { data: SiteData; items: Product[]; rail?: boolean }) {
   return (
-    <div className={rail ? "rail" : "grid"} style={gridVars(data, "products")}>
+    <div className={`${rail ? "rail" : "grid"} products ${data.config.products.grid.mobile >= 3 ? "m3" : ""}`} style={gridVars(data, "products")}>
       {items.map((p) => <ProductCard key={p.id} data={data} p={p} />)}
     </div>
   );

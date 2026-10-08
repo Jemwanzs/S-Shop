@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, LocateFixed, Pencil, Plus, ShieldCheck } from "lucide-react";
+import { KeyRound, Link2, LocateFixed, Pencil, Plus, ShieldCheck } from "lucide-react";
+import { Loading } from "@/components/Page";
 import { UserAccessDialog } from "./UserAccess";
 import { currentPosition } from "@/lib/location";
 import { toast } from "@/lib/toast";
@@ -152,6 +153,7 @@ export function UsersSettings() {
   const [accessFor, setAccessFor] = useState<UserRow | null>(null);
   const [newPin, setNewPin] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
+  const [linkOpen, setLinkOpen] = useState(false);
   const save = useMutation({
     mutationFn: (u: UserForm) => api(u.id ? `/users/${u.id}` : "/users", { method: u.id ? "PUT" : "POST", body: { ...u, pin: u.id ? undefined : u.pin } }),
     onSuccess: () => { toast.success("User saved"); setEdit(null); qc.invalidateQueries({ queryKey: ["users"] }); },
@@ -166,23 +168,27 @@ export function UsersSettings() {
 
   return (
     <SettingsPage title="Users" description="Staff sign in with email and PIN. Access comes from their role and branches." loading={isLoading}>
-      <Card action={<Button size="sm" onClick={() => { setPinConfirm(""); setEdit({ name: "", email: "", phone: "", pin: "", role_id: roles.data?.find((r) => r.name === "Salesperson")?.id ?? "", all_branches: false, branch_ids: profile?.branches[0] ? [profile.branches[0].id] : [], is_active: true }); }}><Plus /> {t("Add user")}</Button>}>
+      <Card action={<div className="flex gap-2">
+        <Button size="sm" variant="outline" onClick={() => setLinkOpen(true)}><Link2 /> <span className="hidden sm:inline">{t("From another business")}</span></Button>
+        <Button size="sm" onClick={() => { setPinConfirm(""); setEdit({ name: "", email: "", phone: "", pin: "", role_id: roles.data?.find((r) => r.name === "Salesperson")?.id ?? "", all_branches: false, branch_ids: profile?.branches[0] ? [profile.branches[0].id] : [], is_active: true }); }}><Plus /> {t("Add user")}</Button>
+      </div>}>
         {data?.map((u) => (
           <div key={u.id} className="flex items-center gap-3 py-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">{initials(u.name)}</span>
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2 font-medium">{u.name} <Pill tone="primary">{u.role_name}</Pill>{!u.is_active && <Pill tone="danger">{t("Inactive")}</Pill>}</div>
+              <div className="flex flex-wrap items-center gap-2 font-medium">{u.name} <Pill tone="primary">{u.role_name}</Pill>{u.linked_from && <Pill tone="info">{t("Linked")} · {u.linked_from}</Pill>}{!u.is_active && <Pill tone="danger">{t("Inactive")}</Pill>}</div>
               <div className="truncate text-xs text-muted-foreground">
                 {u.email} · {u.all_branches ? "All branches" : u.branch_ids.map(branchName).join(", ")} · {u.last_login_at ? `active ${ago(u.last_login_at)}` : "never signed in"}
               </div>
             </div>
             <Button variant="ghost" size="icon-sm" onClick={() => setAccessFor(u)} aria-label={t("Roles & Access")}><ShieldCheck /></Button>
-            <Button variant="ghost" size="icon-sm" onClick={() => { setNewPin(""); setPinConfirm(""); setResetFor(u); }} aria-label="Reset PIN"><KeyRound /></Button>
+            {!u.linked_from && <Button variant="ghost" size="icon-sm" onClick={() => { setNewPin(""); setPinConfirm(""); setResetFor(u); }} aria-label="Reset PIN"><KeyRound /></Button>}
             <Button variant="ghost" size="icon-sm" onClick={() => setEdit({ id: u.id, name: u.name, email: u.email, phone: u.phone, pin: "", role_id: u.role_id, all_branches: u.all_branches, branch_ids: u.branch_ids, is_active: u.is_active })} aria-label="Edit"><Pencil /></Button>
           </div>
         ))}
       </Card>
       {accessFor && <UserAccessDialog user={accessFor} branches={branches.data ?? []} onClose={() => setAccessFor(null)} />}
+      {linkOpen && <LinkUserDialog roles={roles.data ?? []} branches={branches.data ?? []} onClose={() => setLinkOpen(false)} onSaved={() => qc.invalidateQueries({ queryKey: ["users"] })} />}
       <ResponsiveDialog
         open={!!edit}
         onOpenChange={(o) => !o && setEdit(null)}
@@ -197,9 +203,14 @@ export function UsersSettings() {
       >
         {edit && (
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Name"><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
-            <Field label="Email"><Input type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
-            <Field label="Phone" optional><Input value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
+            {data?.find((u) => u.id === edit.id)?.linked_from && (
+              <p className="rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground sm:col-span-2">
+                {t("Signs in with their account in")} <b>{data?.find((u) => u.id === edit.id)?.linked_from}</b>. {t("Name, email and PIN are managed there; here you set their role, branches and access.")}
+              </p>
+            )}
+            <Field label="Name"><Input value={edit.name} disabled={!!data?.find((u) => u.id === edit.id)?.linked_from} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
+            <Field label="Email"><Input type="email" value={edit.email} disabled={!!data?.find((u) => u.id === edit.id)?.linked_from} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
+            <Field label="Phone" optional><Input value={edit.phone} disabled={!!data?.find((u) => u.id === edit.id)?.linked_from} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
             {!edit.id && <Field label="Login PIN" hint="4–12 characters"><PasswordInput autoComplete="new-password" maxLength={12} value={edit.pin} onChange={(e) => setEdit({ ...edit, pin: e.target.value })} /></Field>}
             {!edit.id && <Field label="Confirm PIN" hint={pinConfirm && pinConfirm !== edit.pin ? "PINs do not match" : undefined}><PasswordInput autoComplete="new-password" maxLength={12} value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value)} /></Field>}
             <Field label="Role" className="sm:col-span-2">
@@ -233,6 +244,54 @@ export function UsersSettings() {
         </div>
       </ResponsiveDialog>
     </SettingsPage>
+  );
+}
+
+/** Roadmap 72: give a person of this tenant's other businesses access here (one sign-in, own role and branches). */
+function LinkUserDialog({ roles, branches, onClose, onSaved }: { roles: Role[]; branches: BranchRow[]; onClose: () => void; onSaved: () => void }) {
+  const q = useQuery({ queryKey: ["users-linkable"], queryFn: () => api<{ items: { id: string; name: string; email: string; business: string }[] }>("/users/linkable") });
+  const [user, setUser] = useState("");
+  const [role, setRole] = useState(roles.find((r) => r.name === "Salesperson")?.id ?? "");
+  const [all, setAll] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  return (
+    <ResponsiveDialog open onOpenChange={(o) => !o && onClose()} title="Add from another business"
+      description="People of this tenant's other businesses keep one sign-in and switch business from their menu. Here they get this business's role and branches."
+      footer={<ActionButton online blockedBy={[!user && "Choose the person", !role && "Choose a role", !all && !picked.length && "Choose at least one branch"]} onAction={async () => {
+        await api("/users/link", { body: { user_id: user, role_id: role, all_branches: all, branch_ids: all ? [] : picked } });
+        toast.success("Access given");
+        onSaved();
+        onClose();
+      }}>{t("Give access")}</ActionButton>}>
+      {q.isLoading ? <Loading /> : !q.data?.items.length ? (
+        <p className="text-sm text-muted-foreground">{t("Nobody to add: this tenant has no other business, or everyone already has access here.")}</p>
+      ) : (
+        <div className="space-y-3">
+          <Field label="Person">
+            <Select value={user} onChange={setUser}>
+              <option value="">{t("Choose…")}</option>
+              {q.data.items.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.business} · {u.email}</option>)}
+            </Select>
+          </Field>
+          <Field label="Role here">
+            <Select value={role} onChange={setRole}>
+              {roles.filter((r) => r.is_active).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </Select>
+          </Field>
+          <ToggleRow label="All branches" checked={all} onChange={setAll} />
+          {!all && (
+            <div className="grid gap-2 rounded-xl bg-muted/50 p-3 sm:grid-cols-2">
+              {branches.filter((b) => b.is_active).map((b) => (
+                <label key={b.id} className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={picked.includes(b.id)} onCheckedChange={(c) => setPicked(c ? [...picked, b.id] : picked.filter((x) => x !== b.id))} />
+                  {b.name}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </ResponsiveDialog>
   );
 }
 

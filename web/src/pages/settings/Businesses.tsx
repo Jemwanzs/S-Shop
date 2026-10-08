@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRightLeft, Building2, ChevronRight, FlaskConical, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -7,12 +7,11 @@ import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { ago, count } from "@/lib/format";
 import { t } from "@/lib/i18n";
-import type { Profile } from "@/lib/types";
 import { STATUS_LABEL, STATUS_TONE, type BillingSummary } from "@/lib/billing";
 import { Button } from "@/components/ui/button";
-import { ActionButton } from "@/components/ActionButton";
 import { Pill } from "@/components/Badges";
 import { ConfirmDialog } from "@/components/Form";
+import { OpenBusinessDialog, type OpenTarget } from "@/components/OpenBusinessDialog";
 import { Card, SettingsPage } from "./shared";
 
 export interface TenantRow {
@@ -53,8 +52,7 @@ interface DemoState {
 /** Platform admins: every business on this installation, opening one, and the Pablo Niche demo business. */
 export function BusinessesSettings() {
   const qc = useQueryClient();
-  const navigate = useNavigate();
-  const { profile, switchBusiness } = useSession();
+  const { profile } = useSession();
   const tenants = useQuery({ queryKey: ["platform-tenants"], queryFn: () => api<{ items: TenantRow[]; home_tenant_id: string }>("/platform/tenants") });
   const demo = useQuery({
     queryKey: ["platform-demo"],
@@ -66,15 +64,8 @@ export function BusinessesSettings() {
     if (!running) qc.invalidateQueries({ queryKey: ["platform-tenants"] });
   }, [running, qc]);
 
-  const open = useMutation({
-    mutationFn: (id: string) => api<{ token: string; profile: Profile }>(`/platform/tenants/${id}/open`, { method: "POST" }),
-    onSuccess: (r) => {
-      switchBusiness(r.token, r.profile);
-      toast.success(`${t("Now in")} ${r.profile.tenant.name}`);
-      navigate(r.profile.branches.length > 1 ? "/select-branch" : "/", { replace: true });
-    },
-    onError: (e) => toast.error(e),
-  });
+  // Roadmap 71: another business opens only through its administrator's sign-in or a support session.
+  const [target, setTarget] = useState<OpenTarget | null>(null);
   const build = useMutation({
     mutationFn: (reset: boolean) => api("/platform/demo", { body: { reset } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["platform-demo"] }),
@@ -84,7 +75,7 @@ export function BusinessesSettings() {
   const st = demo.data?.status;
   const [confirmReset, setConfirmReset] = useState(false);
   return (
-    <SettingsPage title="Businesses" description="Every business on this S'Shop installation with its status and billing. Opening one gives you full access inside it as platform owner — it is recorded in that business's audit trail.">
+    <SettingsPage title="Businesses" description="Every business on this S'Shop installation with its status and billing. Opening one needs its administrator's sign-in or time-limited support access — recorded in that business's audit trail.">
       <Card>
         {tenants.data?.items.map((b) => {
           const current = b.id === profile?.tenant.id;
@@ -108,8 +99,9 @@ export function BusinessesSettings() {
               {current ? (
                 <Pill tone="success">{t("Open now")}</Pill>
               ) : (
-                <ActionButton size="sm" variant="outline" online busy={open.isPending && open.variables === b.id} disabled={open.isPending}
-                  onAction={() => open.mutateAsync(b.id)}><ArrowRightLeft /> <span className="hidden sm:inline">{t("Open business")}</span></ActionButton>
+                <Button size="sm" variant="outline" aria-label={t("Open business")} onClick={() => setTarget({ id: b.id, name: b.name, admin_email: b.admin_email, platform_owned: b.ownership === "platform" })}>
+                  <ArrowRightLeft /> <span className="hidden sm:inline">{t("Open business")}</span>
+                </Button>
               )}
               <Link to={`/settings/businesses/${b.id}`} aria-label={t("Details")} className="text-muted-foreground"><ChevronRight className="h-4 w-4 rtl:rotate-180" /></Link>
             </div>
@@ -135,8 +127,9 @@ export function BusinessesSettings() {
           <div className="flex flex-wrap gap-2">
             {demo.data?.tenant_id ? (
               <>
-                <ActionButton size="sm" online busy={open.isPending && open.variables === demo.data.tenant_id} disabled={open.isPending}
-                  blockedBy={[running && "Building…"]} onAction={() => open.mutateAsync(demo.data!.tenant_id!)}><FlaskConical /> {t("Open demo")}</ActionButton>
+                <Button size="sm" disabled={running} onClick={() => setTarget({ id: demo.data!.tenant_id!, name: "Pablo Niche demo", platform_owned: true })}>
+                  <FlaskConical /> {t("Open demo")}
+                </Button>
                 <Button size="sm" variant="outline" disabled={running} onClick={() => setConfirmReset(true)}><RotateCcw /> {t("Reset demo")}</Button>
               </>
             ) : (
@@ -154,6 +147,7 @@ export function BusinessesSettings() {
         destructive
         onConfirm={() => { setConfirmReset(false); build.mutate(true); }}
       />
+      <OpenBusinessDialog target={target} onClose={() => setTarget(null)} />
     </SettingsPage>
   );
 }

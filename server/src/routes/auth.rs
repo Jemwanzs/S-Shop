@@ -57,7 +57,8 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Js
     let invalid = || AppError::BadRequest("Invalid email or PIN".into());
 
     let row: Option<LoginRow> = sqlx::query_as(
-        "SELECT id, tenant_id, pin_hash, is_active, failed_attempts, locked_until, must_change_pin, pin_expires_at FROM users WHERE lower(email) = $1",
+        "SELECT id, tenant_id, pin_hash, is_active, failed_attempts, locked_until, must_change_pin, pin_expires_at FROM users
+         WHERE lower(email) = $1 AND login_user_id IS NULL",
     )
     .bind(&email)
     .fetch_optional(&state.db)
@@ -158,6 +159,10 @@ pub struct Profile {
     billing: Value,
     /// Present while a platform admin works inside another business.
     acting: Option<Value>,
+    /// Roadmap 72: businesses of the same tenant this person can switch to (with the current one).
+    businesses: Vec<Value>,
+    /// Signs in through their account in another business of the tenant (PIN changes apply there).
+    linked_from: Option<String>,
 }
 
 /// `acting`: the platform admin's own business when they have opened `tenant_id` from the platform.
@@ -224,10 +229,29 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         acting: match acting {
             Some(home) => {
                 let name: String = sqlx::query_scalar("SELECT name FROM tenants WHERE id = $1").bind(home).fetch_one(&state.db).await?;
-                Some(serde_json::json!({ "home_tenant_id": home, "home_tenant_name": name }))
+                // The support session in force (roadmap 71): banner with reason, scope and countdown.
+                let s: Option<(Uuid, String, String, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
+                    "SELECT id, reason, scope, expires_at FROM support_sessions WHERE user_id = $1 AND tenant_id = $2 AND status = 'active'
+                     ORDER BY started_at DESC LIMIT 1",
+                )
+                .bind(user_id)
+                .bind(tenant_id)
+                .fetch_optional(&state.db)
+                .await?;
+                Some(serde_json::json!({
+                    "home_tenant_id": home, "home_tenant_name": name,
+                    "support": s.map(|(id, reason, scope, expires_at)| serde_json::json!({ "id": id, "reason": reason, "scope": scope, "expires_at": expires_at })),
+                }))
             }
             None => None,
         },
+        businesses: if acting.is_some() { Vec::new() } else { super::tenants::businesses_of(state, user_id, tenant_id).await? },
+        linked_from: sqlx::query_scalar(
+            "SELECT lt.name FROM users u JOIN users li ON li.id = u.login_user_id JOIN tenants lt ON lt.id = li.tenant_id WHERE u.id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await?,
         branches: branches
             .into_iter()
             // Effective trading hours (own, else the business hours) for the open/closed banner at the till.
@@ -258,10 +282,16 @@ struct ChangePin {
 
 async fn change_pin(State(state): State<AppState>, ctx: Ctx, Json(body): Json<ChangePin>) -> AppResult<Json<Value>> {
     validate_pin(&body.new_pin)?;
-    let hash: String = sqlx::query_scalar("SELECT pin_hash FROM users WHERE id = $1")
-        .bind(ctx.user_id)
-        .fetch_one(&state.db)
-        .await?;
+    if ctx.support.is_some() {
+        return Err(bad("End the support session and change your PIN in your own business"));
+    }
+    // Linked access to another business (roadmap 72): the PIN belongs to the person's sign-in identity.
+    let (identity, hash): (Uuid, String) = sqlx::query_as(
+        "SELECT i.id, i.pin_hash FROM users u JOIN users i ON i.id = COALESCE(u.login_user_id, u.id) WHERE u.id = $1",
+    )
+    .bind(ctx.user_id)
+    .fetch_one(&state.db)
+    .await?;
     if !verify_pin(&body.current_pin, &hash) {
         return Err(bad("Current PIN is incorrect"));
     }
@@ -274,19 +304,16 @@ async fn change_pin(State(state): State<AppState>, ctx: Ctx, Json(body): Json<Ch
         "UPDATE users SET pin_hash = $2, must_change_pin = false, pin_expires_at = NULL, pin_changed_at = now(), sessions_valid_after = now()
          WHERE id = $1",
     )
-    .bind(ctx.user_id)
+    .bind(identity)
     .bind(hash_pin(&body.new_pin)?)
     .execute(&mut *tx)
     .await?;
     sqlx::query("UPDATE auth_tokens SET revoked_at = now() WHERE user_id = $1 AND kind IN ('setup', 'reset') AND used_at IS NULL AND revoked_at IS NULL")
-        .bind(ctx.user_id)
+        .bind(identity)
         .execute(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("auth", "change_pin", "user", ctx.user_id)).await?;
     tx.commit().await?;
-    let token = match ctx.acting_from {
-        Some(home) => crate::auth::issue_acting_token(&state.cfg.jwt_secret, ctx.user_id, home, ctx.tenant_id)?,
-        None => issue_token(&state.cfg.jwt_secret, ctx.user_id, ctx.tenant_id, "staff", Duration::hours(STAFF_TOKEN_HOURS))?,
-    };
+    let token = issue_token(&state.cfg.jwt_secret, ctx.user_id, ctx.tenant_id, "staff", Duration::hours(STAFF_TOKEN_HOURS))?;
     Ok(Json(serde_json::json!({ "ok": true, "token": token })))
 }

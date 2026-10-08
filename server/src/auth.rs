@@ -28,6 +28,10 @@ pub struct Claims {
     /// Set when a platform admin has opened another business: the admin's own (home) business.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<Uuid>,
+    /// The support session that admitted a platform admin to another business (roadmap 71). Re-checked on every
+    /// request: ended, expired or revoked sessions stop working at once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sid: Option<Uuid>,
     pub exp: i64,
     pub iat: i64,
 }
@@ -55,22 +59,16 @@ pub fn validate_pin(pin: &str) -> AppResult<()> {
 
 pub fn issue_token(secret: &str, sub: Uuid, tid: Uuid, typ: &str, ttl: chrono::Duration) -> AppResult<String> {
     let now = Utc::now();
-    let claims = Claims { sub, tid, typ: typ.into(), home: None, iat: now.timestamp(), exp: (now + ttl).timestamp() };
+    let claims = Claims { sub, tid, typ: typ.into(), home: None, sid: None, iat: now.timestamp(), exp: (now + ttl).timestamp() };
     encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
         .map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
 }
 
-/// Staff token for a platform admin working inside another business (`tid`) on behalf of the platform.
-pub fn issue_acting_token(secret: &str, sub: Uuid, home: Uuid, tid: Uuid) -> AppResult<String> {
+/// Staff token for a platform admin working inside another business (`tid`) through support session `sid`, valid
+/// until the session ends (roadmap 71).
+pub fn issue_acting_token(secret: &str, sub: Uuid, home: Uuid, tid: Uuid, sid: Uuid, until: chrono::DateTime<Utc>) -> AppResult<String> {
     let now = Utc::now();
-    let claims = Claims {
-        sub,
-        tid,
-        typ: "staff".into(),
-        home: Some(home),
-        iat: now.timestamp(),
-        exp: (now + chrono::Duration::hours(STAFF_TOKEN_HOURS)).timestamp(),
-    };
+    let claims = Claims { sub, tid, typ: "staff".into(), home: Some(home), sid: Some(sid), iat: now.timestamp(), exp: until.timestamp() };
     encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
         .map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
 }
@@ -130,6 +128,12 @@ pub struct Visibility {
     pub owner: Option<Uuid>,
 }
 
+/// A platform support session inside a business (roadmap 71).
+#[derive(Clone, Debug)]
+pub struct Support {
+    pub id: Uuid,
+}
+
 /// Authenticated staff member + the branch they are currently operating from.
 #[derive(Clone, Debug)]
 pub struct Ctx {
@@ -147,8 +151,10 @@ pub struct Ctx {
     pub location: Option<crate::geo::Location>,
     pub ip: String,
     pub user_agent: String,
-    /// The platform admin's own business when they have opened this one (full access, audited).
+    /// The platform admin's own business when they have opened this one (support session, audited).
     pub acting_from: Option<Uuid>,
+    /// The support session in force (roadmap 71).
+    pub support: Option<Support>,
     /// Modules in the business's package (None = all) — roadmap 41.
     pub modules: Option<Vec<String>>,
 }
@@ -318,6 +324,10 @@ struct CtxRow {
     sessions_valid_after: Option<chrono::DateTime<Utc>>,
     user_sessions_valid_after: Option<chrono::DateTime<Utc>>,
     must_change_pin: bool,
+    /// Linked access to another business of the same tenant (roadmap 72): the sign-in identity must still be active,
+    /// in the same tenant, and its PIN changes end these sessions too.
+    linked: bool,
+    identity_ok: bool,
 }
 
 /// Paths are matched as the API router sees them (inside /api).
@@ -340,8 +350,13 @@ impl FromRequestParts<AppState> for Ctx {
         let home_tenant = claims.home.unwrap_or(claims.tid);
         let row: Option<CtxRow> = sqlx::query_as(
             "SELECT u.name, u.is_active, u.all_branches, effective_permissions(r.permissions, u.extra_permissions) AS permissions, t.timezone, lower(u.email) AS email,
-                    t.status AS tenant_status, t.sessions_valid_after, u.sessions_valid_after AS user_sessions_valid_after, u.must_change_pin
+                    t.status AS tenant_status, t.sessions_valid_after,
+                    GREATEST(u.sessions_valid_after, li.sessions_valid_after) AS user_sessions_valid_after,
+                    u.must_change_pin OR COALESCE(li.must_change_pin, false) AS must_change_pin,
+                    u.login_user_id IS NOT NULL AS linked,
+                    (u.login_user_id IS NULL OR (li.is_active AND lt.account_id = t.account_id AND lt.status = 'active')) AS identity_ok
              FROM users u JOIN roles r ON r.id = u.role_id JOIN tenants t ON t.id = $3
+             LEFT JOIN users li ON li.id = u.login_user_id LEFT JOIN tenants lt ON lt.id = li.tenant_id
              WHERE u.id = $1 AND u.tenant_id = $2",
         )
         .bind(claims.sub)
@@ -350,7 +365,7 @@ impl FromRequestParts<AppState> for Ctx {
         .fetch_optional(&state.db)
         .await?;
         let mut row = row.ok_or(AppError::Unauthorized)?;
-        if !row.is_active {
+        if !row.is_active || !row.identity_ok || (row.linked && claims.home.is_some()) {
             return Err(AppError::Unauthorized);
         }
         // A PIN change / reset ends the person's older sessions (roadmap 60).
@@ -361,10 +376,33 @@ impl FromRequestParts<AppState> for Ctx {
         if row.must_change_pin && !["/auth/", "/fx"].iter().any(|p| request_path(parts).trim_start_matches("/api").starts_with(p)) {
             return Err(crate::error::refused("Set your own PIN", "Replace your one-time PIN with your own PIN to continue"));
         }
+        let mut support = None;
         if claims.home.is_some() {
             if !crate::routes::access::is_platform_admin(state, &row.email, &row.permissions) {
                 return Err(AppError::Unauthorized);
             }
+            // Roadmap 71: inside another business only through a live support session (never a bare acting token).
+            let sid = claims.sid.ok_or(AppError::Unauthorized)?;
+            let s: Option<(String, chrono::DateTime<Utc>)> = sqlx::query_as(
+                "UPDATE support_sessions SET status = CASE WHEN expires_at <= now() THEN 'expired' ELSE status END,
+                        ended_at = CASE WHEN expires_at <= now() THEN expires_at ELSE ended_at END
+                 WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND home_tenant_id = $4 AND status = 'active'
+                 RETURNING (CASE WHEN status = 'active' THEN scope END), expires_at",
+            )
+            .bind(sid)
+            .bind(claims.sub)
+            .bind(claims.tid)
+            .bind(home_tenant)
+            .fetch_optional(&state.db)
+            .await?
+            .and_then(|(scope, exp): (Option<String>, chrono::DateTime<Utc>)| scope.map(|s| (s, exp)));
+            let (scope, _expires_at) = s.ok_or_else(|| crate::error::refused("Support session ended", "This support session has ended — open the business again from Platform → Tenants"))?;
+            let path = request_path(parts);
+            let p = path.trim_start_matches("/api");
+            if scope == "view" && parts.method != axum::http::Method::GET && !p.starts_with("/platform/support") && p != "/auth/logout" {
+                return Err(crate::error::refused("View-only support access", "This support session is view-only — nothing can be changed in it"));
+            }
+            support = Some(Support { id: sid });
             row.permissions = vec!["*".into()];
             row.all_branches = true;
             // The platform owner may look inside a deactivated business but not change anything in it.
@@ -448,6 +486,7 @@ impl FromRequestParts<AppState> for Ctx {
             ip,
             user_agent,
             acting_from: claims.home,
+            support,
             modules,
         })
     }

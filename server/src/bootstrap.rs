@@ -29,10 +29,18 @@ pub async fn ensure(db: &PgPool, cfg: &Config) -> anyhow::Result<()> {
 
 /// Create a business with default roles, a main branch, workflow rows (disabled),
 /// expense categories and an open award period.
+/// A new tenant account (roadmap 70) with its first business.
 pub async fn seed_tenant(conn: &mut PgConnection, name: &str, slug: &str) -> anyhow::Result<Uuid> {
-    let tenant_id: Uuid = sqlx::query_scalar("INSERT INTO tenants (name, slug) VALUES ($1, $2) RETURNING id")
+    let account: Uuid = sqlx::query_scalar("INSERT INTO tenant_accounts (name) VALUES ($1) RETURNING id").bind(name).fetch_one(&mut *conn).await?;
+    seed_business(conn, name, slug, account).await
+}
+
+/// Another business of an existing tenant account (roadmap 72), or the first one of a new account.
+pub async fn seed_business(conn: &mut PgConnection, name: &str, slug: &str, account: Uuid) -> anyhow::Result<Uuid> {
+    let tenant_id: Uuid = sqlx::query_scalar("INSERT INTO tenants (name, slug, account_id) VALUES ($1, $2, $3) RETURNING id")
         .bind(name)
         .bind(slug)
+        .bind(account)
         .fetch_one(&mut *conn)
         .await?;
 
@@ -98,12 +106,18 @@ pub async fn create_admin(conn: &mut PgConnection, tenant_id: Uuid, name: &str, 
     .bind(role_id)
     .fetch_one(&mut *conn)
     .await?;
+    // The first administrator of a tenant is its primary administrator (roadmap 70).
+    sqlx::query("UPDATE tenant_accounts SET primary_user_id = $1 WHERE id = (SELECT account_id FROM tenants WHERE id = $2) AND primary_user_id IS NULL")
+        .bind(id)
+        .bind(tenant_id)
+        .execute(&mut *conn)
+        .await?;
     Ok(id)
 }
 
 pub async fn reset_pin(db: &PgPool, email: &str, pin: &str) -> anyhow::Result<()> {
     validate_pin(pin).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let n = sqlx::query("UPDATE users SET pin_hash = $2, failed_attempts = 0, locked_until = NULL WHERE lower(email) = lower($1)")
+    let n = sqlx::query("UPDATE users SET pin_hash = $2, failed_attempts = 0, locked_until = NULL WHERE lower(email) = lower($1) AND login_user_id IS NULL")
         .bind(email.trim())
         .bind(hash_pin(pin)?)
         .execute(db)

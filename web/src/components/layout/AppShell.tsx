@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, Loader2, LogOut, Menu, Moon, Search, ShoppingCart, Store, Sun } from "lucide-react";
+import { ArrowRightLeft, Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, Loader2, LogOut, Menu, Moon, Search, ShoppingCart, Store, Sun } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -156,10 +156,22 @@ export function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange:
 }
 
 function UserMenu({ full }: { full?: boolean }) {
-  const { profile, signOut, displayCurrency } = useSession();
+  const { profile, signOut, displayCurrency, switchBusiness } = useSession();
   const navigate = useNavigate();
   const [pinOpen, setPinOpen] = useState(false);
   if (!profile) return null;
+  // Roadmap 72: other businesses of the same tenant — no new sign-in.
+  const others = (profile.businesses ?? []).filter((b) => !b.current);
+  const switchTo = async (id: string) => {
+    try {
+      const r = await api<{ token: string; profile: Profile }>("/auth/switch-business", { body: { tenant_id: id } });
+      switchBusiness(r.token, r.profile);
+      toast.success(`${t("Now in")} ${r.profile.tenant.name}`);
+      navigate(r.profile.branches.length > 1 && !r.profile.user.default_branch_id ? "/select-branch" : "/", { replace: true });
+    } catch (e) {
+      toast.error(e);
+    }
+  };
   return (
     <>
       <DropdownMenu>
@@ -183,6 +195,15 @@ function UserMenu({ full }: { full?: boolean }) {
             <div className="mt-1 text-xs font-medium text-primary">{t("Figures in")} {displayCurrency}</div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
+          {others.length > 0 && (
+            <>
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{t("Current business")}: <b className="text-foreground">{profile.tenant.name}</b></DropdownMenuLabel>
+              {others.map((b) => (
+                <DropdownMenuItem key={b.id} onClick={() => switchTo(b.id)} className="gap-2"><ArrowRightLeft className="h-4 w-4" /> <span className="truncate">{b.name}</span></DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem onClick={() => navigate("/settings/preferences")} className="gap-2"><SlidersHorizontal className="h-4 w-4" /> {t("Preferences")}</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setPinOpen(true)} className="gap-2"><KeyRound className="h-4 w-4" /> {t("Change PIN")}</DropdownMenuItem>
           <DropdownMenuItem onClick={signOut} className="gap-2 text-destructive"><LogOut className="h-4 w-4" /> {t("Sign out")}</DropdownMenuItem>
@@ -214,17 +235,29 @@ function Brand() {
 }
 
 /** Shown while a platform admin works inside another business: where they are and the way back. */
+/** Roadmap 71: the Support Access banner — business, scope, reason, time left; ends the session (or returns home
+ * once it has ended). */
 function ActingBanner() {
   const { profile, switchBusiness } = useSession();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const support = profile?.acting?.support ?? null;
+  useEffect(() => {
+    if (!support) return;
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, [support]);
   if (!profile?.acting) return null;
-  const back = async () => {
+  const left = support ? Math.max(0, Math.round((new Date(support.expires_at).getTime() - now) / 60_000)) : 0;
+  const end = async () => {
     setBusy(true);
     try {
-      const r = await api<{ token: string; profile: Profile }>(`/platform/tenants/${profile.acting!.home_tenant_id}/open`, { method: "POST" });
+      const r = support
+        ? await api<{ token: string; profile: Profile }>(`/platform/support/${support.id}/end`, { method: "POST" })
+        : await api<{ token: string; profile: Profile }>(`/platform/tenants/${profile.acting!.home_tenant_id}/open`, { method: "POST" });
       switchBusiness(r.token, r.profile);
-      navigate(r.profile.branches.length > 1 ? "/select-branch" : "/settings/businesses", { replace: true });
+      navigate("/settings/tenants", { replace: true });
     } catch (e) {
       toast.error(e);
     } finally {
@@ -234,9 +267,12 @@ function ActingBanner() {
   return (
     <div className="flex items-center gap-2 bg-foreground px-3.5 py-1.5 text-[0.78rem] text-background md:px-6 lg:px-8 print:hidden">
       <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-      <span className="min-w-0 flex-1 truncate">{t("Viewing")} <b>{profile.tenant.name}</b> {t("as platform owner")}</span>
-      <button onClick={back} disabled={busy} className="shrink-0 rounded-full bg-background/15 px-2.5 py-0.5 font-medium hover:bg-background/25">
-        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `${t("Return to")} ${profile.acting.home_tenant_name}`}
+      <span className="min-w-0 flex-1 truncate">
+        <b>{t("Support access")}</b> · {profile.tenant.name}
+        {support && <> · {t(support.scope === "view" ? "View only" : "Full access")} · <span className="num">{left >= 60 ? `${Math.floor(left / 60)} h ${left % 60} min` : `${left} min`}</span> {t("left")}<span className="hidden md:inline"> · {support.reason}</span></>}
+      </span>
+      <button onClick={end} disabled={busy} className="shrink-0 rounded-full bg-background/15 px-2.5 py-0.5 font-medium hover:bg-background/25">
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("End session")}
       </button>
     </div>
   );

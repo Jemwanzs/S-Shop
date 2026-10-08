@@ -2,7 +2,7 @@
 
 export interface Cta { label: string; target: string }
 export interface Palette { primary: string; secondary: string; accent: string; background: string; surface: string; text: string; muted: string; heading: string }
-export interface Theme { light: Palette; dark: Palette; modes: "light" | "dark" | "both"; style: "modern" | "minimal" | "elegant" | "bold"; heading_font: string; body_font: string; scale: "compact" | "balanced" | "spacious" }
+export interface Theme { light: Palette; dark: Palette; modes: "light" | "dark" | "both"; style: "modern" | "minimal" | "elegant" | "bold"; heading_font: string; body_font: string; scale: "compact" | "balanced" | "spacious"; motion?: "off" | "subtle" | "standard" }
 export interface NavItem { key: string; label: string; visible: boolean }
 export interface Section { key: string; visible: boolean; heading: string; subheading: string; layout: string; product_ids: string[]; cta_label: string; cta_target: string }
 export interface Hero { headline: string; text: string; image: string | null; primary: Cta; secondary: Cta; align: "left" | "center"; overlay: boolean }

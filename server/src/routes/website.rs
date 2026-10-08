@@ -42,6 +42,7 @@ pub fn routes() -> Router<AppState> {
         .route("/website/media/{id}", axum::routing::patch(media_update).delete(media_delete))
         .route("/website/domain", get(domain_get).put(domain_set).delete(domain_delete))
         .route("/website/domain/check", post(domain_check))
+        .route("/website/domain/primary", put(domain_primary))
         .route("/website/analytics", get(analytics))
         .route("/website/catalogue", get(catalogue))
         .route("/platform/tenants/{id}/website", post(platform_action))
@@ -823,6 +824,7 @@ async fn media_delete(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
 struct DomainRow {
     domain: String,
     status: String,
+    is_primary: bool,
     token: String,
     last_check: Option<DbJson<domains::Check>>,
     checked_at: Option<DateTime<Utc>>,
@@ -832,7 +834,7 @@ struct DomainRow {
 
 async fn domain_row(conn: &mut sqlx::PgConnection, tenant_id: Uuid, lock: bool) -> AppResult<Option<DomainRow>> {
     Ok(sqlx::query_as(&format!(
-        "SELECT domain, status, token, last_check, checked_at, verified_at, active_at FROM website_domains WHERE tenant_id = $1 {}",
+        "SELECT domain, status, is_primary, token, last_check, checked_at, verified_at, active_at FROM website_domains WHERE tenant_id = $1 {}",
         if lock { "FOR UPDATE" } else { "" }
     ))
     .bind(tenant_id)
@@ -878,7 +880,7 @@ async fn misplaced_txt(state: &AppState, fqdn: &str, domain: &str, value: &str) 
 fn domain_message(status: &str) -> &'static str {
     match status {
         "dns_required" => "Add the DNS records below at your domain provider, then check again.",
-        "verifying" => "Ownership confirmed. S'Shop is connecting your domain — check again shortly.",
+        "verifying" => "Ownership confirmed. Awaiting platform configuration: S'Shop is connecting your domain to its hosting and has been notified — check again later.",
         "points_elsewhere" => "Your domain still points somewhere else. Change the record below.",
         "ssl_pending" => "Your domain points to S'Shop. The security certificate is being issued (usually within an hour).",
         "active" => "Your website is live on this domain.",
@@ -904,6 +906,9 @@ fn domain_view(state: &AppState, r: &DomainRow) -> Value {
         "active_at": r.active_at,
         "url": format!("https://{}", r.domain),
         "automatic": state.cfg.railway.is_some(),
+        "is_primary": r.is_primary,
+        // Ownership proven, but the hosting side is set up by hand by the platform owner (roadmap 74).
+        "awaiting_platform": r.status == "verifying" && state.cfg.railway.is_none() && check.routing_target.is_none(),
     })
 }
 
@@ -1105,6 +1110,29 @@ async fn domain_check(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
         );
         notify::to_platform_admins(&state, Note::new("website_domain", format!("Connect {d}"), text.clone(), "/platform"), &format!("Connect {d} for {name}"), &text).await;
     }
+    Ok(Json(json!({ "ok": true, "domain": domain_view(&state, &fresh) })))
+}
+
+#[derive(Deserialize)]
+struct PrimaryBody {
+    primary: bool,
+}
+
+/// Roadmap 74: the business's own domain is the main address (the S'Shop address forwards to it), or the S'Shop
+/// address stays the main one (the domain shows the same website; links and search engines use the S'Shop address).
+async fn domain_primary(State(state): State<AppState>, ctx: Ctx, Json(b): Json<PrimaryBody>) -> AppResult<Json<Value>> {
+    ctx.require("website.domain")?;
+    let mut tx = state.db.begin().await?;
+    let row = domain_row(&mut tx, ctx.tenant_id, true).await?.ok_or(AppError::NotFound("Domain"))?;
+    sqlx::query("UPDATE website_domains SET is_primary = $2 WHERE tenant_id = $1").bind(ctx.tenant_id).bind(b.primary).execute(&mut *tx).await?;
+    audit::record(
+        &mut tx,
+        &ctx,
+        Entry::new("website", "domain_primary", "website", ctx.tenant_id).before(json!({ "primary": row.is_primary })).after(json!({ "domain": row.domain, "primary": b.primary })),
+    )
+    .await?;
+    let fresh = domain_row(&mut tx, ctx.tenant_id, false).await?.ok_or(AppError::NotFound("Domain"))?;
+    tx.commit().await?;
     Ok(Json(json!({ "ok": true, "domain": domain_view(&state, &fresh) })))
 }
 

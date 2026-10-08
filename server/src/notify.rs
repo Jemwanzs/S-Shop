@@ -108,7 +108,7 @@ pub async fn to_users(state: &AppState, tenant_id: Uuid, users: &[Uuid], note: N
 /// The platform owner(s) (PLATFORM_ADMIN_EMAILS): in-app in whichever business they sign in to, and by email when email
 /// is configured. Best-effort, like every notification.
 pub async fn to_platform_admins(state: &AppState, note: Note, email_subject: &str, email_text: &str) {
-    let admins: Vec<(Uuid, Uuid)> = sqlx::query_as("SELECT id, tenant_id FROM users WHERE is_active AND lower(email) = ANY($1)")
+    let admins: Vec<(Uuid, Uuid)> = sqlx::query_as("SELECT id, tenant_id FROM users WHERE is_active AND lower(email) = ANY($1) AND login_user_id IS NULL")
         .bind(&state.cfg.platform_admins)
         .fetch_all(&state.db)
         .await

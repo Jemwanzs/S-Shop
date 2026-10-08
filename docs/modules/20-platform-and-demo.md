@@ -9,11 +9,13 @@ laptop width; on phones it is shown at the bottom of the More page instead of ta
 
 ## Businesses (platform admins only)
 Platform admins (`PLATFORM_ADMIN_EMAILS`, holding the Tenant Administrator role) see every business on the
-installation with branches, users, sales and last sale. **Open business** gives a session inside that business with full
-access; the token records the admin's home business and every request re-checks platform-admin status, so removing the
-email from `PLATFORM_ADMIN_EMAILS` ends such sessions immediately. Opening is written to the audit trail of both
-businesses. While inside another business a dark banner shows *Viewing … as platform owner · Return to …*; switching
-clears all cached data and the branch choice so nothing carries across businesses.
+installation with branches, users, sales and last sale (grouped by tenant in Platform → Tenants, module 27).
+**Open business** never switches silently (roadmap 71): the tenant's administrator signs in with their own PIN, or the
+platform owner starts a support session (PIN re-entry, reason, view-only / full scope, 15 min – 8 h, the business's
+consent policy). Every request re-checks platform-admin status and the session itself, so removing the email from
+`PLATFORM_ADMIN_EMAILS`, ending, expiring or revoking the session stops it immediately. Every step is written to the
+audit trail of both businesses. While inside, a dark banner shows *Support access · business · scope · time left ·
+End session*; switching clears all cached data and the branch choice so nothing carries across businesses.
 
 ## Pablo Niche demo business
 A separate business, **Pablo Niche (Demo)** (`/pablo-niche-demo`, flagged `is_demo`, DEMO badge), never mixed with real

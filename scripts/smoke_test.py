@@ -141,6 +141,11 @@ def link_token(mail):
     return m.group(1) if m else None
 
 
+def support_open(tid, scope="full"):
+    """Roadmap 71: the platform owner enters another business through a support session (PIN, reason, time limit)."""
+    return call("POST", f"/platform/tenants/{tid}/support", {"pin": PIN, "reason": "Smoke test: platform support check", "scope": scope, "minutes": 60})
+
+
 def first_login(email, temp_pin, new_pin):
     """Sign in with a one-time PIN, replace it (required before anything else) and sign in with the new PIN."""
     t = call("POST", "/auth/login", {"email": email, "pin": temp_pin})
@@ -544,7 +549,8 @@ call("PUT", "/auth/preferences", {"language": "en", "font": "Poppins", "currency
 check("unknown currency refused", True)
 call("PUT", "/auth/preferences", {"language": "en", "font": "Poppins", "currency": "USD"})
 me = call("GET", "/auth/me")
-check("preferences saved on the profile", me["user"]["preferences"] == {"language": "en", "font": "Poppins", "currency": "USD", "quick_sale_draggable": False}, me["user"]["preferences"])
+check("preferences saved on the profile", me["user"]["preferences"] == {"language": "en", "font": "Poppins", "currency": "USD", "quick_sale_draggable": False,
+                                                                "notify_new_orders": True, "in_app_alerts": True, "sound_alerts": False}, me["user"]["preferences"])
 call("PUT", "/auth/preferences", {"language": "en", "font": "Poppins", "currency": "USD", "quick_sale_draggable": True})
 check("quick action preference saved (roadmap 48)", call("GET", "/auth/me")["user"]["preferences"]["quick_sale_draggable"] is True)
 fx = call("GET", "/fx")
@@ -599,7 +605,9 @@ call("GET", "/platform/tenants", token=clerk, expect=403)
 check("staff cannot list businesses", True)
 call("POST", f"/platform/tenants/{other_t['id']}/open", token=clerk, expect=403)
 check("staff cannot open another business", True)
-op = call("POST", f"/platform/tenants/{other_t['id']}/open")
+r = call("POST", f"/platform/tenants/{other_t['id']}/open", expect=422)
+check("another business never opens directly", r["error"]["title"] == "Support access needed", r)
+op = support_open(other_t["id"])
 check("opened business profile shows acting", op["profile"]["tenant"]["id"] == other_t["id"] and op["profile"]["acting"]["home_tenant_id"] == login["profile"]["tenant"]["id"], op["profile"].get("acting"))
 acting = op["token"]
 other_branch = op["profile"]["branches"][0]["id"]
@@ -607,7 +615,7 @@ me_act = call("GET", "/auth/me", token=acting, branch=other_branch)
 check("full access inside the opened business", "*" in me_act["permissions"] and me_act["tenant"]["id"] == other_t["id"])
 check("acting session sees only that business's data", all(x["id"] != nduma for x in call("GET", "/products?status=all", token=acting, branch=other_branch)["items"]))
 audit_o = call("GET", "/audit?period=today&limit=200", token=acting, branch=other_branch)["items"]
-check("opening is in that business's audit trail", any(x.get("action") == "open_business" for x in audit_o))
+check("support access is in that business's audit trail", any(x.get("action") == "support_started" for x in audit_o))
 back = call("POST", f"/platform/tenants/{login['profile']['tenant']['id']}/open", token=acting, branch=other_branch)
 check("return gives a normal session", back["profile"]["acting"] is None and back["profile"]["tenant"]["id"] == login["profile"]["tenant"]["id"])
 
@@ -882,12 +890,14 @@ call("POST", f"/transfers/{ok_t['id']}/dispatch")
 check("receipt with no body still receives everything", call("POST", f"/transfers/{ok_t['id']}/receive", branch=b2)["status"] == "received")
 
 step("Product photos: validation, limit, retry-safe uploads")
-def upload(pid, data, ref=None, expect=200):
+def upload(pid, data, ref=None, expect=200, thumb=None):
     boundary = "sshop" + uuid.uuid4().hex
     parts = []
     if ref:
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="upload_ref"\r\n\r\n{ref}\r\n'.encode())
     parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="p.png"\r\nContent-Type: image/png\r\n\r\n'.encode() + data + b"\r\n")
+    if thumb:
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="thumb"; filename="t.png"\r\nContent-Type: image/png\r\n\r\n'.encode() + thumb + b"\r\n")
     parts.append(f"--{boundary}--\r\n".encode())
     req = urllib.request.Request(BASE + f"/api/products/{pid}/photos", data=b"".join(parts), method="POST")
     req.add_header("Authorization", "Bearer " + TOKEN)
@@ -905,6 +915,12 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 2000
 ph_prod = call("POST", "/products", {"name": f"Photo Test {suffix}", "marked_price": 100})["result"]["id"]
 ref = str(uuid.uuid4())
 first = upload(ph_prod, PNG, ref)
+# Roadmap 75: a small copy for grids; photos without one serve the original.
+THUMB = b"\x89PNG\r\n\x1a\n" + b"\x01" * 300
+tp_prod = call("POST", "/products", {"name": f"Thumb Test {suffix}", "marked_price": 100})["result"]["id"]
+tp = upload(tp_prod, PNG, str(uuid.uuid4()), thumb=THUMB)
+check("photo thumbnail stored and served with ?size=thumb", call("GET", f"/photos/{tp['id']}?size=thumb") == THUMB and call("GET", f"/photos/{tp['id']}") == PNG)
+check("older photos without a thumbnail serve the original", call("GET", f"/photos/{first['id']}?size=thumb") == PNG)
 again = upload(ph_prod, PNG, ref)
 check("same pending photo sent twice is stored once", again["id"] == first["id"] and again.get("duplicate") is True)
 check("not-an-image refused", upload(ph_prod, b"%PDF-1.4 hello", str(uuid.uuid4()), expect=422)["error"]["title"] == "Not a photo")
@@ -1161,7 +1177,7 @@ check("a business administrator never reaches platform-owner endpoints", not den
 call("POST", "/auth/login", {"email": dk_email, "pin": "wrong-pin"}, expect=400)
 fails = call("GET", f"/platform/activity?activity=login_failed&tenant_id={dk}&period=today")
 check("failed sign-in recorded and visible to the platform owner", fails["total"] >= 1 and fails["items"][0]["business"] == dk_name, fails)
-logins = call("GET", f"/platform/activity?activity=login&tenant_id={dk}&user_id={dk_admin}&period=today")
+logins = call("GET", f"/platform/activity?activity=login&tenant_id={dk}&user_id={dk_admin}&period=week")
 check("sign-ins filtered by business and user", logins["total"] >= 1 and all(i["user_id"] == dk_admin for i in logins["items"]), logins["total"])
 sales_act = call("GET", f"/platform/activity?activity=sale&tenant_id={home_id}&period=today")
 check("sales activity across businesses", sales_act["totals"]["sale"] >= 1 and sales_act["totals"]["login"] == 0, sales_act["totals"])
@@ -1290,7 +1306,7 @@ r = call("POST", "/auth/login", {"email": dk_email, "pin": DK_PIN}, expect=422)
 check("sign-in blocked with a clear title", r["error"]["title"] == "Business deactivated", r)
 r = call("GET", f"/portal/{dk_slug}", token="none", expect=422)
 check("ordering link disabled", r["error"]["title"] == "Ordering unavailable", r)
-acting = call("POST", f"/platform/tenants/{dk}/open")
+acting = support_open(dk)
 call("GET", "/dashboard?period=today", token=acting["token"], branch="none")
 r = call("POST", "/categories", {"name": "Blocked"}, token=acting["token"], branch="none", expect=422)
 check("platform owner can look inside but not transact", r["error"]["title"] == "Business deactivated", r)
@@ -1348,7 +1364,7 @@ for path_, want in [("/credit", 422), ("/expenses", 422), ("/customers", 422), (
 check("modules outside the package refused by the server, included ones work", not blocked, blocked)
 r = call("GET", f"/portal/{dk_slug}", token="none", expect=422)
 check("ordering link off without the Orders module", r["error"]["title"] == "Ordering unavailable", r)
-act_ = call("POST", f"/platform/tenants/{dk}/open")
+act_ = support_open(dk)
 call("GET", "/credit", token=act_["token"], branch="none")
 check("platform owner inside the business is not restricted", True)
 call("POST", f"/platform/billing/documents/{pinv['id']}/void", {"reason": "Package changed"})
@@ -1421,6 +1437,9 @@ check("unreadable colours refused", "hard to read" in r["error"]["message"], r)
 bad_link = {**d, "hero": {**d["hero"], "primary": {"label": "Go", "target": "javascript:alert(1)"}}}
 call("PUT", "/website/draft", {"config": bad_link}, **T2, expect=400)
 check("unsafe links refused", True)
+check("animations default to subtle", d["theme"].get("motion") == "subtle", d["theme"].get("motion"))
+call("PUT", "/website/draft", {"config": {**d, "theme": {**d["theme"], "motion": "wild"}}}, **T2, expect=400)
+check("unknown animation intensity refused", True)
 d2 = {**d, "hero": {**d["hero"], "headline": "Shop the Difference."}, "theme": {**d["theme"], "style": "elegant"}}
 saved = call("PUT", "/website/draft", {"config": d2, "base_updated_at": ov["draft_updated_at"]}, **T2)
 check("draft saved with the parts that changed", sorted(saved["changed"]) == ["hero", "theme"], saved)
@@ -1626,6 +1645,10 @@ dv = call("PUT", "/website/domain", {"domain": f"https://{dom.upper()}/about"}, 
 check("domain saved, normalised, awaiting DNS with an ownership TXT record", dv["domain"] == dom and dv["status"] == "dns_required"
       and dv["records"][0]["fqdn"] == f"_sshop-verify.{dom}" and dv["records"][0]["name"] == f"_sshop-verify.shop{suffix.lower()}" and dv["records"][0]["value"].startswith("sshop-verify="), dv)
 check("same domain again keeps its token", call("PUT", "/website/domain", {"domain": dom}, **T2)["domain"]["records"][0]["value"] == dv["records"][0]["value"])
+check("the own domain is the main address by default; not shown as awaiting the platform before ownership", dv["is_primary"] is True and dv["awaiting_platform"] is False)
+check("main address can be switched back to the S'Shop address", call("PUT", "/website/domain/primary", {"primary": False}, **T2)["domain"]["is_primary"] is False)
+call("PUT", "/website/domain/primary", {"primary": True}, **W, expect=403)
+call("PUT", "/website/domain/primary", {"primary": True}, **T2)
 call("PUT", "/website/domain", {"domain": dom}, **W, expect=403)
 check("connecting a domain needs website.domain", True)
 home_t = call("GET", "/auth/me")["tenant"]["id"]
@@ -2005,6 +2028,108 @@ check("confirming the order lowers the badge", badge()["new_orders"] == b0)
 call("PUT", "/auth/preferences", {"language": "en", "font": "Outfit", "currency": "KES", "notify_new_orders": True}, token=mgr_tok, branch=BRANCH)
 no2 = call("POST", f"/portal/{n_slug}/orders", {"items": [{"product_id": own_prod, "quantity": 1}], "delivery_location": "Shop"}, token=n_tok)
 check("alerts back on: notified again, once", sum(1 for n in badge(token=mgr_tok, branch=BRANCH)["items"] if n["link"] == f"/orders/{no2['id']}") == 1)
+
+step("Roadmap 70–73: tenants, secure business access, several businesses per tenant")
+home_t = login["profile"]["tenant"]["id"]
+tq = {"business_name": f"Tenant Co {suffix}", "contact_name": "Mwangi", "email": f"tenantco{suffix.lower()}@sshop.test", "phone": "0722 333 444",
+      "location": "Nakuru", "business_type": "Retail shop", "branches": 1, "message": "Please onboard us"}
+call("POST", "/access-requests", tq, token="none")
+tq_id = next(x for x in call("GET", "/platform/access-requests?status=pending")["items"] if x["business_name"] == tq["business_name"])["id"]
+tap = call("POST", f"/platform/access-requests/{tq_id}/approve")
+ta = first_login(tq["email"], tap["temporary_pin"], "tc2468")
+TA = {"token": ta["token"], "branch": "none"}
+tb1 = tap["tenant_id"]
+accs = call("GET", "/platform/accounts")["items"]
+tacc = next(a for a in accs if tq["business_name"] in a["business_names"])
+check("approved request: one tenant, its first business, primary administrator", tacc["businesses"] == 1 and tacc["admin_email"] == tq["email"]
+      and tacc["status"] in ("active", "trial") and sum(1 for a in accs if tq["business_name"] in a["business_names"]) == 1, tacc)
+call("GET", "/platform/accounts", **TA, expect=403)
+check("tenant administrators never reach Platform → Tenants", True)
+# 71 — secure business access
+call("POST", f"/platform/tenants/{tb1}/support", {"pin": "wrong-pin", "reason": "Checking stock levels", "scope": "view", "minutes": 30}, expect=400)
+call("POST", f"/platform/tenants/{tb1}/support", {"pin": PIN, "reason": "short", "scope": "view", "minutes": 30}, expect=400)
+call("POST", f"/platform/tenants/{tb1}/support", {"pin": PIN, "reason": "Checking stock levels", "scope": "view", "minutes": 999}, expect=400)
+check("support access needs a fresh PIN, a reason and a time limit", True)
+sv = call("POST", f"/platform/tenants/{tb1}/support", {"pin": PIN, "reason": "Checking stock levels for the owner", "scope": "view", "minutes": 30})
+SV = {"token": sv["token"], "branch": "none"}
+check("view-only session: banner details on the profile", sv["status"] == "active" and sv["profile"]["acting"]["support"]["scope"] == "view"
+      and sv["profile"]["tenant"]["id"] == tb1 and sv["profile"]["businesses"] == [], sv["profile"].get("acting"))
+call("GET", "/products?status=all", **SV)
+r = call("POST", "/categories", {"name": "Support write"}, **SV, expect=422)
+check("view-only: nothing can be changed", r["error"]["title"] == "View-only support access", r)
+check("administrators are told when support enters", any(n["kind"] == "support_started" for n in call("GET", "/notifications?limit=20", **TA)["items"]))
+sa = call("GET", "/support-access", **TA)
+check("the business sees the session and its reason", sa["policy"] == "notify" and sa["items"][0]["status"] == "active"
+      and sa["items"][0]["reason"].startswith("Checking"), sa["items"][:1])
+call("POST", f"/support-access/{sv['id']}/revoke", **TA)
+r = call("GET", "/auth/me", **SV, expect=422)
+check("revoked by the business: the session stops at once", r["error"]["title"] == "Support session ended", r)
+call("PUT", "/support-access/policy", {"policy": "approval"}, **TA)
+rq = call("POST", f"/platform/tenants/{tb1}/support", {"pin": PIN, "reason": "Fix a pricing problem for the owner", "scope": "full", "minutes": 60})
+check("approval policy: the request waits for the business", rq["status"] == "requested" and "token" not in rq, rq)
+call("POST", f"/platform/support/{rq['id']}/start", {"pin": PIN}, expect=422)
+check("cannot start before approval", True)
+call("POST", f"/support-access/{rq['id']}/approve", **TA)
+st = call("POST", f"/platform/support/{rq['id']}/start", {"pin": PIN})
+SF = {"token": st["token"], "branch": "none"}
+call("POST", "/categories", {"name": f"Support cat {suffix}"}, **SF)
+check("approved full session works and is audited in the business", any(a["action"] == "support_started" for a in call("GET", "/audit?period=today&limit=200", **TA)["items"]))
+call("PUT", "/support-access/policy", {"policy": "notify"}, **SF, expect=403)
+cfg_t = call("GET", "/settings", **SF)["settings"]
+cfg_t["security"]["support_access"] = "notify"
+call("PUT", "/settings", cfg_t, **SF)
+check("support can never change the business's consent policy", call("GET", "/support-access", **TA)["policy"] == "approval")
+call("POST", f"/support-access/{rq['id']}/approve", **SF, expect=403)
+call("POST", "/auth/switch-business", {"tenant_id": home_t}, **SF, expect=422)
+check("no approving or switching from inside a support session", True)
+endr = call("POST", f"/platform/support/{st['id']}/end", **SF)
+check("ending returns the platform owner to their own business", endr["profile"]["acting"] is None and endr["profile"]["tenant"]["id"] == home_t)
+call("GET", "/auth/me", **SF, expect=422)
+call("PUT", "/support-access/policy", {"policy": "notify"}, **TA)
+# 72 — several businesses per tenant, one sign-in
+nb = call("POST", f"/platform/accounts/{tacc['id']}/businesses", {"name": f"Tenant Co Two {suffix}"})
+tb2 = nb["tenant_id"]
+me_ta = call("GET", "/auth/me", **TA)
+check("second business: the primary administrator can switch to it", sorted(b["id"] for b in me_ta["businesses"]) == sorted([tb1, tb2]), me_ta["businesses"])
+sw = call("POST", "/auth/switch-business", {"tenant_id": tb2}, **TA)
+TB2 = {"token": sw["token"], "branch": "none"}
+check("switched without signing in again; separate data", sw["profile"]["tenant"]["id"] == tb2 and "*" in sw["profile"]["permissions"]
+      and call("GET", "/products?status=all", **TB2)["items"] == [] and not any(c["name"] == f"Support cat {suffix}" for c in call("GET", "/categories", **TB2)))
+call("POST", "/auth/switch-business", {"tenant_id": home_t}, **TA, expect=403)
+check("never into another tenant", True)
+roles_b2 = {r["name"]: r["id"] for r in call("GET", "/roles", **TB2)}
+roles_b1 = {r["name"]: r["id"] for r in call("GET", "/roles", **TA)}
+b2_branch = sw["profile"]["branches"][0]["id"]
+ca_mail = f"clerka{suffix.lower()}@sshop.test"
+ca = call("POST", "/users", {"name": "Clerk A", "email": ca_mail, "pin": "5678", "role_id": roles_b1["Salesperson"], "all_branches": True, "branch_ids": []}, **TA)
+lk = call("GET", "/users/linkable", **TB2)["items"]
+check("people of the tenant's other businesses can be added (never the platform owner)", any(x["id"] == ca["id"] for x in lk) and not any(x["email"] == EMAIL for x in lk))
+call("POST", "/users/link", {"user_id": login["profile"]["user"]["id"], "role_id": roles_b2["Salesperson"], "all_branches": True}, **TB2, expect=400)
+call("POST", "/users/link", {"user_id": ca["id"], "role_id": roles_b2["Salesperson"], "all_branches": False, "branch_ids": [b2_branch]}, **TB2)
+ca_login = call("POST", "/auth/login", {"email": ca_mail, "pin": "5678"})
+check("one sign-in lists both businesses", len(ca_login["profile"]["businesses"]) == 2)
+ca2 = call("POST", "/auth/switch-business", {"tenant_id": tb2}, token=ca_login["token"], branch="none")
+check("the other business's role and branches apply", ca2["profile"]["user"]["role"] == "Salesperson" and [b["id"] for b in ca2["profile"]["branches"]] == [b2_branch]
+      and ca2["profile"]["linked_from"] == tq["business_name"], ca2["profile"]["user"])
+check("listed as linked in that business", any(u.get("linked_from") == tq["business_name"] for u in call("GET", "/users", **TB2)))
+call("POST", "/auth/change-pin", {"current_pin": "5678", "new_pin": "8765"}, token=ca2["token"], branch=b2_branch)
+check("one PIN for every business", bool(call("POST", "/auth/login", {"email": ca_mail, "pin": "8765"})["token"]))
+call("PUT", f"/users/{ca['id']}", {"name": "Clerk A", "email": ca_mail, "role_id": roles_b1["Salesperson"], "all_branches": True, "branch_ids": [], "is_active": False}, **TA)
+call("GET", "/auth/me", token=ca2["token"], branch=b2_branch, expect=401)
+check("deactivating the person ends their access in every business", True)
+# 70 — tenant-wide status
+call("POST", f"/platform/accounts/{tacc['id']}/status", {"status": "deactivated", "reason": "Contract ended"})
+tdet = call("GET", f"/platform/accounts/{tacc['id']}")
+check("deactivating a tenant deactivates every business", tdet["account"]["status"] == "deactivated" and all(b["status"] == "deactivated" for b in tdet["businesses"]))
+call("GET", "/auth/me", **TA, expect=401)
+call("POST", f"/platform/accounts/{tacc['id']}/status", {"status": "active", "reason": "Renewed"})
+home_acc = call("GET", "/platform/accounts")["home_account_id"]
+call("POST", f"/platform/accounts/{home_acc}/status", {"status": "deactivated", "reason": "Should be refused"}, expect=422)
+check("platform-owned tenant protected", True)
+# 73 — tenant activity
+act_t = call("GET", f"/platform/activity?account_id={tacc['id']}&activity=support&period=today")
+check("tenant activity: support sessions, only this tenant", act_t["totals"]["support"] >= 4
+      and all(x["business"] in (tq["business_name"], f"Tenant Co Two {suffix}") for x in act_t["items"]), act_t["totals"])
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

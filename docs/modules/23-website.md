@@ -173,6 +173,58 @@ or any earlier version cannot be deleted or archived.
 *Check now* is rate-limited (20 per 10 minutes per user). Removing the domain detaches it from Railway, and the website
 stays on its S'Shop address.
 
+## 74 – 77 — Custom domains everywhere, premium storefront
+
+**Audit before building** (owner checklist):
+
+| # | Area | Before | Now |
+|---|---|---|---|
+| 1 | Mobile product-card responsiveness | 🟡 floating *Add* overlapped name / price | ✅ own action row; compact card at 3 per row |
+| 2 | Product image loading & persistence | 🟡 photos persist in PostgreSQL (Railway redeploys never lose them); full-size images in grids; plain icon when missing | ✅ thumbnails, fade-in, branded placeholder, broken-image fallback |
+| 3 | Product grid configuration | ✅ phones 1–3 (default 2), tablets 2–4, desktops 3–6 | ✅ |
+| 4 | Navigation & search | ✅ Menu · Logo · Search · Cart, sticky header, drawer, suggestions | ✅ |
+| 5 | Cart interactions & animations | 🟡 tick on the button only | ✅ badge bump, confirmation with *View cart* |
+| 6 | Branding & appearance controls | ✅ colours, fonts, style, spacing, cards, ratios | ✅ + animation intensity |
+| 7 | Publishing & live preview | ✅ draft / publish, mobile / tablet / desktop preview | ✅ |
+| 8 | Railway custom-domain configuration | 🟡 automatic with `RAILWAY_API_TOKEN`, manual otherwise | ✅ manual set-up shown as *Awaiting platform configuration* |
+| 9 | DNS & HTTPS verification | 🟡 records named with the full domain (roadmap 68) | ✅ host names, doubled-name detection, HTTPS check before *Active* |
+| 10 | Domain-to-tenant routing | ✅ host → business, unknown hosts never show a website | ✅ + `www.` / bare twin, main-address redirect |
+| 11 | Ordering through custom domains | ✅ same orders engine | ✅ + `/orders` |
+| 12 | Mobile performance & accessibility | ✅ lazy images, reduced motion respected | ✅ thumbnails, `sizes` |
+
+**Main website address.** When the domain is active, *Main website address* (default on) makes it the address
+everywhere:
+- canonical and social links and the sitemap use it;
+- `/s/{slug}` on the S'Shop host forwards to the same path on the domain. The redirect is temporary so the choice can be
+  undone, and `?preview=1` drafts stay on the S'Shop host.
+Turned off, the domain shows the same website while links keep the S'Shop address. `www.example.com` and
+`example.com` forward to whichever of the two was connected, provided both reach S'Shop (each host must be added to the
+service on Railway).
+
+**Railway.** Adding a domain row in PostgreSQL does not configure Railway networking:
+- With `RAILWAY_API_TOKEN` set, S'Shop attaches the domain to the service and shows Railway's routing record and
+  `_railway-verify` TXT.
+- Without it, the platform owner adds the custom domain on the Railway service and records the CNAME target, and the
+  business sees *Awaiting platform configuration* until then.
+- The domain becomes *Active* only after `https://<domain>/api/site/whoami` answers from this server for that host.
+
+**Product cards** (`web/src/site/parts.tsx`, `site.css`): image frame (configurable ratio and fit), name (1–2 lines),
+availability dot, then the action row (price + *Add* pill). Rows line up; nothing overlaps. With three per row on a
+phone the card switches to smaller type and an icon-only *Add* under the price.
+
+**Photos.**
+- Thumbnails: 480 px, made in the browser at upload (as website media are), stored with the photo and served with
+  `?size=thumb`.
+- Images have responsive `sizes`, load lazily and fade in.
+- A product with no photo, or with a photo that fails to load, shows its initial on the brand colours. Real product
+  photos are never replaced.
+
+**Animations** (`theme.motion`): `off` | `subtle` (default) | `standard`.
+- Effects: page fade, sections fading in as they scroll into view, card hover shadow (*standard*: lift), button press,
+  cart badge bump, and an *Added to cart · View cart* confirmation.
+- CSS and one IntersectionObserver only, with no animation library.
+- `prefers-reduced-motion` always wins.
+
 ## 57 — Analytics
 
 Events: `visit`, `product_view`, `add_to_cart`, `order_start` from the browser, and `order_complete` from the server

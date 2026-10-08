@@ -121,7 +121,16 @@ export interface Profile {
     catalogue: { key: string; label: string; perms: string[] }[];
   };
   /** Present while a platform admin works inside another business. */
-  acting: { home_tenant_id: Id; home_tenant_name: string } | null;
+  acting: {
+    home_tenant_id: Id;
+    home_tenant_name: string;
+    /** Roadmap 71: the support session in force (banner with countdown). */
+    support: { id: Id; reason: string; scope: "view" | "full"; expires_at: string } | null;
+  } | null;
+  /** Roadmap 72: businesses of the same tenant this person can switch to (with the current one). */
+  businesses?: { id: Id; name: string; current: boolean }[];
+  /** Signs in through their account in this other business of the tenant. */
+  linked_from?: string | null;
 }
 
 export interface Product {
@@ -427,6 +436,8 @@ export interface UserRow {
   branch_ids: Id[];
   last_login_at: string | null;
   created_at: string;
+  /** Roadmap 72: signs in through their account in this other business of the tenant (no PIN here). */
+  linked_from?: string | null;
 }
 
 export interface Role {

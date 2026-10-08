@@ -130,10 +130,22 @@ function CartDrawer({ data, onClose }: { data: SiteData; onClose: () => void }) 
   );
 }
 
+/** Re-runs a short animation on the element whenever `value` changes (cart badge bump). */
+function useBump(value: number) {
+  const [n, setN] = useState(0);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    setN((x) => x + 1);
+  }, [value]);
+  return n > 0 ? `bump-${n % 2}` : "";
+}
+
 function Header({ data, onSearch, onCart, toggleMode, mode }: { data: SiteData; onSearch: () => void; onCart: () => void; toggleMode: (() => void) | null; mode: string }) {
   const [menu, setMenu] = useState(false);
   const lines = useCart();
   const count = lines.reduce((a, l) => a + l.qty, 0);
+  const bump = useBump(count);
   const nav = data.config.navigation.filter((n) => n.visible && n.key !== "order");
   const { pathname } = useLocation();
   useEffect(() => setMenu(false), [pathname]);
@@ -148,7 +160,7 @@ function Header({ data, onSearch, onCart, toggleMode, mode }: { data: SiteData; 
         <button className="icon-btn" aria-label="Search products" onClick={onSearch}><Search /></button>
         {toggleMode && <button className="icon-btn" aria-label={mode === "dark" ? "Light mode" : "Dark mode"} onClick={toggleMode}>{mode === "dark" ? <Sun /> : <Moon />}</button>}
         {data.ordering.enabled && (
-          <button className="icon-btn" aria-label={`Cart, ${count} items`} onClick={onCart}><ShoppingBag />{count > 0 && <span className="dot">{count}</span>}</button>
+          <button className="icon-btn" aria-label={`Cart, ${count} items`} onClick={onCart}><ShoppingBag />{count > 0 && <span key={bump} className={`dot ${bump ? "bump" : ""}`}>{count}</span>}</button>
         )}
       </div>
       {menu && (
@@ -247,12 +259,36 @@ function Shell({ data }: { data: SiteData }) {
     track("visit");
   }, []);
   const count = lines.reduce((a, l) => a + l.qty, 0);
+  const motion = data.config.theme.motion ?? "subtle";
+  // Roadmap 77: "Added to cart" confirmation with a way to the cart; sections fade in as they scroll into view.
+  const [added, setAdded] = useState<string | null>(null);
+  useEffect(() => {
+    let timer = 0;
+    const on = (e: Event) => {
+      setAdded((e as CustomEvent<{ name: string }>).detail.name);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setAdded(null), 2600);
+    };
+    window.addEventListener("sshop:added", on);
+    return () => { window.removeEventListener("sshop:added", on); window.clearTimeout(timer); };
+  }, []);
+  useEffect(() => {
+    if (motion === "off" || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((entries) => entries.forEach((en) => {
+      if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); }
+    }), { rootMargin: "0px 0px -8% 0px", threshold: 0.06 });
+    const t = window.setTimeout(() => {
+      document.querySelectorAll("#main section:not(.hero)").forEach((el) => { el.classList.add("reveal"); io.observe(el); });
+    }, 30);
+    return () => { window.clearTimeout(t); io.disconnect(); };
+  }, [pathname, motion]);
+  const floatBump = useBump(count);
   return (
-    <div className="site" style={vars} data-style={data.config.theme.style} data-scale={data.config.theme.scale}>
+    <div className="site" style={vars} data-style={data.config.theme.style} data-scale={data.config.theme.scale} data-motion={motion}>
       <a className="skip" href="#main">Skip to content</a>
       {runtime.preview && <div className="preview-bar">Preview — this is your unpublished draft. Visitors still see the published website.</div>}
       <Header data={data} onSearch={() => setSearch(true)} onCart={() => setCart(true)} toggleMode={toggleMode} mode={mode} />
-      <main id="main">
+      <main id="main" key={pathname} className="page-in">
         <Routes>
           <Route path="/" element={<HomePage data={data} />} />
           <Route path="/products" element={<ProductsPage data={data} />} />
@@ -264,6 +300,7 @@ function Shell({ data }: { data: SiteData }) {
           <Route path="/contact" element={<ContactPage data={data} />} />
           <Route path="/testimonials" element={<TestimonialsPage data={data} />} />
           <Route path="/order" element={<OrderPage data={data} />} />
+          <Route path="/orders" element={<OrderPage data={data} />} />
           <Route path="/cart" element={<OrderPage data={data} />} />
           <Route path="/track/:token" element={<TrackPage data={data} />} />
           <Route path="*" element={<NotFound data={data} />} />
@@ -271,7 +308,13 @@ function Shell({ data }: { data: SiteData }) {
       </main>
       <Footer data={data} />
       {count > 0 && data.ordering.enabled && pathname !== "/order" && !cart && (
-        <button className="btn float-cart" onClick={() => setCart(true)} aria-label={`Cart, ${count} items`}><ShoppingBag /> {count}</button>
+        <button key={floatBump} className={`btn float-cart ${floatBump ? "bump" : ""}`} onClick={() => setCart(true)} aria-label={`Cart, ${count} items`}><ShoppingBag /> {count}</button>
+      )}
+      {added && !cart && (
+        <div className="added-toast" role="status" aria-live="polite">
+          <span>Added to cart · {added}</span>
+          {data.ordering.enabled && <button type="button" onClick={() => { setAdded(null); setCart(true); }}>View cart</button>}
+        </div>
       )}
       {search && <SearchPanel data={data} onClose={() => setSearch(false)} />}
       {cart && <CartDrawer data={data} onClose={() => setCart(false)} />}

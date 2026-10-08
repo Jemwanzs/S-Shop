@@ -7,6 +7,8 @@ import {
   CalendarClock,
   SlidersHorizontal,
   Inbox,
+  LifeBuoy,
+  Users2,
   Network,
   ChevronRight,
   ClipboardList,
@@ -37,6 +39,8 @@ import { AccessRequests } from "./AccessRequests";
 import { PreferencesSettings } from "./Preferences";
 import { BusinessesSettings } from "./Businesses";
 import { BusinessDetail } from "./BusinessDetail";
+import { TenantDetail, TenantsSettings } from "./Tenants";
+import { SupportAccessSettings } from "./SupportAccess";
 import { BillingSettings } from "./Billing";
 import { PlatformActivity } from "./PlatformActivity";
 import { PlatformBilling } from "./PlatformBilling";
@@ -75,8 +79,11 @@ const SECTIONS: SectionDef[] = [
   // Website Add-On: integrations admins (request / overview) and anyone given a website permission.
   { path: "website", label: "Website", group: "Control", icon: Globe, perm: "website", element: <WebsiteSettings /> },
   // Everyone: their own preferences.
+  // Tenant administrators: platform support access to their business (roadmap 71).
+  { path: "support", label: "Support access", group: "Control", icon: LifeBuoy, perm: "users.manage", element: <SupportAccessSettings /> },
   { path: "preferences", label: "User preferences", group: "Personal", icon: SlidersHorizontal, perm: "", element: <PreferencesSettings /> },
   // "platform": only platform administrators (PLATFORM_ADMIN_EMAILS) see this section.
+  { path: "tenants", label: "Tenants", group: "Platform", icon: Users2, perm: "platform", element: <TenantsSettings /> },
   { path: "businesses", label: "Businesses", group: "Platform", icon: Network, perm: "platform", element: <BusinessesSettings /> },
   { path: "platform-billing", label: "Platform billing", group: "Platform", icon: Banknote, perm: "platform", element: <PlatformBilling /> },
   { path: "activity", label: "Activity", group: "Platform", icon: Activity, perm: "platform", element: <PlatformActivity /> },
@@ -132,6 +139,7 @@ export default function Settings() {
           <Routes>
             {sections.map((s) => <Route key={s.path} path={s.path} element={s.element} />)}
             {profile?.user.platform_admin && <Route path="businesses/:id" element={<BusinessDetail />} />}
+            {profile?.user.platform_admin && <Route path="tenants/:id" element={<TenantDetail />} />}
             <Route index element={<IndexRoute first={sections[0]?.path} />} />
             <Route path="*" element={<Navigate to="/settings" replace />} />
           </Routes>

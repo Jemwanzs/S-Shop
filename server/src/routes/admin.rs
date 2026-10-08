@@ -87,7 +87,7 @@ async fn get_settings(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
     })))
 }
 
-async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(body): Json<TenantSettings>) -> AppResult<Json<TenantSettings>> {
+async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(mut body): Json<TenantSettings>) -> AppResult<Json<TenantSettings>> {
     // One document, but each area needs its own permission: only changed areas are checked.
     {
         let mut conn = state.db.acquire().await?;
@@ -158,6 +158,8 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(body): Json<
         .bind(ctx.tenant_id)
         .fetch_one(&mut *tx)
         .await?;
+    // The support-access policy is never changed through this form (roadmap 71).
+    body.security = serde_json::from_value::<TenantSettings>(before.clone()).unwrap_or_default().security;
     let after = serde_json::to_value(&body).map_err(|e| AppError::Other(e.into()))?;
     sqlx::query("UPDATE tenants SET settings = $2 WHERE id = $1")
         .bind(ctx.tenant_id)
@@ -554,6 +556,8 @@ struct UserRow {
     /// User-specific access exceptions (grants, "-" restrictions, scopes) — website ones are managed in Website.
     extra_permissions: Vec<String>,
     default_branch_id: Option<Uuid>,
+    /// Roadmap 72: signs in through their account in this other business of the tenant (no PIN here).
+    linked_from: Option<String>,
 }
 
 async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<UserRow>>> {
@@ -561,8 +565,10 @@ async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<V
     let rows = sqlx::query_as(
         "SELECT u.id, u.name, u.email, u.phone, u.role_id, r.name AS role_name, u.is_active, u.all_branches,
                 COALESCE(ARRAY(SELECT branch_id FROM user_branches ub WHERE ub.user_id = u.id), '{}') AS branch_ids,
-                u.last_login_at, u.created_at, u.extra_permissions, u.default_branch_id
-         FROM users u JOIN roles r ON r.id = u.role_id WHERE u.tenant_id = $1 ORDER BY u.is_active DESC, u.name",
+                COALESCE(li.last_login_at, u.last_login_at) AS last_login_at, u.created_at, u.extra_permissions, u.default_branch_id,
+                lt.name AS linked_from
+         FROM users u JOIN roles r ON r.id = u.role_id LEFT JOIN users li ON li.id = u.login_user_id LEFT JOIN tenants lt ON lt.id = li.tenant_id
+         WHERE u.tenant_id = $1 ORDER BY u.is_active DESC, u.name",
     )
     .bind(ctx.tenant_id)
     .fetch_all(&state.db)
@@ -586,8 +592,14 @@ async fn validate_user(conn: &mut sqlx::PgConnection, ctx: &Ctx, b: &UserBody) -
     if b.name.trim().is_empty() || !b.email.contains('@') {
         return Err(bad("Name and a valid email are required"));
     }
+    validate_role_grant(conn, ctx, b.role_id, b.all_branches, &b.branch_ids).await
+}
+
+/// A role and branches this person may be given here: an active role of this business, never more than the granter
+/// holds, administrator access only from administrators, at least one of the granter's branches.
+pub async fn validate_role_grant(conn: &mut sqlx::PgConnection, ctx: &Ctx, role_id: Uuid, all_branches: bool, branch_ids: &[Uuid]) -> AppResult<()> {
     let role_ok: Option<(Vec<String>, bool)> = sqlx::query_as("SELECT permissions, is_active FROM roles WHERE id = $1 AND tenant_id = $2")
-        .bind(b.role_id)
+        .bind(role_id)
         .bind(ctx.tenant_id)
         .fetch_optional(&mut *conn)
         .await?;
@@ -600,10 +612,10 @@ async fn validate_user(conn: &mut sqlx::PgConnection, ctx: &Ctx, b: &UserBody) -
     }
     // Assigning a role is granting its permissions: never more than the assigner holds.
     ensure_grantable(ctx, &perms, &[])?;
-    if !b.all_branches && b.branch_ids.is_empty() {
+    if !all_branches && branch_ids.is_empty() {
         return Err(bad("Assign at least one branch"));
     }
-    for br in &b.branch_ids {
+    for br in branch_ids {
         ctx.ensure_branch(*br)?;
     }
     Ok(())
@@ -676,7 +688,11 @@ async fn update_user(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uui
         .await?;
 
     sqlx::query(
-        "UPDATE users SET name=$3, email=lower($4), phone=$5, role_id=$6, all_branches=$7, is_active=COALESCE($8, is_active)
+        // A linked person's name and email belong to their own account (roadmap 72).
+        "UPDATE users SET name = CASE WHEN login_user_id IS NULL THEN $3 ELSE name END,
+                email = CASE WHEN login_user_id IS NULL THEN lower($4) ELSE email END,
+                phone = CASE WHEN login_user_id IS NULL THEN $5 ELSE phone END,
+                role_id=$6, all_branches=$7, is_active=COALESCE($8, is_active)
          WHERE id=$1 AND tenant_id=$2",
     )
     .bind(id)
@@ -721,7 +737,7 @@ async fn reset_user_pin(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
     ctx.require("users.manage")?;
     validate_pin(&b.pin)?;
     let mut tx = state.db.begin().await?;
-    let n = sqlx::query("UPDATE users SET pin_hash=$3, failed_attempts=0, locked_until=NULL WHERE id=$1 AND tenant_id=$2")
+    let n = sqlx::query("UPDATE users SET pin_hash=$3, failed_attempts=0, locked_until=NULL WHERE id=$1 AND tenant_id=$2 AND login_user_id IS NULL")
         .bind(id)
         .bind(ctx.tenant_id)
         .bind(hash_pin(&b.pin)?)

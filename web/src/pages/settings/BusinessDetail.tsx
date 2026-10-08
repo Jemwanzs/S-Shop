@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { ago, count, date, dateTime, moneyDoc, todayIso } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { EmailHistory, type EmailRow } from "./EmailHistory";
 import { PlatformWebsiteCard, type PlatformWebsiteInfo } from "./website/PlatformWebsite";
 import type { Profile } from "@/lib/types";
 import {
@@ -47,6 +48,7 @@ interface Detail {
   billing: { plan: (BillingPlan & { notes: string }) | null; summary: BillingSummary; documents: BillingDocument[]; payments: BillingPayment[]; paystack: boolean; catalogue: ModuleDef[];
     website?: { plan: (BillingPlan & { notes: string }) | null; summary: BillingSummary } };
   website: PlatformWebsiteInfo;
+  emails?: EmailRow[];
   is_home: boolean;
 }
 
@@ -267,6 +269,10 @@ export function BusinessDetail() {
         {d.billing.plan?.notes && <p className="py-2 text-xs text-muted-foreground">{d.billing.plan.notes}</p>}
       </Card>
 
+      <Card title="Notification history">
+        <EmailHistory items={d.emails ?? []} onChanged={refresh} />
+      </Card>
+
       <PlatformWebsiteCard tenantId={id} info={d.website} billing={d.billing.website} catalogue={d.billing.catalogue} owned={owned} onChanged={refresh}
         PlanDialog={PlanDialog} IssueDialog={IssueDialog} />
 
@@ -362,7 +368,7 @@ export function BusinessDetail() {
         open={!!resetUser}
         onOpenChange={(o) => !o && setResetUser(null)}
         title="Reset this user's PIN?"
-        description={resetUser ? `${resetUser.name} (${resetUser.email}) gets a one-time PIN to pass on; their sign-in lock is cleared.` : ""}
+        description={resetUser ? `${resetUser.name} (${resetUser.email}) gets a one-time PIN to pass on; their current PIN, sessions and sign-in lock are cleared. They can also reset it themselves with “Forgot PIN / Password?”.` : ""}
         confirmLabel="Reset PIN"
         busy={resetPin.isPending}
         onConfirm={() => resetUser && resetPin.mutateAsync(resetUser.id)}
@@ -371,7 +377,7 @@ export function BusinessDetail() {
         open={!!tempPin}
         onOpenChange={(o) => !o && setTempPin(null)}
         title="One-time PIN"
-        description="Pass it on privately. It is shown only once — ask them to change it after signing in (More → Change PIN)."
+        description="Read it to them on a call — don't post it in a chat. It is shown only once, expires in 72 hours and must be replaced at first sign-in."
         footer={<Button onClick={() => setTempPin(null)}>{t("Done")}</Button>}
       >
         {tempPin && (

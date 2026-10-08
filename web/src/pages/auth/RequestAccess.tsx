@@ -14,7 +14,7 @@ const SUPPORT = ["0798 993 404", "0732 968 898"];
 
 /** Public form: businesses ask for access; a platform admin reviews and activates. No open signup. */
 export default function RequestAccessPage() {
-  const [f, setF] = useState({ business_name: "", contact_name: "", phone: "", email: "", location: "", business_type: "", branches: "", message: "", website: "" });
+  const [f, setF] = useState({ business_name: "", contact_name: "", phone: "", email: "", location: "", business_type: "", branches: "", estimated_users: "", message: "", website: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
@@ -25,7 +25,7 @@ export default function RequestAccessPage() {
     setError("");
     setBusy(true);
     try {
-      await api("/access-requests", { body: { ...f, branches: f.branches ? Number(f.branches) : null } });
+      await api("/access-requests", { body: { ...f, branches: f.branches ? Number(f.branches) : null, estimated_users: f.estimated_users ? Number(f.estimated_users) : null } });
       setDone(true);
     } catch (err) {
       setError(errorMessage(err));
@@ -40,6 +40,7 @@ export default function RequestAccessPage() {
         <div className="space-y-4 text-center">
           <CheckCircle2 className="mx-auto h-10 w-10 text-success" />
           <p className="text-sm font-medium">{t("Access request submitted successfully. We will review your request and get back to you.")}</p>
+          <p className="text-xs text-muted-foreground">{t("A confirmation has been sent to your email.")}</p>
           <div className="rounded-xl bg-muted/60 p-3">
             <p className="text-xs text-muted-foreground">{t("In case of any delays, please call:")}</p>
             <div className="mt-1.5 flex flex-col items-center gap-1">
@@ -63,6 +64,7 @@ export default function RequestAccessPage() {
           <label className="block"><AuthLabel>{t("Phone")}</AuthLabel><Input type="tel" autoComplete="tel" className="num" value={f.phone} onChange={(e) => set("phone")(e.target.value)} placeholder="07…" required /></label>
           <label className="block"><AuthLabel>{t("Branches")}</AuthLabel><Input inputMode="numeric" className="num" value={f.branches} onChange={(e) => set("branches")(e.target.value.replace(/\D/g, "").slice(0, 3))} placeholder="1" /></label>
         </div>
+        <label className="block"><AuthLabel>{t("Estimated users")}</AuthLabel><Input inputMode="numeric" className="num" value={f.estimated_users} onChange={(e) => set("estimated_users")(e.target.value.replace(/\D/g, "").slice(0, 5))} placeholder={t("People who will use S'Shop")} /></label>
         <label className="block"><AuthLabel>{t("Email")}</AuthLabel><Input type="email" autoComplete="email" value={f.email} onChange={(e) => set("email")(e.target.value)} placeholder="your@email.com" required /></label>
         <label className="block">
           <AuthLabel>{t("Type of business")}</AuthLabel>

@@ -38,11 +38,23 @@ impl std::fmt::Debug for RailwayApi {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EmailConfig {
     pub api_key: String,
     /// e.g. "S'Shop <noreply@yourdomain.com>". Resend's test sender only delivers to the account owner.
     pub from: String,
+    /// Where replies go (MAIL_REPLY_TO), e.g. the support mailbox.
+    pub reply_to: Option<String>,
+    /// Resend webhook signing secret (RESEND_WEBHOOK_SECRET, "whsec_…"): delivered / bounced statuses.
+    pub webhook_secret: Option<String>,
+    /// https://api.resend.com — overridable only for tests against a local stand-in (RESEND_BASE_URL).
+    pub base_url: String,
+}
+
+impl std::fmt::Debug for EmailConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmailConfig").field("api_key", &"<redacted>").field("from", &self.from).field("webhook", &self.webhook_secret.is_some()).finish()
+    }
 }
 
 /// Paystack (platform billing). The secret key only ever lives in the environment and on the server.
@@ -169,6 +181,9 @@ impl Config {
         let email = var("RESEND_API_KEY").map(|api_key| EmailConfig {
             api_key,
             from: var("MAIL_FROM").unwrap_or_else(|| "S'Shop <onboarding@resend.dev>".into()),
+            reply_to: var("MAIL_REPLY_TO"),
+            webhook_secret: var("RESEND_WEBHOOK_SECRET"),
+            base_url: var("RESEND_BASE_URL").unwrap_or_else(|| "https://api.resend.com".into()).trim_end_matches('/').to_string(),
         });
 
         let paystack = var("PAYSTACK_SECRET_KEY").map(|secret_key| PaystackConfig {

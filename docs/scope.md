@@ -243,10 +243,34 @@ customers, stock, payments). Built in this order, reusing the ordering link, pro
   too (one rule everywhere); website revenue on the platform billing dashboard; automatic domain attachment needs
   `RAILWAY_API_TOKEN` (otherwise the platform owner records the routing target).
 
+Added 2026-10-08 — **Onboarding & account recovery** (owner requests: *Automated Onboarding Emails & WhatsApp Access
+Notifications*, *Approved Access Credentials & Intelligent Login Feedback*, *Self-Service PIN/Password Reset for All
+Users*; [module 24](modules/24-onboarding-and-recovery.md)). Audit first: the owner's request email existed (plain text,
+best effort, a yes/no flag); applicant acknowledgement, welcome, rejection and reset emails, delivery tracking, resend,
+PIN expiry / forced change and self-service reset were missing.
+- ✅ **58. Onboarding emails with delivery tracking** — owner email with every detail incl. **estimated users** (new form
+  field) and in-app notification; applicant acknowledgement; welcome email with a single-use set-up link (never the PIN);
+  courteous rejection email with an optional reason (internal note never sent); responsive branded HTML + text; every
+  email logged (queued → sent / failed / skipped, then delivered / delayed / bounced / complained via the signed Resend
+  webhook); retry; notification history on requests and businesses; a failed email never undoes an approval.
+- ✅ **59. Approved access credentials** — *Business Activated* modal with email status, *Resend Email*, *Copy Message*
+  and WhatsApp opening the administrator's chat (254… format) with the message composed and without the PIN; one-time
+  PINs expire after 72 h, work until replaced at first sign-in (server-enforced) and end older sessions; approved cards:
+  *View Login Details* (receipt-style slip: activation status, last sign-in, email delivery), *Resend Welcome Email*,
+  *Issue New One-Time PIN* (confirm, shown once, audited without the PIN), WhatsApp.
+- ✅ **60. Self-service PIN / password reset for every user** — *Forgot PIN / Password?* on sign-in → neutral answer →
+  single-use 30-minute link (hashed, in the URL fragment) → new PIN → all sessions end → confirmation email; rate-limited,
+  no account discovery, audited; changing one's own PIN also ends other sessions; support route when the email is lost.
+- ✅ **61. Applicant status at sign-in** — never revealed on a failed sign-in (neutral message + *Check your request
+  status*); an emailed status link (proof of ownership) shows pending / approved (with *Resend Setup Instructions*) /
+  rejected (no internal notes), each with Call / WhatsApp support contacts.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as
-  a sending domain in Resend (DNS records) and set `MAIL_FROM` (e.g. `S'Shop <noreply@s-shop.store>`).
+  a sending domain in Resend (DNS records) and set `MAIL_FROM` (e.g. `S'Shop <noreply@s-shop.store>`). **Now needed for
+  58–61**: until then Resend's test sender only reaches the Resend account owner, so applicants and new administrators
+  receive nothing (the email log shows Resend's refusal). Optionally `RESEND_WEBHOOK_SECRET` for delivered / bounced.
 - ◐ **30. Custom domain** — replaced by **s-shop.store** ✅ (2026-10-07: live with HTTPS, Paystack webhook
   `https://s-shop.store/api/webhooks/paystack`). Pending: `www.s-shop.store` (add it on Railway + CNAME, or redirect at the
   registrar).

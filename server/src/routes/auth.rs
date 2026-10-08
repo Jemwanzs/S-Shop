@@ -38,6 +38,8 @@ struct LoginRow {
     is_active: bool,
     failed_attempts: i32,
     locked_until: Option<DateTime<Utc>>,
+    must_change_pin: bool,
+    pin_expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize)]
@@ -55,7 +57,7 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Js
     let invalid = || AppError::BadRequest("Invalid email or PIN".into());
 
     let row: Option<LoginRow> = sqlx::query_as(
-        "SELECT id, tenant_id, pin_hash, is_active, failed_attempts, locked_until FROM users WHERE lower(email) = $1",
+        "SELECT id, tenant_id, pin_hash, is_active, failed_attempts, locked_until, must_change_pin, pin_expires_at FROM users WHERE lower(email) = $1",
     )
     .bind(&email)
     .fetch_optional(&state.db)
@@ -100,6 +102,17 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Js
         .await?;
         tx.commit().await?;
         return Err(invalid());
+    }
+    // A one-time PIN works once, for a limited time (the person proved they hold it, so saying so leaks nothing).
+    if user.must_change_pin && user.pin_expires_at.is_some_and(|t| t < Utc::now()) {
+        return Err(crate::error::refused(
+            "One-time PIN expired",
+            format!(
+                "This one-time PIN has expired. Use “Forgot PIN / Password?” to set a new one, or contact S'Shop support: {} / {}",
+                super::access::SUPPORT_PHONES[0],
+                super::access::SUPPORT_PHONES[1]
+            ),
+        ));
     }
     let tenant_status: String = sqlx::query_scalar("SELECT status FROM tenants WHERE id = $1").bind(user.tenant_id).fetch_one(&state.db).await?;
     if tenant_status != "active" {
@@ -189,6 +202,8 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
             "id": user_id, "name": name, "email": email, "role": role, "all_branches": all_branches || is_admin,
             "platform_admin": super::access::is_platform_admin(state, &email, &permissions),
             "preferences": super::prefs::Preferences::from_stored(preferences),
+            // Signed in with a one-time PIN: the app asks for a new PIN before anything else (roadmap 59).
+            "must_change_pin": sqlx::query_scalar::<_, bool>("SELECT must_change_pin FROM users WHERE id = $1").bind(user_id).fetch_one(&state.db).await?,
         }),
         tenant: serde_json::json!({
             "id": tenant_id, "name": tname, "slug": slug, "tagline": tagline, "currency": currency,
@@ -248,13 +263,28 @@ async fn change_pin(State(state): State<AppState>, ctx: Ctx, Json(body): Json<Ch
     if !verify_pin(&body.current_pin, &hash) {
         return Err(bad("Current PIN is incorrect"));
     }
+    if body.new_pin == body.current_pin {
+        return Err(bad("Choose a PIN different from the current one"));
+    }
     let mut tx = state.db.begin().await?;
-    sqlx::query("UPDATE users SET pin_hash = $2 WHERE id = $1")
+    // Other sessions end; this device continues with the fresh token returned below.
+    sqlx::query(
+        "UPDATE users SET pin_hash = $2, must_change_pin = false, pin_expires_at = NULL, pin_changed_at = now(), sessions_valid_after = now()
+         WHERE id = $1",
+    )
+    .bind(ctx.user_id)
+    .bind(hash_pin(&body.new_pin)?)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE auth_tokens SET revoked_at = now() WHERE user_id = $1 AND kind IN ('setup', 'reset') AND used_at IS NULL AND revoked_at IS NULL")
         .bind(ctx.user_id)
-        .bind(hash_pin(&body.new_pin)?)
         .execute(&mut *tx)
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("auth", "change_pin", "user", ctx.user_id)).await?;
     tx.commit().await?;
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let token = match ctx.acting_from {
+        Some(home) => crate::auth::issue_acting_token(&state.cfg.jwt_secret, ctx.user_id, home, ctx.tenant_id)?,
+        None => issue_token(&state.cfg.jwt_secret, ctx.user_id, ctx.tenant_id, "staff", Duration::hours(STAFF_TOKEN_HOURS))?,
+    };
+    Ok(Json(serde_json::json!({ "ok": true, "token": token })))
 }

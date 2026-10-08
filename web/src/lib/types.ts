@@ -99,7 +99,9 @@ export interface Settings {
 }
 
 export interface Profile {
-  user: { id: Id; name: string; email: string; role: string; all_branches: boolean; platform_admin: boolean; preferences: Preferences };
+  user: { id: Id; name: string; email: string; role: string; all_branches: boolean; platform_admin: boolean; preferences: Preferences;
+    /** Signed in with a one-time PIN: a new PIN is required before anything else (roadmap 59). */
+    must_change_pin?: boolean };
   tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null; is_demo: boolean; timezone: string };
   branches: Branch[];
   permissions: string[];

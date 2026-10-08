@@ -27,6 +27,7 @@ pub mod site;
 pub mod stock;
 pub mod transfers;
 pub mod webhooks;
+pub mod recovery;
 pub mod website;
 
 use axum::Router;
@@ -39,6 +40,7 @@ pub fn api() -> Router<AppState> {
     Router::new()
         .merge(auth::routes())
         .merge(access::routes())
+        .merge(recovery::routes())
         .merge(prefs::routes())
         .merge(platform::routes())
         .merge(billing::routes())

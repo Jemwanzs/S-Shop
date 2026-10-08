@@ -20,6 +20,7 @@ mod settings;
 mod state;
 mod util;
 mod domains;
+mod mailer;
 mod website;
 mod workflow;
 

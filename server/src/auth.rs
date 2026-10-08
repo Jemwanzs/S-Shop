@@ -244,6 +244,8 @@ struct CtxRow {
     email: String,
     tenant_status: String,
     sessions_valid_after: Option<chrono::DateTime<Utc>>,
+    user_sessions_valid_after: Option<chrono::DateTime<Utc>>,
+    must_change_pin: bool,
 }
 
 /// Paths are matched as the API router sees them (inside /api).
@@ -266,7 +268,7 @@ impl FromRequestParts<AppState> for Ctx {
         let home_tenant = claims.home.unwrap_or(claims.tid);
         let row: Option<CtxRow> = sqlx::query_as(
             "SELECT u.name, u.is_active, u.all_branches, r.permissions || u.extra_permissions AS permissions, t.timezone, lower(u.email) AS email,
-                    t.status AS tenant_status, t.sessions_valid_after
+                    t.status AS tenant_status, t.sessions_valid_after, u.sessions_valid_after AS user_sessions_valid_after, u.must_change_pin
              FROM users u JOIN roles r ON r.id = u.role_id JOIN tenants t ON t.id = $3
              WHERE u.id = $1 AND u.tenant_id = $2",
         )
@@ -278,6 +280,14 @@ impl FromRequestParts<AppState> for Ctx {
         let mut row = row.ok_or(AppError::Unauthorized)?;
         if !row.is_active {
             return Err(AppError::Unauthorized);
+        }
+        // A PIN change / reset ends the person's older sessions (roadmap 60).
+        if row.user_sessions_valid_after.is_some_and(|t| claims.iat < t.timestamp()) {
+            return Err(AppError::Unauthorized);
+        }
+        // Signed in with a one-time PIN: nothing but replacing it (and reading the profile) until it is replaced.
+        if row.must_change_pin && !["/auth/", "/fx"].iter().any(|p| request_path(parts).trim_start_matches("/api").starts_with(p)) {
+            return Err(crate::error::refused("Set your own PIN", "Replace your one-time PIN with your own PIN to continue"));
         }
         if claims.home.is_some() {
             if !crate::routes::access::is_platform_admin(state, &row.email, &row.permissions) {

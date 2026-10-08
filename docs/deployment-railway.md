@@ -28,7 +28,9 @@ S'Shop runs as **one service** (built from the repository `Dockerfile`) plus **o
 | `PUBLIC_URL` | Optional; defaults to `https://$RAILWAY_PUBLIC_DOMAIN` |
 | `PLATFORM_ADMIN_EMAILS` | Comma-separated platform admins who review access requests (falls back to `BOOTSTRAP_ADMIN_EMAIL` — set it before removing the bootstrap variables) |
 | `RESEND_API_KEY` | Optional; enables email alerts for access requests ([module 18](modules/18-access-requests.md)) |
-| `MAIL_FROM` | Optional; sender, default `S'Shop <onboarding@resend.dev>` |
+| `MAIL_FROM` | Sender, e.g. `S'Shop <noreply@s-shop.store>` — **verify the domain in Resend first**; the default `S'Shop <onboarding@resend.dev>` only delivers to the Resend account owner, so onboarding and reset emails to anyone else fail ([module 24](modules/24-onboarding-and-recovery.md)) |
+| `MAIL_REPLY_TO` | Optional; reply-to address on S'Shop emails |
+| `RESEND_WEBHOOK_SECRET` | Optional; Resend webhook signing secret (`whsec_…`) for delivered / bounced statuses — endpoint `{PUBLIC_URL}/api/webhooks/resend` |
 | `BACKGROUND_JOBS` | Test runs only: `off` stops the scheduler (renewals, trial ends, suspension, reminders). **Never set it in production.** |
 | `PAYSTACK_SECRET_KEY` | Optional; enables *Pay now* on Settings → Billing ([module 21](modules/21-platform-billing.md)). Set the Paystack webhook URL to `{PUBLIC_URL}/api/webhooks/paystack` |
 | `RAILWAY_API_TOKEN` | Optional; lets S'Shop attach businesses' verified website domains to this service automatically ([module 23](modules/23-website.md#56--custom-domains)). An account or team token; Railway supplies the project, environment and service ids itself. Without it, the platform owner adds each verified domain in Railway and records its CNAME target on the business page. Railway plans limit custom domains per service (Pro: 20 by default). |

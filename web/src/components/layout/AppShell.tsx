@@ -100,7 +100,7 @@ function BranchSwitcher({ compact }: { compact?: boolean }) {
 }
 
 export function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const { profile } = useSession();
+  const { profile, renewToken } = useSession();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -124,8 +124,10 @@ export function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange:
     if (problem || busy) return;
     setBusy(true);
     try {
-      await api("/auth/change-pin", { body: { current_pin: current, new_pin: next } });
-      toast.success("PIN changed — use the new PIN next time you sign in");
+      const r = await api<{ token?: string }>("/auth/change-pin", { body: { current_pin: current, new_pin: next } });
+      // Other devices are signed out; this one continues with the fresh session.
+      if (r.token) await renewToken(r.token);
+      toast.success("PIN changed — other devices have been signed out");
       onOpenChange(false);
     } catch (err) {
       toast.error(err);

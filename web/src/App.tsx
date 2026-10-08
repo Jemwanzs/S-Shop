@@ -11,6 +11,7 @@ import { Loading } from "@/components/Page";
 import LoginPage from "@/pages/auth/Login";
 import SelectBranchPage from "@/pages/auth/SelectBranch";
 import RequestAccessPage from "@/pages/auth/RequestAccess";
+import { AccessStatusPage, ForcedPinChange, ForgotPage, SetPinPage } from "@/pages/auth/Recovery";
 
 // Route-level code splitting keeps the first load small on mobile data.
 // After a deploy, an open tab may ask for chunk files that no longer exist: reload once to pick up the new version.
@@ -82,6 +83,8 @@ function RequireStaff({ children }: { children: ReactNode }) {
   const { profile, loading, needsBranch } = useSession();
   if (loading) return <Loading className="min-h-screen" />;
   if (!profile) return <Navigate to="/login" replace />;
+  // Signed in with a one-time PIN: replace it before anything else (the server enforces the same).
+  if (profile.user.must_change_pin) return <ForcedPinChange />;
   if (needsBranch) return <Navigate to="/select-branch" replace />;
   return <>{children}</>;
 }
@@ -97,6 +100,9 @@ export default function App() {
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/select-branch" element={<SelectBranchPage />} />
                 <Route path="/request-access" element={<RequestAccessPage />} />
+                <Route path="/forgot" element={<ForgotPage />} />
+                <Route path="/set-pin" element={<SetPinPage />} />
+                <Route path="/access-status" element={<AccessStatusPage />} />
                 <Route path="/order/:slug/*" element={<Portal />} />
                 <Route path="/track/:token" element={<Track />} />
                 <Route element={<RequireStaff><AppShell /></RequireStaff>}>

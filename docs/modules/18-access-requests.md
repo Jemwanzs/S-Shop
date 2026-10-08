@@ -10,27 +10,20 @@ admins) · **API:** `POST /api/access-requests`, `/api/platform/access-requests�
 - Nothing is activated automatically.
 
 ## The form
-Business name, your name, phone, email, number of branches, type of business, town/location and an optional message.
+Business name, your name, phone, number of branches, estimated users, email, type of business, town/location and an
+optional message.
 After submitting, the visitor sees: *Access request submitted successfully. We will review your request and get back
 to you. In case of any delays, please call 0798 993 404 / 0732 968 898* (tap-to-call).
 
 Safeguards: a hidden honeypot field drops bot submissions; at most 5 requests per connection per hour; one pending
 request per email (a repeat is acknowledged but not duplicated); an email that already has a login is told to sign in.
 
-## Notifications
-- **Email** to `ACCESS_REQUEST_NOTIFY_EMAILS` (default: the platform admins, i.e. `jamosammy@gmail.com`) via
-  [Resend](https://resend.com) when `RESEND_API_KEY` is set. Without a verified domain, Resend's test sender
-  (`onboarding@resend.dev`, the default `MAIL_FROM`) delivers only to the Resend account owner's address — sign up to
-  Resend with the address that should receive the alerts, or verify a domain and set `MAIL_FROM`.
-- **In-app** notification (bell + live toast) for every platform admin.
-- If email is not configured the request is still stored and the review screen shows a warning.
+## Notifications, review and first sign-in
+Emails (owner, applicant acknowledgement, welcome with a set-up link, rejection), delivery tracking, the *Business
+Activated* modal, *View Login Details*, *Resend Welcome Email*, *Issue New One-Time PIN*, WhatsApp and the first
+sign-in are described in [module 24](24-onboarding-and-recovery.md). In-app notifications go to every platform admin.
 
-## Review (Settings → Access requests)
-Tabs Pending · Approved · Rejected · All. Each card shows the business, contact (tap to email/call), location, type,
-branches and message.
-- **Approve & create** creates the business exactly like a first start (default roles, *Main Branch*, workflow rows,
-  expense categories, award period, a unique ordering-link slug) and its Tenant Administrator with a random
-  8-character **temporary PIN**, shown once with *Copy message* and *WhatsApp* buttons to pass on the sign-in details.
-  The new administrator should change the PIN after signing in.
-- **Reject** with an optional reason.
+Tabs Pending · Approved · Rejected · All. **Approve & create** creates the business exactly like a first start (default
+roles, *Main Branch*, workflow rows, expense categories, award period, a unique ordering-link slug) and its Tenant
+Administrator. **Reject** takes an optional reason for the applicant and an optional internal note.
 Both decisions are written to the audit trail (`platform.approve_access` / `platform.reject_access`).

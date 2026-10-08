@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2, Mail } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -13,7 +13,8 @@ import { t } from "@/lib/i18n";
 export default function LoginPage() {
   const { profile, signIn } = useSession();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [params] = useSearchParams();
+  const [email, setEmail] = useState(params.get("email") ?? "");
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -49,11 +50,19 @@ export default function LoginPage() {
           <AuthLabel>{t("PIN")}</AuthLabel>
           <PasswordInput withIcon autoComplete="current-password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={t("Enter your PIN")} maxLength={12} required />
         </label>
-        {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
+        {error && (
+          <div className="space-y-1 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <p>{error}</p>
+            {/* Never says whether the email exists; applicants get their status by email (proof they own it). */}
+            <p className="text-muted-foreground">
+              {t("Applied for access?")} <Link to={`/forgot?email=${encodeURIComponent(email.trim())}`} className="font-medium text-primary underline-offset-2 hover:underline">{t("Check your request status")}</Link>
+            </p>
+          </div>
+        )}
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? <Loader2 className="animate-spin" /> : t("Sign in")}
         </Button>
-        <p className="text-center text-xs text-muted-foreground">{t("Forgot your PIN? Ask your administrator to reset it.")}</p>
+        <Link to={`/forgot${email.trim() ? `?email=${encodeURIComponent(email.trim())}` : ""}`} className="block text-center text-xs font-medium text-primary hover:underline">{t("Forgot PIN / Password?")}</Link>
       </form>
       <div className="mt-6 border-t pt-5 text-center">
         <p className="text-xs text-muted-foreground">{t("Interested in accessing S'Shop?")}</p>

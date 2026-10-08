@@ -66,6 +66,10 @@ jobs:
           # Paystack stand-in served by the smoke suite itself (scripts/smoke_test.py, SMOKE_PAYSTACK_PORT).
           PAYSTACK_SECRET_KEY: sk_test_ci_stand_in
           PAYSTACK_BASE_URL: http://127.0.0.1:8098
+          # Resend stand-in (same smoke-suite server): onboarding, reset and status emails are read back by the suite.
+          RESEND_API_KEY: re_test_ci_stand_in
+          RESEND_BASE_URL: http://127.0.0.1:8098
+          RESEND_WEBHOOK_SECRET: whsec_Y2ktd2ViaG9vay1zZWNyZXQtMTIzNDU2
           # Renewal invoices / trial ends / suspension would otherwise run part-way through the suite.
           BACKGROUND_JOBS: "off"
         run: |
@@ -76,6 +80,8 @@ jobs:
         env:
           SMOKE_PAYSTACK_PORT: "8098"
           SMOKE_PAYSTACK_SECRET: sk_test_ci_stand_in
+          SMOKE_RESEND_KEY: re_test_ci_stand_in
+          SMOKE_RESEND_WEBHOOK_SECRET: whsec_Y2ktd2ViaG9vay1zZWNyZXQtMTIzNDU2
         run: python3 -u scripts/smoke_test.py http://localhost:8099 admin@sshop.test 1234
       - name: Server log
         if: always()

@@ -278,6 +278,24 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 |---|---|
 | GET | `/api/search` |
 
+## Onboarding & account recovery ([module 24](modules/24-onboarding-and-recovery.md))
+
+| Method | Path | Who |
+|---|---|---|
+| POST | `/api/access-requests` (+ `estimated_users`) | public |
+| GET | `/api/platform/access-requests?status=` (each item: `emails`, `activation`) | platform owner |
+| GET | `/api/platform/access-requests/{id}` (login details, activation, email history) | platform owner |
+| POST | `/api/platform/access-requests/{id}/approve` → `temporary_pin` (once), `email_status`, `wa_phone`, `message` | platform owner |
+| POST | `/api/platform/access-requests/{id}/reject` (`reason` for the applicant, `note` internal) | platform owner |
+| POST | `/api/platform/access-requests/{id}/resend-welcome` · `/issue-pin` | platform owner |
+| POST | `/api/platform/emails/{id}/retry` | platform owner |
+| POST | `/api/auth/forgot` (`email`) — always the same answer | public |
+| POST | `/api/auth/link` (`token`) — purpose of a set-up / reset link | public |
+| POST | `/api/auth/set-pin` (`token`, `pin`) | public |
+| POST | `/api/auth/request-status` · `/api/auth/request-status/resend-setup` (`token`) | public |
+| POST | `/api/auth/change-pin` → `token` (a fresh session; other sessions end) | signed in |
+| POST | `/api/webhooks/resend` (Svix-signed) | Resend |
+
 ## Website Add-On — management ([module 23](modules/23-website.md))
 
 | Method | Path | Permission |

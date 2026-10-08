@@ -14,7 +14,7 @@ use uuid::Uuid;
 use super::access::require_platform_admin;
 use super::{Counted, Page, Paged, Period};
 use crate::audit::{self, Entry};
-use crate::auth::{hash_pin, issue_acting_token, issue_token, Ctx, STAFF_TOKEN_HOURS};
+use crate::auth::{issue_acting_token, issue_token, Ctx, STAFF_TOKEN_HOURS};
 use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::state::AppState;
 
@@ -184,9 +184,10 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     .await?;
     let billing = super::billing::platform_view(&state, id).await?;
     let website = super::website::platform_summary(&state, id).await?;
+    let emails = super::access::email_history(&state, None, Some(id)).await?;
     Ok(Json(json!({
         "tenant": tenant, "users": users, "branches": branches, "onboarding": onboarding, "status_history": history,
-        "billing": billing, "website": website, "is_home": id == ctx.acting_from.unwrap_or(ctx.tenant_id),
+        "billing": billing, "website": website, "emails": emails, "is_home": id == ctx.acting_from.unwrap_or(ctx.tenant_id),
     })))
 }
 
@@ -265,19 +266,18 @@ async fn reset_pin(State(state): State<AppState>, ctx: Ctx, Path((id, user_id)):
     require_platform_admin(&state, &ctx).await?;
     let pin = super::access::temporary_pin();
     let mut tx = state.db.begin().await?;
-    let user: Option<(String, String)> = sqlx::query_as(
-        "UPDATE users SET pin_hash = $3, failed_attempts = 0, locked_until = NULL WHERE id = $1 AND tenant_id = $2 RETURNING name, email",
-    )
-    .bind(user_id)
-    .bind(id)
-    .bind(hash_pin(&pin)?)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let user: Option<(String, String)> = sqlx::query_as("SELECT name, email FROM users WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+        .bind(user_id)
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
     let (name, email) = user.ok_or(AppError::NotFound("User"))?;
+    // One-time PIN: expires, must be replaced at first sign-in, ends the user's older sessions (roadmap 59).
+    super::access::set_one_time_pin(&mut tx, user_id, &pin).await?;
     let after = json!({ "user": name, "email": email, "by": ctx.name });
     record_platform(&mut tx, &ctx, id, || Entry::new("platform", "reset_pin", "user", user_id).after(after.clone())).await?;
     tx.commit().await?;
-    Ok(Json(json!({ "ok": true, "name": name, "email": email, "temporary_pin": pin })))
+    Ok(Json(json!({ "ok": true, "name": name, "email": email, "temporary_pin": pin, "expires_hours": crate::mailer::TEMP_PIN_HOURS })))
 }
 
 /// Activities the platform owner can filter by (roadmap 35), mapped onto the existing audit trail.

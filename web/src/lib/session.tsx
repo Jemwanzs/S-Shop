@@ -23,6 +23,8 @@ interface SessionValue {
   /** Language choice on the public screens before sign-in. */
   setDeviceLanguage: (code: string) => void;
   signIn: (token: string, profile: Profile) => void;
+  /** After a PIN change the server ends older sessions and hands back a fresh token for this device. */
+  renewToken: (token: string) => Promise<void>;
   /** Platform admins: continue in another business (all cached data and the branch choice are dropped). */
   switchBusiness: (token: string, profile: Profile) => void;
   signOut: () => void;
@@ -160,6 +162,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           session.setBranch(p.branches[0].id);
           setBranchId(p.branches[0].id);
         }
+      },
+      renewToken: async (t) => {
+        const p = await api<Profile>("/auth/me", { token: t });
+        session.setToken(t);
+        qc.setQueryData(["me", t], p);
+        setToken(t);
       },
       switchBusiness: (t, p) => {
         qc.clear();

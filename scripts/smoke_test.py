@@ -10,7 +10,9 @@ never production.
 import datetime
 import hashlib
 import hmac
+import base64
 import json
+import re
 import os
 import sys
 import threading
@@ -60,6 +62,11 @@ def call(method, path, body=None, expect=200, token=None, branch=None, location=
 PS_PORT = os.environ.get("SMOKE_PAYSTACK_PORT")
 PS_SECRET = os.environ.get("SMOKE_PAYSTACK_SECRET", "")
 PS = {}
+# Resend stand-in (roadmap 58–61): the server is started with RESEND_BASE_URL pointing here, so every email it sends is
+# captured and the suite can follow the links inside.
+RS_KEY = os.environ.get("SMOKE_RESEND_KEY", "")
+RS_WEBHOOK = os.environ.get("SMOKE_RESEND_WEBHOOK_SECRET", "")
+EMAILS = []
 
 
 class _Paystack(BaseHTTPRequestHandler):
@@ -81,6 +88,13 @@ class _Paystack(BaseHTTPRequestHandler):
         return True
 
     def do_POST(self):
+        if self.path == "/emails":
+            if not RS_KEY or self.headers.get("Authorization") != "Bearer " + RS_KEY:
+                return self._send(401, {"message": "API key is invalid"})
+            mail = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            mail["id"] = "em_" + uuid.uuid4().hex
+            EMAILS.append(mail)
+            return self._send(200, {"id": mail["id"]})
         if not self._authorised():
             return
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
@@ -110,6 +124,45 @@ class _Paystack(BaseHTTPRequestHandler):
 
 if PS_PORT:
     threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", int(PS_PORT)), _Paystack).serve_forever, daemon=True).start()
+
+
+def mails_to(address, subject_part=""):
+    """Emails the server sent to this address (newest last), waiting briefly for background sends."""
+    for _ in range(40):
+        got = [m for m in EMAILS if address in m.get("to", []) and subject_part in m.get("subject", "")]
+        if got:
+            return got
+        time.sleep(0.25)
+    return []
+
+
+def link_token(mail):
+    m = re.search(r"#t=([A-Za-z0-9_-]+)", mail.get("text", ""))
+    return m.group(1) if m else None
+
+
+def first_login(email, temp_pin, new_pin):
+    """Sign in with a one-time PIN, replace it (required before anything else) and sign in with the new PIN."""
+    t = call("POST", "/auth/login", {"email": email, "pin": temp_pin})
+    call("POST", "/auth/change-pin", {"current_pin": temp_pin, "new_pin": new_pin}, token=t["token"], branch="none")
+    return call("POST", "/auth/login", {"email": email, "pin": new_pin})
+
+
+def resend_webhook(event, sign=True):
+    raw = json.dumps(event).encode()
+    sid, ts = "msg_" + uuid.uuid4().hex, str(int(time.time()))
+    key = base64.b64decode(RS_WEBHOOK.removeprefix("whsec_"))
+    sig = base64.b64encode(hmac.new(key, f"{sid}.{ts}.".encode() + raw, hashlib.sha256).digest()).decode() if sign else "AAAA"
+    req = urllib.request.Request(BASE + "/api/webhooks/resend", data=raw, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("svix-id", sid)
+    req.add_header("svix-timestamp", ts)
+    req.add_header("svix-signature", "v1," + sig)
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
 
 
 def paystack_webhook(event, sign=True):
@@ -472,7 +525,8 @@ call("GET", "/platform/access-requests", token=clerk, expect=403)
 check("non platform admin cannot review", True)
 ap = call("POST", f"/platform/access-requests/{mine[0]['id']}/approve")
 check("approval returns a one-time PIN", len(ap["temporary_pin"]) == 8 and ap["slug"].startswith("duka-"), ap)
-t2 = call("POST", "/auth/login", {"email": req["email"], "pin": ap["temporary_pin"]})
+t2 = first_login(req["email"], ap["temporary_pin"], "dk2468")
+DK_PIN = "dk2468"
 me2 = t2["profile"]
 check("new business admin can sign in", me2["tenant"]["name"] == req["business_name"] and me2["user"]["role"] == "Tenant Administrator", me2["tenant"])
 check("new admin is not a platform admin", me2["user"]["platform_admin"] is False)
@@ -1113,9 +1167,11 @@ sales_act = call("GET", f"/platform/activity?activity=sale&tenant_id={home_id}&p
 check("sales activity across businesses", sales_act["totals"]["sale"] >= 1 and sales_act["totals"]["login"] == 0, sales_act["totals"])
 call("GET", "/platform/activity?activity=nonsense", expect=400)
 rp = call("POST", f"/platform/tenants/{dk}/users/{dk_admin}/reset-pin")
-call("POST", "/auth/login", {"email": dk_email, "pin": ap["temporary_pin"]}, expect=400)
-t2 = call("POST", "/auth/login", {"email": dk_email, "pin": rp["temporary_pin"]})
-check("platform PIN reset: old PIN refused, one-time PIN works", t2["profile"]["tenant"]["id"] == dk)
+call("POST", "/auth/login", {"email": dk_email, "pin": DK_PIN}, expect=400)
+t2 = first_login(dk_email, rp["temporary_pin"], "dk1357")
+DK_PIN = "dk1357"
+check("platform PIN reset: old PIN refused, one-time PIN works once and is replaced", t2["profile"]["tenant"]["id"] == dk
+      and t2["profile"]["user"]["must_change_pin"] is False)
 check("PIN reset in the business's own audit trail", any(a["action"] == "reset_pin" and a["module"] == "platform"
       for a in call("GET", "/audit?period=today&module=platform", token=t2["token"], branch="none")["items"]))
 
@@ -1230,7 +1286,7 @@ time.sleep(1.1)
 call("POST", f"/platform/tenants/{dk}/status", {"status": "deactivated", "reason": "Invoices unpaid"})
 call("GET", "/auth/me", token=old_t2, branch="none", expect=401)
 check("deactivation ends the business's sessions", True)
-r = call("POST", "/auth/login", {"email": dk_email, "pin": rp["temporary_pin"]}, expect=422)
+r = call("POST", "/auth/login", {"email": dk_email, "pin": DK_PIN}, expect=422)
 check("sign-in blocked with a clear title", r["error"]["title"] == "Business deactivated", r)
 r = call("GET", f"/portal/{dk_slug}", token="none", expect=422)
 check("ordering link disabled", r["error"]["title"] == "Ordering unavailable", r)
@@ -1242,7 +1298,7 @@ dk_row = next(x for x in call("GET", "/platform/tenants")["items"] if x["id"] ==
 check("status and reason in the directory", dk_row["status"] == "deactivated" and dk_row["status_reason"] == "Invoices unpaid", dk_row["status"])
 check("data kept while deactivated", len(call("GET", f"/platform/tenants/{dk}")["billing"]["documents"]) >= 4)
 call("POST", f"/platform/tenants/{dk}/status", {"status": "active", "reason": "Paid up"})
-t2 = call("POST", "/auth/login", {"email": dk_email, "pin": rp["temporary_pin"]})
+t2 = call("POST", "/auth/login", {"email": dk_email, "pin": DK_PIN})
 call("GET", "/auth/me", token=old_t2, branch="none", expect=401)
 check("reactivated: sign-in works, sessions from before stay ended", bool(t2["token"]))
 hist = call("GET", f"/platform/tenants/{dk}")["status_history"]
@@ -1605,6 +1661,119 @@ mo = call("GET", f"/portal/{dk_slug}/orders", **WC)["orders"]
 check("order history: no prices for that order", "4321" not in json.dumps(mo), mo[:1])
 po = call("POST", f"/portal/{dk_slug}/orders", {"items": [{"product_id": bag, "quantity": 1}], "delivery_location": "Shop"}, **WC)
 check("ordering link confirmation: no total", "total" not in po, po)
+
+step("Roadmap 58–61: onboarding emails, one-time PINs, self-service reset, applicant status")
+ob_mail = f"ob{suffix.lower()}@sshop.test"
+ob = {"business_name": f"Onboard {suffix}", "contact_name": "Libbie Bright", "email": ob_mail, "phone": "0722 333 444", "location": "Nairobi",
+      "business_type": "Restaurant / café", "branches": 2, "estimated_users": 12, "message": ""}
+call("POST", "/access-requests", {**ob, "estimated_users": 0}, token="none", expect=400)
+check("estimated users validated", True)
+call("POST", "/access-requests", ob, token="none")
+owner = [m for m in mails_to(EMAIL, ob["business_name"]) if "access request" in m["subject"].lower()]
+check("owner emailed with every detail incl. estimated users", owner and "Estimated users: 12" in owner[-1]["text"] and "0722 333 444" in owner[-1]["text"]
+      and "<table" in owner[-1].get("html", ""), [m["subject"] for m in owner])
+ack = mails_to(ob_mail, "We received")
+check("applicant acknowledgement sent", len(ack) == 1, len(ack))
+call("POST", "/access-requests", ob, token="none")
+time.sleep(1)
+check("a repeated request sends nothing again", len(mails_to(ob_mail, "We received")) == 1)
+obr = next(x for x in call("GET", "/platform/access-requests?status=pending")["items"] if x["email"] == ob_mail)
+check("request lists its email statuses", obr["emails"].get("access_request_ack", {}).get("status") == "sent" and obr["estimated_users"] == 12, obr.get("emails"))
+# Approval: welcome email with a set-up link; the PIN is shown once and never emailed or put in the WhatsApp text
+oap = call("POST", f"/platform/access-requests/{obr['id']}/approve")
+welcome = mails_to(ob_mail, "Welcome to S'Shop")
+check("approval: welcome email sent, status reported", oap["email_status"]["status"] == "sent" and len(welcome) == 1, oap["email_status"])
+check("PIN never in the email or the WhatsApp message", oap["temporary_pin"] not in welcome[0]["text"] and oap["temporary_pin"] not in welcome[0]["html"]
+      and oap["temporary_pin"] not in oap["message"] and "Welcome to S'Shop" in oap["message"])
+check("WhatsApp recipient in international format", oap["wa_phone"] == "254722333444", oap["wa_phone"])
+setup_tok = link_token(welcome[0])
+info = call("POST", "/auth/link", {"token": setup_tok}, token="none")
+check("set-up link: purpose and masked email only", info["kind"] == "setup" and "•••" in info["email"] and info["business"] == ob["business_name"], info)
+tmp = call("POST", "/auth/login", {"email": ob_mail, "pin": oap["temporary_pin"]})
+check("one-time PIN signs in but must be replaced", tmp["profile"]["user"]["must_change_pin"] is True)
+r = call("GET", "/dashboard?period=today", token=tmp["token"], branch="none", expect=422)
+check("nothing else works until the PIN is replaced", r["error"]["title"] == "Set your own PIN", r)
+d = call("GET", f"/platform/access-requests/{obr['id']}")
+check("login details: awaiting set-up, no PIN stored or shown", d["activation"]["status"] == "awaiting_setup" and oap["temporary_pin"] not in json.dumps(d)
+      and any(e["kind"] == "welcome" and e["status"] == "sent" for e in d["emails"]), d["activation"])
+time.sleep(1.1)
+call("POST", "/auth/set-pin", {"token": setup_tok, "pin": "12"}, token="none", expect=400)
+check("PIN policy applies", True)
+done = call("POST", "/auth/set-pin", {"token": setup_tok, "pin": "ob5678"}, token="none")
+check("set-up link sets the first PIN", done["email"] == ob_mail)
+r = call("POST", "/auth/set-pin", {"token": setup_tok, "pin": "ob9999"}, token="none", expect=422)
+check("a link works only once", r["error"]["title"] == "Link expired", r)
+call("GET", "/auth/me", token=tmp["token"], branch="none", expect=401)
+call("POST", "/auth/login", {"email": ob_mail, "pin": oap["temporary_pin"]}, expect=400)
+check("old one-time PIN and its session stop working", True)
+check("confirmation email after the change", len(mails_to(ob_mail, "PIN was changed")) == 1)
+obt = call("POST", "/auth/login", {"email": ob_mail, "pin": "ob5678"})
+check("signs in normally afterwards", obt["profile"]["user"]["must_change_pin"] is False)
+check("activation: active", call("GET", f"/platform/access-requests/{obr['id']}")["activation"]["status"] == "active")
+# Lost credentials: a fresh one-time PIN from the approved request card
+call("POST", f"/platform/access-requests/{obr['id']}/issue-pin", token=obt["token"], branch="none", expect=403)
+check("only the platform owner can issue PINs", True)
+np_ = call("POST", f"/platform/access-requests/{obr['id']}/issue-pin")
+call("POST", "/auth/login", {"email": ob_mail, "pin": "ob5678"}, expect=400)
+obt = first_login(ob_mail, np_["temporary_pin"], "ob2468")
+check("new one-time PIN replaces the old credentials and is replaced at first sign-in", obt["profile"]["user"]["must_change_pin"] is False)
+audit_ob = call("GET", "/audit?period=today&module=platform", token=obt["token"], branch="none")["items"]
+check("PIN issue audited without the PIN", any(a["action"] == "reset_pin" for a in audit_ob) and np_["temporary_pin"] not in json.dumps(audit_ob))
+# Resend welcome / retry / delivery tracking
+rw = call("POST", f"/platform/access-requests/{obr['id']}/resend-welcome")
+check("welcome email resent with a fresh link", rw["email_status"]["status"] == "sent" and len(mails_to(ob_mail, "Welcome to S'Shop")) == 2)
+ack_row = next(e for e in call("GET", f"/platform/access-requests/{obr['id']}")["emails"] if e["kind"] == "access_request_ack")
+rt = call("POST", f"/platform/emails/{ack_row['id']}/retry")
+check("failed or missing emails can be retried", rt["email_status"]["status"] == "sent" and len(mails_to(ob_mail, "We received")) == 2)
+wid = mails_to(ob_mail, "Welcome to S'Shop")[-1]["id"]
+check("unsigned delivery events refused", resend_webhook({"type": "email.delivered", "data": {"email_id": wid}}, sign=False) == 401)
+check("signed delivery event accepted", resend_webhook({"type": "email.delivered", "data": {"email_id": wid}}) == 200)
+hist = call("GET", f"/platform/access-requests/{obr['id']}")["emails"]
+check("delivery status tracked", any(e["kind"] == "welcome" and e["status"] == "delivered" for e in hist), [(e["kind"], e["status"]) for e in hist])
+check("tenant page shows the email history", any(e["kind"] == "welcome" for e in call("GET", f"/platform/tenants/{oap['tenant_id']}")["emails"]))
+# Forgot PIN: same answer for everyone; a reset link for users
+nobody = call("POST", "/auth/forgot", {"email": f"nobody{suffix.lower()}@sshop.test"}, token="none")
+known = call("POST", "/auth/forgot", {"email": ob_mail}, token="none")
+check("forgot PIN never reveals whether an email exists", nobody["message"] == known["message"])
+reset = mails_to(ob_mail, "Reset your S'Shop PIN")
+check("reset link emailed", len(reset) == 1 and "30 minutes" in reset[0]["text"])
+time.sleep(1.1)
+call("POST", "/auth/set-pin", {"token": link_token(reset[0]), "pin": "ob1111"}, token="none")
+call("GET", "/auth/me", token=obt["token"], branch="none", expect=401)
+check("reset completes; older sessions end", call("POST", "/auth/login", {"email": ob_mail, "pin": "ob1111"})["profile"]["user"]["must_change_pin"] is False)
+for _ in range(4):
+    call("POST", "/auth/forgot", {"email": ob_mail}, token="none")
+time.sleep(1.5)
+check("reset emails are rate-limited per address", len(mails_to(ob_mail, "Reset your S'Shop PIN")) <= 4)
+call("POST", "/auth/link", {"token": "not-a-real-token"}, token="none", expect=422)
+check("unknown links refused", True)
+# Applicants: status only through an emailed link
+pend_mail = f"pend{suffix.lower()}@sshop.test"
+call("POST", "/access-requests", {**ob, "email": pend_mail, "business_name": f"Pending {suffix}"}, token="none")
+mails_to(pend_mail, "We received")
+call("POST", "/auth/forgot", {"email": pend_mail}, token="none")
+st_mail = mails_to(pend_mail, "request status")
+check("applicant gets a status link, not a reset link", len(st_mail) == 1 and not mails_to(pend_mail, "Reset"))
+st_tok = link_token(st_mail[0])
+st = call("POST", "/auth/request-status", {"token": st_tok}, token="none")
+check("pending status with support contacts", st["status"] == "pending" and "0798 993 404" in st["support_phones"], st)
+pend = next(x for x in call("GET", "/platform/access-requests?status=pending")["items"] if x["email"] == pend_mail)
+call("POST", f"/platform/access-requests/{pend['id']}/approve")
+st = call("POST", "/auth/request-status", {"token": st_tok}, token="none")
+check("approved, set-up not done yet", st["status"] == "approved_setup", st)
+before = len(mails_to(pend_mail, "Welcome to S'Shop"))
+rs = call("POST", "/auth/request-status/resend-setup", {"token": st_tok}, token="none")
+check("set-up instructions resent from the status page", rs["sent"] is True and len(mails_to(pend_mail, "Welcome to S'Shop")) == before + 1)
+rej_mail = f"rej{suffix.lower()}@sshop.test"
+call("POST", "/access-requests", {**ob, "email": rej_mail, "business_name": f"Rejected {suffix}"}, token="none")
+rej = next(x for x in call("GET", "/platform/access-requests?status=pending")["items"] if x["email"] == rej_mail)
+rr = call("POST", f"/platform/access-requests/{rej['id']}/reject", {"note": "internal: duplicate of another shop", "reason": "We are onboarding retail shops first."})
+rmail = mails_to(rej_mail, "Your S'Shop access request")
+check("courteous rejection email with the reason, never the internal note", rr["email_status"]["status"] == "sent" and rmail
+      and "onboarding retail shops first" in rmail[-1]["text"] and "internal" not in rmail[-1]["text"])
+call("POST", "/auth/forgot", {"email": rej_mail}, token="none")
+rst = call("POST", "/auth/request-status", {"token": link_token(mails_to(rej_mail, "request status")[-1])}, token="none")
+check("rejected status without internal notes", rst["status"] == "rejected" and "internal" not in json.dumps(rst), rst)
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

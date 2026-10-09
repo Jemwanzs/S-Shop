@@ -96,17 +96,35 @@ pub async fn reaches_us(domain: &str) -> bool {
 }
 
 async fn railway(http: &reqwest::Client, api: &RailwayApi, query: &str, variables: Value) -> Result<Value, String> {
-    let res = http
-        .post("https://backboard.railway.com/graphql/v2")
-        .bearer_auth(&api.token)
+    // Account / workspace tokens go in `Authorization: Bearer`; project tokens in `Project-Access-Token`. Either works.
+    let first = railway_call(http, api, query, &variables, false).await;
+    let result = match first {
+        Err(e) if e.to_lowercase().contains("not authorized") || e.contains("401") || e.contains("403") => railway_call(http, api, query, &variables, true).await,
+        other => other,
+    };
+    if let Err(e) = &result {
+        // Railway's message only — the token is never logged.
+        tracing::warn!(error = %e, "Railway API call failed");
+    }
+    result
+}
+
+async fn railway_call(http: &reqwest::Client, api: &RailwayApi, query: &str, variables: &Value, project_token: bool) -> Result<Value, String> {
+    let req = http.post("https://backboard.railway.com/graphql/v2");
+    let req = if project_token { req.header("Project-Access-Token", &api.token) } else { req.bearer_auth(&api.token) };
+    let res = req
         .json(&json!({ "query": query, "variables": variables }))
         .timeout(std::time::Duration::from_secs(15))
         .send()
         .await
         .map_err(|e| format!("Railway could not be reached: {e}"))?;
-    let v: Value = res.json().await.map_err(|e| format!("Railway answer unreadable: {e}"))?;
+    let status = res.status();
+    let v: Value = res.json().await.map_err(|e| format!("Railway answer unreadable ({status}): {e}"))?;
     if let Some(err) = v["errors"].as_array().and_then(|e| e.first()) {
         return Err(format!("Railway: {}", err["message"].as_str().unwrap_or("error")));
+    }
+    if !status.is_success() {
+        return Err(format!("Railway: {status}"));
     }
     Ok(v["data"].clone())
 }

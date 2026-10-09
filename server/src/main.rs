@@ -136,6 +136,8 @@ async fn serve() -> anyhow::Result<()> {
         whatsapp = cfg.whatsapp.is_some(),
         email = cfg.email.is_some(),
         platform_admins = cfg.platform_admins.len(),
+        // Roadmap 78: automatic custom domains (RAILWAY_API_TOKEN + the ids Railway injects) — never the token itself.
+        railway_domains = cfg.railway.is_some(),
         public_url = %cfg.public_url,
         "S'Shop starting"
     );

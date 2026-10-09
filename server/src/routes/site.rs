@@ -279,6 +279,11 @@ pub struct PubProduct {
     pub sold: i64,
     #[serde(skip)]
     pub search: String,
+    /// Real availability, for the "in stock" filter (shown to visitors only when the website shows availability).
+    #[serde(skip)]
+    pub stock_ok: bool,
+    /// Roadmap 80: the website's "was" price, only with a visible, lower current price.
+    pub compare_at: Option<Decimal>,
     pub seo_title: String,
     pub seo_description: String,
 }
@@ -364,6 +369,8 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
             category_id,
             category_name,
             price: price_visible.then_some(r.price),
+            compare_at: e.and_then(|e| e.compare_at).filter(|c| price_visible && *c > r.price),
+            stock_ok: in_stock,
             badge: if cfg.grid.show_badges { e.map(|e| e.badge.clone()).unwrap_or_default() } else { String::new() },
             in_stock: cfg.grid.show_availability.then_some(in_stock),
             action,
@@ -416,6 +423,12 @@ struct ProductsQuery {
     category: Option<Uuid>,
     /// featured | new_arrivals | popular
     section: Option<String>,
+    /// Roadmap 80: recommended | newest | name_asc | name_desc | price_asc | price_desc
+    sort: Option<String>,
+    /// "in": only products in stock.
+    stock: Option<String>,
+    /// Paging: products to skip (the page size is `limit`).
+    offset: Option<usize>,
     limit: Option<usize>,
     /// Search suggestions: a few results with thumbnails.
     #[serde(default)]
@@ -458,8 +471,32 @@ async fn products(State(state): State<AppState>, headers: HeaderMap, Query(q): Q
         }
         _ => {}
     }
+    if q.stock.as_deref() == Some("in") {
+        items.retain(|p| p.stock_ok);
+    }
+    // Sorting by real data; prices only where visitors see them (hidden prices go last, never reveal their order).
+    match q.sort.as_deref() {
+        Some("newest") => items.sort_by(|a, b| b.created_at.cmp(&a.created_at)),
+        Some("name_asc") => items.sort_by_key(|p| p.name.to_lowercase()),
+        Some("name_desc") => items.sort_by_key(|p| std::cmp::Reverse(p.name.to_lowercase())),
+        Some("price_asc") => items.sort_by(|a, b| match (a.price, b.price) {
+            (Some(x), Some(y)) => x.cmp(&y),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            _ => std::cmp::Ordering::Equal,
+        }),
+        Some("price_desc") => items.sort_by(|a, b| match (a.price, b.price) {
+            (Some(x), Some(y)) => y.cmp(&x),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            _ => std::cmp::Ordering::Equal,
+        }),
+        _ => {}
+    }
     let total = items.len();
     let limit = if q.suggest { 6 } else { q.limit.unwrap_or(200).min(500) };
+    let offset = q.offset.unwrap_or(0).min(total);
+    let mut items: Vec<PubProduct> = items.into_iter().skip(offset).collect();
     items.truncate(limit);
     if q.suggest {
         let slim: Vec<Value> = items
@@ -801,7 +838,14 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
     let mut meta = PageMeta { title: site_title.clone(), description: clip(&site_desc, 160), image: share, canonical: format!("{root}{}", if rest == "/" { "" } else { rest }), noindex: false };
     let page_title = |label: &str| format!("{label} — {brand}");
     match rest.trim_end_matches('/') {
-        "" => {}
+        // Roadmap 80: the root shows the business's chosen landing page.
+        "" => match c.landing.as_str() {
+            "products" => meta.title = page_title("Products"),
+            "categories" => meta.title = page_title("Categories"),
+            "services" => meta.title = page_title("Services"),
+            _ => {}
+        },
+        "/home" => meta.title = page_title("Home"),
         "/about" => {
             meta.title = page_title("About Us");
             if !c.about.intro.trim().is_empty() {

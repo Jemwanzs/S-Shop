@@ -48,6 +48,7 @@ async function boot() {
     root.render(<Unavailable data={{ business: data?.business ?? { name: "Website", currency: "", logo_url: null } }} />);
     return;
   }
+  runtime.landing = data.config.landing ?? "products";
   configureAnalytics(data);
   cartStore.load();
   root.render(

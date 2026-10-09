@@ -1,9 +1,10 @@
 /** Website pages. Everything shown comes from the published configuration and the business's live S'Shop products. */
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Check, ImageOff, Loader2, Minus, PackageSearch, Plus, ShoppingBag, Trash2, XCircle } from "lucide-react";
+import { ArrowRight, Check, ChevronLeft, ChevronRight, ImageOff, Loader2, Minus, PackageSearch, Plus, ShoppingBag, Trash2, XCircle } from "lucide-react";
 import type { Category, Product, Section, SiteData } from "./types";
+import { pageItems } from "@/lib/paging";
 import { call, cartStore, customerStore, currentVisitor, hasCta, mediaUrl, money, SiteError, track, type Customer } from "./lib";
 import { addToCart, badgeLabel, CategoryTiles, ContactList, CtaLink, GridSkeleton, productAction, ProductGrid, SERVICE_ICONS, Testimonials } from "./parts";
 
@@ -14,6 +15,8 @@ export function useProducts(query: Record<string, string | number | undefined>, 
     queryKey: ["site-products", query],
     queryFn: () => call<List>("/site/products", { query }),
     enabled,
+    // Keep the current page on screen while the next one loads (no blank flash between pages).
+    placeholderData: (prev) => prev,
     staleTime: 60_000,
   });
 }
@@ -189,37 +192,114 @@ export function HomePage({ data }: { data: SiteData }) {
 
 // ── Products & categories ─────────────────────────────────────────────
 
+const SORTS: [string, string, boolean][] = [
+  ["recommended", "Recommended", false], ["newest", "Newest", false], ["name_asc", "Name A–Z", false], ["name_desc", "Name Z–A", false],
+  ["price_asc", "Price: low to high", true], ["price_desc", "Price: high to low", true],
+];
+
+/** Roadmap 80: one product listing for all products, categories and search results — search, category, availability,
+ * sort, "Showing 1–10 of 143", and pages (or "Load more") counted in products, kept in the URL. */
 export function ProductsPage({ data, categoryId }: { data: SiteData; categoryId?: string }) {
   const [params, setParams] = useSearchParams();
   const q = params.get("q") ?? "";
   const cat = categoryId ?? params.get("category") ?? "";
+  const sort = params.get("sort") ?? "recommended";
+  const stock = params.get("stock") === "in" ? "in" : "";
+  const page = Math.max(1, Number(params.get("page")) || 1);
+  const cfg = data.config.products;
+  const paged = cfg.pagination !== false;
+  const per = Math.min(100, Math.max(1, cfg.per_page ?? 10));
+  const [more, setMore] = useState(1);
   const category = data.categories.find((c) => c.id === cat);
   useTitle(category?.name ?? "Products", data);
-  const { data: list, isLoading } = useProducts({ q: q || undefined, category: cat || undefined });
+  const head = useRef<HTMLDivElement>(null);
+  const filterKey = `${q}|${cat}|${sort}|${stock}`;
+  useEffect(() => setMore(1), [filterKey]);
+  const limit = paged ? per : per * more;
+  const offset = paged ? (page - 1) * per : 0;
+  const { data: list, isLoading, isFetching } = useProducts({ q: q || undefined, category: cat || undefined, sort: sort === "recommended" ? undefined : sort, stock: stock || undefined, limit, offset });
+  const total = list?.total ?? 0;
+  const pages = Math.max(1, Math.ceil(total / per));
+  /** Changing a filter or the sort starts again at page 1; the page lives in the URL. */
+  const update = (patch: Record<string, string>, keepPage = false) => {
+    const next = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v) next.set(k, v);
+      else next.delete(k);
+    }
+    if (!keepPage) next.delete("page");
+    setParams(next, { replace: !keepPage });
+  };
+  const goPage = (n: number) => {
+    update({ page: n > 1 ? String(n) : "" }, true);
+    head.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const sorts = SORTS.filter(([, , price]) => !price || data.show_prices);
+  const showing = total ? `Showing ${offset + 1}–${Math.min(total, offset + (list?.items.length ?? 0))} of ${total} ${total === 1 ? "product" : "products"}` : "";
   return (
     <section className="section" style={{ paddingTop: 28 }}>
       <div className="wrap stack">
-        <div className="section-head" style={{ marginBottom: 0 }}>
+        <div ref={head} className="section-head" style={{ marginBottom: 0, scrollMarginTop: 80 }}>
           <div>
             <h1 style={{ fontSize: "clamp(1.6rem, 5vw, 2.4rem)" }}>{category?.name ?? (q ? `Results for “${q}”` : "Products")}</h1>
-            {list && <p className="muted">{list.total} {list.total === 1 ? "product" : "products"}</p>}
+            {list && <p className="muted" aria-live="polite">{showing || "0 products"}</p>}
           </div>
         </div>
-        <form role="search" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get("q") as string; setParams(v ? { q: v } : {}); }}>
+        <form role="search" onSubmit={(e) => { e.preventDefault(); const v = (new FormData(e.currentTarget).get("q") as string).trim(); update({ q: v }); }}>
           <label className="sr" htmlFor="pq">Search products</label>
-          <input id="pq" name="q" className="field" placeholder="Search products" defaultValue={q} key={q} />
+          <input id="pq" name="q" type="search" className="field" placeholder="Search products" defaultValue={q} key={q} />
         </form>
         {data.categories.length > 0 && (
           <nav className="chips" aria-label="Categories">
-            <Link className={`chip ${!cat ? "on" : ""}`} to="/products">All</Link>
-            {data.categories.map((c) => <Link key={c.id} className={`chip ${cat === c.id ? "on" : ""}`} to={`/categories/${c.id}`}>{c.name}</Link>)}
+            <Link className={`chip ${!cat ? "on" : ""}`} to={{ pathname: "/products", search: new URLSearchParams({ ...(sort !== "recommended" ? { sort } : {}), ...(stock ? { stock } : {}) }).toString() }}>All</Link>
+            {data.categories.map((c) => (
+              <Link key={c.id} className={`chip ${cat === c.id ? "on" : ""}`}
+                to={{ pathname: `/categories/${c.id}`, search: new URLSearchParams({ ...(sort !== "recommended" ? { sort } : {}), ...(stock ? { stock } : {}) }).toString() }}>{c.name}</Link>
+            ))}
           </nav>
         )}
-        {isLoading ? <GridSkeleton data={data} n={8} /> : list!.items.length ? <ProductGrid data={data} items={list!.items} /> : (
-          <div className="empty"><PackageSearch aria-hidden /><p>No products found{q && <> for “{q}”</>}.</p>{(q || cat) && <Link className="btn outline sm" to="/products">See all products</Link>}</div>
+        <div className="toolbar">
+          {cfg.grid.show_availability && (
+            <label className="check">
+              <input type="checkbox" checked={!!stock} onChange={(e) => update({ stock: e.target.checked ? "in" : "" })} /> In stock only
+            </label>
+          )}
+          <label className="sort">
+            <span className="sr">Sort by</span>
+            <select className="field" value={sort} onChange={(e) => update({ sort: e.target.value === "recommended" ? "" : e.target.value })}>
+              {sorts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </label>
+        </div>
+        {isLoading ? <GridSkeleton data={data} n={Math.min(per, 8)} /> : list!.items.length ? (
+          <div style={{ opacity: isFetching && paged ? 0.6 : 1, transition: "opacity .2s" }}><ProductGrid data={data} items={list!.items} /></div>
+        ) : (
+          <div className="empty"><PackageSearch aria-hidden /><p>No products found{q && <> for “{q}”</>}.</p>{(q || cat || stock) && <Link className="btn outline sm" to="/products">See all products</Link>}</div>
+        )}
+        {paged && pages > 1 && <Pager page={Math.min(page, pages)} pages={pages} onPage={goPage} />}
+        {!paged && list && list.items.length < total && (
+          <div style={{ display: "grid", justifyItems: "center", gap: 8 }}>
+            <button type="button" className="btn outline" disabled={isFetching} onClick={() => setMore((m) => m + 1)}>{isFetching ? "Loading…" : "Load more"}</button>
+          </div>
         )}
       </div>
     </section>
+  );
+}
+
+/** Previous | 1 … 4 5 6 … 12 | Next on wider screens; ‹ Page 2 of 8 › on phones. */
+export function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (n: number) => void }) {
+  return (
+    <nav className="pager" aria-label="Pages">
+      <button type="button" className="pg nav" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page"><ChevronLeft aria-hidden /><span className="wide">Previous</span></button>
+      <span className="pg-count">Page {page} of {pages}</span>
+      <span className="pg-nums">
+        {pageItems(page, pages).map((n, i) => n === "…"
+          ? <span key={`e${i}`} className="pg gap" aria-hidden>…</span>
+          : <button key={n} type="button" className={`pg ${n === page ? "on" : ""}`} aria-current={n === page ? "page" : undefined} aria-label={`Page ${n}`} onClick={() => onPage(n)}>{n}</button>)}
+      </span>
+      <button type="button" className="pg nav" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page"><span className="wide">Next</span><ChevronRight aria-hidden /></button>
+    </nav>
   );
 }
 
@@ -315,7 +395,7 @@ export function ProductPage({ data }: { data: SiteData }) {
   );
 }
 
-export const ratio = (r: string) => (r === "portrait" ? "4 / 5" : r === "landscape" ? "4 / 3" : "1 / 1");
+export const ratio = (r: string) => (r === "portrait" ? "3 / 4" : r === "landscape" ? "4 / 3" : "1 / 1");
 
 // ── Content pages ─────────────────────────────────────────────────────
 

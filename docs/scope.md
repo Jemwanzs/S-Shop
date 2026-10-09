@@ -349,6 +349,34 @@ mobile / tablet / desktop preview already existed (✅).
   in on scroll, card hover lift, button press, cart badge bump, *Added to cart · View cart* confirmation; always off
   for visitors whose device asks for reduced motion; CSS only, no animation library.
 
+Added 2026-10-09 — **Automatic Railway domains, premium listings, responsive tabs** (owner requests: *Railway Automatic
+Domain Attachment*; *Premium Product Cards, Portrait Photography, Hover Animations & Configurable Pagination* with the
+*Default Landing Page* note; *Responsive Settings Navigation & Tab Styling*).
+- ✅ **78. Railway automatic domain attachment** — audited against Railway's live GraphQL schema: the integration read
+  `RAILWAY_API_TOKEN` server-side only but compared Railway's statuses with values Railway never sends (`VALID` /
+  `FAILED` instead of `DNS_RECORD_STATUS_PROPAGATED` / `CERTIFICATE_STATUS_TYPE_ISSUE_FAILED`), took the first DNS record
+  as the routing one and looked up `_railway-verify` without the domain — fixed. Now: attach only after S'Shop
+  ownership is proven; reuse an existing attachment on the service (`domains` query) instead of duplicating; Railway's
+  own records shown by type, host label and purpose (traffic route, certificate challenge); certificate errors explained;
+  attach audited; *Active* still only when `https://<domain>` answers for that business. Needs `RAILWAY_API_TOKEN` set
+  on the service (not set yet).
+- ✅ **79. Responsive tab rows** — one `ScrollRow` for the Website tabs, tenant page, chip filters (period, status
+  segments on Orders, Sales, Credit, Customers, Stock, Transfers, Approvals, Leaderboards …), platform billing and
+  activity: single row, smooth touch / trackpad / wheel scrolling, ‹ › arrows only when more is hidden that way, faded
+  edges, the active tab kept in view, no scrollbar, works in RTL.
+- ✅ **80. Premium portrait product cards** — 3:4 frames with the whole product visible by default (contain, neutral
+  frame, breathing room; Cover / Square / Landscape still selectable); badges from real data (New / Featured / Offer,
+  −X % from a *Was price*, Out of stock); price with the struck-through *was* price; desktop hover: 4 % zoom, card lift and
+  brand-tinted border, the next photo, emphasised *Add* (≈250 ms); phones: press feedback; reduced motion respected.
+- ✅ **81. Filters, sorting & pagination** — Search · Category · *In stock only* · Sort (Recommended, Newest, Name A–Z / Z–A,
+  Price low–high / high–low — price sorts only where prices are shown; hidden prices never reveal their order);
+  *Showing 1–10 of 143 products*; server-side pages counted in products (default 10; 6 / 10 / 12 / 16 / 20 / 24 / 30 /
+  custom 1–100), Previous · 1 … 5 6 7 … 12 · Next (phones: ‹ Page 2 of 8 ›), page in the URL, filters and sort reset to
+  page 1, scroll back to the heading; pagination off = *Load more*. The ordering link gets the same portrait cards,
+  sort and pages of 12.
+- ✅ **82. Default landing page** — Website → Design: Products (default) · Home · Categories · Services at the root of the
+  S'Shop address and custom domains; Home moves to `/home`; every page stays in the menu.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

@@ -111,39 +111,115 @@ async fn railway(http: &reqwest::Client, api: &RailwayApi, query: &str, variable
     Ok(v["data"].clone())
 }
 
-/// Adds the domain to this service on Railway; returns (id, routing target, verification TXT token).
-pub async fn railway_attach(http: &reqwest::Client, api: &RailwayApi, domain: &str) -> Result<(String, Option<String>, Option<String>), String> {
+/// One DNS record Railway requires for an attached domain (its own names: type, host label, purpose, status).
+#[derive(Debug, Clone)]
+pub struct RailwayRecord {
+    /// CNAME | A | TXT | NS
+    pub kind: String,
+    pub host: String,
+    pub fqdn: String,
+    pub value: String,
+    /// TRAFFIC_ROUTE | ACME_DNS01_CHALLENGE | …
+    pub purpose: String,
+    pub propagated: bool,
+}
+
+/// Railway's view of an attached domain (roadmap 78, read with the schema of `backboard.railway.com/graphql/v2`).
+#[derive(Debug, Clone, Default)]
+pub struct RailwayState {
+    pub records: Vec<RailwayRecord>,
+    /// The traffic-route target (e.g. abc123.up.railway.app).
+    pub target: Option<String>,
+    /// Every traffic-route record has propagated.
+    pub routing_ok: bool,
+    /// valid | issuing | validating | failed | pending
+    pub certificate: String,
+    pub certificate_error: Option<String>,
+    pub verified: bool,
+    pub verification_host: Option<String>,
+    pub verification_token: Option<String>,
+}
+
+fn strip_enum(v: &Value, prefix: &str) -> String {
+    v.as_str().unwrap_or_default().trim_start_matches(prefix).to_string()
+}
+
+/// The domain already attached to this service on Railway, if any (no duplicate attachments).
+pub async fn railway_find(http: &reqwest::Client, api: &RailwayApi, domain: &str) -> Result<Option<String>, String> {
     let data = railway(
         http,
         api,
-        "mutation($input: CustomDomainCreateInput!) { customDomainCreate(input: $input) { id domain status { verificationToken dnsRecords { hostlabel requiredValue status } } } }",
+        "query($projectId: String!, $environmentId: String!, $serviceId: String!) { domains(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) { customDomains { id domain } } }",
+        json!({ "projectId": api.project_id, "environmentId": api.environment_id, "serviceId": api.service_id }),
+    )
+    .await?;
+    Ok(data["domains"]["customDomains"]
+        .as_array()
+        .and_then(|a| a.iter().find(|d| d["domain"].as_str().is_some_and(|x| x.eq_ignore_ascii_case(domain))))
+        .and_then(|d| d["id"].as_str())
+        .map(str::to_string))
+}
+
+/// Attaches the domain to this service on Railway (or reuses the existing attachment); returns Railway's id.
+pub async fn railway_attach(http: &reqwest::Client, api: &RailwayApi, domain: &str) -> Result<String, String> {
+    if let Some(id) = railway_find(http, api, domain).await? {
+        return Ok(id);
+    }
+    let data = railway(
+        http,
+        api,
+        "mutation($input: CustomDomainCreateInput!) { customDomainCreate(input: $input) { id } }",
         json!({ "input": { "projectId": api.project_id, "environmentId": api.environment_id, "serviceId": api.service_id, "domain": domain } }),
     )
     .await?;
-    let d = &data["customDomainCreate"];
-    let id = d["id"].as_str().ok_or("Railway did not return the domain")?.to_string();
-    let target = d["status"]["dnsRecords"].as_array().and_then(|r| r.first()).and_then(|r| r["requiredValue"].as_str()).map(|s| s.trim_end_matches('.').to_lowercase());
-    let token = d["status"]["verificationToken"].as_str().map(str::to_string);
-    Ok((id, target, token))
+    data["customDomainCreate"]["id"].as_str().map(str::to_string).ok_or_else(|| "Railway did not return the domain".to_string())
 }
 
-/// Railway's view of the attached domain: (routing target, routing status, certificate status, verification token).
-pub async fn railway_status(http: &reqwest::Client, api: &RailwayApi, id: &str) -> Result<(Option<String>, String, String, Option<String>), String> {
+pub async fn railway_status(http: &reqwest::Client, api: &RailwayApi, id: &str) -> Result<RailwayState, String> {
     let data = railway(
         http,
         api,
-        "query($id: String!, $projectId: String!) { customDomain(id: $id, projectId: $projectId) { status { verificationToken certificateStatus dnsRecords { requiredValue status } } } }",
+        "query($id: String!, $projectId: String!) { customDomain(id: $id, projectId: $projectId) { status { verified verificationDnsHost verificationToken
+             certificateStatus certificateErrorMessage dnsRecords { recordType purpose hostlabel fqdn requiredValue status } } } }",
         json!({ "id": id, "projectId": api.project_id }),
     )
     .await?;
     let st = &data["customDomain"]["status"];
-    let rec = st["dnsRecords"].as_array().and_then(|r| r.first());
-    Ok((
-        rec.and_then(|r| r["requiredValue"].as_str()).map(|s| s.trim_end_matches('.').to_lowercase()),
-        rec.and_then(|r| r["status"].as_str()).unwrap_or("PENDING").to_string(),
-        st["certificateStatus"].as_str().unwrap_or("PENDING").to_string(),
-        st["verificationToken"].as_str().map(str::to_string),
-    ))
+    let records: Vec<RailwayRecord> = st["dnsRecords"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|r| RailwayRecord {
+                    kind: strip_enum(&r["recordType"], "DNS_RECORD_TYPE_"),
+                    host: r["hostlabel"].as_str().filter(|h| !h.is_empty()).unwrap_or("@").to_string(),
+                    fqdn: r["fqdn"].as_str().unwrap_or_default().trim_end_matches('.').to_lowercase(),
+                    value: r["requiredValue"].as_str().unwrap_or_default().trim_end_matches('.').to_string(),
+                    purpose: strip_enum(&r["purpose"], "DNS_RECORD_PURPOSE_"),
+                    propagated: r["status"].as_str() == Some("DNS_RECORD_STATUS_PROPAGATED"),
+                })
+                .filter(|r| !r.value.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let routes: Vec<&RailwayRecord> = records.iter().filter(|r| r.purpose == "TRAFFIC_ROUTE").collect();
+    let certificate = match st["certificateStatus"].as_str().unwrap_or_default() {
+        "CERTIFICATE_STATUS_TYPE_VALID" => "valid",
+        "CERTIFICATE_STATUS_TYPE_ISSUING" => "issuing",
+        "CERTIFICATE_STATUS_TYPE_VALIDATING_OWNERSHIP" => "validating",
+        "CERTIFICATE_STATUS_TYPE_ISSUE_FAILED" => "failed",
+        _ => "pending",
+    }
+    .to_string();
+    Ok(RailwayState {
+        target: routes.first().map(|r| r.value.to_lowercase()),
+        routing_ok: !routes.is_empty() && routes.iter().all(|r| r.propagated),
+        records,
+        certificate,
+        certificate_error: st["certificateErrorMessage"].as_str().filter(|m| !m.is_empty()).map(str::to_string),
+        verified: st["verified"].as_bool().unwrap_or(false),
+        verification_host: st["verificationDnsHost"].as_str().filter(|h| !h.is_empty()).map(|h| h.trim_end_matches('.').to_lowercase()),
+        verification_token: st["verificationToken"].as_str().filter(|h| !h.is_empty()).map(str::to_string),
+    })
 }
 
 pub async fn railway_detach(http: &reqwest::Client, api: &RailwayApi, id: &str) -> Result<(), String> {

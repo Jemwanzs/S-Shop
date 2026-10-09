@@ -25,13 +25,15 @@ export interface SiteConfig {
   about: About;
   contact: Contact;
   social: Social;
-  products: { grid: Grid; max_photos: number; hidden_action: string; auto_publish_new: boolean; items?: unknown[] };
+  products: { grid: Grid; max_photos: number; hidden_action: string; auto_publish_new: boolean; items?: unknown[]; pagination?: boolean; per_page?: number };
   categories: CategoriesCfg & { items?: unknown[] };
   services: { intro: string; items: Service[] };
   testimonials: { show: boolean; auto_scroll: boolean; speed: "slow" | "normal" | "fast"; items: Testimonial[] };
   seo: { title: string; description: string; share_image: string | null; business_description: string };
   cookies: { analytics: boolean; privacy_policy: string };
   footer: { description: string; policies: string; show_attribution: boolean };
+  /** Roadmap 80: the page at the website's root. */
+  landing?: "home" | "products" | "categories" | "services";
 }
 
 export interface Category { id: string; name: string; image: string | null; count: number }
@@ -67,6 +69,8 @@ export interface Product {
   photo_thumb: string | null;
   photos: string[];
   featured: boolean;
+  /** Roadmap 80: the "was" price (only with a visible, lower current price). */
+  compare_at?: string | null;
   seo_title: string;
   seo_description: string;
 }

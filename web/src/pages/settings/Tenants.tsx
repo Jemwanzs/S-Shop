@@ -12,6 +12,7 @@ import { toast } from "@/lib/toast";
 import { ago, count, date, dateTime, money } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { ScrollRow } from "@/components/ScrollRow";
 import { STATUS_LABEL, STATUS_TONE, type BillingStatus } from "@/lib/billing";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -171,12 +172,12 @@ export function TenantDetail() {
         <Pill tone={tone}>{t(label)}</Pill>
         {a.billing_status && a.status !== "platform" && <Pill tone={STATUS_TONE[a.billing_status as BillingStatus]}>{t(STATUS_LABEL[a.billing_status as BillingStatus])}</Pill>}
       </div>
-      <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:flex-wrap md:px-0">
+      <ScrollRow active={tab}>
         {TABS.map(([k, l]) => (
-          <button key={k} type="button" onClick={() => setTab(k)}
-            className={cn("h-8 shrink-0 rounded-full border px-3 text-xs", tab === k ? "border-primary bg-primary text-primary-foreground" : "bg-card")}>{t(l)}</button>
+          <button key={k} type="button" onClick={() => setTab(k)} data-active={tab === k ? "true" : undefined} aria-current={tab === k ? "page" : undefined}
+            className={cn("h-8 shrink-0 whitespace-nowrap rounded-full border px-3 text-xs", tab === k ? "border-primary bg-primary text-primary-foreground" : "bg-card")}>{t(l)}</button>
         ))}
-      </div>
+      </ScrollRow>
 
       {tab === "overview" && (
         <>

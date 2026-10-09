@@ -297,6 +297,7 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | GET | `/api/website/domain` | adds `is_primary`, `awaiting_platform` |
 | POST | `/api/products/{id}/photos` (+ optional `thumb` part) | small copy for grids (≤ 400 KB, JPEG / PNG / WebP) |
 | GET | `/api/photos/{id}?size=thumb` | the thumbnail, or the original when there is none |
+| GET | `/api/site/products` (+ `sort` recommended/newest/name_asc/name_desc/price_asc/price_desc, `stock=in`, `limit`, `offset`) | roadmap 81; `total` = full filtered count; items carry `compare_at` |
 
 ## Tenants & secure access ([module 27](modules/27-tenants-and-secure-access.md))
 

@@ -23,6 +23,8 @@ export interface ProductCfg {
   seo_description: string;
   category_id: string | null;
   cta_label: string;
+  /** Roadmap 80: the website "was" price (shown struck through, with the saving, when above the current price). */
+  compare_at?: string | null;
 }
 export interface CategoryCfg { category_id: string; visible: boolean; sort: number; image: string | null }
 

@@ -95,12 +95,20 @@ export function ProductCard({ data, p }: { data: SiteData; p: Product }) {
   // Roadmap 76: image → name → availability, then an action row of its own (price + Add): nothing floats over the
   // name or the price, and cards in a row line up whatever the name length.
   const quick = g.quick_add && orderable;
+  const off = p.price != null && p.compare_at ? Math.round((1 - Number(p.price) / Number(p.compare_at)) * 100) : 0;
+  const second = p.photos.length > 1 ? `${p.photos[1]}${p.photos[1].includes("?") ? "&" : "?"}size=thumb` : null;
   return (
     <article className={`card ${g.card} ${g.shadow ? "shadow" : ""}`}>
       <Link to={`/products/${p.slug}`} className="card-link">
         <div className="img">
-          {g.show_badges && p.badge && <span className="badge">{badgeLabel(p.badge)}</span>}
+          <span className="badges">
+            {g.show_badges && p.badge && <span className="badge">{badgeLabel(p.badge)}</span>}
+            {off > 0 && <span className="badge sale">−{off}%</span>}
+            {p.in_stock === false && <span className="badge muted">Out of stock</span>}
+          </span>
           <Photo src={p.photo_thumb ?? p.photo} alt={p.name} name={p.name} sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw" />
+          {/* Desktop hover: the next photo, when there is one (roadmap 80). */}
+          {second && <img className="alt" src={second} alt="" aria-hidden loading="lazy" decoding="async" />}
         </div>
         <div className="body">
           <span className="name">{p.name}</span>
@@ -109,7 +117,12 @@ export function ProductCard({ data, p }: { data: SiteData; p: Product }) {
       </Link>
       {(p.price != null || quick) && (
         <div className="foot">
-          {p.price != null ? <span className="price">{money(data.business.currency, p.price)}</span> : <span />}
+          {p.price != null ? (
+            <span className="prices">
+              <span className="price">{money(data.business.currency, p.price)}</span>
+              {p.compare_at && <s className="was" aria-label={`Was ${money(data.business.currency, p.compare_at)}`}>{money(data.business.currency, p.compare_at)}</s>}
+            </span>
+          ) : <span />}
           {quick && (
             <button type="button" className={`add ${added ? "done" : ""}`} aria-label={`Add ${p.name} to cart`} onClick={() => { addToCart(p); setAdded(true); }}>
               {added ? <Check aria-hidden /> : <Plus aria-hidden />}<span className="lbl">{added ? "Added" : "Add"}</span>

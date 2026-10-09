@@ -225,6 +225,40 @@ phone the card switches to smaller type and an icon-only *Add* under the price.
 - CSS and one IntersectionObserver only, with no animation library.
 - `prefers-reduced-motion` always wins.
 
+## 78 — Railway automatic domain attachment
+
+With `RAILWAY_API_TOKEN` (account or team token) on the service — Railway injects `RAILWAY_PROJECT_ID`,
+`RAILWAY_ENVIRONMENT_ID` and `RAILWAY_SERVICE_ID` itself — *Test domain connection* does, in order:
+
+1. **Ownership** — the `_sshop-verify` TXT (nothing is attached before this, so nobody claims a domain they do not hold).
+2. **Attach** — `domains(projectId, environmentId, serviceId)` first: an existing attachment on this service is reused;
+   otherwise `customDomainCreate`. Audited (`website.domain_attached`). One domain belongs to one business (database
+   unique index), so a second business can never attach it.
+3. **Railway's records** — `customDomain(id).status`: each `dnsRecords` entry with its `recordType`, `hostlabel`
+   (`@` for the root), `purpose` (`TRAFFIC_ROUTE` = routing, `ACME_DNS01_CHALLENGE` = certificate) and whether it has
+   `DNS_RECORD_STATUS_PROPAGATED`; Railway's `_railway-verify` TXT until `verified`; the certificate state
+   (`…_VALID`, `…_ISSUING`, `…_VALIDATING_OWNERSHIP`, `…_ISSUE_FAILED` with Railway's message).
+4. **Active** — only when `https://<domain>/api/site/whoami` answers from S'Shop for that host (DNS, certificate and
+   routing proven together).
+
+Removing a domain (or connecting another) detaches it from Railway (`customDomainDelete`). The token stays on the
+server: it is read from the environment, never stored, logged or sent to a browser. Without the token the platform
+owner adds the domain in Railway and records the target (*Awaiting platform configuration*).
+
+## 80 – 82 — Portrait cards, listings, landing page
+
+- **Cards** (`site/parts.tsx`, one component for products, categories, search, featured, new arrivals and related):
+  3:4 frame, `contain` with 6 % padding on a neutral frame by default; badges New / Featured / Offer (set per product),
+  −X % (from the product's *Was price* on the website, only when it is above a visible price), Out of stock (only when
+  availability is shown); hover (fine pointers): image zoom 4 %, the second photo, lift, border and *Add* emphasis;
+  touch: press feedback. Motion setting and reduced motion apply.
+- **Listings** (`ProductsPage`): `GET /api/site/products?sort=&stock=in&limit=&offset=` — sorting and filtering on the
+  server from real records; `total` always the full filtered count; pages from `products.per_page`; *Load more* when
+  `products.pagination` is off. Home sections (featured, new arrivals, popular) keep their carousels / grids.
+- **Ordering link** (`/order/{slug}`): portrait thumbnails, branded placeholder, sort, pages of 12.
+- **Landing page** (`landing`): what `/` shows — `products` (default) | `home` | `categories` | `services`; Home is at
+  `/home` otherwise. Same on S'Shop addresses and custom domains; the page title follows.
+
 ## 57 — Analytics
 
 Events: `visit`, `product_view`, `add_to_cart`, `order_start` from the browser, and `order_complete` from the server

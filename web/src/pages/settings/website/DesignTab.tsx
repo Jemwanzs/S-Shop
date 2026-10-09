@@ -67,6 +67,11 @@ export function DesignTab({ c, set }: TabProps) {
         <MediaField label="Website logo" kind="logo" value={c.brand.logo} onChange={(id) => set((x) => { x.brand.logo = id; })} hint="Leave empty to use your business logo from Settings." />
       </Block>
 
+      <Block title="Default landing page" hint="What visitors see first when they open your website. Every page stays in the menu.">
+        <Choice value={c.landing ?? "products"} onChange={(v) => set((x) => { x.landing = v; })}
+          options={[["products", "Products"], ["home", "Home"], ["categories", "Categories"], ["services", "Services"]]} />
+      </Block>
+
       <Block title="Look & feel">
         <Field label="Theme"><Choice value={modes} onChange={(v) => set((x) => { x.theme.modes = v; })} options={[["light", "Light"], ["dark", "Dark"], ["both", "Both (visitors choose)"]]} /></Field>
         <Field label="Style"><Choice value={c.theme.style} onChange={(v) => set((x) => { x.theme.style = v; })} options={[["modern", "Modern"], ["minimal", "Minimal"], ["elegant", "Elegant"], ["bold", "Bold"]]} /></Field>
@@ -90,7 +95,7 @@ export function DesignTab({ c, set }: TabProps) {
           <Field label="Desktops"><Choice value={g.desktop} onChange={(v) => set((x) => { x.products.grid.desktop = v; })} options={range(3, 6).map((n) => [n, String(n)])} /></Field>
         </div>
         <Field label="Card size"><Choice value={g.card} onChange={(v) => set((x) => { x.products.grid.card = v; })} options={[["compact", "Compact"], ["standard", "Standard"], ["large", "Large"]]} /></Field>
-        <Field label="Photo shape"><Choice value={g.ratio} onChange={(v) => set((x) => { x.products.grid.ratio = v; })} options={[["square", "Square"], ["portrait", "Portrait"], ["landscape", "Landscape"]]} /></Field>
+        <Field label="Photo shape"><Choice value={g.ratio} onChange={(v) => set((x) => { x.products.grid.ratio = v; })} options={[["portrait", "Portrait 3:4"], ["square", "Square"], ["landscape", "Landscape"]]} /></Field>
         <Field label="Photo fit"><Choice value={g.fit} onChange={(v) => set((x) => { x.products.grid.fit = v; })} options={[["cover", "Fill the frame"], ["contain", "Show whole photo"]]} /></Field>
         <Field label="Corners"><Choice value={g.radius} onChange={(v) => set((x) => { x.products.grid.radius = v; })} options={[["none", "Square"], ["small", "Small"], ["medium", "Medium"], ["large", "Large"]]} /></Field>
         <Field label="Product name"><Choice value={g.name_lines} onChange={(v) => set((x) => { x.products.grid.name_lines = v; })} options={[[1, "1 line"], [2, "2 lines"]]} /></Field>

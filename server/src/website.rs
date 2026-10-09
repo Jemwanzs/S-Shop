@@ -13,7 +13,7 @@ use crate::error::{bad, AppResult};
 
 // ───────────────────────────── Document ─────────────────────────────
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct SiteConfig {
     pub brand: Brand,
@@ -32,6 +32,34 @@ pub struct SiteConfig {
     pub seo: Seo,
     pub cookies: Cookies,
     pub footer: Footer,
+    /// Roadmap 80: the page visitors see first at the website's root — home | products (default) | categories | services.
+    pub landing: String,
+}
+
+/// Written out so that a default document and one read back from the database (missing fields filled in) are equal —
+/// the activation step compares a stored draft with the default to know whether it is still blank.
+impl Default for SiteConfig {
+    fn default() -> Self {
+        Self {
+            brand: Brand::default(),
+            theme: Theme::default(),
+            navigation: Vec::new(),
+            sections: Vec::new(),
+            hero: Hero::default(),
+            promotions: Vec::new(),
+            about: About::default(),
+            contact: Contact::default(),
+            social: Social::default(),
+            products: ProductsCfg::default(),
+            categories: CategoriesCfg::default(),
+            services: ServicesCfg::default(),
+            testimonials: TestimonialsCfg::default(),
+            seo: Seo::default(),
+            cookies: Cookies::default(),
+            footer: Footer::default(),
+            landing: "products".into(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -254,8 +282,9 @@ impl Default for Grid {
             tablet: 3,
             desktop: 4,
             card: "standard".into(),
-            ratio: "square".into(),
-            fit: "cover".into(),
+            // Roadmap 80: portrait 3:4 frames, whole product visible (perfumes, watches, jewellery).
+            ratio: "portrait".into(),
+            fit: "contain".into(),
             radius: "medium".into(),
             shadow: true,
             name_lines: 2,
@@ -292,6 +321,8 @@ pub struct ProductCfg {
     /// Website category placement (None = the product's category).
     pub category_id: Option<Uuid>,
     pub cta_label: String,
+    /// Roadmap 80: the website's "was" price — shown struck through with the saving when above the current price.
+    pub compare_at: Option<rust_decimal::Decimal>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -305,11 +336,15 @@ pub struct ProductsCfg {
     pub hidden_action: String,
     /// New S'Shop products appear on the website automatically (still subject to the publish step).
     pub auto_publish_new: bool,
+    /// Roadmap 80: product lists in pages (on) or a "Load more" button (off) — never the whole catalogue at once.
+    pub pagination: bool,
+    /// Products per page (1–100), default 10.
+    pub per_page: u16,
 }
 
 impl Default for ProductsCfg {
     fn default() -> Self {
-        Self { items: Vec::new(), grid: Grid::default(), max_photos: 5, hidden_action: "enquire".into(), auto_publish_new: true }
+        Self { items: Vec::new(), grid: Grid::default(), max_photos: 5, hidden_action: "enquire".into(), auto_publish_new: true, pagination: true, per_page: 10 }
     }
 }
 
@@ -714,6 +749,10 @@ pub fn validate(c: &SiteConfig) -> AppResult<()> {
         return Err(bad("Website photos per product: 1–5"));
     }
     one_of(&c.products.hidden_action, &["enquire", "contact", "whatsapp", "order"], "Action when the price is hidden")?;
+    if !(1..=100).contains(&c.products.per_page) {
+        return Err(bad("Products per page must be between 1 and 100"));
+    }
+    one_of(&c.landing, &["home", "products", "categories", "services"], "Default landing page")?;
     if c.products.items.len() > 5000 {
         return Err(bad("Too many products"));
     }
@@ -722,6 +761,9 @@ pub fn validate(c: &SiteConfig) -> AppResult<()> {
         max_len(&p.marketing_description, 4000, "Marketing description")?;
         if !p.badge.is_empty() {
             one_of(&p.badge, &["new", "featured", "offer"], "Badge")?;
+        }
+        if p.compare_at.is_some_and(|v| v < rust_decimal::Decimal::ZERO || v > rust_decimal::Decimal::from(1_000_000_000)) {
+            return Err(bad("The \"was\" price must be a positive amount"));
         }
         one_of(if p.price.is_empty() { "inherit" } else { &p.price }, &["inherit", "show", "hide"], "Price visibility")?;
         if !p.hidden_action.is_empty() {
@@ -835,6 +877,14 @@ mod tests {
         assert_eq!(c.testimonials.items.len(), 5);
         assert!(c.testimonials.items.iter().all(|t| t.sample && !t.published));
         assert_eq!(c.products.max_photos, 5);
+        // Roadmap 80: products first, portrait whole-product photos, 10 per page.
+        assert_eq!(c.landing, "products");
+        assert_eq!((c.products.grid.ratio.as_str(), c.products.grid.fit.as_str()), ("portrait", "contain"));
+        assert!(c.products.pagination && c.products.per_page == 10);
+        let old: SiteConfig = serde_json::from_value(serde_json::json!({ "brand": { "name": "Old" } })).unwrap();
+        assert_eq!(old.landing, "products", "saved websites without the field land on Products");
+        let blank: SiteConfig = serde_json::from_value(serde_json::to_value(SiteConfig::default()).unwrap()).unwrap();
+        assert_eq!(blank, SiteConfig::default(), "a stored blank draft is still recognised as blank");
         assert_eq!(c.products.grid.mobile, 2);
     }
 

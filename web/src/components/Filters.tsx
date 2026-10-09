@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { ActionButton, REASONS } from "@/components/ActionButton";
+import { ScrollRow } from "@/components/ScrollRow";
 import { t, tChildren, tx } from "@/lib/i18n";
 
 export interface PeriodValue {
@@ -29,7 +30,7 @@ export function PeriodFilter({ value, onChange, presets = PRESETS.map((p) => p[0
   const [to, setTo] = useState(value.to ?? todayIso());
   const [open, setOpen] = useState(false);
   return (
-    <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:flex-wrap md:px-0">
+    <ScrollRow active={custom ? "custom" : value.period}>
       {PRESETS.filter(([k]) => presets.includes(k)).map(([k, label]) => (
         <Chip key={k} active={!custom && value.period === k} onClick={() => onChange({ period: k })}>
           {t(label)}
@@ -62,7 +63,7 @@ export function PeriodFilter({ value, onChange, presets = PRESETS.map((p) => p[0
           </div>
         </PopoverContent>
       </Popover>
-    </div>
+    </ScrollRow>
   );
 }
 
@@ -74,6 +75,8 @@ export const Chip = forwardRef<HTMLButtonElement, { active?: boolean; children: 
     <button
       ref={ref}
       type="button"
+      data-active={active ? "true" : undefined}
+      aria-pressed={props.role === "tab" ? undefined : !!active}
       {...props}
       className={cn(
         "inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-sm transition-colors",
@@ -113,13 +116,13 @@ export function SearchInput({ value, onChange, placeholder = "Search…", classN
 /** Segmented tabs that scroll horizontally on phones. */
 export function Segments<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { value: T; label: ReactNode; count?: number }[] }) {
   return (
-    <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:flex-wrap md:px-0">
+    <ScrollRow active={value}>
       {options.map((o) => (
         <Chip key={o.value} active={o.value === value} onClick={() => onChange(o.value)}>
           {tx(o.label)}
           {o.count ? <span className={cn("num rounded-full px-1.5 text-xs", o.value === value ? "bg-background/20" : "bg-muted")}>{o.count}</span> : null}
         </Chip>
       ))}
-    </div>
+    </ScrollRow>
   );
 }

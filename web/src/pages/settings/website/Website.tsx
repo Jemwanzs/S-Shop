@@ -10,6 +10,7 @@ import { useSession } from "@/lib/session";
 import { date, dateTime, moneyDoc } from "@/lib/format";
 import { STATUS_LABEL } from "@/lib/billing";
 import { cn } from "@/lib/utils";
+import { ScrollRow } from "@/components/ScrollRow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -196,13 +197,16 @@ function Centre({ ov }: { ov: Overview }) {
   const props: TabProps = { c: draft, set, ov };
   return (
     <>
-      <nav className="scrollbar-none -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" aria-label={t("Website sections")}>
-        {tabs.map((x) => (
-          <button key={x.key} type="button" onClick={() => setParams(x.key === "overview" ? {} : { tab: x.key }, { replace: true })}
-            className={cn("h-8 shrink-0 rounded-full border px-3 text-sm", tab === x.key ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-accent/50")}>
-            {t(x.label)}
-          </button>
-        ))}
+      <nav aria-label={t("Website sections")}>
+        <ScrollRow active={tab}>
+          {tabs.map((x) => (
+            <button key={x.key} type="button" data-active={tab === x.key ? "true" : undefined} aria-current={tab === x.key ? "page" : undefined}
+              onClick={() => setParams(x.key === "overview" ? {} : { tab: x.key }, { replace: true })}
+              className={cn("h-8 shrink-0 whitespace-nowrap rounded-full border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", tab === x.key ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-accent/50")}>
+              {t(x.label)}
+            </button>
+          ))}
+        </ScrollRow>
       </nav>
 
       {tab === "overview" && <OverviewTab ov={ov} pending={pending} onPreview={openPreview} onHistory={() => setHistory(true)} />}

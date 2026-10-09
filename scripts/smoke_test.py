@@ -1438,6 +1438,12 @@ bad_link = {**d, "hero": {**d["hero"], "primary": {"label": "Go", "target": "jav
 call("PUT", "/website/draft", {"config": bad_link}, **T2, expect=400)
 check("unsafe links refused", True)
 check("animations default to subtle", d["theme"].get("motion") == "subtle", d["theme"].get("motion"))
+check("Products is the default landing page; portrait whole-product photos; 10 per page", d.get("landing") == "products"
+      and d["products"]["grid"]["ratio"] == "portrait" and d["products"]["grid"]["fit"] == "contain"
+      and d["products"].get("pagination") is True and d["products"].get("per_page") == 10, (d.get("landing"), d["products"].get("per_page")))
+call("PUT", "/website/draft", {"config": {**d, "products": {**d["products"], "per_page": 0}}}, **T2, expect=400)
+call("PUT", "/website/draft", {"config": {**d, "landing": "checkout"}}, **T2, expect=400)
+check("products per page and landing page validated", True)
 call("PUT", "/website/draft", {"config": {**d, "theme": {**d["theme"], "motion": "wild"}}}, **T2, expect=400)
 check("unknown animation intensity refused", True)
 d2 = {**d, "hero": {**d["hero"], "headline": "Shop the Difference."}, "theme": {**d["theme"], "style": "elegant"}}
@@ -1538,6 +1544,17 @@ detail = call("GET", f"/site/products/{pbag['slug']}?slug={dk_slug}", **PUB)
 check("product page by slug with related products", detail["product"]["id"] == bag and any(r["id"] == hat for r in detail["related"]))
 sug = call("GET", f"/site/products?slug={dk_slug}&q=leath&suggest=true", **PUB)["items"]
 check("search suggestions", [p["id"] for p in sug] == [bag], [p["name"] for p in sug])
+# Roadmap 80: sorting by real data, paging counted in products, in-stock filter
+ids = lambda q_: [p["id"] for p in call("GET", f"/site/products?slug={dk_slug}{q_}", **PUB)["items"]]
+by_name = ids("&sort=name_desc")
+by_price = ids("&sort=price_asc")
+check("sort by name and by price", by_name.index(hat) < by_name.index(bag) and by_price.index(hat) < by_price.index(bag))
+full = call("GET", f"/site/products?slug={dk_slug}&sort=name_asc", **PUB)
+pg2 = call("GET", f"/site/products?slug={dk_slug}&sort=name_asc&limit=1&offset=1", **PUB)
+check("pages: total stays the full count, one page of products", pg2["total"] == full["total"] and len(pg2["items"]) == 1
+      and pg2["items"][0]["id"] == full["items"][1]["id"], (pg2["total"], full["total"]))
+nostock = call("POST", "/products", {"name": f"Empty Shelf {suffix}", "marked_price": 50, "cost_price": 10, "category_id": wcat}, **T2B)["result"]["id"]
+check("in-stock filter uses real stock", nostock not in ids("&stock=in") and bag in ids("&stock=in"))
 # Hidden prices never leak — list, suggestions, detail, site data
 call("PUT", "/website/prices", {"show_prices": False}, **T2)
 raw_all = json.dumps([call("GET", f"/site/products?slug={dk_slug}", **PUB), call("GET", f"/site/products?slug={dk_slug}&q=leath&suggest=true", **PUB),
@@ -1552,8 +1569,8 @@ base = {"published": True, "featured": False, "sort": 0, "marketing_name": "", "
         "hidden_action": "", "use_product_photos": True, "photos": [], "hidden_photos": [], "seo_title": "", "seo_description": "",
         "category_id": None, "cta_label": ""}
 dd = {**dd, "products": {**dd["products"], "items": [
-    {**base, "product_id": hat, "price": "show", "featured": True, "badge": "offer", "marketing_name": "Summer Straw Hat"},
-    {**base, "product_id": bag, "hidden_action": "order"}]}}
+    {**base, "product_id": hat, "price": "show", "featured": True, "badge": "offer", "marketing_name": "Summer Straw Hat", "compare_at": "999"},
+    {**base, "product_id": bag, "hidden_action": "order", "compare_at": "5000"}]}}
 call("PUT", "/website/draft", {"config": dd}, **T2)
 pre = next(p for p in call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"] if p["id"] == hat)
 check("draft changes are not public before publishing", pre["name"] != "Summer Straw Hat")
@@ -1561,6 +1578,8 @@ call("POST", "/website/publish", {}, **T2)
 items = {p["id"]: p for p in call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"]}
 check("per-product: price shown on one product while hidden website-wide", float(items[hat]["price"]) == 777 and items[hat]["name"] == "Summer Straw Hat")
 check("per-product: hidden price can still be ordered when allowed", items[bag]["price"] is None and items[bag]["action"] == "add_to_cart", items[bag])
+check("was price shown only with a visible, lower price", float(items[hat]["compare_at"]) == 999 and items[bag]["compare_at"] is None
+      and "5000" not in json.dumps(items[bag]), (items[hat].get("compare_at"), items[bag].get("compare_at")))
 feat = call("GET", f"/site/products?slug={dk_slug}&section=featured", **PUB)["items"]
 check("featured section", [p["id"] for p in feat] == [hat])
 # Ordering through the website → existing orders engine

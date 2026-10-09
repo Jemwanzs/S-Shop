@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ScrollRow } from "@/components/ScrollRow";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { count, dateTime } from "@/lib/format";
@@ -145,14 +146,14 @@ export function ActivityFeed({ accountId, businesses }: { accountId?: string; bu
           </Select>
         </div>
         <PeriodFilter value={period} onChange={(v) => reset(() => setPeriod(v))} />
-        <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:flex-wrap md:px-0">
+        <ScrollRow active={activity}>
           <Chip active={activity === "all"} onClick={() => reset(() => setActivity("all"))}>{t("All")}</Chip>
           {(q.data?.activities ?? Object.keys(LABEL)).map((a) => (
             <Chip key={a} active={activity === a} onClick={() => reset(() => setActivity(a))}>
               {t(LABEL[a] ?? a)}{q.data && activity === "all" ? <span className="num opacity-70">{count(q.data.totals[a] ?? 0)}</span> : null}
             </Chip>
           ))}
-        </div>
+        </ScrollRow>
       </div>
 
       {q.isLoading ? (

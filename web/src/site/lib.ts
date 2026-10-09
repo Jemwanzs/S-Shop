@@ -26,6 +26,8 @@ export function basePath(slug: string): string {
 
 export const runtime = {
   slug: "",
+  /** Roadmap 80: the page shown at the root ("/"); Home then lives at /home. */
+  landing: "products" as string,
   /** Staff preview (Website Management Centre): the draft, read with the staff session. */
   preview: false,
   previewToken: null as string | null,
@@ -160,7 +162,7 @@ export function ctaHref(target: string): { to?: string; href?: string } {
   if (/^(https:|tel:|mailto:)/.test(t)) return { href: t };
   return {};
 }
-export const pagePath = (key: string) => PAGE_PATHS[key] ?? "/";
+export const pagePath = (key: string) => (key === "home" && runtime.landing !== "home" ? "/home" : PAGE_PATHS[key] ?? "/");
 export const hasCta = (c: Cta | undefined) => !!c && !!c.label.trim() && !!(ctaHref(c.target).to || ctaHref(c.target).href);
 
 export function waLink(number: string, text?: string): string {

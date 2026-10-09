@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, ChevronRight, ClipboardList, ImageOff, Minus, Plus, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, ImageOff, Minus, Plus, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, photoUrl } from "@/lib/api";
 import { usePersistentState } from "@/lib/hooks";
@@ -18,6 +18,24 @@ import { Field } from "@/components/Form";
 import { ThemeToggle } from "@/components/layout/AppShell";
 import { PortalHeader, PoweredBy, Steps, type Step } from "./shared";
 import { t } from "@/lib/i18n";
+import { pageItems } from "@/lib/paging";
+
+const PER = 12;
+
+function PortalPager({ page, pages, onPage }: { page: number; pages: number; onPage: (n: number) => void }) {
+  const btn = "inline-flex h-10 min-w-10 items-center justify-center gap-1 rounded-full border bg-card px-3 text-sm font-semibold disabled:opacity-40";
+  return (
+    <nav className="flex items-center justify-center gap-1.5 py-5" aria-label={t("Pages")}>
+      <button type="button" className={btn} disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label={t("Previous page")}><ChevronLeft className="h-4 w-4 rtl:rotate-180" /><span className="hidden sm:inline">{t("Previous")}</span></button>
+      <span className="num px-2 text-sm font-semibold sm:hidden">{t("Page")} {page} {t("of")} {pages}</span>
+      <span className="hidden gap-1.5 sm:inline-flex">
+        {pageItems(page, pages).map((n, i) => n === "…" ? <span key={`e${i}`} className="px-1 text-muted-foreground">…</span>
+          : <button key={n} type="button" className={cn(btn, n === page && "border-transparent bg-foreground text-background")} aria-current={n === page ? "page" : undefined} onClick={() => onPage(n)}>{n}</button>)}
+      </span>
+      <button type="button" className={btn} disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label={t("Next page")}><span className="hidden sm:inline">{t("Next")}</span><ChevronRight className="h-4 w-4 rtl:rotate-180" /></button>
+    </nav>
+  );
+}
 
 interface Business { name: string; slug: string; tagline: string; phone: string; currency: string; logo_url: string | null; otp_required: boolean; show_loyalty: boolean;
   /** Settings → Orders & ordering link → Show product prices (prices are not even sent when off). */
@@ -181,9 +199,22 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
   const [notes, setNotes] = useState("");
   const [placed, setPlaced] = useState<{ order_no: string; track_token: string } | null>(null);
   const cat = useQuery({ queryKey: ["portal", b.slug, "catalogue"], queryFn: () => api<{ products: Item[]; categories: { id: string; name: string }[] }>(`/portal/${b.slug}/catalogue`, { token: null }) });
+  // Roadmap 80: sort and pages of 12 (counted in products); a filter or sort change goes back to page 1.
+  const [sort, setSort] = useState("recommended");
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [category, q, sort]);
   const items = useMemo(
-    () => (cat.data?.products ?? []).filter((p) => (!category || p.category_id === category) && (!q || p.name.toLowerCase().includes(q.toLowerCase()))),
-    [cat.data, category, q],
+    () => {
+      const list = (cat.data?.products ?? []).filter((p) => (!category || p.category_id === category) && (!q || p.name.toLowerCase().includes(q.toLowerCase())));
+      const byName = (a: Item, b: Item) => a.name.localeCompare(b.name);
+      const price = (x: Item) => (x.price == null ? Infinity : toNum(x.price));
+      if (sort === "name_asc") list.sort(byName);
+      if (sort === "name_desc") list.sort((a, b) => byName(b, a));
+      if (sort === "price_asc" && b.show_prices) list.sort((a, c) => price(a) - price(c));
+      if (sort === "price_desc" && b.show_prices) list.sort((a, c) => (c.price == null ? -Infinity : toNum(c.price)) - (a.price == null ? -Infinity : toNum(a.price)));
+      return list;
+    },
+    [cat.data, category, q, sort, b.show_prices],
   );
   const lines = Object.values(cart);
   const units = lines.reduce((a, l) => a + l.qty, 0);
@@ -247,14 +278,27 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
         {cat.isLoading ? <Loading /> : items.length === 0 ? (
           <p className="py-16 text-center text-muted-foreground">{t("No products found.")}</p>
         ) : (
+          <>
+          <div className="mb-3 flex items-center justify-between gap-2 text-sm text-muted-foreground">
+            <span className="num">{t("Showing")} {(page - 1) * PER + 1}–{Math.min(items.length, page * PER)} {t("of")} {items.length}</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value)} className="h-9 rounded-full border bg-card px-3 text-sm text-foreground" aria-label={t("Sort by")}>
+              <option value="recommended">{t("Recommended")}</option>
+              <option value="name_asc">{t("Name A–Z")}</option>
+              <option value="name_desc">{t("Name Z–A")}</option>
+              {b.show_prices && <option value="price_asc">{t("Price: low to high")}</option>}
+              {b.show_prices && <option value="price_desc">{t("Price: high to low")}</option>}
+            </select>
+          </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {items.map((p) => {
+            {items.slice((page - 1) * PER, page * PER).map((p) => {
               const inCart = cart[p.id]?.qty ?? 0;
               const out = p.available <= 0;
               return (
                 <button key={p.id} onClick={() => setOpen(p)} className={cn("surface group overflow-hidden text-start transition hover:shadow-lift", out && "opacity-60")}>
-                  <div className="relative aspect-square bg-muted">
-                    {p.primary_photo_id ? <img src={photoUrl(p.primary_photo_id)} alt={p.name} loading="lazy" className="h-full w-full object-cover transition group-hover:scale-105" /> : <ImageOff className="absolute inset-0 m-auto h-8 w-8 text-muted-foreground" />}
+                  <div className="relative aspect-[3/4] bg-muted/60">
+                    {p.primary_photo_id
+                      ? <img src={`${photoUrl(p.primary_photo_id)}?size=thumb`} alt={p.name} loading="lazy" decoding="async" className="h-full w-full object-contain p-[6%] transition duration-300 group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:scale-100" />
+                      : <span className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/15 to-primary/5 text-4xl font-bold text-primary/50" aria-hidden>{p.name.trim()[0]?.toUpperCase()}</span>}
                     {inCart > 0 && <span className="num absolute end-2 top-2 rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">{inCart}</span>}
                   </div>
                   <div className="space-y-1 p-3">
@@ -266,6 +310,8 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
               );
             })}
           </div>
+          {items.length > PER && <PortalPager page={page} pages={Math.ceil(items.length / PER)} onPage={(n) => { setPage(n); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
+          </>
         )}
       </main>
 

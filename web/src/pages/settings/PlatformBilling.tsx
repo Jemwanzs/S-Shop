@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ScrollRow } from "@/components/ScrollRow";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Ban, CalendarClock, CheckCircle2, ChevronRight, CircleDollarSign, Clock, Globe, Wrench } from "lucide-react";
@@ -79,11 +80,11 @@ export function PlatformBilling() {
         </Card>
       )}
 
-      <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:flex-wrap md:px-0">
+      <ScrollRow active={filter}>
         {chips.map(([key, label, n]) => (
           <Chip key={key} active={filter === key} onClick={() => setFilter(key)}>{t(label)} <span className="num opacity-70">{n}</span></Chip>
         ))}
-      </div>
+      </ScrollRow>
       <Card>
         {rows.length === 0 && <p className="py-3 text-sm text-muted-foreground">{t("No businesses in this view.")}</p>}
         {rows.map((r) => (

@@ -21,6 +21,8 @@ function themeVars(p: Palette, data: SiteData): CSSProperties {
     "--on-primary": onColor(p.primary), "--on-accent": onColor(p.accent),
     "--heading-font": `"${t.heading_font}"`, "--body-font": `"${t.body_font}"`,
     "--card-r": RADIUS[g.radius] ?? "12px", "--ratio": ratio(g.ratio), "--fit": g.fit, "--lines": g.name_lines,
+    // Whole-product photos sit inside the frame with breathing room (roadmap 80).
+    "--img-pad": g.fit === "contain" ? "6%" : "0",
     colorScheme: p === data.config.theme.dark ? "dark" : "light",
   } as CSSProperties;
 }
@@ -290,7 +292,8 @@ function Shell({ data }: { data: SiteData }) {
       <Header data={data} onSearch={() => setSearch(true)} onCart={() => setCart(true)} toggleMode={toggleMode} mode={mode} />
       <main id="main" key={pathname} className="page-in">
         <Routes>
-          <Route path="/" element={<HomePage data={data} />} />
+          <Route path="/" element={<Landing data={data} />} />
+          <Route path="/home" element={<HomePage data={data} />} />
           <Route path="/products" element={<ProductsPage data={data} />} />
           <Route path="/products/:slug" element={<ProductPage data={data} />} />
           <Route path="/categories" element={<CategoriesPage data={data} />} />
@@ -321,6 +324,20 @@ function Shell({ data }: { data: SiteData }) {
       <Consent data={data} />
     </div>
   );
+}
+
+/** Roadmap 80: the page visitors see first (Products by default); every page stays reachable from the menu. */
+function Landing({ data }: { data: SiteData }) {
+  switch (data.config.landing ?? "products") {
+    case "products":
+      return <ProductsPage data={data} />;
+    case "categories":
+      return <CategoriesPage data={data} />;
+    case "services":
+      return <ServicesPage data={data} />;
+    default:
+      return <HomePage data={data} />;
+  }
 }
 
 const client = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } } });

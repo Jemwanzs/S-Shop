@@ -1006,27 +1006,56 @@ async fn domain_check(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
         // 2. Attached to this service (automatically when the Railway API is configured).
         let mut routing_ok: Option<bool> = None;
         if let Some(api) = state.cfg.railway.as_ref() {
+            // Roadmap 78: attached only after ownership is proven; the token never leaves the server; an existing
+            // attachment on this service is reused (unique domain per business is enforced by the database).
             if check.railway_id.is_none() {
-                let (id, target, token) = domains::railway_attach(&state.http, api, &d).await.map_err(AppError::Upstream)?;
-                check.railway_id = Some(id);
-                check.routing_target = target;
-                check.railway_txt_value = token;
+                let id = domains::railway_attach(&state.http, api, &d).await.map_err(AppError::Upstream)?;
+                check.railway_id = Some(id.clone());
+                let mut tx = state.db.begin().await?;
+                audit::record(&mut tx, &ctx, Entry::new("website", "domain_attached", "website", ctx.tenant_id).after(json!({ "domain": d, "railway_id": id }))).await?;
+                tx.commit().await?;
             }
+            let mut extra: Vec<domains::Record> = Vec::new();
+            let mut railway_verified = false;
             if let Some(id) = check.railway_id.clone() {
-                let (target, dns, cert, token) = domains::railway_status(&state.http, api, &id).await.map_err(AppError::Upstream)?;
-                if target.is_some() {
-                    check.routing_target = target;
+                let rs = domains::railway_status(&state.http, api, &id).await.map_err(AppError::Upstream)?;
+                if rs.target.is_some() {
+                    check.routing_target = rs.target.clone();
                 }
-                if token.is_some() {
-                    check.railway_txt_value = token;
+                if rs.verification_token.is_some() {
+                    check.railway_txt_value = rs.verification_token.clone();
                 }
-                routing_ok = Some(dns == "VALID");
-                if cert == "FAILED" {
-                    check.message = "The security certificate could not be issued yet — check again later or contact S'Shop.".into();
+                if rs.verification_host.is_some() {
+                    check.railway_txt_name = rs.verification_host.clone();
+                }
+                routing_ok = Some(rs.routing_ok);
+                railway_verified = rs.verified;
+                // Railway's other required records (e.g. certificate challenges), named the way Railway gives them.
+                for r in rs.records.iter().filter(|r| r.purpose != "TRAFFIC_ROUTE") {
+                    extra.push(domains::Record {
+                        kind: r.kind.clone(),
+                        name: r.host.clone(),
+                        fqdn: r.fqdn.clone(),
+                        value: r.value.clone(),
+                        status: if r.propagated { "ok" } else { "missing" }.into(),
+                        note: "Required by S'Shop's hosting for the security certificate.".into(),
+                    });
+                }
+                if rs.certificate == "failed" {
+                    check.message = format!(
+                        "The security certificate could not be issued yet{} — check the records below, then test again.",
+                        rs.certificate_error.map(|e| format!(" ({e})")).unwrap_or_default()
+                    );
                 }
             }
-            if let Some(token) = check.railway_txt_value.clone() {
-                let name = format!("_railway-verify.{d}");
+            // Railway's own ownership TXT: shown until Railway reports the domain verified.
+            if let Some(token) = check.railway_txt_value.clone().filter(|_| !railway_verified) {
+                // Railway gives a host label (`_railway-verify`); the lookup needs the full name.
+                let name = match check.railway_txt_name.clone() {
+                    Some(h) if h == d || h.ends_with(&format!(".{d}")) => h,
+                    Some(h) => format!("{}.{d}", h.trim_end_matches('.')),
+                    None => format!("_railway-verify.{d}"),
+                };
                 let value = if token.starts_with("railway-verify=") { token } else { format!("railway-verify={token}") };
                 let present = domains::lookup(&state.http, &name, "TXT").await.unwrap_or_default().contains(&value.to_lowercase());
                 let misplaced = if present { None } else { misplaced_txt(&state, &name, &d, &value).await };
@@ -1042,6 +1071,7 @@ async fn domain_check(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
                     check.message = m;
                 }
             }
+            records.extend(extra);
         }
         // 3. Routing.
         let cname = domains::lookup(&state.http, &d, "CNAME").await.unwrap_or_default();

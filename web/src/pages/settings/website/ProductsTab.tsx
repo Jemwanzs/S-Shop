@@ -35,6 +35,8 @@ function useEdit(set: TabProps["set"]) {
   });
 }
 
+
+const PER_PAGE = [6, 10, 12, 16, 20, 24, 30];
 export function ProductsTab({ c, set, ov }: TabProps) {
   const { data, isLoading } = useCatalogue();
   const qc = useQueryClient();
@@ -70,6 +72,18 @@ export function ProductsTab({ c, set, ov }: TabProps) {
         <Grid2>
           <Field label="When a price is hidden, visitors can"><Select value={c.products.hidden_action} onChange={(v) => set((x) => { x.products.hidden_action = v; })}>{ACTIONS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</Select></Field>
           <Field label="Photos per product"><Choice value={c.products.max_photos} onChange={(v) => set((x) => { x.products.max_photos = v; })} options={[1, 2, 3, 4, 5].map((n) => [n, String(n)])} /></Field>
+          <ToggleRow label="Pages of products" hint="Off: a Load more button instead (never the whole catalogue at once)." checked={c.products.pagination !== false} onChange={(v) => set((x) => { x.products.pagination = v; })} />
+          <Field label="Products per page" hint="1–100">
+            <div className="flex flex-wrap items-center gap-2">
+              <Choice value={PER_PAGE.includes(c.products.per_page ?? 10) ? (c.products.per_page ?? 10) : 0}
+                onChange={(v) => set((x) => { x.products.per_page = v || (x.products.per_page ?? 10); })}
+                options={[...PER_PAGE.map((n) => [n, String(n)] as [number, string]), [0, t("Custom")]]} />
+              {!PER_PAGE.includes(c.products.per_page ?? 10) && (
+                <Input type="number" min={1} max={100} inputMode="numeric" className="w-24" value={c.products.per_page ?? 10}
+                  onChange={(e) => set((x) => { x.products.per_page = Math.min(100, Math.max(1, Math.round(Number(e.target.value) || 1))); })} />
+              )}
+            </div>
+          </Field>
         </Grid2>
       </Block>
 
@@ -138,6 +152,9 @@ function ProductEditor({ c, p, e, edit, categories }: { c: SiteConfig; p: Catalo
         <Field label="When the price is hidden"><Select value={e.hidden_action} onChange={(v) => edit((x) => { x.hidden_action = v as ProductCfg["hidden_action"]; })}><option value="">{t("Website default")}</option>{ACTIONS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</Select></Field>
         <Field label="Show in category"><Select value={e.category_id ?? ""} onChange={(v) => edit((x) => { x.category_id = v || null; })}><option value="">{p.category_name ? `${t("Its category")} (${p.category_name})` : t("Its category")}</option>{categories.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}</Select></Field>
         <Field label="Button text" optional hint="Add to cart"><Input value={e.cta_label} maxLength={30} onChange={(v) => edit((x) => { x.cta_label = v.target.value; })} /></Field>
+        <Field label="Was price" optional hint="Shown struck through with the saving when higher than the current price">
+          <Input type="number" min={0} inputMode="decimal" value={e.compare_at ?? ""} onChange={(v) => edit((x) => { x.compare_at = v.target.value === "" ? null : v.target.value; })} />
+        </Field>
       </Grid2>
       {e.price === "hide" && <p className="text-xs text-muted-foreground">{t("Hidden everywhere: website, ordering link, order confirmations and tracking.")}</p>}
 

@@ -4,6 +4,7 @@ import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate }
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Menu, Moon, Search, ShoppingBag, Sun, X } from "lucide-react";
 import type { Palette, Product, SiteData } from "./types";
+import { CampaignBanner } from "./campaign";
 import { call, consent, money, onColor, pagePath, runtime, track } from "./lib";
 import {
   AboutPage, CartLines, cartTotal, CategoriesPage, CategoryPage, ContactPage, HomePage, NotFound, OrderPage, ProductPage, ProductsPage, ratio,
@@ -290,6 +291,7 @@ function Shell({ data }: { data: SiteData }) {
       <a className="skip" href="#main">Skip to content</a>
       {runtime.preview && <div className="preview-bar">Preview — this is your unpublished draft. Visitors still see the published website.</div>}
       <Header data={data} onSearch={() => setSearch(true)} onCart={() => setCart(true)} toggleMode={toggleMode} mode={mode} />
+      <CampaignBanner data={data} pathname={pathname} />
       <main id="main" key={pathname} className="page-in">
         <Routes>
           <Route path="/" element={<Landing data={data} />} />

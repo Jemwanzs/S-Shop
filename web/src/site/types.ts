@@ -49,6 +49,19 @@ export interface SiteData {
   categories: Category[];
   show_prices: boolean;
   ordering: { enabled: boolean; otp_required: boolean };
+  /** Roadmap 84: the holiday / promotional campaign showing now. */
+  campaign?: Campaign | null;
+}
+
+export interface CampaignDesign {
+  template: string; headline: string; message: string; promo: string; cta_label: string; cta_target: string;
+  align: "left" | "center"; headline_size: "md" | "lg" | "xl"; text_color: string; background: string; background_image: string | null;
+  decorations: boolean; animation: "off" | "subtle"; height: "compact" | "standard" | "tall"; button_style: "solid" | "outline";
+}
+export interface Campaign {
+  id: string; version: number; occasion: string; design: CampaignDesign;
+  placement: { pages: string[]; display: "hero" | "compact" | "strip" | "card"; dismissible: boolean };
+  products: Product[]; ends_at: string;
 }
 
 export interface Product {

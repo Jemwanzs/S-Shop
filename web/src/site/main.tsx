@@ -36,7 +36,9 @@ async function boot() {
       runtime.preview = true;
       runtime.previewToken = token;
       try {
-        data = await call<SiteData>("/site");
+        // A campaign preview from the Website Management Centre (roadmap 85).
+        const campaign = params.get("campaign");
+        data = await call<SiteData>("/site", campaign ? { query: { campaign } } : undefined);
       } catch {
         runtime.preview = false;
         runtime.previewToken = null;

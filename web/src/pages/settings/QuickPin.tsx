@@ -21,6 +21,7 @@ import { ConfirmDialog, Field, ToggleRow } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { Loading } from "@/components/Page";
 import { Card, Fact, SettingsPage } from "./shared";
+import { PlatformCampaignSettings } from "./website/CampaignsTab";
 
 interface Status {
   available: boolean;
@@ -205,7 +206,7 @@ export function PlatformSecuritySettings() {
     onError: (e) => toast.error(e),
   });
   return (
-    <SettingsPage title="Security" description="Platform-wide sign-in rules. Businesses can only narrow them." loading={q.isLoading}
+    <SettingsPage title="Security & features" description="Platform-wide sign-in rules and website features. Businesses can only narrow them." loading={q.isLoading}
       dirty={!!d && JSON.stringify(d) !== JSON.stringify(q.data)} saving={save.isPending} onSave={() => d && save.mutate(d)} onReset={() => q.data && setD(q.data)}>
       {d && (
         <Card title="Quick Login PIN">
@@ -226,6 +227,7 @@ export function PlatformSecuritySettings() {
           <Fact label="Full sign-in still required for">{t("payments, roles & access, security settings, platform administration")}</Fact>
         </Card>
       )}
+      <PlatformCampaignSettings />
     </SettingsPage>
   );
 }

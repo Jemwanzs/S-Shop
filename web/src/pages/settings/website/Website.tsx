@@ -1,5 +1,6 @@
 /** Settings → Website: the Website Add-On (roadmap 51–57). Locked until the platform owner activates it; then the
  * Management Centre edits a draft, previews it on phone / tablet / desktop and publishes it (with history and rollback). */
+import { CampaignsTab } from "./CampaignsTab";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -46,6 +47,7 @@ const TABS: { key: string; label: string; perms: string[] }[] = [
   { key: "access", label: "Users & Access", perms: ["users.manage"] },
   { key: "domain", label: "Domain", perms: ["website.domain"] },
   { key: "seo", label: "SEO", perms: ["website.seo"] },
+  { key: "campaigns", label: "Holiday & promotions", perms: ["website.content", "website.publish", "website.analytics"] },
   { key: "analytics", label: "Analytics", perms: ["website.analytics"] },
 ];
 
@@ -216,6 +218,7 @@ function Centre({ ov }: { ov: Overview }) {
       {tab === "categories" && <CategoriesTab {...props} />}
       {tab === "services" && <ServicesTab {...props} />}
       {tab === "testimonials" && <TestimonialsTab {...props} />}
+      {tab === "campaigns" && <CampaignsTab ov={ov} />}
       {tab === "media" && <MediaTab />}
       {tab === "access" && <AccessTab />}
       {tab === "domain" && <DomainTab ov={ov} />}
@@ -295,7 +298,7 @@ const DEVICES = [
   { key: "desktop", icon: Monitor, w: 1280, label: "Desktop" },
 ] as const;
 
-function PreviewDialog({ open, onOpenChange, slug }: { open: boolean; onOpenChange: (o: boolean) => void; slug: string }) {
+export function PreviewDialog({ open, onOpenChange, slug, query }: { open: boolean; onOpenChange: (o: boolean) => void; slug: string; query?: string }) {
   const [device, setDevice] = useState<(typeof DEVICES)[number]["key"]>("mobile");
   const [stamp, setStamp] = useState(0);
   useEffect(() => {
@@ -314,7 +317,7 @@ function PreviewDialog({ open, onOpenChange, slug }: { open: boolean; onOpenChan
         </div>
         <div ref={(el) => { if (el && el.clientWidth !== box) setBox(el.clientWidth); }} className="overflow-hidden rounded-lg border bg-muted" style={{ height: 620 }}>
           {open && (
-            <iframe title={t("Website preview")} src={`/s/${slug}?preview=1&t=${stamp}`} className="origin-top-left border-0 bg-white"
+            <iframe title={t("Website preview")} src={`/s/${slug}?preview=1${query ? `&${query}` : ""}&t=${stamp}`} className="origin-top-left border-0 bg-white"
               style={{ width: d.w, height: 620 / scale, transform: `scale(${scale})`, marginInline: scale === 1 ? "auto" : undefined, display: "block" }} />
           )}
         </div>

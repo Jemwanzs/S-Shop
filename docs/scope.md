@@ -389,6 +389,20 @@ Added 2026-10-09 — **Quick Login PIN** (owner request: *Configurable Quick Log
   never see a Quick PIN; audited without PINs. Gap closed on the way: an administrator's PIN reset now also ends the
   person's older sessions.
 
+Added 2026-10-10 — **Holiday & promotional campaigns** (owner request: *Holiday Greetings, Promotional Banners &
+Featured Products*; [module 29](modules/29-holiday-campaigns.md)). Off by default.
+- ✅ **84. Campaigns** — 15 occasions with ready-written greetings; templates (Christmas, New Year, hearts, pastel,
+  crescent & lanterns, celebration, sale, elegant gold, minimal), colours, background image from the media library,
+  CSS decorations, gentle animation (reduced motion respected), height, button; featured products as real best sellers
+  (period, category, never invented) or a manual pick, with the website's prices, stock and cart; hero / compact / top
+  strip / floating card on chosen pages; dismissible per campaign version.
+- ✅ **85. Schedule & lifecycle** — draft · scheduled · live · expired · archived computed from the times in the
+  business's timezone (on time, no background job); one campaign at a time by priority; save, preview on mobile /
+  tablet / desktop, publish, unpublish, duplicate, archive, delete drafts; version-checked edits; website permissions;
+  audited; platform switch and limits.
+- ✅ **86. Insights** — views, visitors, product and button clicks, orders and sales attributed (visitor clicked the
+  campaign within 7 days before a website order; cancelled orders excluded), side by side per campaign.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

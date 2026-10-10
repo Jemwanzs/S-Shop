@@ -637,7 +637,7 @@ fn max_len(v: &str, n: usize, what: &str) -> AppResult<()> {
     if v.chars().count() > n { Err(bad(format!("{what} is too long (max {n} characters)"))) } else { Ok(()) }
 }
 
-fn link_ok(target: &str) -> bool {
+pub fn link_ok(target: &str) -> bool {
     let t = target.trim();
     t.is_empty()
         || NAV_KEYS.contains(&t)

@@ -202,6 +202,8 @@ struct SiteQuery {
     slug: Option<String>,
     #[serde(default)]
     preview: bool,
+    /// Staff preview of one campaign (roadmap 85), whatever its status.
+    campaign: Option<Uuid>,
 }
 
 pub fn media_url(id: Uuid) -> String {
@@ -227,6 +229,9 @@ async fn site(State(state): State<AppState>, headers: HeaderMap, Query(q): Query
         Resolved::Live(s) => {
             let mut data = site_data(&state, &s).await?;
             data["preview"] = json!(s.preview);
+            if s.preview && q.campaign.is_some() {
+                data["campaign"] = super::campaigns::public_campaign(&state, &s, q.campaign).await?;
+            }
             Ok(Json(data))
         }
     }
@@ -648,11 +653,13 @@ struct EventBody {
     #[serde(default)]
     visitor: String,
     product_id: Option<Uuid>,
+    /// Roadmap 86: campaign views and clicks.
+    campaign_id: Option<Uuid>,
 }
 
 async fn event(State(state): State<AppState>, headers: HeaderMap, Json(b): Json<EventBody>) -> AppResult<Json<Value>> {
     state.limits.check(&crate::auth::client_meta(&headers).0, "site_event", 600, std::time::Duration::from_secs(600))?;
-    if !matches!(b.kind.as_str(), "visit" | "product_view" | "add_to_cart" | "order_start") {
+    if !matches!(b.kind.as_str(), "visit" | "product_view" | "add_to_cart" | "order_start" | "campaign_view" | "campaign_product" | "campaign_cta") {
         return Err(bad("Unknown event"));
     }
     let Resolved::Live(s) = resolve(&state, &headers, b.slug.as_deref(), false).await? else { return Ok(Json(json!({ "ok": false }))) };
@@ -660,11 +667,16 @@ async fn event(State(state): State<AppState>, headers: HeaderMap, Json(b): Json<
         Some(p) => sqlx::query_scalar::<_, Uuid>("SELECT id FROM products WHERE id = $1 AND tenant_id = $2").bind(p).bind(s.tenant).fetch_optional(&state.db).await?,
         None => None,
     };
-    sqlx::query("INSERT INTO website_events (tenant_id, kind, visitor, product_id) VALUES ($1, $2, $3, $4)")
+    let campaign = super::campaigns::owned(&state, s.tenant, b.campaign_id).await?;
+    if b.kind.starts_with("campaign_") && campaign.is_none() {
+        return Err(bad("Unknown campaign"));
+    }
+    sqlx::query("INSERT INTO website_events (tenant_id, kind, visitor, product_id, campaign_id) VALUES ($1, $2, $3, $4, $5)")
         .bind(s.tenant)
         .bind(&b.kind)
         .bind(b.visitor.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(64).collect::<String>())
         .bind(product)
+        .bind(campaign)
         .execute(&state.db)
         .await?;
     Ok(Json(json!({ "ok": true })))
@@ -779,6 +791,8 @@ async fn site_data(state: &AppState, s: &Site) -> AppResult<Value> {
         "categories": categories(state, s).await?,
         "show_prices": t.settings.orders.show_prices,
         "ordering": { "enabled": s.ordering, "otp_required": portal::otp_required(state, &t) },
+        // Roadmap 84: the holiday / promotional campaign showing now (or null).
+        "campaign": super::campaigns::public_campaign(state, s, None).await?,
     }))
 }
 

@@ -1613,6 +1613,75 @@ an = call("GET", "/website/analytics?period=today", **T2)
 check("analytics: visitors, views, carts, starts, orders", an["visitors"] >= 1 and an["product_views"] >= 2 and an["add_to_carts"] >= 1
       and an["order_starts"] >= 1 and an["orders"] >= 1 and an["conversion"] > 0, {k: an[k] for k in ("visitors", "product_views", "orders")})
 check("most viewed products", an["top_products"] and an["top_products"][0]["id"] == bag, an["top_products"][:1])
+# Roadmap 84–86: holiday & promotional campaigns
+import datetime as _cdt
+def cl(days, hours=0):
+    return (_cdt.datetime.now() + _cdt.timedelta(days=days, hours=hours)).strftime("%Y-%m-%dT%H:%M")
+cg0 = call("GET", "/website/campaigns", **T2)
+check("campaigns off by default, none yet", cg0["enabled"] is False and cg0["items"] == [] and cg0["platform"]["enabled"])
+camp = {"name": "Christmas", "occasion": "christmas", "starts_local": cl(-1), "ends_local": cl(10), "priority": 0,
+        "design": {"template": "christmas", "headline": "Merry Christmas!", "message": "Festive favourites", "cta_label": "Shop now", "cta_target": "products"},
+        "products": {"mode": "manual", "product_ids": [hat], "limit": 5, "period_days": 90}, "placement": {"pages": ["products", "home"], "display": "hero", "dismissible": True}}
+call("POST", "/website/campaigns", {**camp, "occasion": "birthday-party"}, **T2, expect=400)
+call("POST", "/website/campaigns", {**camp, "ends_local": cl(-2)}, **T2, expect=400)
+call("POST", "/website/campaigns", {**camp, "products": {**camp["products"], "product_ids": []}}, **T2, expect=400)
+call("POST", "/website/campaigns", {**camp, "products": {**camp["products"], "product_ids": [nduma]}}, **T2, expect=400)
+call("POST", "/website/campaigns", {**camp, "design": {**camp["design"], "cta_target": "javascript:alert(1)"}}, **T2, expect=400)
+call("POST", "/website/campaigns", {**camp, "design": {**camp["design"], "text_color": "red"}}, **T2, expect=400)
+check("campaigns validated: occasion, dates, products of this business only, safe links, colours", True)
+c1 = call("POST", "/website/campaigns", camp, **T2)["id"]
+check("saved as a draft: not on the website", call("GET", f"/site?slug={dk_slug}", **PUB)["campaign"] is None)
+call("POST", f"/website/campaigns/{c1}/publish", {}, **W, expect=403)
+call("POST", f"/website/campaigns/{c1}/publish", {}, **T2)
+check("published but the website's switch is off: still hidden", call("GET", f"/site?slug={dk_slug}", **PUB)["campaign"] is None)
+call("PUT", "/website/campaigns/settings", {"enabled": True}, **T2)
+live = call("GET", f"/site?slug={dk_slug}", **PUB)["campaign"]
+check("live campaign on the website with its featured product (website prices)", live and live["id"] == c1 and [x["id"] for x in live["products"]] == [hat]
+      and float(live["products"][0]["price"]) == 777 and live["design"]["headline"] == "Merry Christmas!", live and live.get("id"))
+# Priority, schedule, expiry
+c2 = call("POST", "/website/campaigns", {**camp, "name": "Flash sale", "occasion": "black_friday", "priority": 5, "design": {**camp["design"], "template": "sale", "headline": "Flash sale"},
+                                         "products": {"mode": "none", "product_ids": [], "limit": 3, "period_days": 90}}, **T2)["id"]
+call("POST", f"/website/campaigns/{c2}/publish", {}, **T2)
+check("overlapping campaigns: the higher priority shows, one at a time", call("GET", f"/site?slug={dk_slug}", **PUB)["campaign"]["id"] == c2)
+c2v = next(x for x in call("GET", "/website/campaigns", **T2)["items"] if x["id"] == c2)["version"]
+call("PUT", f"/website/campaigns/{c2}", {**camp, "name": "Flash sale", "occasion": "black_friday", "priority": 5, "starts_local": cl(3), "ends_local": cl(5),
+                                          "design": {**camp["design"], "template": "sale", "headline": "Flash sale"}, "products": {"mode": "none", "product_ids": [], "limit": 3, "period_days": 90}, "version": c2v}, **T2)
+items = {x["id"]: x for x in call("GET", "/website/campaigns", **T2)["items"]}
+check("scheduled for later: not shown until it starts", items[c2]["status"] == "scheduled" and call("GET", f"/site?slug={dk_slug}", **PUB)["campaign"]["id"] == c1)
+call("PUT", f"/website/campaigns/{c2}", {**camp, "version": c2v}, **T2, expect=422)
+check("stale editors cannot overwrite a newer save", True)
+# Insights and attribution
+cvis = "v" + uuid.uuid4().hex[:12]
+call("POST", "/site/events", {"slug": dk_slug, "kind": "campaign_view", "visitor": cvis, "campaign_id": c1}, **PUB)
+call("POST", "/site/events", {"slug": dk_slug, "kind": "campaign_product", "visitor": cvis, "campaign_id": c1, "product_id": hat}, **PUB)
+call("POST", "/site/events", {"slug": dk_slug, "kind": "campaign_cta", "visitor": cvis, "campaign_id": str(uuid.uuid4())}, **PUB, expect=400)
+check("campaign events only for this business's campaigns", True)
+call("POST", "/site/orders", {"slug": dk_slug, "items": [{"product_id": hat, "quantity": 1}], "delivery_location": "Ngong Rd", "visitor": cvis}, **WC)
+ins = next(x for x in call("GET", "/website/campaigns", **T2)["items"] if x["id"] == c1)["insights"]
+check("insights: views, product clicks, attributed order and sales", ins["views"] >= 1 and ins["product_clicks"] >= 1 and ins["orders"] == 1 and float(ins["sales"]) == 777, ins)
+# Lifecycle
+call("DELETE", f"/website/campaigns/{c1}", **T2, expect=422)
+check("a published campaign is archived, not deleted", True)
+dup = call("POST", f"/website/campaigns/{c1}/duplicate", {}, **T2)["id"]
+call("DELETE", f"/website/campaigns/{dup}", **T2)
+call("POST", f"/website/campaigns/{c1}/archive", {}, **T2)
+call("POST", f"/website/campaigns/{c1}/publish", {}, **T2, expect=422)
+check("duplicate, delete a draft, archive; archived cannot be published", call("GET", f"/site?slug={dk_slug}", **PUB)["campaign"] is None)
+# Best sellers from real sales only
+c3 = call("POST", "/website/campaigns", {**camp, "name": "Best sellers", "products": {"mode": "auto", "product_ids": [], "limit": 3, "period_days": 30}}, **T2)["id"]
+call("POST", f"/website/campaigns/{c3}/publish", {}, **T2)
+best = call("GET", f"/site?slug={dk_slug}", **PUB)["campaign"]
+pub_ids = {x["id"] for x in call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"]}
+check("best sellers: published products only, never invented, within the limit", best["id"] == c3 and len(best["products"]) <= 3 and all(x["id"] in pub_ids for x in best["products"]))
+# Platform switch wins
+ps_c = call("GET", "/platform/campaigns")
+call("PUT", "/platform/campaigns", {**ps_c, "enabled": False})
+check("platform switch hides every campaign", call("GET", f"/site?slug={dk_slug}", **PUB)["campaign"] is None)
+call("PUT", "/website/campaigns/settings", {"enabled": True}, **T2, expect=422)
+call("PUT", "/platform/campaigns", ps_c)
+call("PUT", "/platform/campaigns", {**ps_c, "max_products": 99}, expect=400)
+call("GET", "/platform/campaigns", **T2, expect=403)
+check("platform rules: only the platform owner, bounded limits", True)
 call("GET", "/website/analytics?period=custom&from=2026-01-01&to=2025-01-01", **T2, expect=400)
 call("GET", "/website/analytics", **W, expect=403)
 check("analytics need their own permission", True)

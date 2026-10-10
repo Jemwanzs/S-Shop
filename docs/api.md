@@ -299,6 +299,18 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | GET | `/api/photos/{id}?size=thumb` | the thumbnail, or the original when there is none |
 | GET | `/api/site/products` (+ `sort` recommended/newest/name_asc/name_desc/price_asc/price_desc, `stock=in`, `limit`, `offset`) | roadmap 81; `total` = full filtered count; items carry `compare_at` |
 
+## Holiday & promotional campaigns ([module 29](modules/29-holiday-campaigns.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/website/campaigns` | switch, platform limits, campaigns with status (draft/scheduled/live/expired/archived), local times, insights, the one showing |
+| PUT | `/api/website/campaigns/settings` (`enabled`) | `website.publish` |
+| POST / PUT / DELETE | `/api/website/campaigns` · `/{id}` | create / edit (`version`) / delete a never-published draft; `website.content` |
+| POST | `/api/website/campaigns/{id}/duplicate` · `/publish` · `/unpublish` · `/archive` | publishing actions need `website.publish` |
+| GET | `/api/site` | adds `campaign` (the one showing, featured products resolved); staff preview `?preview=1&campaign={id}` |
+| POST | `/api/site/events` (`campaign_view`, `campaign_product`, `campaign_cta` + `campaign_id`) | this business's campaigns only |
+| GET / PUT | `/api/platform/campaigns` | feature on/off, campaigns per business, products per campaign |
+
 ## Quick Login PIN ([module 28](modules/28-quick-login-pin.md))
 
 | Method | Path | Notes |

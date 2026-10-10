@@ -86,7 +86,7 @@ pub async fn load(conn: &mut sqlx::PgConnection, tenant_id: Uuid, lock: bool) ->
 }
 
 /// The website service is active (activated by the platform owner); editing is possible even before the first publish.
-fn ensure_active(row: &Option<SiteRow>) -> AppResult<&SiteRow> {
+pub(crate) fn ensure_active(row: &Option<SiteRow>) -> AppResult<&SiteRow> {
     match row {
         Some(r) if r.status == "active" => Ok(r),
         Some(r) if r.status == "disabled" => Err(refused("Website disabled", "The website service is disabled for this business — contact S'Shop")),
@@ -763,7 +763,8 @@ struct MediaPatch {
 
 async fn in_use(conn: &mut sqlx::PgConnection, tenant_id: Uuid, id: Uuid) -> AppResult<(bool, bool)> {
     let row = load(conn, tenant_id, false).await?;
-    let draft = row.as_ref().is_some_and(|r| website::media_ids(&r.draft.0).contains(&id));
+    // A campaign that is not archived counts as the draft using it (roadmap 84).
+    let draft = row.as_ref().is_some_and(|r| website::media_ids(&r.draft.0).contains(&id)) || super::campaigns::uses_media(conn, tenant_id, id).await?;
     let published = row.as_ref().and_then(|r| r.published.as_ref()).is_some_and(|p| website::media_ids(&p.0).contains(&id));
     Ok((draft, published))
 }

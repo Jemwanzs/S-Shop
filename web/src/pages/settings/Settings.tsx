@@ -85,7 +85,7 @@ const SECTIONS: SectionDef[] = [
   { path: "preferences", label: "User preferences", group: "Personal", icon: SlidersHorizontal, perm: "", element: <PreferencesSettings /> },
   // "platform": only platform administrators (PLATFORM_ADMIN_EMAILS) see this section.
   { path: "tenants", label: "Tenants", group: "Platform", icon: Users2, perm: "platform", element: <TenantsSettings /> },
-  { path: "platform-security", label: "Security", group: "Platform", icon: ShieldCheck, perm: "platform", element: <PlatformSecuritySettings /> },
+  { path: "platform-security", label: "Security & features", group: "Platform", icon: ShieldCheck, perm: "platform", element: <PlatformSecuritySettings /> },
   { path: "businesses", label: "Businesses", group: "Platform", icon: Network, perm: "platform", element: <BusinessesSettings /> },
   { path: "platform-billing", label: "Platform billing", group: "Platform", icon: Banknote, perm: "platform", element: <PlatformBilling /> },
   { path: "activity", label: "Activity", group: "Platform", icon: Activity, perm: "platform", element: <PlatformActivity /> },

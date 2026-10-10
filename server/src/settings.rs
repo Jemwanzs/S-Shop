@@ -30,10 +30,25 @@ pub struct TenantSettings {
 pub struct SecuritySettings {
     /// Platform support access: `notify` (support may enter; administrators are told) | `approval` (asked first).
     pub support_access: String,
+    /// Roadmap 83: Quick Login PIN for this business (within the platform's rules).
+    pub quick_pin: QuickPinPolicy,
 }
 impl Default for SecuritySettings {
     fn default() -> Self {
-        Self { support_access: "notify".into() }
+        Self { support_access: "notify".into(), quick_pin: QuickPinPolicy::default() }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct QuickPinPolicy {
+    pub enabled: bool,
+    /// Roles whose people may use a Quick PIN (empty = every role).
+    pub role_ids: Vec<uuid::Uuid>,
+}
+impl Default for QuickPinPolicy {
+    fn default() -> Self {
+        Self { enabled: true, role_ids: Vec::new() }
     }
 }
 

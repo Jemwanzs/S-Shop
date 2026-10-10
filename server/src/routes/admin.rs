@@ -558,6 +558,8 @@ struct UserRow {
     default_branch_id: Option<Uuid>,
     /// Roadmap 72: signs in through their account in this other business of the tenant (no PIN here).
     linked_from: Option<String>,
+    /// Roadmap 83: has a Quick Login PIN (never the PIN itself).
+    quick_pin: bool,
 }
 
 async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<UserRow>>> {
@@ -566,7 +568,7 @@ async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<V
         "SELECT u.id, u.name, u.email, u.phone, u.role_id, r.name AS role_name, u.is_active, u.all_branches,
                 COALESCE(ARRAY(SELECT branch_id FROM user_branches ub WHERE ub.user_id = u.id), '{}') AS branch_ids,
                 COALESCE(li.last_login_at, u.last_login_at) AS last_login_at, u.created_at, u.extra_permissions, u.default_branch_id,
-                lt.name AS linked_from
+                lt.name AS linked_from, u.quick_pin_hash IS NOT NULL AS quick_pin
          FROM users u JOIN roles r ON r.id = u.role_id LEFT JOIN users li ON li.id = u.login_user_id LEFT JOIN tenants lt ON lt.id = li.tenant_id
          WHERE u.tenant_id = $1 ORDER BY u.is_active DESC, u.name",
     )
@@ -634,6 +636,7 @@ async fn set_branches(conn: &mut sqlx::PgConnection, user_id: Uuid, branch_ids: 
 }
 
 async fn create_user(State(state): State<AppState>, ctx: Ctx, Json(b): Json<UserBody>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     ctx.require("users.manage")?;
     let pin = b.pin.clone().ok_or_else(|| bad("Set a login PIN"))?;
     validate_pin(&pin)?;
@@ -664,6 +667,7 @@ async fn create_user(State(state): State<AppState>, ctx: Ctx, Json(b): Json<User
 }
 
 async fn update_user(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<UserBody>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     ctx.require("users.manage")?;
     if id == ctx.user_id && b.is_active == Some(false) {
         return Err(bad("You cannot deactivate your own account"));
@@ -734,10 +738,12 @@ struct ResetPin {
 }
 
 async fn reset_user_pin(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<ResetPin>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     ctx.require("users.manage")?;
     validate_pin(&b.pin)?;
     let mut tx = state.db.begin().await?;
-    let n = sqlx::query("UPDATE users SET pin_hash=$3, failed_attempts=0, locked_until=NULL WHERE id=$1 AND tenant_id=$2 AND login_user_id IS NULL")
+    // The person's older sessions and trusted devices end with the old PIN.
+    let n = sqlx::query("UPDATE users SET pin_hash=$3, failed_attempts=0, locked_until=NULL, sessions_valid_after=now() WHERE id=$1 AND tenant_id=$2 AND login_user_id IS NULL")
         .bind(id)
         .bind(ctx.tenant_id)
         .bind(hash_pin(&b.pin)?)
@@ -747,6 +753,7 @@ async fn reset_user_pin(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
     if n == 0 {
         return Err(AppError::NotFound("User"));
     }
+    crate::routes::quickpin::revoke_devices(&mut tx, id, "PIN reset by an administrator", Some(ctx.user_id)).await?;
     audit::record(&mut tx, &ctx, Entry::new("users", "reset_pin", "user", id)).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true })))
@@ -820,6 +827,7 @@ fn validate_role(b: &RoleBody) -> AppResult<()> {
 }
 
 async fn create_role(State(state): State<AppState>, ctx: Ctx, Json(b): Json<RoleBody>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     ctx.require("roles.manage")?;
     validate_role(&b)?;
     ensure_grantable(&ctx, &b.permissions, &[])?;
@@ -837,6 +845,7 @@ async fn create_role(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Role
 }
 
 async fn update_role(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<RoleBody>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     ctx.require("roles.manage")?;
     let mut tx = state.db.begin().await?;
     let (is_system, before, current, users): (bool, Value, Vec<String>, i64) = sqlx::query_as(
@@ -943,6 +952,7 @@ struct AccessBody {
 /// Sets one user's access exceptions and default branch. Nobody can give more than they hold themselves: a grant needs
 /// the permission, a scope cannot be wider than the granting user's own scope for that area.
 async fn set_user_access(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<AccessBody>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     ctx.require("users.manage")?;
     let mut clean: Vec<String> = Vec::new();
     let mut areas: Vec<&str> = Vec::new();

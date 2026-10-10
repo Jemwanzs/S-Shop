@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Link2, LocateFixed, Pencil, Plus, ShieldCheck } from "lucide-react";
+import { Grid3x3, KeyRound, Link2, LocateFixed, Pencil, Plus, ShieldCheck } from "lucide-react";
 import { Loading } from "@/components/Page";
 import { UserAccessDialog } from "./UserAccess";
 import { currentPosition } from "@/lib/location";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, Select, ToggleRow } from "@/components/Form";
+import { ConfirmDialog, Field, Select, ToggleRow } from "@/components/Form";
 import { Pill } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { PasswordInput } from "@/components/PasswordInput";
@@ -154,6 +154,12 @@ export function UsersSettings() {
   const [newPin, setNewPin] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
   const [linkOpen, setLinkOpen] = useState(false);
+  const [quickFor, setQuickFor] = useState<UserRow | null>(null);
+  const quickReset = useMutation({
+    mutationFn: (id: string) => api(`/users/${id}/quick-pin/reset`, { method: "POST" }),
+    onSuccess: () => { toast.success("Quick PIN switched off on every device"); setQuickFor(null); qc.invalidateQueries({ queryKey: ["users"] }); },
+    onError: (e) => toast.error(e),
+  });
   const save = useMutation({
     mutationFn: (u: UserForm) => api(u.id ? `/users/${u.id}` : "/users", { method: u.id ? "PUT" : "POST", body: { ...u, pin: u.id ? undefined : u.pin } }),
     onSuccess: () => { toast.success("User saved"); setEdit(null); qc.invalidateQueries({ queryKey: ["users"] }); },
@@ -183,11 +189,15 @@ export function UsersSettings() {
             </div>
             <Button variant="ghost" size="icon-sm" onClick={() => setAccessFor(u)} aria-label={t("Roles & Access")}><ShieldCheck /></Button>
             {!u.linked_from && <Button variant="ghost" size="icon-sm" onClick={() => { setNewPin(""); setPinConfirm(""); setResetFor(u); }} aria-label="Reset PIN"><KeyRound /></Button>}
+            {u.quick_pin && !u.linked_from && <Button variant="ghost" size="icon-sm" onClick={() => setQuickFor(u)} aria-label={t("Reset Quick PIN")} title={t("Reset Quick PIN")}><Grid3x3 /></Button>}
             <Button variant="ghost" size="icon-sm" onClick={() => setEdit({ id: u.id, name: u.name, email: u.email, phone: u.phone, pin: "", role_id: u.role_id, all_branches: u.all_branches, branch_ids: u.branch_ids, is_active: u.is_active })} aria-label="Edit"><Pencil /></Button>
           </div>
         ))}
       </Card>
       {accessFor && <UserAccessDialog user={accessFor} branches={branches.data ?? []} onClose={() => setAccessFor(null)} />}
+      <ConfirmDialog open={!!quickFor} onOpenChange={(o) => !o && setQuickFor(null)} title={`${t("Reset Quick PIN for")} ${quickFor?.name ?? ""}?`}
+        description="Their Quick PIN is deleted and every trusted device needs their full sign-in again. Nobody can see a Quick PIN."
+        confirmLabel="Reset Quick PIN" destructive busy={quickReset.isPending} onConfirm={() => quickFor && quickReset.mutate(quickFor.id)} />
       {linkOpen && <LinkUserDialog roles={roles.data ?? []} branches={branches.data ?? []} onClose={() => setLinkOpen(false)} onSaved={() => qc.invalidateQueries({ queryKey: ["users"] })} />}
       <ResponsiveDialog
         open={!!edit}

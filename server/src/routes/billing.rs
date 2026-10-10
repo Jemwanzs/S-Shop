@@ -231,6 +231,7 @@ async fn document_view(state: &AppState, tenant_id: Uuid, id: Uuid, all_payments
 /// *Pay now*: a Paystack checkout for exactly one open invoice of the caller's business. The amount comes from
 /// the invoice on the server; nothing the browser sends decides what is paid.
 async fn pay(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     ctx.require("settings.billing")?;
     let cfg = state.cfg.paystack.as_ref().ok_or_else(|| refused("Online payment unavailable", "Online payments are not set up yet — pay by bank transfer using the details shown"))?;
     let (number, amount, currency, status): (String, Decimal, String, String) = sqlx::query_as(
@@ -314,6 +315,7 @@ async fn verify_return(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Ve
 
 /// The business accepts a quotation: it becomes an invoice it can pay.
 async fn accept_quotation(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     ctx.require("settings.billing")?;
     let mut tx = state.db.begin().await?;
     let (invoice_id, number) = quotation_to_invoice(&mut tx, ctx.tenant_id, id, Some(ctx.user_id)).await?;

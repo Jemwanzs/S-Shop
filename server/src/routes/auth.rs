@@ -163,6 +163,8 @@ pub struct Profile {
     businesses: Vec<Value>,
     /// Signs in through their account in another business of the tenant (PIN changes apply there).
     linked_from: Option<String>,
+    /// Roadmap 83: opened with a Quick PIN — sensitive actions ask for a full sign-in.
+    pub quick: bool,
 }
 
 /// `acting`: the platform admin's own business when they have opened `tenant_id` from the platform.
@@ -252,6 +254,7 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         .bind(user_id)
         .fetch_optional(&state.db)
         .await?,
+        quick: false,
         branches: branches
             .into_iter()
             // Effective trading hours (own, else the business hours) for the open/closed banner at the till.
@@ -271,7 +274,9 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
 }
 
 async fn me(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Profile>> {
-    Ok(Json(load_profile(&state, ctx.user_id, ctx.tenant_id, ctx.acting_from).await?))
+    let mut p = load_profile(&state, ctx.user_id, ctx.tenant_id, ctx.acting_from).await?;
+    p.quick = ctx.quick;
+    Ok(Json(p))
 }
 
 #[derive(Deserialize)]
@@ -281,6 +286,7 @@ struct ChangePin {
 }
 
 async fn change_pin(State(state): State<AppState>, ctx: Ctx, Json(body): Json<ChangePin>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     validate_pin(&body.new_pin)?;
     if ctx.support.is_some() {
         return Err(bad("End the support session and change your PIN in your own business"));
@@ -308,6 +314,7 @@ async fn change_pin(State(state): State<AppState>, ctx: Ctx, Json(body): Json<Ch
     .bind(hash_pin(&body.new_pin)?)
     .execute(&mut *tx)
     .await?;
+    crate::routes::quickpin::revoke_devices(&mut tx, identity, "PIN changed", Some(identity)).await?;
     sqlx::query("UPDATE auth_tokens SET revoked_at = now() WHERE user_id = $1 AND kind IN ('setup', 'reset') AND used_at IS NULL AND revoked_at IS NULL")
         .bind(identity)
         .execute(&mut *tx)

@@ -507,7 +507,7 @@ async fn request_support(State(state): State<AppState>, ctx: Ctx, Path(id): Path
         notify_admins(
             &state,
             id,
-            Note::new("support_request", "S'Shop support asks to access your business", format!("{} · {scope} · {} min — {reason}", ctx.name, b.minutes), "/settings/support"),
+            Note::new("support_request", "S'Shop support asks to access your business", format!("{} · {scope} · {} min — {reason}", ctx.name, b.minutes), "/settings/security"),
         )
         .await;
         return Ok(Json(json!({ "status": "requested", "id": sid })));
@@ -516,7 +516,7 @@ async fn request_support(State(state): State<AppState>, ctx: Ctx, Path(id): Path
         notify_admins(
             &state,
             id,
-            Note::new("support_started", "S'Shop support opened your business", format!("{} · {scope} · until {} UTC — {reason}", ctx.name, until.format("%H:%M")), "/settings/support"),
+            Note::new("support_started", "S'Shop support opened your business", format!("{} · {scope} · until {} UTC — {reason}", ctx.name, until.format("%H:%M")), "/settings/security"),
         )
         .await;
     }
@@ -633,6 +633,7 @@ struct PolicyBody {
 
 /// Only the business's own administrators decide its policy — never the platform from inside a support session.
 async fn set_policy(State(state): State<AppState>, ctx: Ctx, Json(b): Json<PolicyBody>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     if !ctx.is_admin() || ctx.support.is_some() {
         return Err(AppError::Forbidden("Only the business's administrators decide on support access".into()));
     }
@@ -653,6 +654,7 @@ async fn set_policy(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Polic
 
 /// approve | deny a request; revoke an approved or active session (ends it at once).
 async fn decide(State(state): State<AppState>, ctx: Ctx, Path((sid, decision)): Path<(Uuid, String)>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     ctx.require("users.manage")?;
     if ctx.support.is_some() {
         return Err(AppError::Forbidden("Support access is decided by the business's own staff".into()));
@@ -748,8 +750,15 @@ async fn switch_business(State(state): State<AppState>, ctx: Ctx, Json(b): Json<
     audit::record(&mut tx, &c, Entry::new("auth", "switch_business", "user", user).after(json!({ "from": ctx.tenant_id }))).await?;
     sqlx::query("UPDATE users SET last_login_at = now() WHERE id = $1").bind(user).execute(&mut *tx).await?;
     tx.commit().await?;
-    let token = issue_token(&state.cfg.jwt_secret, user, b.tenant_id, "staff", Duration::hours(STAFF_TOKEN_HOURS))?;
-    let profile = super::auth::load_profile(&state, user, b.tenant_id, None).await?;
+    // A Quick PIN session stays a Quick PIN session in the other business (roadmap 83): never upgraded by switching.
+    let token = if ctx.quick {
+        let hours = super::quickpin::platform_security(&state.db).await?.quick_session_hours.clamp(1, 24) as i64;
+        crate::auth::issue_quick_token(&state.cfg.jwt_secret, user, b.tenant_id, Duration::hours(hours))?
+    } else {
+        issue_token(&state.cfg.jwt_secret, user, b.tenant_id, "staff", Duration::hours(STAFF_TOKEN_HOURS))?
+    };
+    let mut profile = super::auth::load_profile(&state, user, b.tenant_id, None).await?;
+    profile.quick = ctx.quick;
     Ok(Json(json!({ "token": token, "profile": profile })))
 }
 
@@ -803,6 +812,7 @@ struct LinkBody {
 
 /// Give a person of another business of this tenant access here, with a role and branches of this business.
 async fn link_user(State(state): State<AppState>, ctx: Ctx, Json(b): Json<LinkBody>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     ctx.require("users.manage")?;
     let mut tx = state.db.begin().await?;
     let who: Option<(String, String)> = sqlx::query_as(

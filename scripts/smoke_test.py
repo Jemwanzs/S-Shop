@@ -2150,6 +2150,72 @@ act_t = call("GET", f"/platform/activity?account_id={tacc['id']}&activity=suppor
 check("tenant activity: support sessions, only this tenant", act_t["totals"]["support"] >= 4
       and all(x["business"] in (tq["business_name"], f"Tenant Co Two {suffix}") for x in act_t["items"]), act_t["totals"])
 
+step("Roadmap 83: Quick Login PIN on trusted devices")
+qp_roles = {r["name"]: r["id"] for r in call("GET", "/roles")}
+qp_mail = f"quick{suffix.lower()}@sshop.test"
+qp_user = call("POST", "/users", {"name": f"Quick {suffix}", "email": qp_mail, "pin": "4321", "role_id": qp_roles["Manager"], "all_branches": True, "branch_ids": []})["id"]
+QF = {"token": call("POST", "/auth/login", {"email": qp_mail, "pin": "4321"})["token"], "branch": BRANCH}
+st = call("GET", "/auth/quick-pin", **QF)
+check("available, not set yet, 4–6 digits", st["available"] and not st["enabled"] and st["min_length"] == 4 and st["devices"] == [], st)
+call("PUT", "/auth/quick-pin", {"current_pin": "wrong", "quick_pin": "2580"}, **QF, expect=400)
+call("PUT", "/auth/quick-pin", {"current_pin": "4321", "quick_pin": "1234"}, **QF, expect=400)
+call("PUT", "/auth/quick-pin", {"current_pin": "4321", "quick_pin": "25801"[:3]}, **QF, expect=400)
+check("needs the full PIN; weak, short or non-digit Quick PINs refused", True)
+dev = call("PUT", "/auth/quick-pin", {"current_pin": "4321", "quick_pin": "2580", "device_name": "Till phone"}, **QF)
+check("Quick PIN saved; this device trusted with a secret shown once", len(dev["device_token"]) >= 40 and "2580" not in json.dumps(dev))
+r = call("POST", "/auth/quick-login", {"device_token": dev["device_token"], "pin": "2581"}, token="none", branch="none", expect=400)
+check("wrong Quick PIN refused", r["error"]["message"] == "Wrong Quick PIN", r)
+ql = call("POST", "/auth/quick-login", {"device_token": dev["device_token"], "pin": "2580"}, token="none", branch="none")
+QQ = {"token": ql["token"], "branch": BRANCH}
+check("Quick sign-in on the trusted device; the session is marked", ql["profile"]["quick"] is True and call("GET", "/auth/me", **QQ)["quick"] is True
+      and call("GET", "/auth/me", **QF)["quick"] is False)
+call("GET", "/sales?period=today", **QQ)
+for m_, p_, b_ in [("POST", "/auth/change-pin", {"current_pin": "4321", "new_pin": "5678"}), ("PUT", "/auth/quick-pin", {"current_pin": "4321", "quick_pin": "3690"}),
+                   ("POST", "/roles", {"name": "Sneaky", "permissions": ["sales.view"]}), ("PUT", "/security/quick-pin", {"enabled": False, "role_ids": []})]:
+    r = call(m_, p_, b_, **QQ, expect=422)
+    check(f"Quick session cannot {p_}", r["error"]["title"] == "Full sign-in needed", r)
+r = call("POST", "/auth/quick-login", {"device_token": "not-a-device", "pin": "2580"}, token="none", branch="none", expect=422)
+check("an untrusted device always needs the full sign-in", r["error"]["title"] == "Full sign-in needed")
+audit_q = call("GET", "/audit?period=today&limit=300&module=auth")["items"]
+check("Quick PIN events audited, never the PIN", any(a["action"] == "quick_pin_enabled" for a in audit_q) and "2580" not in json.dumps(audit_q))
+# Administrators reset (never see) it; a full PIN reset ends trusted devices too
+call("POST", f"/users/{qp_user}/quick-pin/reset", {}, **QQ, expect=422)
+call("POST", f"/users/{qp_user}/quick-pin/reset", {})
+call("POST", "/auth/quick-login", {"device_token": dev["device_token"], "pin": "2580"}, token="none", branch="none", expect=422)
+check("administrator reset: the device needs the full sign-in", True)
+QF = {"token": call("POST", "/auth/login", {"email": qp_mail, "pin": "4321"})["token"], "branch": BRANCH}
+dev2 = call("PUT", "/auth/quick-pin", {"current_pin": "4321", "quick_pin": "2580"}, **QF)
+time.sleep(1.1)  # sessions are compared by the second
+call("POST", f"/users/{qp_user}/reset-pin", {"pin": "8642"})
+call("POST", "/auth/quick-login", {"device_token": dev2["device_token"], "pin": "2580"}, token="none", branch="none", expect=422)
+call("GET", "/auth/me", **QF, expect=401)
+check("full PIN reset ends trusted devices and older sessions", True)
+# Lock after repeated wrong PINs
+QF = {"token": call("POST", "/auth/login", {"email": qp_mail, "pin": "8642"})["token"], "branch": BRANCH}
+dev3 = call("PUT", "/auth/quick-pin", {"current_pin": "8642", "quick_pin": "3691"}, **QF)
+for _ in range(5):
+    call("POST", "/auth/quick-login", {"device_token": dev3["device_token"], "pin": "0000"}, token="none", branch="none", expect=400)
+call("POST", "/auth/quick-login", {"device_token": dev3["device_token"], "pin": "3691"}, token="none", branch="none", expect=403)
+check("five wrong Quick PINs lock it (even the right one) for a while", True)
+# Business rule: off revokes every trusted device of the business
+call("PUT", "/security/quick-pin", {"enabled": False, "role_ids": []})
+r = call("PUT", "/auth/quick-pin", {"current_pin": "8642", "quick_pin": "4826"}, **QF, expect=422)
+check("business switched Quick PIN off: cannot be set", r["error"]["title"] == "Quick PIN unavailable", r)
+check("…and trusted devices were revoked", call("GET", "/auth/quick-pin", **QF)["devices"] == [])
+call("PUT", "/security/quick-pin", {"enabled": True, "role_ids": [str(uuid.uuid4())]}, expect=400)
+call("PUT", "/security/quick-pin", {"enabled": True, "role_ids": []})
+call("PUT", "/security/quick-pin", {"enabled": True, "role_ids": []}, **QF, expect=403)
+check("only administrators set the business rule", True)
+# Platform rules
+ps = call("GET", "/platform/security")
+check("platform rules readable by the platform owner", ps["quick_pin_enabled"] and ps["quick_pin_min_length"] == 4)
+call("PUT", "/platform/security", {**ps, "quick_pin_min_length": 7}, expect=400)
+call("GET", "/platform/security", **QF, expect=403)
+call("PUT", "/platform/security", {**ps, "quick_pin_min_length": 5})
+r = call("PUT", "/auth/quick-pin", {"current_pin": "8642", "quick_pin": "4826"}, **QF, expect=400)
+check("platform minimum length applies", "5–6" in r["error"]["message"], r)
+call("PUT", "/platform/security", ps)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

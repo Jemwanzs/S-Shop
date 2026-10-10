@@ -218,3 +218,6 @@
     border-radius: 999px;
   }
 }
+
+/* Roadmap 83: wrong Quick PIN */
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }

@@ -204,6 +204,15 @@ function UserMenu({ full }: { full?: boolean }) {
               <DropdownMenuSeparator />
             </>
           )}
+          {profile.quick && (
+            <>
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{t("Signed in with Quick PIN")}</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => { const email = profile.user.email; signOut(); navigate(`/login?email=${encodeURIComponent(email)}`, { replace: true }); }} className="gap-2">
+                <KeyRound className="h-4 w-4" /> {t("Sign in fully")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem onClick={() => navigate("/settings/preferences")} className="gap-2"><SlidersHorizontal className="h-4 w-4" /> {t("Preferences")}</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setPinOpen(true)} className="gap-2"><KeyRound className="h-4 w-4" /> {t("Change PIN")}</DropdownMenuItem>
           <DropdownMenuItem onClick={signOut} className="gap-2 text-destructive"><LogOut className="h-4 w-4" /> {t("Sign out")}</DropdownMenuItem>

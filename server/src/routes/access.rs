@@ -261,6 +261,7 @@ async fn announce(state: &AppState, id: Uuid) {
 // ───────────────────────────── Platform admin ─────────────────────────────
 
 pub async fn require_platform_admin(state: &AppState, ctx: &Ctx) -> AppResult<()> {
+    ctx.require_full()?;
     if !ctx.can("*") {
         return Err(AppError::Forbidden("Only platform administrators can review access requests".into()));
     }
@@ -379,6 +380,8 @@ pub async fn set_one_time_pin(conn: &mut sqlx::PgConnection, user_id: Uuid, pin:
     .bind(mailer::TEMP_PIN_HOURS as i32)
     .execute(&mut *conn)
     .await?;
+    // Roadmap 83: a replaced PIN also ends Quick PIN on every trusted device.
+    crate::routes::quickpin::revoke_devices(conn, user_id, "PIN replaced", None).await?;
     Ok(())
 }
 

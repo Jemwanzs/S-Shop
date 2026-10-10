@@ -131,6 +131,8 @@ export interface Profile {
   businesses?: { id: Id; name: string; current: boolean }[];
   /** Signs in through their account in this other business of the tenant. */
   linked_from?: string | null;
+  /** Roadmap 83: this session was opened with a Quick PIN (sensitive actions need a full sign-in). */
+  quick?: boolean;
 }
 
 export interface Product {
@@ -438,6 +440,8 @@ export interface UserRow {
   created_at: string;
   /** Roadmap 72: signs in through their account in this other business of the tenant (no PIN here). */
   linked_from?: string | null;
+  /** Roadmap 83: has a Quick Login PIN. */
+  quick_pin?: boolean;
 }
 
 export interface Role {

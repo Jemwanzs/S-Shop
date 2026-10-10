@@ -32,6 +32,9 @@ pub struct Claims {
     /// request: ended, expired or revoked sessions stop working at once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sid: Option<Uuid>,
+    /// Roadmap 83: signed in with a Quick PIN on a trusted device — sensitive actions need a full sign-in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub qp: bool,
     pub exp: i64,
     pub iat: i64,
 }
@@ -59,7 +62,7 @@ pub fn validate_pin(pin: &str) -> AppResult<()> {
 
 pub fn issue_token(secret: &str, sub: Uuid, tid: Uuid, typ: &str, ttl: chrono::Duration) -> AppResult<String> {
     let now = Utc::now();
-    let claims = Claims { sub, tid, typ: typ.into(), home: None, sid: None, iat: now.timestamp(), exp: (now + ttl).timestamp() };
+    let claims = Claims { sub, tid, typ: typ.into(), home: None, sid: None, qp: false, iat: now.timestamp(), exp: (now + ttl).timestamp() };
     encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
         .map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
 }
@@ -68,9 +71,16 @@ pub fn issue_token(secret: &str, sub: Uuid, tid: Uuid, typ: &str, ttl: chrono::D
 /// until the session ends (roadmap 71).
 pub fn issue_acting_token(secret: &str, sub: Uuid, home: Uuid, tid: Uuid, sid: Uuid, until: chrono::DateTime<Utc>) -> AppResult<String> {
     let now = Utc::now();
-    let claims = Claims { sub, tid, typ: "staff".into(), home: Some(home), sid: Some(sid), iat: now.timestamp(), exp: until.timestamp() };
+    let claims = Claims { sub, tid, typ: "staff".into(), home: Some(home), sid: Some(sid), qp: false, iat: now.timestamp(), exp: until.timestamp() };
     encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
         .map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
+}
+
+/// Roadmap 83: a staff session opened with a Quick PIN on a trusted device.
+pub fn issue_quick_token(secret: &str, sub: Uuid, tid: Uuid, ttl: chrono::Duration) -> AppResult<String> {
+    let now = Utc::now();
+    let claims = Claims { sub, tid, typ: "staff".into(), home: None, sid: None, qp: true, iat: now.timestamp(), exp: (now + ttl).timestamp() };
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
 }
 
 pub fn read_token(secret: &str, token: &str, typ: &str) -> AppResult<Claims> {
@@ -155,11 +165,22 @@ pub struct Ctx {
     pub acting_from: Option<Uuid>,
     /// The support session in force (roadmap 71).
     pub support: Option<Support>,
+    /// Roadmap 83: this session was opened with a Quick PIN.
+    pub quick: bool,
     /// Modules in the business's package (None = all) — roadmap 41.
     pub modules: Option<Vec<String>>,
 }
 
 impl Ctx {
+    /// Roadmap 83: payments, roles and access, security settings and platform administration need a session opened
+    /// with the full email + PIN sign-in, never a Quick PIN.
+    pub fn require_full(&self) -> AppResult<()> {
+        if self.quick {
+            return Err(crate::error::refused("Full sign-in needed", "For your security, sign in with your email and full PIN to do this"));
+        }
+        Ok(())
+    }
+
     pub fn can(&self, perm: &str) -> bool {
         // "Manage all settings" implies every settings area.
         self.permissions.iter().any(|p| p == "*" || p == perm || (p == "settings.manage" && perm.starts_with("settings.")))
@@ -487,6 +508,7 @@ impl FromRequestParts<AppState> for Ctx {
             user_agent,
             acting_from: claims.home,
             support,
+            quick: claims.qp,
             modules,
         })
     }

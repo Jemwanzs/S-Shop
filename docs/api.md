@@ -299,6 +299,20 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | GET | `/api/photos/{id}?size=thumb` | the thumbnail, or the original when there is none |
 | GET | `/api/site/products` (+ `sort` recommended/newest/name_asc/name_desc/price_asc/price_desc, `stock=in`, `limit`, `offset`) | roadmap 81; `total` = full filtered count; items carry `compare_at` |
 
+## Quick Login PIN ([module 28](modules/28-quick-login-pin.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/auth/quick-pin` | available / reason, set, minimum length, trusted devices, `quick_session` |
+| PUT / DELETE | `/api/auth/quick-pin` (`current_pin`, `quick_pin`, `device_name`) | full sign-in; returns `device_token` once · switch off (devices revoked) |
+| POST | `/api/auth/quick-pin/devices` (`current_pin`, `device_name`) · DELETE `/{id}` · POST `/revoke-all` | trust this device · remove one · sign out everywhere |
+| POST | `/api/auth/quick-login` (`device_token`, `pin`) | public, rate-limited; 400 wrong PIN, 403 locked, 422 *Full sign-in needed* |
+| POST | `/api/users/{id}/quick-pin/reset` | `users.manage`, full sign-in |
+| GET / PUT | `/api/security/quick-pin` (`enabled`, `role_ids`) | business rule (administrators, full sign-in) |
+| GET / PUT | `/api/platform/security` | platform rules |
+
+Any endpoint needing a full sign-in answers a Quick session with 422 *Full sign-in needed*.
+
 ## Tenants & secure access ([module 27](modules/27-tenants-and-secure-access.md))
 
 | Method | Path | Notes |

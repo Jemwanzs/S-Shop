@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { ActionButton, REASONS } from "@/components/ActionButton";
 import { ToggleRow } from "@/components/Form";
 import { Card, SettingsPage } from "./shared";
+import { QuickPinCard } from "./QuickPin";
 
 /** Settings → User preferences: per person, applies on every device they sign in to. */
 export function PreferencesSettings() {
@@ -84,6 +85,8 @@ export function PreferencesSettings() {
           />
         </Card>
       )}
+
+      <QuickPinCard />
 
       <Card title="Notifications">
         {can("orders.manage") && (

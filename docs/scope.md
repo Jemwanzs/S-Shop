@@ -377,6 +377,18 @@ Domain Attachment*; *Premium Product Cards, Portrait Photography, Hover Animatio
 - ✅ **82. Default landing page** — Website → Design: Products (default) · Home · Categories · Services at the root of the
   S'Shop address and custom domains; Home moves to `/home`; every page stays in the menu.
 
+Added 2026-10-09 — **Quick Login PIN** (owner request: *Configurable Quick Login PIN (4–6 Digits)*;
+[module 28](modules/28-quick-login-pin.md)).
+- ✅ **83. Quick Login PIN on trusted devices** — a 4–6 digit PIN (salted hash) per person, working only on devices they
+  trusted after a full sign-in (device secret stored as SHA-256); keypad sign-in with *Use password instead* and
+  *Forgot PIN?*; Quick sessions marked — payments, roles & access, PIN and security settings, support decisions and
+  platform administration need the full sign-in (also after switching business); locks after repeated wrong PINs,
+  device revoked at twice the limit; every trusted device revoked when the full PIN changes or is reset, on *Sign out
+  everywhere*, Quick PIN off or reset, or when the business / platform switches it off; platform rules (on/off,
+  shortest PIN, session length, attempts, device lifetime) and business rules (on/off, roles); administrators reset but
+  never see a Quick PIN; audited without PINs. Gap closed on the way: an administrator's PIN reset now also ends the
+  person's older sessions.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

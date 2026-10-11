@@ -2535,6 +2535,41 @@ if PS_PORT:
     check("an account with payments is switched off, not deleted", d["deactivated"] and not call("GET", "/mpesa/accounts")["items"][0]["is_active"])
     check("…and STK Push stops", not call("GET", "/auth/me")["integrations"]["mpesa_stk"])
 
+step("Roadmap 98: barcodes — entry, uniqueness, generation, stocktaking by barcode")
+call("POST", "/products", {"name": f"Bad Code {suffix}", "marked_price": 100, "barcode": "12 34"}, expect=400)
+check("barcodes are checked for shape (3–64 letters, digits, - . _ / +)", True)
+z = call("POST", "/products", {"name": f"Zero Lead {suffix}", "marked_price": 120, "barcode": f"00{suffix}9876"})["result"]["id"]
+check("leading zeros kept (stored as text)", call("GET", f"/products/{z}")["product"]["barcode"] == f"00{suffix}9876")
+r = call("POST", "/products", {"name": f"Clash {suffix}", "marked_price": 120, "barcode": f"00{suffix}9876"}, expect=422)
+check("a barcode already used names the product that has it", f"Zero Lead {suffix}" in r["error"]["message"], r)
+g1, g2 = call("POST", "/products/generate-barcode", {})["barcode"], call("POST", "/products/generate-barcode", {})["barcode"]
+def ean_ok(c):
+    s = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(c[:12]))
+    return len(c) == 13 and c.isdigit() and c[0] == "2" and (10 - s % 10) % 10 == int(c[12])
+check("generated barcodes: in-store EAN-13 with a valid check digit, unique", ean_ok(g1) and ean_ok(g2) and g1 != g2, (g1, g2))
+check("no products share a barcode", call("GET", "/products/barcode-conflicts")["items"] == [])
+# Stock take, unit by unit: 3 units received, 2 found → the third is recorded as lost (an adjustment, approvals apply).
+tp = call("POST", "/products", {"name": f"Tracked Lamp {suffix}", "marked_price": 900, "track_items": True})["result"]["id"]
+units = [f"LMP{suffix}{i}" for i in range(3)]
+call("POST", "/stock/receive", {"product_id": tp, "quantity": 3, "barcodes": units})
+r = call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": tp, "barcodes": [units[0], units[0]]}]}, expect=422)
+check("a unit counted twice is refused", r["error"]["title"] == "Scanned twice", r)
+r = call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": tp, "barcodes": [units[0], "NOT-HERE-1"]}]}, expect=422)
+check("a unit that is not in stock here is refused, named", r["error"]["title"] == "Check these items" and "NOT-HERE-1" in r["error"]["message"], r)
+r = call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": tp, "counted": 0}]}, expect=422)
+check("a tracked product is counted by its units, never by a number", r["error"]["title"] == "Scan each item", r)
+c = call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": tp, "barcodes": units[:2]}]})
+lvl = call("GET", f"/stock?q=Tracked Lamp {suffix}")["items"][0]
+check("the unit not found is recorded as lost (2 left), the others untouched", c["applied"] + c["pending_approval"] == 1 and (lvl["on_hand"] == 2 or c["pending_approval"] == 1), (c, lvl))
+# Counting barcoded products by barcode, when the business requires it.
+st = call("GET", "/settings")["settings"]
+call("PUT", "/settings", {**st, "stock": {**st["stock"], "require_barcode_stocktake": True}})
+r = call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": z, "counted": 0}]}, expect=422)
+check("barcodes required at stock takes: a barcoded product typed in is refused", r["error"]["title"] == "Scan to count", r)
+call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": z, "counted": 0, "scanned": True}]})
+check("…and accepted once counted by its barcode", True)
+call("PUT", "/settings", st)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

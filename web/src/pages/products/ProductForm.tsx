@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, ScanLine, X } from "lucide-react";
+import { Plus, ScanLine, X, Wand2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Loading, PageHeader, Section } from "@/components/Page";
 import { Field, Select, ToggleRow } from "@/components/Form";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { useBarcodeSettings } from "@/components/BarcodeInput";
 import { CustomFieldInputs } from "@/components/CustomFields";
 import { t } from "@/lib/i18n";
 
@@ -75,6 +76,7 @@ export default function ProductForm() {
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => api<Category[]>("/categories") });
   const suppliers = useQuery({ queryKey: ["suppliers"], queryFn: () => api<Supplier[]>("/suppliers") });
   const barcodesDisabled = profile?.settings.stock.barcode_requirement === "disabled";
+  const barcodeCfg = useBarcodeSettings();
   const maxPhotos = profile?.settings.product.max_photos ?? 5;
 
   useEffect(() => {
@@ -235,9 +237,15 @@ export default function ProductForm() {
               />
               {!f.track_items && (
                 <Field label="Product barcode" optional hint="Manufacturer barcode shared by all units">
-                  <div className="flex gap-2">
-                    <Input className="num" value={f.barcode} onChange={(e) => set("barcode", e.target.value)} />
-                    <Button type="button" variant="outline" onClick={() => setScan(true)}><ScanLine /> {t("Scan")}</Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Input className="num min-w-[12rem] flex-1" value={f.barcode} readOnly={!barcodeCfg.manual}
+                      placeholder={barcodeCfg.manual ? t("Type, paste or scan") : t("Scan or generate")}
+                      onChange={(e) => set("barcode", e.target.value)} />
+                    {barcodeCfg.camera && <Button type="button" variant="outline" onClick={() => setScan(true)}><ScanLine /> {t("Scan")}</Button>}
+                    <Button type="button" variant="outline" title={t("A unique in-store EAN-13 for a product without a manufacturer's barcode")} onClick={async () => {
+                      try { set("barcode", (await api<{ barcode: string }>("/products/generate-barcode", { method: "POST" })).barcode); }
+                      catch (e) { toast.error(e); }
+                    }}><Wand2 /> {t("Generate")}</Button>
                   </div>
                 </Field>
               )}

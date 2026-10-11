@@ -26,6 +26,8 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/products", get(list).post(create))
         .route("/products/lookup", get(lookup))
+        .route("/products/generate-barcode", axum::routing::post(generate_barcode))
+        .route("/products/barcode-conflicts", get(barcode_conflicts))
         .route("/products/{id}", get(detail).put(update))
         .route("/products/{id}/status", post(set_status))
         .route("/products/{id}/photos", post(upload_photo).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
@@ -227,6 +229,7 @@ async fn validate(conn: &mut PgConnection, ctx: &Ctx, b: &mut ProductBody, exist
     }
     b.barcode = b.barcode.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     if let Some(code) = &b.barcode {
+        crate::util::clean_barcode(code)?;
         let clash: Option<String> = sqlx::query_scalar(
             "SELECT name FROM products WHERE tenant_id = $1 AND barcode = $2 AND ($3::uuid IS NULL OR id <> $3)
              UNION ALL
@@ -674,6 +677,62 @@ async fn photo(State(state): State<AppState>, Path(id): Path<Uuid>, Query(q): Qu
 struct LookupQuery {
     code: String,
     branch_id: Option<Uuid>,
+}
+
+/// Database uniqueness of product barcodes (roadmap 98), created as soon as no business has duplicates left.
+pub async fn ensure_barcode_index(db: &sqlx::PgPool) {
+    let r = sqlx::query(
+        "DO $$ BEGIN
+           IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'products_barcode_uq')
+              AND NOT EXISTS (SELECT 1 FROM products WHERE barcode IS NOT NULL GROUP BY tenant_id, barcode HAVING count(*) > 1) THEN
+             CREATE UNIQUE INDEX products_barcode_uq ON products (tenant_id, barcode) WHERE barcode IS NOT NULL;
+           END IF;
+         END $$",
+    )
+    .execute(db)
+    .await;
+    if let Err(e) = r {
+        tracing::warn!(error = %e, "product barcode index");
+    }
+}
+
+/// Products of this business sharing a barcode (from before uniqueness was enforced) — to be resolved by editing.
+async fn barcode_conflicts(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    ctx.require("products.view")?;
+    let rows: Vec<(String, Vec<Uuid>, Vec<String>)> = sqlx::query_as(
+        "SELECT barcode, array_agg(id ORDER BY name), array_agg(name ORDER BY name) FROM products
+         WHERE tenant_id = $1 AND barcode IS NOT NULL GROUP BY barcode HAVING count(*) > 1 ORDER BY barcode",
+    )
+    .bind(ctx.tenant_id)
+    .fetch_all(&state.db)
+    .await?;
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|(barcode, ids, names)| json!({ "barcode": barcode, "products": ids.iter().zip(names).map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>() }))
+        .collect();
+    Ok(Json(json!({ "items": items })))
+}
+
+/// A unique in-store barcode for a product without a manufacturer's code (roadmap 98): EAN-13 in the restricted
+/// in-store range (prefix 2), with a valid check digit, unused by any product or item of the business.
+async fn generate_barcode(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    ctx.require_any(&["products.create", "products.edit"])?;
+    for _ in 0..20 {
+        let body: String = format!("2{:011}", rand::random::<u64>() % 100_000_000_000);
+        let code = format!("{body}{}", crate::util::ean13_check(&body));
+        let taken: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM products WHERE tenant_id = $1 AND barcode = $2)
+                 OR EXISTS (SELECT 1 FROM stock_items WHERE tenant_id = $1 AND barcode = $2)",
+        )
+        .bind(ctx.tenant_id)
+        .bind(&code)
+        .fetch_one(&state.db)
+        .await?;
+        if !taken {
+            return Ok(Json(json!({ "barcode": code })));
+        }
+    }
+    Err(rule("Could not find a free barcode — try again"))
 }
 
 /// Resolve a scanned code: an individual stock item, a product barcode, or a product code.

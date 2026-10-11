@@ -15,7 +15,7 @@ use uuid::Uuid;
 use super::{like, Counted, Outcome, Page, Paged, Period};
 use crate::audit::{self, Entry};
 use crate::auth::Ctx;
-use crate::error::{bad, rule, AppError, AppResult};
+use crate::error::{bad, rule, AppError, AppResult, refused};
 use crate::inventory::{self, Check, Movement};
 use crate::notify::{self, Note};
 use crate::routes::approvals::ApprovalRow;
@@ -57,6 +57,8 @@ pub struct LevelRow {
     /// None when valued at cost and costs are hidden from this user.
     pub value: Option<Decimal>,
     pub primary_photo_id: Option<Uuid>,
+    /// Roadmap 98: the product has a product-level barcode (stock takes may require counting it by barcode).
+    pub has_barcode: bool,
 }
 
 #[derive(Deserialize)]
@@ -90,7 +92,8 @@ async fn levels(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LevelQu
                 COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) AS available,
                 COALESCE(p.low_stock_threshold, $4) AS low_threshold,
                 (GREATEST(COALESCE(sl.on_hand,0),0) * {price})::numeric(14,2) AS value,
-                (SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order LIMIT 1) AS primary_photo_id
+                (SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order LIMIT 1) AS primary_photo_id,
+                p.barcode IS NOT NULL AS has_barcode
          FROM products p
          LEFT JOIN categories c ON c.id = p.category_id
          LEFT JOIN stock_levels sl ON sl.product_id = p.id AND sl.branch_id = $2
@@ -207,6 +210,9 @@ async fn check_receipt(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b
     b.barcodes = b.barcodes.iter().map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect();
     if s.stock.barcode_requirement == BarcodeRequirement::Disabled {
         b.barcodes.clear();
+    }
+    for c in &b.barcodes {
+        crate::util::clean_barcode(c)?;
     }
     if p.track_items {
         if b.barcodes.len() != b.quantity as usize {
@@ -713,7 +719,14 @@ async fn apply_adjustment(conn: &mut PgConnection, ctx: &Ctx, adj_id: Uuid, appr
 #[derive(Deserialize)]
 struct CountLine {
     product_id: Uuid,
+    /// Product-level stock: the counted quantity (ignored for tracked products: their units are counted).
+    #[serde(default)]
     counted: i32,
+    /// Roadmap 98: the product was identified by scanning or entering its barcode (required when the business says so).
+    #[serde(default)]
+    scanned: bool,
+    /// Roadmap 98: individually tracked products — the unit barcodes found on the shelf (each once).
+    barcodes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -736,7 +749,78 @@ async fn stock_count(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Coun
     let (mut applied, mut pending, mut unchanged) = (0, 0, 0);
     let mut variances = Vec::new();
     let mut approvals = Vec::new();
+    let s = settings::load(&mut tx, ctx.tenant_id).await?;
     for line in &b.lines {
+        let (name, track, barcode): (String, bool, Option<String>) =
+            sqlx::query_as("SELECT name, track_items, barcode FROM products WHERE id = $1 AND tenant_id = $2")
+                .bind(line.product_id)
+                .bind(ctx.tenant_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(AppError::NotFound("Product"))?;
+        if track {
+            // Individually tracked: every unit in stock here that was not found is recorded as lost (one adjustment per
+            // unit, approvals as configured). Units found must be this product's, in stock at this branch, each once.
+            let Some(scans) = line.barcodes.clone() else {
+                return Err(refused("Scan each item", format!("{name} is tracked per item — count it by scanning each unit's barcode")));
+            };
+            let mut found: Vec<String> = Vec::new();
+            for c in scans {
+                let c = crate::util::clean_barcode(&c)?;
+                if found.contains(&c) {
+                    return Err(refused("Scanned twice", format!("{c} was counted twice for {name}")));
+                }
+                found.push(c);
+            }
+            let here: Vec<String> = sqlx::query_scalar(
+                "SELECT barcode FROM stock_items WHERE tenant_id = $1 AND product_id = $2 AND branch_id = $3 AND status = 'in_stock'",
+            )
+            .bind(ctx.tenant_id)
+            .bind(line.product_id)
+            .bind(branch)
+            .fetch_all(&mut *tx)
+            .await?;
+            let strangers: Vec<&String> = found.iter().filter(|c| !here.contains(c)).collect();
+            if !strangers.is_empty() {
+                return Err(refused(
+                    "Check these items",
+                    format!(
+                        "{} not in stock for {name} at this branch: {} — remove them from the count and check them from the Stock page",
+                        if strangers.len() == 1 { "This item is" } else { "These items are" },
+                        strangers.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                    ),
+                ));
+            }
+            let missing: Vec<&String> = here.iter().filter(|c| !found.contains(c)).collect();
+            if missing.is_empty() {
+                unchanged += 1;
+                continue;
+            }
+            for code in &missing {
+                let body = AdjustBody {
+                    product_id: line.product_id,
+                    branch_id: Some(branch),
+                    kind: "loss".into(),
+                    counted_qty: None,
+                    quantity: Some(1),
+                    barcode: Some((*code).clone()),
+                    reason: format!("{reason}: not found on the shelf"),
+                };
+                let (outcome, _) = submit_adjustment(&mut tx, &ctx, body).await?;
+                match outcome.approval_id {
+                    Some(id) => {
+                        pending += 1;
+                        approvals.push(id);
+                    }
+                    None => applied += 1,
+                }
+            }
+            variances.push(json!({ "product_id": line.product_id, "system": here.len(), "counted": found.len(), "variance": found.len() as i64 - here.len() as i64, "missing": missing }));
+            continue;
+        }
+        if s.stock.require_barcode_stocktake && barcode.is_some() && !line.scanned {
+            return Err(refused("Scan to count", format!("Scan or enter {name}'s barcode to count it")));
+        }
         let level = inventory::lock(&mut tx, ctx.tenant_id, branch, line.product_id).await?;
         if line.counted == level.on_hand {
             unchanged += 1;

@@ -93,7 +93,13 @@ pub enum Valuation {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StockSettings {
+    /// `disabled` = barcode management off; `required` = a barcode is required at stock-in; `optional` otherwise.
     pub barcode_requirement: BarcodeRequirement,
+    /// Roadmap 98: barcodes may be typed or pasted (handheld scanners always work); camera scanning offered;
+    /// products with a barcode are counted by scanning or entering it during a stock take.
+    pub manual_barcode_entry: bool,
+    pub camera_scanning: bool,
+    pub require_barcode_stocktake: bool,
     pub quantity_entry: QuantityEntry,
     pub capture_cost: bool,
     pub valuation: Valuation,
@@ -106,6 +112,9 @@ impl Default for StockSettings {
     fn default() -> Self {
         Self {
             barcode_requirement: BarcodeRequirement::Optional,
+            manual_barcode_entry: true,
+            camera_scanning: true,
+            require_barcode_stocktake: false,
             quantity_entry: QuantityEntry::Editable,
             capture_cost: true,
             valuation: Valuation::Cost,

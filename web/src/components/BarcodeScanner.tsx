@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useSession } from "@/lib/session";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { CameraOff, Check, Flashlight, FlashlightOff, Keyboard, Loader2, RefreshCw, SwitchCamera, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -56,6 +57,8 @@ export function BarcodeScanner({
   const [detected, setDetected] = useState(false);
   const [outcome, setOutcome] = useState<(ScanOutcome & { code: string }) | null>(null);
   const [manual, setManual] = useState("");
+  // Roadmap 98: the business may switch typed / pasted barcodes off (handheld scanners still work in this field).
+  const manualAllowed = useSession().profile?.settings.stock.manual_barcode_entry ?? true;
   const paused = useRef(false);
   const last = useRef({ code: "", at: 0 });
   const handler = useRef(onDetected);
@@ -294,8 +297,9 @@ export function BarcodeScanner({
                 <Input
                   value={manual}
                   onChange={(e) => setManual(e.target.value)}
+                  onPaste={(e) => { if (!manualAllowed) e.preventDefault(); }}
                   autoFocus={desktop}
-                  placeholder={t("Type or use a handheld scanner")}
+                  placeholder={t(manualAllowed ? "Type or use a handheld scanner" : "Use a handheld scanner")}
                   aria-label={t("Barcode")}
                   className="num border-white/15 bg-white/10 ps-9 text-white placeholder:text-white/45 focus-visible:ring-offset-0"
                 />

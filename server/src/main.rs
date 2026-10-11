@@ -98,6 +98,7 @@ async fn connect() -> anyhow::Result<sqlx::PgPool> {
         .connect(&url)
         .await?;
     sqlx::migrate!("./migrations").run(&db).await?;
+    routes::catalog::ensure_barcode_index(&db).await;
     Ok(db)
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -183,12 +184,9 @@ export function StockSettings() {
   return (
     <Page d={d} title="Stock" description="Barcodes, quantities, valuation and transfer control.">
       {(s) => (
+        <>
+        <BarcodeSettingsCard s={s} update={d.update} />
         <Card>
-          <Row label="Barcode requirement">
-            <Select value={s.stock.barcode_requirement} onChange={(v) => d.update((x) => { x.stock.barcode_requirement = v as "optional"; })}>
-              <option value="required">{tr("Required")}</option><option value="optional">{tr("Optional")}</option><option value="disabled">{tr("Disabled")}</option>
-            </Select>
-          </Row>
           <Row label="Quantity entry when receiving" hint="Locked = capture each physical item individually">
             <Select value={s.stock.quantity_entry} onChange={(v) => d.update((x) => { x.stock.quantity_entry = v as "editable"; })}>
               <option value="editable">{tr("Editable")}</option><option value="locked">Locked to 1</option>
@@ -204,6 +202,7 @@ export function StockSettings() {
           <ToggleRow label="Transfer receipt control" hint="Stock stays “in transit” until the destination confirms receipt" checked={s.stock.transfer_receipt_control} onChange={(v) => d.update((x) => { x.stock.transfer_receipt_control = v; })} />
           <ToggleRow label="Allow negative stock" hint="Not recommended — sales could exceed physical stock" checked={s.stock.allow_negative} onChange={(v) => d.update((x) => { x.stock.allow_negative = v; })} />
         </Card>
+        </>
       )}
     </Page>
   );
@@ -564,6 +563,42 @@ function ReceiptConfig({ s, update }: { s: Settings; update: (fn: (x: Settings) 
         </div>
         <div className="rounded-xl bg-muted/50 p-3"><p className="label-caps mb-2 text-center">{t("Preview")}</p><Receipt snapshot={sample} zoom={1.25} /></div>
       </div>
+    </Card>
+  );
+}
+
+/** Settings → Stock → Barcode settings (roadmap 98): one card for every barcode switch, on the existing settings. */
+function BarcodeSettingsCard({ s, update }: { s: Settings; update: (f: (x: Settings) => void) => void }) {
+  const on = s.stock.barcode_requirement !== "disabled";
+  const conflicts = useQuery({ queryKey: ["barcode-conflicts"], queryFn: () => api<{ items: { barcode: string; products: { id: string; name: string }[] }[] }>("/products/barcode-conflicts") });
+  return (
+    <Card title="Barcode settings">
+      <ToggleRow label="Enable barcode management" hint="Off: products, stock and sales work without barcodes" checked={on}
+        onChange={(v) => update((x) => { x.stock.barcode_requirement = v ? "optional" : "disabled"; })} />
+      {on && (
+        <>
+          <ToggleRow label="Allow manual barcode entry" hint="Type or paste barcode numbers; handheld scanners always work" checked={s.stock.manual_barcode_entry}
+            onChange={(v) => update((x) => { x.stock.manual_barcode_entry = v; })} />
+          <ToggleRow label="Enable camera scanning" hint="Scan with the phone or tablet camera" checked={s.stock.camera_scanning}
+            onChange={(v) => update((x) => { x.stock.camera_scanning = v; })} />
+          <ToggleRow label="Require barcode during stock-in" hint="Products must have or be given a barcode when stock is received" checked={s.stock.barcode_requirement === "required"}
+            onChange={(v) => update((x) => { x.stock.barcode_requirement = v ? "required" : "optional"; })} />
+          <ToggleRow label="Require barcode during stocktaking" hint="Products with a barcode are counted by scanning or entering it" checked={s.stock.require_barcode_stocktake}
+            onChange={(v) => update((x) => { x.stock.require_barcode_stocktake = v; })} />
+          <ToggleRow label="Require barcode during sales" hint="Products with a barcode must be scanned before they can be sold" checked={s.sales.require_barcode_clearance}
+            onChange={(v) => update((x) => { x.sales.require_barcode_clearance = v; })} />
+        </>
+      )}
+      {!!conflicts.data?.items.length && (
+        <div className="mt-2 rounded-lg bg-warning/10 p-3 text-xs text-warning">
+          <p className="font-medium">{tr("Products sharing a barcode — give each its own:")}</p>
+          <ul className="mt-1 space-y-0.5">
+            {conflicts.data.items.map((c) => (
+              <li key={c.barcode}><span className="num">{c.barcode}</span> · {c.products.map((p, i) => <span key={p.id}>{i > 0 && ", "}<Link className="underline" to={`/products/${p.id}/edit`}>{p.name}</Link></span>)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Card>
   );
 }

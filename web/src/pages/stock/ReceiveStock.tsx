@@ -15,6 +15,7 @@ import { PageHeader, Section } from "@/components/Page";
 import { Field, Select, ToggleRow } from "@/components/Form";
 import { SearchInput } from "@/components/Filters";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
+import { BarcodeInput } from "@/components/BarcodeInput";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { AddPhotosDialog } from "@/components/PhotoPicker";
 import { Pill } from "@/components/Badges";
@@ -154,6 +155,7 @@ export default function ReceiveStock() {
                   <SearchInput value={q} onChange={setQ} placeholder="Search product name or code" className="flex-1" autoFocus />
                   {barcodesOn && <Button variant="ink" onClick={() => setScan("find")}><ScanLine /> {t("Scan")}</Button>}
                 </div>
+                {barcodesOn && <BarcodeInput onCode={(code) => findByCode(code)} continuousCamera={false} placeholder="Or enter / scan its barcode" />}
                 {detail.isLoading && <p className="text-sm text-muted-foreground">{t("Loading…")}</p>}
                 <ul className="divide-y rounded-lg border empty:hidden">
                   {results.data?.items.map((r) => (
@@ -196,6 +198,7 @@ export default function ReceiveStock() {
             <Section title="Quantity & barcodes">
               {tracked ? (
                 <div className="space-y-3">
+                  <BarcodeInput onCode={(code) => addItem(code)} placeholder="Enter or scan each item's barcode" cameraTitle={`Scan each ${p.name}`} />
                   <Button className="w-full" variant="ink" size="lg" onClick={() => setScan("items")}><ScanLine /> {t("Scan items (")}{barcodes.length})</Button>
                   <p className="text-xs text-muted-foreground">{t("Each physical item gets its own barcode. Scanned:")} {barcodes.length}.</p>
                   <div className="flex flex-wrap gap-2">

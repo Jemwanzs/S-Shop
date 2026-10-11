@@ -230,7 +230,14 @@ export default function Pos() {
         {/* The Sale Owner stays with the cart until the sale completes (roadmap 62). */}
         <SaleOwnerBar owner={cart.owner ?? null} onChange={(o) => setCart((c) => ({ ...c, owner: o }))} />
         <div className="sticky top-14 z-20 -mx-3.5 space-y-2 bg-background/90 px-3.5 pb-3 pt-1 backdrop-blur md:-mx-6 md:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
-          <SearchInput value={q} onChange={setQ} placeholder="Search name, nickname, code or barcode" autoFocus={desktop} />
+          <SearchInput value={q} onChange={setQ} placeholder="Search name, nickname, code or barcode" autoFocus={desktop}
+            onEnter={s.stock.barcode_requirement === "disabled" ? undefined : async (code) => {
+              // Roadmap 98: Enter with a barcode (handheld scanner or typed) adds it like a camera scan; anything else
+              // simply stays as the search.
+              const r = await onScan(code);
+              if (r?.tone === "success") { toast.success(r.title, { duration: 1200 }); setQ(""); }
+              else if (r?.tone === "error" && !/not found/i.test(r.title)) toast.error(r.title);
+            }} />
           {categories.length > 1 && (
             <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:px-0">
               <Chip active={!category} onClick={() => setCategory(null)}>{translate("All")}</Chip>

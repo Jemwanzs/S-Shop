@@ -49,6 +49,10 @@ export interface Settings {
   product: { max_photos: number; auto_code_prefix: string };
   stock: {
     barcode_requirement: "required" | "optional" | "disabled";
+    /** Roadmap 98: typed / pasted barcodes allowed; camera scanning offered; stock takes count barcoded products by barcode. */
+    manual_barcode_entry: boolean;
+    camera_scanning: boolean;
+    require_barcode_stocktake: boolean;
     quantity_entry: "editable" | "locked";
     capture_cost: boolean;
     valuation: "cost" | "selling";
@@ -373,6 +377,8 @@ export interface StockLevel {
   low_threshold: number;
   value: Money | null;
   primary_photo_id: Id | null;
+  /** Roadmap 98: has a product-level barcode. */
+  has_barcode?: boolean;
 }
 
 export interface Approval {

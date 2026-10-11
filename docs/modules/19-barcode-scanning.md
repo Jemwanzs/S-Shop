@@ -23,6 +23,37 @@ goes to the background. Camera problems (blocked permission, no camera, camera b
 browser) show a clear message while handheld/manual entry keep working. Production runs over HTTPS, which browsers
 require for camera access.
 
+## Barcode settings, the inline field and stock takes (roadmap 98)
+
+**Settings → Stock → Barcode settings** (on the existing settings, no parallel ones):
+
+| Switch | Setting |
+|---|---|
+| Enable barcode management | `stock.barcode_requirement` ≠ `disabled` (off: products, stock and sales work without barcodes) |
+| Allow manual barcode entry (default on) | `stock.manual_barcode_entry` — off: typed / pasted codes are not offered; handheld scanners still work |
+| Enable camera scanning (default on) | `stock.camera_scanning` |
+| Require barcode during stock-in | `stock.barcode_requirement` = `required` |
+| Require barcode during stocktaking | `stock.require_barcode_stocktake` — products with a barcode are counted by scanning or entering it (server-enforced) |
+| Require barcode during sales | `sales.require_barcode_clearance` |
+
+The card also lists products sharing a barcode (from before uniqueness was enforced), linked to their edit forms.
+
+- **One inline field** — `web/src/components/BarcodeInput.tsx`, *Enter or scan barcode*: Enter submits, the outcome
+  shows under the field (errors also in the error popup), the field clears and keeps focus for the next code, and the
+  camera button opens the shared scanner. Used on the stock take, stock-in (find the product; each unit of a tracked
+  product) and, as Enter in the search box, at Record Sale (a barcode adds like a camera scan; anything else stays a
+  search).
+- **Product barcodes** — stored as text (leading zeros kept); 3–64 letters, digits or `- . _ / +` (check digits are not
+  enforced, so manufacturers' codes are never wrongly refused); unique per business against products and live item
+  labels (the clashing product is named), and by a database index (created at start-up once no duplicates remain);
+  **Generate** gives a unique in-store EAN-13 (prefix 2, valid check digit).
+- **Stock take** — counts by barcode (product-level: +1 per read, quantity editable afterwards; required-by-barcode rows
+  stay locked until scanned) and, for individually tracked products, unit by unit: each unit's label counted once
+  (duplicates and units not in stock here are flagged at once and refused by the server), expected / counted /
+  variance per product, and units not found recorded as *loss* adjustments on submit (approvals as configured);
+  *None found* counts a tracked product as empty, and a product not scanned is left alone. The session is kept on the
+  device per branch until submitted or cleared; nothing changes live stock before submission.
+
 ## Flows
 | Where | What a scan does |
 |---|---|

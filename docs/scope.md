@@ -489,6 +489,19 @@ Added 2026-10-11 — **Daraja production activation** (owner request: *Daraja Pr
   `PartyB`, `CustomerBuyGoodsOnline`; go-live steps documented. Production credentials stay encrypted per business,
   STK never switches on when saved, and S'Shop's own configuration never serves customers' businesses.
 
+Added 2026-10-11 — **Barcodes: manual entry, scanning and inventory validation** (owner request: *Manual Barcode
+Entry, Scanning & Inventory Validation Enhancement*; [module 19](modules/19-barcode-scanning.md)).
+- ✅ **98. Barcode settings, inline entry, stock takes by barcode** — Barcode settings card (management, manual entry,
+  camera, required at stock-in / stocktaking / sales) on the existing settings; one inline *Enter or scan barcode*
+  field (stock take, stock-in, Record Sale via Enter in the search box) next to the shared camera scanner; product
+  barcodes validated as text (leading zeros kept), unique per business with the clashing product named, enforced by a
+  database index created safely once no duplicates remain, conflicts listed in settings; *Generate* a unique in-store
+  EAN-13; stock takes count by barcode, unit by unit for tracked products (duplicates, foreign units and unknown codes
+  flagged; missing units become loss adjustments through approvals), barcode-only counting when required
+  (server-enforced), the session kept on the device until submitted. Gaps closed: tracked products could not be
+  counted at all; a refresh lost the count; Enter in the till's search did nothing with a scanned code; product
+  barcodes were unique only in application code.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

@@ -410,6 +410,7 @@ pub struct Testimonial {
     pub rating: u8,
     pub photo: Option<Uuid>,
     pub position: String,
+    /// Shown on the website (a sample: shown in the staff preview only).
     pub published: bool,
     /// Sample content shipped to show the design: never published until replaced or confirmed genuine.
     pub sample: bool,
@@ -802,8 +803,16 @@ pub fn validate(c: &SiteConfig) -> AppResult<()> {
         return Err(bad("Up to 50 testimonials"));
     }
     for x in &t.items {
-        if x.name.trim().is_empty() || x.quote.trim().is_empty() {
-            return Err(bad("Each testimonial needs a name and a quote"));
+        // Drafts may be incomplete; a testimonial that is shown needs both (roadmap 90).
+        if x.published && (x.name.trim().is_empty() || x.quote.trim().is_empty()) {
+            return Err(bad("A testimonial needs a name and a quote before it can be shown"));
+        }
+        // A sample becomes genuine only with the customer's own words: its demonstration text is never published.
+        if !x.sample && x.published && SAMPLE_TESTIMONIALS.iter().any(|(_, q, ..)| q.trim() == x.quote.trim()) {
+            return Err(bad(format!(
+                "{}: replace the sample text with the customer's own words before showing it as a genuine review",
+                if x.name.trim().is_empty() { "Testimonial" } else { x.name.trim() }
+            )));
         }
         max_len(&x.name, 80, "Testimonial name")?;
         max_len(&x.quote, 600, "Testimonial")?;
@@ -868,6 +877,25 @@ mod tests {
 
     fn biz() -> Business<'static> {
         Business { name: "Pablo Niche", tagline: "Shop the Difference.", phone: "0798993404", email: "hi@example.com", address: "Nairobi" }
+    }
+
+    #[test]
+    fn testimonial_rules() {
+        // Roadmap 90: drafts may be incomplete, shown ones may not; sample text never becomes a "genuine" review.
+        let mut c = starter(&biz());
+        c.testimonials.items.push(Testimonial { id: Uuid::new_v4(), ..Default::default() });
+        validate(&c).unwrap();
+        c.testimonials.items.last_mut().unwrap().published = true;
+        assert!(validate(&c).is_err());
+        c.testimonials.items.pop();
+        let s = &mut c.testimonials.items[0];
+        s.published = true;
+        validate(&c).unwrap(); // a sample shown in the preview
+        let s = &mut c.testimonials.items[0];
+        s.sample = false;
+        assert!(validate(&c).is_err(), "sample text cannot be published as genuine");
+        c.testimonials.items[0].quote = "Lovely service from start to finish.".into();
+        validate(&c).unwrap();
     }
 
     #[test]

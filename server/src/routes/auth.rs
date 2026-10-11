@@ -10,7 +10,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::audit::{self, Entry};
-use crate::auth::{client_meta, hash_pin, issue_token, validate_pin, verify_pin, Ctx, STAFF_TOKEN_HOURS};
+use crate::auth::{client_meta, hash_pin, validate_pin, verify_pin, Ctx};
 use crate::error::{bad, AppError, AppResult};
 use crate::state::AppState;
 
@@ -143,7 +143,7 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Js
     .execute(&state.db)
     .await?;
 
-    let token = issue_token(&state.cfg.jwt_secret, user.id, user.tenant_id, "staff", Duration::hours(STAFF_TOKEN_HOURS))?;
+    let token = crate::sessions::issue(&state, user.id, user.tenant_id, crate::sessions::Kind::Full).await?;
     let profile = load_profile(&state, user.id, user.tenant_id, None).await?;
     Ok(Json(LoginResponse { token, profile }))
 }
@@ -165,6 +165,8 @@ pub struct Profile {
     linked_from: Option<String>,
     /// Roadmap 83: opened with a Quick PIN — sensitive actions ask for a full sign-in.
     pub quick: bool,
+    /// Roadmap 87: automatic logout — seconds of inactivity and the warning before it.
+    session: Value,
 }
 
 /// `acting`: the platform admin's own business when they have opened `tenant_id` from the platform.
@@ -255,6 +257,10 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         .fetch_optional(&state.db)
         .await?,
         quick: false,
+        session: {
+            let (idle, warning) = crate::sessions::effective(state, user_id, acting.unwrap_or(tenant_id)).await?;
+            serde_json::json!({ "idle_seconds": idle, "warning_seconds": warning })
+        },
         branches: branches
             .into_iter()
             // Effective trading hours (own, else the business hours) for the open/closed banner at the till.
@@ -321,6 +327,7 @@ async fn change_pin(State(state): State<AppState>, ctx: Ctx, Json(body): Json<Ch
         .await?;
     audit::record(&mut tx, &ctx, Entry::new("auth", "change_pin", "user", ctx.user_id)).await?;
     tx.commit().await?;
-    let token = issue_token(&state.cfg.jwt_secret, ctx.user_id, ctx.tenant_id, "staff", Duration::hours(STAFF_TOKEN_HOURS))?;
+    crate::sessions::end(&state, ctx.session_id, ctx.user_id, ctx.tenant_id, "replaced").await?;
+    let token = crate::sessions::issue(&state, ctx.user_id, ctx.tenant_id, crate::sessions::Kind::Full).await?;
     Ok(Json(serde_json::json!({ "ok": true, "token": token })))
 }

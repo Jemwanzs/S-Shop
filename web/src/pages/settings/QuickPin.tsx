@@ -166,7 +166,7 @@ export function TenantQuickPinCard() {
         <ToggleRow label="Allow Quick PIN sign-in" hint={`${q.data.platform.min_length}–6 ${t("digits, on devices people trust after a full sign-in")} · ${q.data.users_with_quick_pin} ${t("people use it")}`}
           checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} disabled={!admin || !q.data.platform.enabled} />
         {draft.enabled && (
-          <Field label="Roles" hint="None selected = every role">
+          <Field group label="Roles" hint="None selected = every role">
             <div className="grid gap-2 rounded-xl bg-muted/50 p-3 sm:grid-cols-2">
               {roles.data?.filter((r) => r.is_active).map((r) => (
                 <label key={r.id} className={cn("flex items-center gap-2", !admin && "opacity-60")}>
@@ -192,7 +192,9 @@ export function TenantQuickPinCard() {
   );
 }
 
-interface PlatformSecurity { quick_pin_enabled: boolean; quick_pin_min_length: number; quick_session_hours: number; max_attempts: number; device_days: number }
+interface PlatformSecurity { quick_pin_enabled: boolean; quick_pin_min_length: number; quick_session_hours: number; max_attempts: number; device_days: number;
+  /** Roadmap 87: automatic logout after inactivity. */
+  idle_default_minutes: number; idle_min_minutes: number; idle_max_minutes: number; warning_seconds: number; max_session_hours: number }
 
 /** Platform → Security. */
 export function PlatformSecuritySettings() {
@@ -211,7 +213,7 @@ export function PlatformSecuritySettings() {
       {d && (
         <Card title="Quick Login PIN">
           <ToggleRow label="Allow Quick PIN sign-in" hint="Off revokes every trusted device on S'Shop." checked={d.quick_pin_enabled} onChange={(v) => setD({ ...d, quick_pin_enabled: v })} />
-          <Field label="Shortest Quick PIN">
+          <Field group label="Shortest Quick PIN">
             <div className="flex gap-2">
               {[4, 5, 6].map((n) => (
                 <button key={n} type="button" onClick={() => setD({ ...d, quick_pin_min_length: n })}
@@ -225,6 +227,18 @@ export function PlatformSecuritySettings() {
             <Field label="Trusted device lifetime (days)" hint="7–365"><Input type="number" min={7} max={365} value={d.device_days} onChange={(e) => setD({ ...d, device_days: Number(e.target.value) || 7 })} /></Field>
           </div>
           <Fact label="Full sign-in still required for">{t("payments, roles & access, security settings, platform administration")}</Fact>
+        </Card>
+      )}
+      {d && (
+        <Card title="Session management">
+          <p className="py-1 text-xs text-muted-foreground">{t("Automatic logout after inactivity, enforced by the server. Businesses choose their timeout within this range and may set stricter timeouts for sensitive roles.")}</p>
+          <div className="grid gap-3 py-2 sm:grid-cols-3">
+            <Field label="Default timeout (minutes)" hint="For businesses that have not chosen one"><Input type="number" min={1} max={480} value={d.idle_default_minutes} onChange={(e) => setD({ ...d, idle_default_minutes: Number(e.target.value) || 0 })} /></Field>
+            <Field label="Shortest businesses may choose" hint="1–60 minutes"><Input type="number" min={1} max={60} value={d.idle_min_minutes} onChange={(e) => setD({ ...d, idle_min_minutes: Number(e.target.value) || 0 })} /></Field>
+            <Field label="Longest businesses may choose" hint="Up to 480 minutes"><Input type="number" min={1} max={480} value={d.idle_max_minutes} onChange={(e) => setD({ ...d, idle_max_minutes: Number(e.target.value) || 0 })} /></Field>
+            <Field label="Default warning (seconds)" hint="10–120, before logout"><Input type="number" min={10} max={120} value={d.warning_seconds} onChange={(e) => setD({ ...d, warning_seconds: Number(e.target.value) || 0 })} /></Field>
+            <Field label="Longest session (hours)" hint="1–24, even while active"><Input type="number" min={1} max={24} value={d.max_session_hours} onChange={(e) => setD({ ...d, max_session_hours: Number(e.target.value) || 0 })} /></Field>
+          </div>
         </Card>
       )}
       <PlatformCampaignSettings />

@@ -108,16 +108,23 @@ async fn stream(State(state): State<AppState>, ctx: Ctx) -> Sse<impl Stream<Item
     let (tenant, user) = (ctx.tenant_id, ctx.user_id);
     // A support session's stream closes within 15 s of the session ending, expiring or being revoked (roadmap 71).
     let live = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    if let Some(s) = ctx.support.as_ref().map(|s| s.id) {
+    // …and every stream closes when its sign-in session ends or goes idle (roadmap 87).
+    {
+        let support = ctx.support.as_ref().map(|s| s.id);
+        let ses = ctx.session_id;
         let (db, flag) = (state.db.clone(), live.clone());
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(15)).await;
-                let ok: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM support_sessions WHERE id = $1 AND status = 'active' AND expires_at > now())")
-                    .bind(s)
-                    .fetch_one(&db)
-                    .await
-                    .unwrap_or(false);
+                let support_ok = match support {
+                    Some(s) => sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM support_sessions WHERE id = $1 AND status = 'active' AND expires_at > now())")
+                        .bind(s)
+                        .fetch_one(&db)
+                        .await
+                        .unwrap_or(false),
+                    None => true,
+                };
+                let ok = support_ok && crate::sessions::alive(&db, ses).await;
                 if !ok || std::sync::Arc::strong_count(&flag) == 1 {
                     flag.store(false, std::sync::atomic::Ordering::Relaxed);
                     break;

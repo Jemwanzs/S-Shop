@@ -403,6 +403,38 @@ Featured Products*; [module 29](modules/29-holiday-campaigns.md)). Off by defaul
 - ✅ **86. Insights** — views, visitors, product and button clicks, orders and sales attributed (visitor clicked the
   campaign within 7 days before a website order; cancelled orders excluded), side by side per campaign.
 
+Added 2026-10-10 — **Session timeout & automatic logout** (owner request: *Configurable Session Timeout & Automatic
+Logout*; [module 30](modules/30-session-timeout.md)).
+- ✅ **87. Automatic logout after inactivity** — server-side sessions (every token carries one; ended, expired or idle
+  sessions refused with 401 *session expired*, audited); platform limits (default 5 min, range 1–120 min, warning
+  30 s, longest session 12 h); business timeout (1/2/3/5/10/15/20/30/60 min or custom) with stricter role timeouts and
+  the effective policy shown; only genuine activity counts (heartbeat after real input, `X-User-Activity` on changes;
+  background requests, polling, notifications and offline sync never do); warning with *Stay Logged In* / *Log Out
+  Now* and an unsaved-changes notice (nothing auto-submitted); one clock for all tabs, wall-clock based for sleeping
+  devices; sign-in screen explains the expiry, Quick PIN still offered on trusted devices. Gaps closed on the way: the
+  user-menu sign-out now ends the server session, every tab follows a sign-out, and saving other settings never
+  writes a timeout the business did not choose.
+
+Added 2026-10-10 — **Product User Manual** (owner request: *Product User Manual & PDF Download*;
+[module 31](modules/31-product-user-manual.md)).
+- ✅ **88. User Manual PDF** — *Manual ↓* under the sign-in form (no sign-in), `SShop_Product_User_Manual.pdf`: A4,
+  Outfit, S'Shop colours, page numbers, cover with title, subtitle and numbered module directory with page numbers,
+  then one page per module (one-line description, 5–8 bullets, implemented features only, platform-owner page marked).
+  Content in `docs/manual/manual.json`, built by `scripts/manual/build.mjs`, versioned with the release. Gap closed on
+  the way: the service worker no longer stores a directly opened file as the offline app page.
+
+Added 2026-10-11 — **Quick PIN dots & testimonial visibility** (owner requests: *Dynamic Quick PIN Dots & Automatic
+Centering*; *Testimonials Visibility Toggles & Publishing Controls*).
+- ✅ **89. Dynamic Quick PIN dots** — the keypad starts with no dots and shows one centred orange dot per digit entered
+  (no empty placeholders, so a 4-, 5- or 6-digit PIN's length is never shown); Backspace, clear, OK and the 6-digit
+  maximum unchanged; authentication untouched ([module 28](modules/28-quick-login-pin.md)).
+- ✅ **90. Testimonials: two-level visibility** — *Show testimonials* hides the whole section, page and menu link
+  without touching each testimonial's setting; *Show this testimonial* works for every testimonial with a status line
+  beside it; samples have a *Show in preview* switch (staff preview only, badged, never public) and become genuine only
+  after confirmation and with the customer's own words (sample text refused on save); no empty carousel or menu link;
+  drafts may be incomplete. Root causes fixed: the sample switch was disabled without explanation, and any switched-on
+  sample blocked publishing ([module 23](modules/23-website.md)).
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

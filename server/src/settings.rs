@@ -32,10 +32,14 @@ pub struct SecuritySettings {
     pub support_access: String,
     /// Roadmap 83: Quick Login PIN for this business (within the platform's rules).
     pub quick_pin: QuickPinPolicy,
+    /// Roadmap 87: automatic logout after inactivity. `None` until the business chooses (the platform's default
+    /// applies); saving other settings must never write a timeout nobody chose.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<crate::sessions::SessionPolicy>,
 }
 impl Default for SecuritySettings {
     fn default() -> Self {
-        Self { support_access: "notify".into(), quick_pin: QuickPinPolicy::default() }
+        Self { support_access: "notify".into(), quick_pin: QuickPinPolicy::default(), session: None }
     }
 }
 
@@ -591,6 +595,17 @@ pub async fn apply_day_shifts(conn: &mut PgConnection, tenant_id: Uuid, s: &Tena
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saving_settings_never_invents_a_session_timeout() {
+        // Roadmap 87: a business that never chose a timeout follows the platform's default, even after other saves.
+        let s: TenantSettings = serde_json::from_value(serde_json::json!({"security": {"support_access": "approval"}})).unwrap();
+        assert!(s.security.session.is_none());
+        let saved = serde_json::to_value(&s).unwrap();
+        assert!(saved["security"].get("session").is_none(), "{saved}");
+        let chosen: TenantSettings = serde_json::from_value(serde_json::json!({"security": {"session": {"idle_minutes": 15}}})).unwrap();
+        assert_eq!(chosen.security.session.map(|p| p.idle_minutes), Some(15));
+    }
 
     #[test]
     fn partial_json_fills_defaults() {

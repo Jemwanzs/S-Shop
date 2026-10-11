@@ -11,6 +11,9 @@ pub enum AppError {
     BadRequest(String),
     #[error("Please sign in to continue")]
     Unauthorized,
+    /// Roadmap 87: the session was ended for inactivity (other ended sessions answer `Unauthorized`).
+    #[error("Session expired due to inactivity. Please log in again.")]
+    SessionExpired,
     #[error("{0}")]
     Forbidden(String),
     #[error("{0} not found")]
@@ -49,6 +52,7 @@ impl IntoResponse for AppError {
         let (status, code) = match &self {
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
+            AppError::SessionExpired => (StatusCode::UNAUTHORIZED, "session_expired"),
             AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             AppError::Rule(_) | AppError::Refused { .. } => (StatusCode::UNPROCESSABLE_ENTITY, "rule_violation"),

@@ -7,7 +7,7 @@ always required first on a new or shared device.
 |---|---|
 | Rules, set-up, devices, Quick sign-in, resets | `server/src/routes/quickpin.rs` |
 | Schema | `migrations/0023_quick_pin.sql` — `users.quick_pin_hash / quick_failed / quick_locked_until`, `trusted_devices`, `platform_settings['security']` |
-| Quick sessions & full-sign-in guard | `server/src/auth.rs` (`Claims.qp`, `Ctx.quick`, `Ctx::require_full`, `issue_quick_token`) |
+| Quick sessions & full-sign-in guard | `server/src/auth.rs` (`Claims.qp`, `Ctx.quick`, `Ctx::require_full`; tokens from `sessions::issue`, module 30) |
 | Sign-in screen (keypad) | `web/src/pages/auth/Login.tsx`, `web/src/components/PinPad.tsx`, `web/src/lib/quick.ts` |
 | Settings | User preferences → **Quick Login PIN** · Settings → **Security** (business rule + support access) · Platform → **Security** · Settings → Users (*Reset Quick PIN*) — `web/src/pages/settings/QuickPin.tsx` |
 
@@ -22,7 +22,8 @@ always required first on a new or shared device.
 2. **Other devices**: *Trust this device* asks for a full sign-in on that device and the full PIN.
 3. **Sign in**: on a trusted device the login screen opens on the keypad, with:
    - *Welcome back, Name*;
-   - masked dots, automatic submit at 6 digits (or OK);
+   - one centred orange dot per digit entered and no empty placeholders, so the PIN's length is never shown
+     (roadmap 89); automatic submit at 6 digits, or OK for 4–5;
    - *Use password instead* and *Forgot PIN?*, which leads to a full sign-in and then a new Quick PIN.
    The method last used on the device is remembered. *Login with Quick PIN* is offered under the full form.
 4. **Quick sessions** are marked (`Ctx.quick`, `profile.quick`). The user menu shows *Signed in with Quick PIN · Sign in

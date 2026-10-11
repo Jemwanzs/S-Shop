@@ -3,8 +3,8 @@
 **Scope:** §28 · **Routes:** Settings → Users, Roles & permissions · **API:** `/api/auth/*`, `/api/users…`, `/api/roles…`, `/api/permissions`
 
 ## Signing in
-Email + PIN (4–12 characters). PINs are Argon2-hashed; 5 wrong attempts lock the account for 15 minutes; sessions last
-12 hours. Users change their own PIN (avatar → Change PIN); administrators reset others' PINs. Emergency recovery:
+Email + PIN (4–12 characters). PINs are Argon2-hashed; 5 wrong attempts lock the account for 15 minutes; sessions end
+after inactivity and at the platform's longest session (module 30). Users change their own PIN (avatar → Change PIN); administrators reset others' PINs. Emergency recovery:
 `sshop reset-pin <email> <pin>` on the server.
 
 ## Users

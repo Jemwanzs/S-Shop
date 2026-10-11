@@ -1,0 +1,255 @@
+{
+  "title": "S'Shop — Smart Retail & Business Management",
+  "subtitle": "Product Features & Capabilities Manual",
+  "version": "Version 1.0 · October 2026",
+  "intro": "S'Shop runs a retail business end to end, from the till and stock room to the customer's phone and the business's own website. It works on phones, tablets and computers, across branches, online and offline. Each module below describes features available today.",
+  "modules": [
+    {
+      "name": "Dashboard & Analytics",
+      "summary": "A clear, visual view of how the business is performing for any period, branch, product or team member.",
+      "bullets": [
+        "Sales, transactions, average sale, units sold and orders, each compared with the previous period",
+        "Gross profit, expenses, net performance and stock value for people allowed to see financial figures",
+        "Filters for period, branch, category, product and staff member",
+        "Best-selling products and top staff ranked with Gold, Silver and Bronze medals",
+        "Personal dashboard and leaderboards so every salesperson can follow their own results",
+        "A quick-action home for roles that do not need analytics"
+      ]
+    },
+    {
+      "name": "Sales & Point of Sale",
+      "summary": "A fast till for the counter: find or scan products, build the cart and take payment in a few taps.",
+      "bullets": [
+        "Search by name, nickname, code or barcode, or scan with the phone camera or a handheld scanner",
+        "Selling price and discounts within each product's limits, with the difference from the marked price shown",
+        "Cash with change calculation, M-Pesa (Push STK or confirmation code), credit and custom payment methods",
+        "Optional customer on every sale, with loyalty points shown before completing",
+        "Offline selling: walk-in cash sales are saved on the device and synced when the connection returns",
+        "Sales history with ownership, returns, exchanges and cancellations under approval rules"
+      ]
+    },
+    {
+      "name": "Digital Receipts",
+      "summary": "One consistent receipt for every channel, issued once and kept unchanged.",
+      "bullets": [
+        "Receipts on screen, as PDF, printed, as an image, by email, on WhatsApp or as a secure link",
+        "Business logo, branch, items, payments, balance and loyalty points on every receipt",
+        "Returns, exchanges and cancellations produce a linked adjustment receipt; the original is always kept",
+        "Receipts available from the sales history at any time",
+        "Clearly business receipts, never labelled as tax invoices"
+      ]
+    },
+    {
+      "name": "Credit Sales",
+      "summary": "Sell on credit with clear balances, due dates and repayment history for every customer.",
+      "bullets": [
+        "Credit sales require an identified customer and a due date",
+        "Optional deposit at the counter in cash, M-Pesa or another method",
+        "Repayments recorded against each credit, with a full payment history",
+        "Statuses for open, partially paid, paid, overdue and written-off credit",
+        "Overdue reminders to the team, plus credit aging and credit sales reports",
+        "Write-offs controlled through approval workflows"
+      ]
+    },
+    {
+      "name": "Orders & Customer Ordering Link",
+      "summary": "Customers order from their phones without an account; the team handles every order from one list.",
+      "bullets": [
+        "A branded, image-rich ordering link for each business, with no customer sign-up",
+        "Optional WhatsApp code to verify customers before they see their details",
+        "Customers see past orders, loyalty points and live order tracking",
+        "Order statuses from new to delivered or completed, with live alerts for new orders",
+        "Stock reserved for confirmed orders and deducted only when the order is completed",
+        "Notifications go only to the people responsible for the order's branch"
+      ]
+    },
+    {
+      "name": "Products & Catalogue",
+      "summary": "One master catalogue shared by all branches, with photos, pricing rules and your own fields.",
+      "bullets": [
+        "Automatic or custom product codes, categories and suppliers with quick-add",
+        "Marked price, maximum discount and optional cost price for profit reporting",
+        "A shared barcode per product, or individual tracking of each item",
+        "Several photos per product and your own fields such as size, colour or brand",
+        "Control over which branches stock a product and whether it appears online",
+        "Low-stock alert levels and loyalty rules per product"
+      ]
+    },
+    {
+      "name": "Stock & Inventory",
+      "summary": "Accurate stock built from a complete ledger of movements, never a number someone can overwrite.",
+      "bullets": [
+        "Every change recorded as a movement: received, sold, returned, transferred, damaged, adjusted or counted",
+        "Physical, reserved and available-to-sell quantities for each branch",
+        "Stock position for any period, from opening to closing stock",
+        "Receiving stock, stock counts and adjustments with reasons",
+        "Low-stock and out-of-stock alerts to the right people",
+        "Stock valuation for people allowed to see financial figures"
+      ]
+    },
+    {
+      "name": "Stock Transfers",
+      "summary": "Move stock between branches with a controlled, traceable workflow.",
+      "bullets": [
+        "Workflow: draft, approval, dispatch, in transit and received",
+        "Availability checked when the transfer is created and again on dispatch",
+        "The receiving branch confirms what arrived, including short or damaged items",
+        "Individually tracked items followed unit by unit",
+        "Notifications to receivers and to the person who created the transfer"
+      ]
+    },
+    {
+      "name": "Customers",
+      "summary": "A customer book that grows with every sale, with spending, loyalty and credit in one place.",
+      "bullets": [
+        "Customers identified by mobile number, with first name and optional nickname",
+        "Search by name, nickname or any part of the mobile number",
+        "Total spend, purchase count, last purchase, loyalty tier and amount owed",
+        "Your own customer fields: text, number, date, dropdown, yes/no or email",
+        "Purchase history for each customer",
+        "Loyalty and credit figures shown only to people allowed to see them"
+      ]
+    },
+    {
+      "name": "Loyalty & Rewards",
+      "summary": "Reward repeat customers with points, referrals and tiers, all kept in a complete ledger.",
+      "bullets": [
+        "Points earned on every completed sale, with product-specific rules",
+        "Points redeemed at the till against the amount to pay",
+        "Referral rewards for customers who bring new customers",
+        "Gold, Silver and Bronze tiers and awards for top customers",
+        "Point balances shown on receipts and on the ordering link",
+        "Manual adjustments controlled and recorded in the audit trail"
+      ]
+    },
+    {
+      "name": "Expenses",
+      "summary": "Record and control spending for each branch, with receipts attached.",
+      "bullets": [
+        "Category, amount, date, payee, payment method and description",
+        "Receipt photos or PDFs attached from the phone camera or files",
+        "Approval workflows for expenses above chosen amounts or in chosen categories",
+        "Totals and a breakdown by category for any period",
+        "Expenses included in net performance and profitability reports"
+      ]
+    },
+    {
+      "name": "Reports",
+      "summary": "Twenty-three standard reports covering sales, stock, customers, loyalty, credit, finance and staff.",
+      "bullets": [
+        "Sales by product, branch and user; order, stock, customer, loyalty and credit reports",
+        "Stock position, movement, valuation, transfers, adjustments and barcode inventory",
+        "Expenses, profitability and user performance",
+        "Consistent filters for period, branch, category, product and user",
+        "Export to branded A4 PDF or formatted Excel",
+        "Reports shown only to people allowed to see them"
+      ]
+    },
+    {
+      "name": "Branches & Workspace",
+      "summary": "Run several branches as one business, each with its own stock, sales and hours.",
+      "bullets": [
+        "Stock, sales, orders, expenses and credit kept per branch; products and customers shared",
+        "A branch manager for each branch, used in approval workflows",
+        "Business or branch-specific trading hours, with sales outside hours allowed or blocked",
+        "Optional location rules so staff work only from the branch area",
+        "A clear Current Branch switcher for people who work at several branches"
+      ]
+    },
+    {
+      "name": "Users, Roles & Approvals",
+      "summary": "Give every person exactly the access they need, with maker-checker approval for sensitive actions.",
+      "bullets": [
+        "Roles with detailed permissions, plus exceptions for individual users",
+        "Access to all branches or selected branches, and to own or all records",
+        "Approval workflows with one to five levels, by administrator, role, user or branch manager",
+        "Requesters never approve their own requests, and nobody approves two levels",
+        "Approval conditions by amount, branch, requester role or expense category",
+        "Sale ownership changes handled through approvals"
+      ]
+    },
+    {
+      "name": "Security & Sign-In",
+      "summary": "Secure sign-in and session controls that protect the business on shared and personal devices.",
+      "bullets": [
+        "Email and PIN sign-in, with temporary lockout after repeated wrong attempts",
+        "Optional Quick Login PIN on trusted devices; sensitive actions still need the full sign-in",
+        "Automatic logout after inactivity, with a warning first and stricter timeouts for sensitive roles",
+        "Self-service PIN reset by email and one-time PINs for new users",
+        "Sign out everywhere and trusted-device management",
+        "Control over whether S'Shop support may enter the business, always time-limited and recorded"
+      ]
+    },
+    {
+      "name": "Audit Trail, Notifications & Search",
+      "summary": "Know who did what and when, receive the alerts that matter, and find anything quickly.",
+      "bullets": [
+        "Every critical action recorded with user, branch, time, device and before/after values",
+        "Audit filters by period and module, with a side-by-side comparison of changes",
+        "Notifications for low stock, new orders, approvals, transfers and overdue credit",
+        "Personal notification preferences",
+        "Universal search across products, customers, receipts and orders (Ctrl / ⌘ K)"
+      ]
+    },
+    {
+      "name": "Settings & Preferences",
+      "summary": "Configure the business your way, with every change recorded.",
+      "bullets": [
+        "Business profile, logo, contact details, currency and time zone",
+        "Product, customer, sales, loyalty and payment settings",
+        "Workflow engine and workspace hours",
+        "Personal preferences: display currency, language, theme and font",
+        "English, Kiswahili, French and Arabic, with right-to-left support",
+        "Every settings change saved with before and after values"
+      ]
+    },
+    {
+      "name": "Business Website",
+      "summary": "An optional website for the business, powered directly by its S'Shop products, stock and orders.",
+      "bullets": [
+        "Brand colours, pages, menus and a premium product storefront without writing code",
+        "Products, prices, photos and stock come from S'Shop, so there is nothing to sync",
+        "Website orders arrive in the Orders list with alerts",
+        "Draft, preview and publish, with a media library and image-quality checks",
+        "Custom domains with guided DNS checks and secure HTTPS",
+        "Visitor and order analytics"
+      ]
+    },
+    {
+      "name": "Holiday & Promotional Campaigns",
+      "summary": "Seasonal greetings, promotional banners and featured products on the business website.",
+      "bullets": [
+        "Fifteen occasions with ready-written greetings and designed templates",
+        "Featured products from real best sellers or a manual selection",
+        "Hero, compact, top strip or floating card on chosen pages",
+        "Scheduling in the business's time zone, with draft, live and expired states",
+        "Preview on mobile, tablet and desktop before publishing",
+        "Campaign insights: views, clicks, orders and sales"
+      ]
+    },
+    {
+      "name": "Billing & Subscription",
+      "summary": "Each business sees its own plan, invoices and payments in one place.",
+      "bullets": [
+        "Plan, amount, billing frequency, status and next due date",
+        "Invoices with online payment, quotations to accept, and receipts",
+        "A4 PDF invoices, quotations and receipts",
+        "Billing history and outstanding amounts",
+        "Modules available according to the business's package"
+      ]
+    },
+    {
+      "name": "Platform Administration",
+      "audience": "platform",
+      "summary": "For the S'Shop platform owner only: manage tenants and businesses centrally and securely.",
+      "bullets": [
+        "Tenant and business directory with status, activity and billing",
+        "Review access requests and onboard new businesses with welcome emails",
+        "Activate, suspend or reactivate tenants, with reasons recorded",
+        "Billing models, tenant-specific pricing, trials and the platform billing dashboard",
+        "Platform-wide limits for sign-in, sessions, websites and campaigns",
+        "Support access to a business only through audited, time-limited sessions"
+      ]
+    }
+  ]
+}

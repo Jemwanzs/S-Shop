@@ -27,13 +27,17 @@ interface SessionValue {
   renewToken: (token: string) => Promise<void>;
   /** Platform admins: continue in another business (all cached data and the branch choice are dropped). */
   switchBusiness: (token: string, profile: Profile) => void;
+  /** Ends the session on the server too (best effort) and on every tab of this device. */
   signOut: () => void;
+  /** The same, recorded as an automatic logout after inactivity (roadmap 87). */
+  signOutIdle: () => void;
   selectBranch: (id: string) => void;
 }
 
 const Ctx = createContext<SessionValue | null>(null);
 
 const PROFILE_KEY = "sshop.profile";
+export const LOGOUT_SIGNAL = "sshop.logout";
 function rememberProfile(token: string | null, profile: Profile) {
   try {
     if (token) localStorage.setItem(PROFILE_KEY, JSON.stringify({ token, profile }));
@@ -89,6 +93,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener("sshop:unauthorized", onUnauthorized);
     return () => window.removeEventListener("sshop:unauthorized", onUnauthorized);
+  }, [qc]);
+
+  const endSession = useCallback((reason: "logout" | "inactivity") => {
+    const t = session.token;
+    if (t) api("/auth/logout", { token: t, body: { reason } }).catch(() => undefined);
+    // Every open tab of this device follows (roadmap 87).
+    try { localStorage.setItem(LOGOUT_SIGNAL, `${Date.now()}:${reason}`); } catch { /* other tabs follow at their next request */ }
+    forgetProfile();
+    session.setToken(null);
+    setToken(null);
+    qc.clear();
   }, [qc]);
 
   const branches = useMemo(() => profile?.branches ?? [], [profile]);
@@ -183,12 +198,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           setBranchId(p.branches[0].id);
         }
       },
-      signOut: () => {
-        forgetProfile();
-        session.setToken(null);
-        setToken(null);
-        qc.clear();
-      },
+      signOut: () => endSession("logout"),
+      signOutIdle: () => endSession("inactivity"),
       selectBranch: (id) => {
         session.setBranch(id);
         setBranchId(id);
@@ -196,7 +207,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "me" });
       },
     }),
-    [token, profile, isLoading, branch, can, qc, preferences, displayCode, fx.data, language],
+    [token, profile, isLoading, branch, can, qc, preferences, displayCode, fx.data, language, endSession],
   );
 
   // Re-render every screen when the display currency or language changes (both are applied outside React state).

@@ -105,7 +105,7 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
           )}
           <Field label="Type">
             <Select value={kind} onChange={setKind}>
-              {kinds.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+              {kinds.map(([k, label]) => <option key={k} value={k}>{t(label)}</option>)}
             </Select>
           </Field>
           {tracked ? (

@@ -1,5 +1,6 @@
 /** Settings → Website: the Website Add-On (roadmap 51–57). Locked until the platform owner activates it; then the
  * Management Centre edits a draft, previews it on phone / tablet / desktop and publishes it (with history and rollback). */
+import { useUnsaved } from "@/lib/unsaved";
 import { CampaignsTab } from "./CampaignsTab";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -137,6 +138,7 @@ function Centre({ ov }: { ov: Overview }) {
     setBase(ov.draft_updated_at);
   }, [ov.draft, ov.draft_updated_at]); // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = !!draft && !!ov.draft && isDirty(ov.draft, draft);
+  useUnsaved("website", dirty);
   const set = (fn: (c: SiteConfig) => void) => setDraft((d) => {
     if (!d) return d;
     const next = structuredClone(d);

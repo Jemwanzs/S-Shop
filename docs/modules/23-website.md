@@ -45,7 +45,18 @@ SEO · Analytics**. Each tab is shown only to someone with the matching permissi
   the draft live as a new numbered version with an optional note. *Discard* returns the draft to the published
   version. *Version history* lists publications, and *Restore* republishes an earlier one as a new version, so
   nothing is lost.
-- **Publishing is refused** while sample testimonials are marked published, or while the configuration has problems.
+- **Publishing is refused** while the configuration has problems.
+- **Testimonials — two levels (roadmap 90)**:
+  - *Show testimonials* controls the whole section. Off sends no testimonials to the public site, so the section, the
+    `/testimonials` page and its menu link disappear. Each testimonial keeps its own setting for when it is switched
+    back on.
+  - *Show this testimonial* (beside each name) controls one testimonial. Only switched-on genuine testimonials are
+    shown; switched-off ones stay for editing. The menu link appears only while there is something to show.
+  - **Samples** (five shipped with the starter) have a *Show in preview* switch: they appear in the staff preview,
+    badged *Sample · preview only*, and never on the public site.
+  - *This is a real customer review* asks for confirmation that the name, words and photo are the customer's. A
+    testimonial still carrying a sample's demonstration text is refused when saved as genuine and shown.
+  - Drafts may be incomplete; a shown testimonial needs a name and a quote. Up to 50.
 - **Content:** navigation (show, hide, rename, reorder; *Home* always shows); home sections (hero, categories,
   featured, new arrivals, most popular, offers, about, services, testimonials, call to action, contact), each with
   show, hide, heading, subheading, grid or carousel layout, and reorder; hero (headline, text, banner, overlay,

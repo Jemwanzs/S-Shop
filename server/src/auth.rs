@@ -16,7 +16,6 @@ use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use crate::util::parse_tz;
 
-pub const STAFF_TOKEN_HOURS: i64 = 12;
 pub const PORTAL_TOKEN_DAYS: i64 = 30;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -35,6 +34,9 @@ pub struct Claims {
     /// Roadmap 83: signed in with a Quick PIN on a trusted device — sensitive actions need a full sign-in.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub qp: bool,
+    /// Roadmap 87: the server-side session (inactivity, sign-out). Staff tokens without one are refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ses: Option<Uuid>,
     pub exp: i64,
     pub iat: i64,
 }
@@ -62,25 +64,14 @@ pub fn validate_pin(pin: &str) -> AppResult<()> {
 
 pub fn issue_token(secret: &str, sub: Uuid, tid: Uuid, typ: &str, ttl: chrono::Duration) -> AppResult<String> {
     let now = Utc::now();
-    let claims = Claims { sub, tid, typ: typ.into(), home: None, sid: None, qp: false, iat: now.timestamp(), exp: (now + ttl).timestamp() };
+    let claims = Claims { sub, tid, typ: typ.into(), home: None, sid: None, qp: false, ses: None, iat: now.timestamp(), exp: (now + ttl).timestamp() };
     encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
         .map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
 }
 
-/// Staff token for a platform admin working inside another business (`tid`) through support session `sid`, valid
-/// until the session ends (roadmap 71).
-pub fn issue_acting_token(secret: &str, sub: Uuid, home: Uuid, tid: Uuid, sid: Uuid, until: chrono::DateTime<Utc>) -> AppResult<String> {
-    let now = Utc::now();
-    let claims = Claims { sub, tid, typ: "staff".into(), home: Some(home), sid: Some(sid), qp: false, iat: now.timestamp(), exp: until.timestamp() };
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
-        .map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
-}
-
-/// Roadmap 83: a staff session opened with a Quick PIN on a trusted device.
-pub fn issue_quick_token(secret: &str, sub: Uuid, tid: Uuid, ttl: chrono::Duration) -> AppResult<String> {
-    let now = Utc::now();
-    let claims = Claims { sub, tid, typ: "staff".into(), home: None, sid: None, qp: true, iat: now.timestamp(), exp: (now + ttl).timestamp() };
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
+/// Signs a complete set of claims (sessions build their own — roadmap 87).
+pub fn encode_claims(secret: &str, claims: &Claims) -> AppResult<String> {
+    encode(&Header::default(), claims, &EncodingKey::from_secret(secret.as_bytes())).map_err(|e| AppError::Other(anyhow::anyhow!("token: {e}")))
 }
 
 pub fn read_token(secret: &str, token: &str, typ: &str) -> AppResult<Claims> {
@@ -167,6 +158,8 @@ pub struct Ctx {
     pub support: Option<Support>,
     /// Roadmap 83: this session was opened with a Quick PIN.
     pub quick: bool,
+    /// Roadmap 87: the server-side session behind this token.
+    pub session_id: Uuid,
     /// Modules in the business's package (None = all) — roadmap 41.
     pub modules: Option<Vec<String>>,
 }
@@ -393,6 +386,12 @@ impl FromRequestParts<AppState> for Ctx {
         if row.user_sessions_valid_after.is_some_and(|t| claims.iat < t.timestamp()) {
             return Err(AppError::Unauthorized);
         }
+        // Roadmap 87: the server-side session — ended, expired or idle too long means signed out. Only requests the app
+        // marks as user activity extend it; background reads, polling and the live stream do not.
+        // Tokens from before roadmap 87 carry no session: sign in again (not an inactivity message).
+        let ses = claims.ses.ok_or(AppError::Unauthorized)?;
+        let activity = parts.headers.get("x-user-activity").is_some_and(|v| v == "1");
+        crate::sessions::check(state, ses, claims.sub, activity).await?;
         // Signed in with a one-time PIN: nothing but replacing it (and reading the profile) until it is replaced.
         if row.must_change_pin && !["/auth/", "/fx"].iter().any(|p| request_path(parts).trim_start_matches("/api").starts_with(p)) {
             return Err(crate::error::refused("Set your own PIN", "Replace your one-time PIN with your own PIN to continue"));
@@ -509,6 +508,7 @@ impl FromRequestParts<AppState> for Ctx {
             acting_from: claims.home,
             support,
             quick: claims.qp,
+            session_id: ses,
             modules,
         })
     }

@@ -133,6 +133,8 @@ export interface Profile {
   linked_from?: string | null;
   /** Roadmap 83: this session was opened with a Quick PIN (sensitive actions need a full sign-in). */
   quick?: boolean;
+  /** Roadmap 87: automatic logout after this many seconds without activity, with a warning this long before. */
+  session?: { idle_seconds: number; warning_seconds: number };
 }
 
 export interface Product {

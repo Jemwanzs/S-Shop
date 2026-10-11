@@ -11,7 +11,7 @@ administrator signs in with their own credentials, or the platform owner uses au
 |---|---|
 | Tenant accounts, support sessions, switching, linking people | `server/src/routes/tenants.rs` |
 | Schema | `migrations/0021_tenant_accounts_support_access.sql` — `tenant_accounts`, `tenants.account_id`, `support_sessions`, `users.login_user_id` |
-| Session checks (support sessions, linked users) | `server/src/auth.rs` (`Ctx` extractor, `issue_acting_token`) |
+| Session checks (support sessions, linked users) | `server/src/auth.rs` (`Ctx` extractor; tokens from `sessions::issue`, module 30) |
 | Business / tenant status | `routes/platform.rs` (`change_status`) |
 | Screens | Settings → Platform → **Tenants** (`pages/settings/Tenants.tsx`); *Open business* dialog (`components/OpenBusinessDialog.tsx`); Settings → **Support access** (`pages/settings/SupportAccess.tsx`); support banner and *Switch business* (`components/layout/AppShell.tsx`); Settings → Users → *From another business* (`pages/settings/People.tsx`) |
 

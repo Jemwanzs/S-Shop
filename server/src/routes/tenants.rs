@@ -20,7 +20,7 @@ use uuid::Uuid;
 use super::access::require_platform_admin;
 use super::platform::{record_platform, tenant_rows, TenantRow};
 use crate::audit::{self, Entry};
-use crate::auth::{issue_acting_token, issue_token, verify_pin, Ctx, STAFF_TOKEN_HOURS};
+use crate::auth::{verify_pin, Ctx};
 use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::notify::{self, Note};
 use crate::state::AppState;
@@ -438,7 +438,7 @@ struct SupportBody {
 
 /// The session token and profile for an active support session.
 async fn enter(state: &AppState, ctx: &Ctx, home: Uuid, tenant: Uuid, sid: Uuid, until: DateTime<Utc>) -> AppResult<Value> {
-    let token = issue_acting_token(&state.cfg.jwt_secret, ctx.user_id, home, tenant, sid, until)?;
+    let token = crate::sessions::issue(state, ctx.user_id, tenant, crate::sessions::Kind::Support { home, sid, until }).await?;
     let profile = super::auth::load_profile(state, ctx.user_id, tenant, Some(home)).await?;
     Ok(json!({ "status": "active", "id": sid, "token": token, "profile": profile, "expires_at": until }))
 }
@@ -593,7 +593,10 @@ async fn end_support(State(state): State<AppState>, ctx: Ctx, Path(sid): Path<Uu
         record_platform(&mut tx, &c, tenant, || Entry::new("platform", "support_ended", "support_session", sid).after(after.clone())).await?;
     }
     tx.commit().await?;
-    let token = issue_token(&state.cfg.jwt_secret, ctx.user_id, home, "staff", Duration::hours(STAFF_TOKEN_HOURS))?;
+    // No new PIN here: never past the longest session counted from the PIN entered to start support (roadmap 87).
+    let cap = crate::sessions::carried_end(&state, ctx.session_id).await?;
+    crate::sessions::end(&state, ctx.session_id, ctx.user_id, ctx.tenant_id, "replaced").await?;
+    let token = crate::sessions::issue_until(&state, ctx.user_id, home, crate::sessions::Kind::Full, cap).await?;
     let profile = super::auth::load_profile(&state, ctx.user_id, home, None).await?;
     Ok(Json(json!({ "ok": true, "token": token, "profile": profile })))
 }
@@ -751,12 +754,10 @@ async fn switch_business(State(state): State<AppState>, ctx: Ctx, Json(b): Json<
     sqlx::query("UPDATE users SET last_login_at = now() WHERE id = $1").bind(user).execute(&mut *tx).await?;
     tx.commit().await?;
     // A Quick PIN session stays a Quick PIN session in the other business (roadmap 83): never upgraded by switching.
-    let token = if ctx.quick {
-        let hours = super::quickpin::platform_security(&state.db).await?.quick_session_hours.clamp(1, 24) as i64;
-        crate::auth::issue_quick_token(&state.cfg.jwt_secret, user, b.tenant_id, Duration::hours(hours))?
-    } else {
-        issue_token(&state.cfg.jwt_secret, user, b.tenant_id, "staff", Duration::hours(STAFF_TOKEN_HOURS))?
-    };
+    // …and keeps its original end: switching never extends a session (roadmap 87).
+    let cap = crate::sessions::carried_end(&state, ctx.session_id).await?;
+    crate::sessions::end(&state, ctx.session_id, ctx.user_id, ctx.tenant_id, "replaced").await?;
+    let token = crate::sessions::issue_until(&state, user, b.tenant_id, if ctx.quick { crate::sessions::Kind::Quick } else { crate::sessions::Kind::Full }, cap).await?;
     let mut profile = super::auth::load_profile(&state, user, b.tenant_id, None).await?;
     profile.quick = ctx.quick;
     Ok(Json(json!({ "token": token, "profile": profile })))

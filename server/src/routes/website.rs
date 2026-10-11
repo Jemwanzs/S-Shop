@@ -320,9 +320,8 @@ async fn save_draft(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<D
 /// Problems that keep a draft from going public.
 fn publish_blockers(c: &SiteConfig) -> Vec<String> {
     let mut out = Vec::new();
-    if c.testimonials.items.iter().any(|t| t.sample && t.published) {
-        out.push("Sample testimonials cannot be published — replace them with genuine ones or confirm they are genuine".to_string());
-    }
+    // Samples switched on show in the staff preview only and are always left out of the public site (roadmap 90), so
+    // they never block publishing; sample text presented as genuine is refused when the draft is saved.
     if c.brand.name.trim().is_empty() {
         out.push("Add the business name".to_string());
     }

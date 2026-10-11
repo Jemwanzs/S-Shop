@@ -11,6 +11,7 @@ import { Loading } from "@/components/Page";
 import { Card, SettingsPage } from "./shared";
 import { SupportSessions, type SessionRow } from "./Tenants";
 import { TenantQuickPinCard } from "./QuickPin";
+import { TenantSessionCard } from "./Sessions";
 
 const POLICIES = [
   ["notify", BellRing, "Notify administrators", "S'Shop support may open the business for the time and scope it states; administrators are notified at once and can end it."],
@@ -34,6 +35,7 @@ export function SupportAccessSettings() {
   const admin = profile?.permissions.includes("*") && !profile?.acting && !profile?.quick;
   return (
     <SettingsPage title="Security" description="Sign-in rules for this business and how S'Shop support may enter it. S'Shop never asks for or knows your PINs; every support session is time-limited and recorded in your audit trail.">
+      <TenantSessionCard />
       <TenantQuickPinCard />
       {q.isLoading || !q.data ? <Loading /> : (
         <>

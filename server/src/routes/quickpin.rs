@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 use super::access::require_platform_admin;
 use crate::audit::{self, Entry};
-use crate::auth::{client_meta, hash_pin, issue_quick_token, verify_pin, Ctx};
+use crate::auth::{client_meta, hash_pin, verify_pin, Ctx};
 use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::settings::QuickPinPolicy;
 use crate::state::AppState;
@@ -38,6 +38,9 @@ pub fn routes() -> Router<AppState> {
         .route("/users/{id}/quick-pin/reset", post(admin_reset))
         .route("/security/quick-pin", get(tenant_policy).put(set_tenant_policy))
         .route("/platform/security", get(platform_get).put(platform_put))
+        .route("/auth/activity", post(activity))
+        .route("/auth/logout", post(logout))
+        .route("/security/sessions", get(session_policy).put(set_session_policy))
 }
 
 // ── Rules ───────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -54,10 +57,28 @@ pub struct PlatformSecurity {
     pub max_attempts: u8,
     /// A trusted device's lifetime (7–365 days).
     pub device_days: u16,
+    /// Roadmap 87: automatic logout after inactivity — the default for businesses, the range they may choose from,
+    /// the warning before logout and the longest any session may last.
+    pub idle_default_minutes: u16,
+    pub idle_min_minutes: u16,
+    pub idle_max_minutes: u16,
+    pub warning_seconds: u16,
+    pub max_session_hours: u8,
 }
 impl Default for PlatformSecurity {
     fn default() -> Self {
-        Self { quick_pin_enabled: true, quick_pin_min_length: 4, quick_session_hours: 12, max_attempts: 5, device_days: 90 }
+        Self {
+            quick_pin_enabled: true,
+            quick_pin_min_length: 4,
+            quick_session_hours: 12,
+            max_attempts: 5,
+            device_days: 90,
+            idle_default_minutes: 5,
+            idle_min_minutes: 1,
+            idle_max_minutes: 120,
+            warning_seconds: 30,
+            max_session_hours: 12,
+        }
     }
 }
 
@@ -389,7 +410,7 @@ async fn quick_login(State(state): State<AppState>, headers: HeaderMap, Json(b):
     sqlx::query("UPDATE trusted_devices SET last_used_at = now() WHERE id = $1").bind(r.device_id).execute(&mut *tx).await?;
     audit::system(&mut tx, r.tenant_id, Some(r.user_id), Entry::new("auth", "login", "user", r.user_id).after(json!({ "method": "quick_pin", "device": r.device_id })), &ip, &ua).await?;
     tx.commit().await?;
-    let token = issue_quick_token(&state.cfg.jwt_secret, r.user_id, r.tenant_id, Duration::hours(p.quick_session_hours.clamp(1, 24) as i64))?;
+    let token = crate::sessions::issue(&state, r.user_id, r.tenant_id, crate::sessions::Kind::Quick).await?;
     let mut profile = super::auth::load_profile(&state, r.user_id, r.tenant_id, None).await?;
     profile.quick = true;
     Ok(Json(json!({ "token": token, "profile": profile, "quick": true })))
@@ -496,6 +517,12 @@ async fn platform_put(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Pla
     if !(1..=24).contains(&b.quick_session_hours) || !(3..=10).contains(&b.max_attempts) || !(7..=365).contains(&b.device_days) {
         return Err(bad("Session 1–24 hours, attempts 3–10, trusted devices 7–365 days"));
     }
+    if !(1..=60).contains(&b.idle_min_minutes) || !(b.idle_min_minutes..=480).contains(&b.idle_max_minutes)
+        || !(b.idle_min_minutes..=b.idle_max_minutes).contains(&b.idle_default_minutes) || !(10..=120).contains(&b.warning_seconds)
+        || !(1..=24).contains(&b.max_session_hours)
+    {
+        return Err(bad("Inactivity: shortest 1–60 min, longest up to 480 min, default between them, warning 10–120 s, longest session 1–24 h"));
+    }
     let before = platform_security(&state.db).await?;
     let mut tx = state.db.begin().await?;
     sqlx::query(
@@ -515,9 +542,113 @@ async fn platform_put(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Pla
     } else {
         0
     };
+    // Roadmap 87: stricter limits reach open sessions at once (idle ones included); longer ones at the next heartbeat.
+    sqlx::query(
+        "UPDATE user_sessions SET idle_seconds = LEAST(idle_seconds, $1), expires_at = LEAST(expires_at, created_at + make_interval(hours => $2))
+         WHERE ended_at IS NULL",
+    )
+    .bind((b.idle_max_minutes as i32) * 60)
+    .bind(b.max_session_hours as i32)
+    .execute(&mut *tx)
+    .await?;
     audit::record(&mut tx, &ctx, Entry::new("platform", "security_settings", "platform_settings", ctx.tenant_id).before(json!(before)).after(json!({ "settings": b, "devices_revoked": revoked }))).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true, "devices_revoked": revoked })))
+}
+
+// ── Session management (roadmap 87) ─────────────────────────────────────────────────────────────────────────────────
+
+/// The app's heartbeat after genuine input (and *Stay logged in*): extends the session and returns the current limits.
+async fn activity(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    let (idle, warning) = crate::sessions::refresh_limit(&state, ctx.session_id, ctx.user_id, ctx.acting_from.unwrap_or(ctx.tenant_id)).await?;
+    Ok(Json(json!({ "idle_seconds": idle, "warning_seconds": warning })))
+}
+
+#[derive(Deserialize, Default)]
+struct LogoutBody {
+    /// "inactivity" when the app's timer ends the session; otherwise a normal sign-out.
+    #[serde(default)]
+    reason: String,
+}
+
+async fn logout(State(state): State<AppState>, ctx: Ctx, body: Option<Json<LogoutBody>>) -> AppResult<Json<Value>> {
+    let reason = if body.is_some_and(|b| b.reason == "inactivity") { "inactivity" } else { "logout" };
+    crate::sessions::end(&state, ctx.session_id, ctx.user_id, ctx.tenant_id, reason).await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn session_policy(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    ctx.require("users.manage")?;
+    let p = platform_security(&state.db).await?;
+    let v: Option<Value> = sqlx::query_scalar("SELECT settings->'security'->'session' FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&state.db).await?;
+    let policy: crate::sessions::SessionPolicy = v.and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_else(|| crate::sessions::SessionPolicy { idle_minutes: p.idle_default_minutes, warning_seconds: p.warning_seconds, ..Default::default() });
+    let (idle, warning) = crate::sessions::effective(&state, ctx.user_id, ctx.acting_from.unwrap_or(ctx.tenant_id)).await?;
+    Ok(Json(json!({
+        "policy": policy,
+        "platform": { "default_minutes": p.idle_default_minutes, "min_minutes": p.idle_min_minutes, "max_minutes": p.idle_max_minutes, "max_session_hours": p.max_session_hours },
+        "mine": { "idle_seconds": idle, "warning_seconds": warning },
+    })))
+}
+
+/// The business's timeout and stricter role timeouts — administrators, full sign-in, never from a support session.
+async fn set_session_policy(State(state): State<AppState>, ctx: Ctx, Json(b): Json<crate::sessions::SessionPolicy>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
+    if !ctx.is_admin() || ctx.support.is_some() {
+        return Err(AppError::Forbidden("Only the business's administrators set session rules".into()));
+    }
+    let p = platform_security(&state.db).await?;
+    let (lo, hi) = (p.idle_min_minutes, p.idle_max_minutes);
+    if !(lo..=hi).contains(&b.idle_minutes) {
+        return Err(bad(format!("Choose between {lo} and {hi} minutes (S'Shop's limits)")));
+    }
+    if !(10..=120).contains(&b.warning_seconds) {
+        return Err(bad("The warning shows 10–120 seconds before logout"));
+    }
+    let mut seen = Vec::new();
+    for r in &b.role_minutes {
+        if seen.contains(&r.role_id) {
+            return Err(bad("One timeout per role"));
+        }
+        seen.push(r.role_id);
+        if r.minutes < lo || r.minutes > b.idle_minutes {
+            return Err(bad("A role's timeout must be stricter (shorter) than the business's, within S'Shop's limits"));
+        }
+        let ok: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM roles WHERE id = $1 AND tenant_id = $2)").bind(r.role_id).bind(ctx.tenant_id).fetch_one(&state.db).await?;
+        if !ok {
+            return Err(bad("Unknown role"));
+        }
+    }
+    let mut tx = state.db.begin().await?;
+    let before: Option<Value> = sqlx::query_scalar("SELECT settings->'security'->'session' FROM tenants WHERE id = $1 FOR UPDATE").bind(ctx.tenant_id).fetch_one(&mut *tx).await?;
+    sqlx::query(
+        "UPDATE tenants SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{security}',
+             COALESCE(settings->'security', '{}'::jsonb) || jsonb_build_object('session', $2::jsonb)) WHERE id = $1",
+    )
+    .bind(ctx.tenant_id)
+    .bind(json!(b))
+    .execute(&mut *tx)
+    .await?;
+    // Shorter limits apply to open sessions at once (longer ones at the next heartbeat), stricter role timeouts included.
+    sqlx::query("UPDATE user_sessions SET idle_seconds = LEAST(idle_seconds, $2) WHERE tenant_id = $1 AND ended_at IS NULL")
+        .bind(ctx.tenant_id)
+        .bind((b.idle_minutes as i32) * 60)
+        .execute(&mut *tx)
+        .await?;
+    for rm in &b.role_minutes {
+        sqlx::query(
+            "UPDATE user_sessions s SET idle_seconds = LEAST(s.idle_seconds, $3) FROM users u
+             WHERE s.user_id = u.id AND u.tenant_id = $1 AND u.role_id = $2 AND s.tenant_id = $1 AND s.ended_at IS NULL",
+        )
+        .bind(ctx.tenant_id)
+        .bind(rm.role_id)
+        .bind(((rm.minutes.max(lo)) as i32) * 60)
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit::record(&mut tx, &ctx, Entry::new("settings", "session_policy", "tenant", ctx.tenant_id).before(json!(before)).after(json!(b))).await?;
+    tx.commit().await?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 #[cfg(test)]

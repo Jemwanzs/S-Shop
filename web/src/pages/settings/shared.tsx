@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useUnsaved } from "@/lib/unsaved";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
@@ -76,6 +77,7 @@ export function SettingsPage({ title, description, children, dirty, saving, onSa
   onReset?: () => void;
   loading?: boolean;
 }) {
+  useUnsaved(`settings:${title}`, dirty);
   if (loading) return <Loading />;
   return (
     <div className="space-y-5 pb-20">

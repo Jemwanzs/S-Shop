@@ -3,6 +3,8 @@ import { locationHeader } from "./location";
 
 const TOKEN_KEY = "sshop.token";
 const BRANCH_KEY = "sshop.branch";
+/** Set when a session ended for inactivity, read once by the sign-in screen (roadmap 87). */
+export const SESSION_EXPIRED = "sshop.session-expired";
 
 function read(key: string): string | null {
   try {
@@ -83,6 +85,9 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   // Geofencing: the device position goes with staff requests while the business requires it.
   const where = opts.token === undefined ? locationHeader() : null;
   if (where) headers["X-Location"] = where;
+  // Roadmap 87: a change the person makes counts as activity; background reads never do (offline sync opts out).
+  const method = opts.method ?? (opts.body !== undefined ? "POST" : "GET");
+  if (bearer && method !== "GET" && opts.token === undefined) headers["X-User-Activity"] = "1";
   Object.assign(headers, opts.headers);
   let body: BodyInit | undefined;
   if (opts.body instanceof FormData) body = opts.body;
@@ -98,12 +103,16 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
     throw new ApiError("You appear to be offline. Check your connection and try again.", 0, "network");
   }
 
+  const text = await res.text();
+  const data = text ? safeJson(text) : null;
   if (res.status === 401 && opts.token === undefined) {
+    // Ended for inactivity on the server (another tab, a sleeping device): the sign-in screen says so.
+    if ((data as { error?: { code?: string } } | null)?.error?.code === "session_expired") {
+      try { sessionStorage.setItem(SESSION_EXPIRED, "1"); } catch { /* message not shown */ }
+    }
     session.setToken(null);
     window.dispatchEvent(new Event("sshop:unauthorized"));
   }
-  const text = await res.text();
-  const data = text ? safeJson(text) : null;
   if (!res.ok) {
     const err = (data as { error?: { message?: string; code?: string; title?: string | null } } | null)?.error;
     throw new ApiError(err?.message ?? `Request failed (${res.status})`, res.status, err?.code ?? "error", err?.title ?? undefined);

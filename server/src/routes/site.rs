@@ -211,10 +211,15 @@ pub fn media_url(id: Uuid) -> String {
 }
 
 /// The configuration as the public may see it: unpublished testimonials (and every sample), inactive services and
-/// promotions and the per-product settings stay on the server.
-fn public_config(c: &SiteConfig) -> Value {
+/// promotions and the per-product settings stay on the server. Testimonials (roadmap 90): *Show testimonials* off sends
+/// none at all (section, page and menu link disappear; each testimonial keeps its own setting); otherwise only shown,
+/// genuine ones. The staff preview also shows the samples switched on for it, marked as samples.
+fn public_config(c: &SiteConfig, preview: bool) -> Value {
     let mut c = c.clone();
-    c.testimonials.items.retain(|t| t.published && !t.sample);
+    if !c.testimonials.show {
+        c.testimonials.items.clear();
+    }
+    c.testimonials.items.retain(|t| t.published && (!t.sample || preview));
     c.services.items.retain(|s| s.active);
     c.promotions.retain(|p| p.active);
     c.products.items.clear();
@@ -787,7 +792,7 @@ async fn site_data(state: &AppState, s: &Site) -> AppResult<Value> {
     Ok(json!({
         "available": true, "preview": false, "slug": s.slug, "domain": s.domain, "version": s.version,
         "business": { "name": s.name, "tagline": tagline, "phone": phone, "currency": s.currency, "logo_url": logo_url },
-        "config": public_config(&s.config),
+        "config": public_config(&s.config, s.preview),
         "categories": categories(state, s).await?,
         "show_prices": t.settings.orders.show_prices,
         "ordering": { "enabled": s.ordering, "otp_required": portal::otp_required(state, &t) },
@@ -955,5 +960,29 @@ pub async fn host_pages(
         Ok(res) => res,
         Err(AppError::NotFound(_)) => next.run(req).await,
         Err(e) => e.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::website::Testimonial;
+
+    fn item(published: bool, sample: bool) -> Testimonial {
+        Testimonial { id: Uuid::new_v4(), name: "N".into(), quote: "Q".into(), published, sample, ..Default::default() }
+    }
+
+    #[test]
+    fn testimonials_reach_the_public_only_when_shown_and_genuine() {
+        // Roadmap 90: global switch, individual switch, samples preview-only.
+        let mut c = SiteConfig::default();
+        c.testimonials.items = vec![item(true, false), item(false, false), item(true, true), item(false, true)];
+        let n = |v: Value| v["testimonials"]["items"].as_array().unwrap().len();
+        assert_eq!(n(public_config(&c, false)), 1, "public: shown genuine only");
+        assert_eq!(n(public_config(&c, true)), 2, "preview: plus samples switched on for it");
+        c.testimonials.show = false;
+        assert_eq!(n(public_config(&c, false)), 0, "global switch off: none");
+        assert_eq!(n(public_config(&c, true)), 0);
+        assert_eq!(c.testimonials.items.len(), 4, "individual settings untouched");
     }
 }

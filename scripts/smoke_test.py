@@ -31,9 +31,12 @@ BRANCH = None
 FAILURES = []
 
 
-def call(method, path, body=None, expect=200, token=None, branch=None, location=None, repeat=False):
+def call(method, path, body=None, expect=200, token=None, branch=None, location=None, repeat=False, activity=True):
     req = urllib.request.Request(BASE + "/api" + path.replace(" ", "%20"), method=method)
     req.add_header("Content-Type", "application/json")
+    # The suite acts as a person at the keyboard (roadmap 87): requests count as activity unless a test says otherwise.
+    if activity:
+        req.add_header("X-User-Activity", "1")
     # Each call is its own request (repeating one tests the business rules, not the duplicate guard), unless
     # `repeat` asks for an identical request — what a double click or a client retry sends.
     if not repeat:
@@ -197,6 +200,13 @@ step("Sign in")
 login = call("POST", "/auth/login", {"email": EMAIL, "pin": PIN})
 TOKEN = login["token"]
 BRANCH = login["profile"]["branches"][0]["id"]
+check("signed-in profile carries the inactivity limits", login["profile"]["session"]["idle_seconds"] >= 60 and login["profile"]["session"]["warning_seconds"] >= 10)
+# Sessions of businesses created during the run sit unused while other sections run: give them room (roadmap 87 is
+# tested on its own, with short limits).
+_sec = call("GET", "/platform/security")
+call("PUT", "/platform/security", {**_sec, "idle_default_minutes": 120, "idle_max_minutes": max(_sec["idle_max_minutes"], 120)})
+# An open session takes a longer limit at its next heartbeat (the app sends one after real input).
+check("heartbeat applies the new limit to this session", call("POST", "/auth/activity", {})["idle_seconds"] == 7200)
 # A run that crashed part-way may have left trading-hour or location rules on: start from the defaults.
 _cfg = call("GET", "/settings")["settings"]
 if _cfg["workspace"]["location"]["mode"] != "anywhere" or _cfg["workspace"]["outside_hours"] != "allow" or _cfg["workspace"]["hours"]["open"] != _cfg["workspace"]["hours"]["close"]:
@@ -1038,6 +1048,10 @@ for i in range(32):
         codes.append(e.code)
 check("sign-in rate limited per client", codes[-1] == 429 and codes[0] == 400, codes[-3:])
 check("health check pings the database", urllib.request.urlopen(BASE + "/healthz").read() == b"ok")
+# Roadmap 88: the Product User Manual downloads from the sign-in screen without signing in (a PDF, not the app page).
+_man = urllib.request.urlopen(BASE + "/SShop_Product_User_Manual.pdf")
+_body = _man.read()
+check("user manual is public and a PDF", _man.status == 200 and _body[:5] == b"%PDF-" and "pdf" in _man.headers.get("Content-Type", ""), _man.headers.get("Content-Type"))
 
 step("Offline POS: queued sales sync with their real time")
 import datetime as _dt2
@@ -1451,11 +1465,12 @@ saved = call("PUT", "/website/draft", {"config": d2, "base_updated_at": ov["draf
 check("draft saved with the parts that changed", sorted(saved["changed"]) == ["hero", "theme"], saved)
 call("PUT", "/website/draft", {"config": d, "base_updated_at": ov["draft_updated_at"]}, **T2, expect=422)
 check("a stale editor cannot overwrite someone else's newer draft", True)
-d3 = {**d2, "testimonials": {**d2["testimonials"], "items": [{**x, "published": True} for x in d2["testimonials"]["items"]]}}
-call("PUT", "/website/draft", {"config": d3}, **T2)
-r = call("POST", "/website/publish", {}, **T2, expect=422)
-check("sample testimonials can never be published", "Sample testimonials" in r["error"]["message"], r)
-d4 = {**d3, "testimonials": {**d3["testimonials"], "items": [{**x, "published": False} for x in d3["testimonials"]["items"]]}}
+# Roadmap 90: a sample's demonstration text can never be shown as a genuine review.
+d3 = {**d2, "testimonials": {**d2["testimonials"], "items": [{**x, "published": True, "sample": False} for x in d2["testimonials"]["items"]]}}
+r = call("PUT", "/website/draft", {"config": d3}, **T2, expect=400)
+check("sample text can never be published as a genuine review", "own words" in r["error"]["message"], r)
+# Samples switched on for the preview are allowed (they never reach the public site — checked after publishing).
+d4 = {**d2, "testimonials": {**d2["testimonials"], "items": [{**x, "published": True} for x in d2["testimonials"]["items"]]}}
 call("PUT", "/website/draft", {"config": d4}, **T2)
 pub = call("POST", "/website/publish", {"note": "First version"}, **T2)
 ov = call("GET", "/website", **T2)
@@ -1534,7 +1549,7 @@ call("POST", "/stock/receive", {"product_id": hat, "quantity": 5, "cost_price": 
 site = call("GET", f"/site?slug={dk_slug}", **PUB)
 check("public website served by slug with business, categories and ordering", site["available"] and site["business"]["name"] == dk_name
       and any(c["id"] == wcat for c in site["categories"]) and site["ordering"]["enabled"], site.get("ordering"))
-check("sample testimonials never reach the public", all(not t.get("sample") for t in site["config"]["testimonials"]["items"]))
+check("sample testimonials never reach the public (even switched on for the preview)", site["config"]["testimonials"]["items"] == [], site["config"]["testimonials"]["items"][:1])
 check("internal product settings not exposed", not site["config"]["products"].get("items"))
 plist = call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"]
 pbag = next(p for p in plist if p["id"] == bag)
@@ -2172,18 +2187,25 @@ call("POST", "/auth/switch-business", {"tenant_id": home_t}, **SF, expect=422)
 check("no approving or switching from inside a support session", True)
 endr = call("POST", f"/platform/support/{st['id']}/end", **SF)
 check("ending returns the platform owner to their own business", endr["profile"]["acting"] is None and endr["profile"]["tenant"]["id"] == home_t)
-call("GET", "/auth/me", **SF, expect=422)
+r = call("GET", "/auth/me", **SF, expect=401)
+check("the ended support token is closed (sign in again, not an inactivity message)", r["error"]["code"] == "unauthorized", r)
 call("PUT", "/support-access/policy", {"policy": "notify"}, **TA)
 # 72 — several businesses per tenant, one sign-in
 nb = call("POST", f"/platform/accounts/{tacc['id']}/businesses", {"name": f"Tenant Co Two {suffix}"})
 tb2 = nb["tenant_id"]
 me_ta = call("GET", "/auth/me", **TA)
 check("second business: the primary administrator can switch to it", sorted(b["id"] for b in me_ta["businesses"]) == sorted([tb1, tb2]), me_ta["businesses"])
-sw = call("POST", "/auth/switch-business", {"tenant_id": tb2}, **TA)
+# Switching from a second sign-in (another device): TA stays signed in to the first business.
+ta_dev2 = call("POST", "/auth/login", {"email": tq["email"], "pin": "tc2468"})
+sw = call("POST", "/auth/switch-business", {"tenant_id": tb2}, token=ta_dev2["token"], branch="none")
 TB2 = {"token": sw["token"], "branch": "none"}
+r = call("GET", "/auth/me", token=ta_dev2["token"], branch="none", expect=401)
+check("switching replaces that sign-in's session (the old token is closed)", r["error"]["code"] == "unauthorized", r)
+_exp = lambda tok: json.loads(base64.urlsafe_b64decode(tok.split(".")[1] + "==="))["exp"]
+check("switching never extends a session's end", _exp(sw["token"]) <= _exp(ta_dev2["token"]), (_exp(sw["token"]), _exp(ta_dev2["token"])))
 check("switched without signing in again; separate data", sw["profile"]["tenant"]["id"] == tb2 and "*" in sw["profile"]["permissions"]
       and call("GET", "/products?status=all", **TB2)["items"] == [] and not any(c["name"] == f"Support cat {suffix}" for c in call("GET", "/categories", **TB2)))
-call("POST", "/auth/switch-business", {"tenant_id": home_t}, **TA, expect=403)
+call("POST", "/auth/switch-business", {"tenant_id": home_t}, **TB2, expect=403)
 check("never into another tenant", True)
 roles_b2 = {r["name"]: r["id"] for r in call("GET", "/roles", **TB2)}
 roles_b1 = {r["name"]: r["id"] for r in call("GET", "/roles", **TA)}
@@ -2284,6 +2306,43 @@ call("PUT", "/platform/security", {**ps, "quick_pin_min_length": 5})
 r = call("PUT", "/auth/quick-pin", {"current_pin": "8642", "quick_pin": "4826"}, **QF, expect=400)
 check("platform minimum length applies", "5–6" in r["error"]["message"], r)
 call("PUT", "/platform/security", ps)
+
+step("Roadmap 87: automatic logout after inactivity")
+sp_roles = {r["name"]: r["id"] for r in call("GET", "/roles")}
+pol = call("GET", "/security/sessions")
+check("session policy with the platform's limits", pol["platform"]["min_minutes"] == 1 and pol["mine"]["warning_seconds"] >= 10, pol)
+call("PUT", "/security/sessions", {**pol["policy"], "idle_minutes": 0}, expect=400)
+call("PUT", "/security/sessions", {**pol["policy"], "idle_minutes": pol["platform"]["max_minutes"] + 1}, expect=400)
+call("PUT", "/security/sessions", {**pol["policy"], "role_minutes": [{"role_id": sp_roles["Salesperson"], "minutes": pol["policy"]["idle_minutes"] + 5}]}, expect=400)
+call("PUT", "/security/sessions", {**pol["policy"], "warning_seconds": 5}, expect=400)
+check("timeouts within S'Shop's limits; role timeouts only stricter", True)
+call("PUT", "/security/sessions", {**pol["policy"], "role_minutes": [{"role_id": sp_roles["Salesperson"], "minutes": 1}]})
+it_mail = f"idle{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": f"Idle {suffix}", "email": it_mail, "pin": "4321", "role_id": sp_roles["Salesperson"], "all_branches": True, "branch_ids": []})
+il = call("POST", "/auth/login", {"email": it_mail, "pin": "4321"})
+IT = {"token": il["token"], "branch": BRANCH}
+check("a stricter role timeout applies (1 minute, 30-second warning)", il["profile"]["session"] == {"idle_seconds": 60, "warning_seconds": 30}, il["profile"]["session"])
+check("the heartbeat extends the session and returns the limits", call("POST", "/auth/activity", {}, **IT)["idle_seconds"] == 60)
+time.sleep(95)
+r = call("GET", "/auth/me", **IT, activity=False, expect=401)
+check("idle past the limit: the server ends the session", r["error"]["code"] == "session_expired" and "inactivity" in r["error"]["message"], r)
+call("POST", "/auth/activity", {}, **IT, expect=401)
+check("…and it cannot be revived by a late heartbeat", True)
+check("expiry audited", any(a["action"] == "session_expired" for a in call("GET", "/audit?period=today&limit=300&module=auth")["items"]))
+il2 = call("POST", "/auth/login", {"email": it_mail, "pin": "4321"})
+IT2 = {"token": il2["token"], "branch": BRANCH}
+time.sleep(40)
+call("GET", "/notifications?limit=5", **IT2, activity=False)
+call("GET", "/auth/me", **IT2, activity=False)
+time.sleep(58)
+r = call("GET", "/auth/me", **IT2, activity=False, expect=401)
+check("background requests do not keep a session alive", r["error"]["code"] == "session_expired")
+il3 = call("POST", "/auth/login", {"email": it_mail, "pin": "4321"})
+IT3 = {"token": il3["token"], "branch": BRANCH}
+call("POST", "/auth/logout", {}, **IT3)
+r = call("GET", "/auth/me", **IT3, expect=401)
+check("log out ends the session on the server (not reported as inactivity)", r["error"]["code"] == "unauthorized", r)
+call("PUT", "/security/sessions", pol["policy"])
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

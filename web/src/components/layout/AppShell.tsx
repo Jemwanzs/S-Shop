@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { IdleGuard } from "@/components/IdleGuard";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRightLeft, Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, Loader2, LogOut, Menu, Moon, Search, ShoppingCart, Store, Sun } from "lucide-react";
@@ -491,6 +492,7 @@ export function AppShell() {
         <LocationGuard />
         <OfflineBar />
         <QuickSaleShortcut />
+        <IdleGuard />
         <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur no-print">
           <div className="mx-auto flex h-14 max-w-[1680px] items-center gap-2 px-4 md:px-6 lg:h-16 lg:px-8">
             <div className="min-w-0 flex-1 lg:hidden"><Brand /></div>

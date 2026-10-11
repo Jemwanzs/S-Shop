@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { Loader2, Mail } from "lucide-react";
-import { api, ApiError, errorMessage } from "@/lib/api";
+import { Download, Loader2, Mail, TimerReset } from "lucide-react";
+import { api, ApiError, errorMessage, SESSION_EXPIRED } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import type { Profile } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,17 @@ import { PinPad } from "@/components/PinPad";
 import { forgetQuickDevice, preferredMethod, quickDevice, rememberMethod } from "@/lib/quick";
 import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
+
+/** Roadmap 88: the public Product User Manual (no sign-in), built by scripts/manual/build.mjs. */
+const MANUAL = "SShop_Product_User_Manual.pdf";
+function ManualLink() {
+  return (
+    <a href={`/${MANUAL}`} download={MANUAL} type="application/pdf"
+      className="mx-auto mt-4 flex w-fit items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-primary hover:underline">
+      {t("Manual")} <Download className="h-3.5 w-3.5" aria-hidden />
+    </a>
+  );
+}
 
 export default function LoginPage() {
   const { profile, signIn } = useSession();
@@ -25,10 +36,24 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"quick" | "full">(() => (quickDevice() && preferredMethod() === "quick" && !params.get("email") ? "quick" : "full"));
   const [quick, setQuick] = useState("");
   const [shake, setShake] = useState(0);
+  // Roadmap 87: shown after an automatic logout until the next sign-in (the Quick PIN keypad still opens on a trusted device).
+  const [expired] = useState(() => {
+    try {
+      return sessionStorage.getItem(SESSION_EXPIRED) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const expiredNote = expired && (
+    <p role="status" className="flex items-center gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+      <TimerReset className="h-4 w-4 shrink-0" /> {t("Session expired due to inactivity. Please log in again.")}
+    </p>
+  );
 
   if (profile) return <Navigate to="/" replace />;
 
   const enter = (res: { token: string; profile: Profile }) => {
+    try { sessionStorage.removeItem(SESSION_EXPIRED); } catch { /* nothing kept */ }
     signIn(res.token, res.profile);
     const preset = res.profile.branches.some((b) => b.id === res.profile.user.default_branch_id);
     navigate(res.profile.branches.length > 1 && !preset ? "/select-branch" : "/", { replace: true });
@@ -61,6 +86,7 @@ export default function LoginPage() {
     return (
       <AuthLayout title="S'Shop" subtitle={`${t("Welcome back")}, ${device.name.split(" ")[0]}`}>
         <div className="space-y-5">
+          {expiredNote}
           <p className="text-center text-sm text-muted-foreground">{t("Enter your Quick PIN")} · <span className="text-foreground">{device.business}</span></p>
           <PinPad key={shake} value={quick} onChange={(v) => { setQuick(v); setError(""); }} onSubmit={quickLogin} disabled={busy} error={shake > 0 && !quick} />
           {busy && <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />}
@@ -70,6 +96,7 @@ export default function LoginPage() {
             <Link to={`/forgot?email=${encodeURIComponent(device.email)}`} className="text-muted-foreground hover:underline" title={t("Sign in with your full PIN, then set a new Quick PIN in your preferences")}>{t("Forgot PIN?")}</Link>
           </div>
         </div>
+        <ManualLink />
       </AuthLayout>
     );
   }
@@ -91,6 +118,7 @@ export default function LoginPage() {
   return (
     <AuthLayout title="S'Shop" subtitle="Sign in to continue">
       <form onSubmit={submit} className="space-y-4">
+        {expiredNote}
         <label className="block">
           <AuthLabel>{t("Email")}</AuthLabel>
           <div className="relative">
@@ -126,6 +154,7 @@ export default function LoginPage() {
         <Button variant="outline" size="sm" className="mt-2 w-full" asChild>
           <Link to="/request-access">{t("Request Access")}</Link>
         </Button>
+        <ManualLink />
       </div>
     </AuthLayout>
   );

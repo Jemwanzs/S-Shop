@@ -36,6 +36,17 @@
 | 18 | Access requests (no open signup) | [modules/18-access-requests.md](modules/18-access-requests.md) |
 | 19 | Barcode scanning (camera, handheld, manual) | [modules/19-barcode-scanning.md](modules/19-barcode-scanning.md) |
 | 20 | Platform owner: businesses & the Pablo Niche demo | [modules/20-platform-and-demo.md](modules/20-platform-and-demo.md) |
+| 21 | Platform owner, tenant monitoring & billing | [modules/21-platform-billing.md](modules/21-platform-billing.md) |
+| 22 | Action button states & floating quick actions | [modules/22-actions-and-quick-actions.md](modules/22-actions-and-quick-actions.md) |
+| 23 | Website add-on & custom domains | [modules/23-website.md](modules/23-website.md) |
+| 24 | Onboarding emails, one-time PINs, self-service reset | [modules/24-onboarding-and-recovery.md](modules/24-onboarding-and-recovery.md) |
+| 25 | Sales ownership & data visibility | [modules/25-sales-ownership-and-visibility.md](modules/25-sales-ownership-and-visibility.md) |
+| 26 | Digital receipts & return/exchange reconciliation | [modules/26-receipts-and-reconciliation.md](modules/26-receipts-and-reconciliation.md) |
+| 27 | Tenants & secure business access | [modules/27-tenants-and-secure-access.md](modules/27-tenants-and-secure-access.md) |
+| 28 | Quick Login PIN | [modules/28-quick-login-pin.md](modules/28-quick-login-pin.md) |
+| 29 | Holiday & promotional campaigns | [modules/29-holiday-campaigns.md](modules/29-holiday-campaigns.md) |
+| 30 | Session timeout & automatic logout | [modules/30-session-timeout.md](modules/30-session-timeout.md) |
+| 31 | Product User Manual (PDF) | [modules/31-product-user-manual.md](modules/31-product-user-manual.md) |
 
 ## Glossary
 

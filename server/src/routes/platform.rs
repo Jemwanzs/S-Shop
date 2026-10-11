@@ -14,7 +14,7 @@ use uuid::Uuid;
 use super::access::require_platform_admin;
 use super::{Counted, Page, Paged, Period};
 use crate::audit::{self, Entry};
-use crate::auth::{issue_token, Ctx, STAFF_TOKEN_HOURS};
+use crate::auth::Ctx;
 use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::state::AppState;
 
@@ -426,7 +426,10 @@ async fn open(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> 
             .execute(&state.db)
             .await?;
     }
-    let token = issue_token(&state.cfg.jwt_secret, ctx.user_id, home, "staff", chrono::Duration::hours(STAFF_TOKEN_HOURS))?;
+    // No new PIN here: the session keeps its original end (roadmap 87).
+    let cap = crate::sessions::carried_end(&state, ctx.session_id).await?;
+    crate::sessions::end(&state, ctx.session_id, ctx.user_id, ctx.tenant_id, "replaced").await?;
+    let token = crate::sessions::issue_until(&state, ctx.user_id, home, crate::sessions::Kind::Full, cap).await?;
     // Recorded in the business being opened (its own audit trail shows platform access) and at home.
     let mut tx = state.db.begin().await?;
     for tenant in [id, home] {

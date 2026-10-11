@@ -149,7 +149,7 @@ function Header({ data, onSearch, onCart, toggleMode, mode }: { data: SiteData; 
   const lines = useCart();
   const count = lines.reduce((a, l) => a + l.qty, 0);
   const bump = useBump(count);
-  const nav = data.config.navigation.filter((n) => n.visible && n.key !== "order");
+  const nav = data.config.navigation.filter((n) => shownNav(data, n) && n.key !== "order");
   const { pathname } = useLocation();
   useEffect(() => setMenu(false), [pathname]);
   return (
@@ -172,7 +172,7 @@ function Header({ data, onSearch, onCart, toggleMode, mode }: { data: SiteData; 
           <aside className="drawer left" role="dialog" aria-modal="true" aria-label="Menu">
             <div className="drawer-head"><Logo data={data} /><button className="icon-btn" aria-label="Close menu" onClick={() => setMenu(false)}><X /></button></div>
             <div className="drawer-body">
-              <nav aria-label="Main">{data.config.navigation.filter((n) => n.visible).map((n) => <Link key={n.key} to={pagePath(n.key)}>{n.label}</Link>)}</nav>
+              <nav aria-label="Main">{data.config.navigation.filter((n) => shownNav(data, n)).map((n) => <Link key={n.key} to={pagePath(n.key)}>{n.label}</Link>)}</nav>
             </div>
           </aside>
         </>
@@ -202,7 +202,7 @@ function Footer({ data }: { data: SiteData }) {
           </div>
           <div>
             <h3>Explore</h3>
-            <ul>{c.navigation.filter((n) => n.visible).map((n) => <li key={n.key}><Link to={pagePath(n.key)}>{n.label}</Link></li>)}</ul>
+            <ul>{c.navigation.filter((n) => shownNav(data, n)).map((n) => <li key={n.key}><Link to={pagePath(n.key)}>{n.label}</Link></li>)}</ul>
           </div>
           {((c.contact.show_phone && c.contact.phone) || (c.contact.show_email && c.contact.email) || (c.contact.show_location && c.contact.location)) && <div>
             <h3>Contact</h3>
@@ -343,6 +343,11 @@ function Landing({ data }: { data: SiteData }) {
 }
 
 const client = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } } });
+
+/** A menu link shows when switched on; Testimonials only while there are testimonials to show (roadmap 90). */
+function shownNav(data: SiteData, n: { key: string; visible: boolean }) {
+  return n.visible && (n.key !== "testimonials" || (data.config.testimonials.show && data.config.testimonials.items.length > 0));
+}
 
 export default function SiteApp({ data, base }: { data: SiteData; base: string }) {
   return (

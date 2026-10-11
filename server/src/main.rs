@@ -16,6 +16,7 @@ mod notify;
 mod ratelimit;
 mod perms;
 mod routes;
+mod sessions;
 mod settings;
 mod state;
 mod util;

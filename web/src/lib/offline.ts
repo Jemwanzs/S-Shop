@@ -85,7 +85,7 @@ export async function syncSales(tenantId: string, userId: string): Promise<{ sen
     await refresh();
     for (const q of queue.filter((x) => x.tenant_id === tenantId && x.user_id === userId && x.status === "pending")) {
       try {
-        await api("/sales", { body: q.body, headers: { "X-Branch-Id": q.branch_id, ...(q.location ? { "X-Location": q.location } : {}) } });
+        await api("/sales", { body: q.body, headers: { "X-User-Activity": "0", "X-Branch-Id": q.branch_id, ...(q.location ? { "X-Location": q.location } : {}) } });
         await tx(SALES, "readwrite", (s) => s.delete(q.client_ref));
         sent++;
       } catch (e) {

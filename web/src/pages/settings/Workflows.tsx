@@ -55,7 +55,7 @@ export function WorkflowSettings() {
   const levelName = (l: WorkflowLevel) =>
     l.approver_type === "role" ? roles.data?.find((r) => r.id === l.approver_role_id)?.name ?? "Role"
     : l.approver_type === "user" ? users.data?.find((u) => u.id === l.approver_user_id)?.name ?? "User"
-    : APPROVER[l.approver_type];
+    : t(APPROVER[l.approver_type]);
   const conditionText = (w: WorkflowRow) => {
     const parts = [];
     if (w.min_amount !== null && w.min_amount !== "") parts.push(`from ${money(w.min_amount)}`);
@@ -113,7 +113,7 @@ export function WorkflowSettings() {
                     <span className="num flex h-11 w-8 items-center justify-center font-semibold text-muted-foreground">{i + 1}</span>
                     <Field label="Approver" className="min-w-40 flex-1">
                       <Select value={l.approver_type} onChange={(v) => setLevel(i, { approver_type: v as WorkflowLevel["approver_type"] })}>
-                        {Object.entries(APPROVER).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+                        {Object.entries(APPROVER).map(([k, n]) => <option key={k} value={k}>{t(n)}</option>)}
                       </Select>
                     </Field>
                     {l.approver_type === "role" && (

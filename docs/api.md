@@ -311,6 +311,21 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | POST | `/api/site/events` (`campaign_view`, `campaign_product`, `campaign_cta` + `campaign_id`) | this business's campaigns only |
 | GET / PUT | `/api/platform/campaigns` | feature on/off, campaigns per business, products per campaign |
 
+## Sessions & automatic logout ([module 30](modules/30-session-timeout.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/auth/activity` | heartbeat after real input; returns `idle_seconds`, `warning_seconds` |
+| POST | `/api/auth/logout` (`reason`: `inactivity` or other) | ends this session (audited `logout` / `session_expired`) |
+| GET / PUT | `/api/security/sessions` (`idle_minutes`, `warning_seconds`, `role_minutes[{role_id, minutes}]`) | `users.manage` to read; administrators, full sign-in, no support session to change; GET adds `platform` limits and `mine` |
+
+Every staff request is checked against its session. Idle past the limit (or ended for inactivity) → 401
+`session_expired` (*Session expired due to inactivity. Please log in again.*); signed out, replaced, past the longest
+session or a token without a session → 401 `unauthorized` (*Please sign in to continue*). Send `X-User-Activity: 1` only on
+requests a person made; others never extend a session. `GET /auth/me` returns `session: {idle_seconds,
+warning_seconds}`. `/api/platform/security` also carries `idle_default_minutes`, `idle_min_minutes`,
+`idle_max_minutes`, `warning_seconds` and `max_session_hours`.
+
 ## Quick Login PIN ([module 28](modules/28-quick-login-pin.md))
 
 | Method | Path | Notes |

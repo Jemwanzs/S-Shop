@@ -1,4 +1,4 @@
-/** Compact numeric keypad with masked dots (roadmap 83): tap or type digits; Backspace deletes; submits itself when
+/** Compact numeric keypad with masked dots (roadmap 83; one dot per digit entered, roadmap 89): tap or type digits; Backspace deletes; submits itself when
  * the PIN reaches `length` digits (or on Enter once at least `min` are entered). */
 import { useEffect } from "react";
 import { Delete } from "lucide-react";
@@ -35,9 +35,12 @@ export function PinPad({ value, onChange, onSubmit, min = 4, max = 6, disabled, 
   };
   return (
     <div className="space-y-5">
-      <div className={cn("flex justify-center gap-3", error && "animate-[shake_.35s_ease] motion-reduce:animate-none")} aria-live="polite" aria-label={`${value.length} ${t("digits entered")}`}>
-        {Array.from({ length: max }, (_, i) => (
-          <span key={i} className={cn("h-3.5 w-3.5 rounded-full border-2 transition-colors", i < value.length ? "border-primary bg-primary" : "border-muted-foreground/40", i >= min && i >= value.length && "opacity-50")} />
+      {/* Only the digits entered, centred: no empty placeholders, so the PIN's length is never shown. The row keeps its
+          height when empty so the keypad never moves. */}
+      <div className={cn("flex h-3.5 items-center justify-center gap-3", error && "animate-[shake_.35s_ease] motion-reduce:animate-none")}
+        role="status" aria-live="polite" aria-label={`${value.length} ${t("digits entered")}`}>
+        {Array.from({ length: value.length }, (_, i) => (
+          <span key={i} className="h-3.5 w-3.5 rounded-full bg-primary animate-pop motion-reduce:animate-none" />
         ))}
       </div>
       <div className="mx-auto grid max-w-[272px] grid-cols-3 gap-2.5">

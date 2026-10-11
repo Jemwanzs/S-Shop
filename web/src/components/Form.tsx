@@ -10,16 +10,19 @@ import { t, tx } from "@/lib/i18n";
 /** The label of the enclosing Field, so a dropdown inside it names its sheet (see Select). */
 export const FieldLabel = createContext<string | undefined>(undefined);
 
-export function Field({ label, hint, optional, children, className }: { label: ReactNode; hint?: ReactNode; optional?: boolean; children: ReactNode; className?: string }) {
+export function Field({ label, hint, optional, children, className, group }: { label: ReactNode; hint?: ReactNode; optional?: boolean; children: ReactNode; className?: string;
+  /** Several controls (a row of choice buttons): a group, not a <label> that would click the first button. */
+  group?: boolean }) {
+  const Tag = group ? "div" : "label";
   return (
-    <label className={cn("block space-y-1.5", className)}>
+    <Tag role={group ? "group" : undefined} className={cn("block space-y-1.5", className)}>
       <span className="flex items-baseline justify-between gap-2 text-[0.85rem] font-medium">
         {tx(label)}
         {optional && <span className="text-xs font-normal text-muted-foreground">{t("Optional")}</span>}
       </span>
       <FieldLabel.Provider value={typeof label === "string" ? label : undefined}>{children}</FieldLabel.Provider>
       {hint && <span className="block text-xs text-muted-foreground">{tx(hint)}</span>}
-    </label>
+    </Tag>
   );
 }
 

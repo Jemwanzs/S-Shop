@@ -183,6 +183,7 @@ function Quote({ t, hidden }: { t: Testimonial; hidden?: boolean }) {
     <figure className="quote" aria-hidden={hidden || undefined} style={{ margin: 0 }}>
       <Stars n={t.rating} />
       <blockquote style={{ margin: 0 }}>“{t.quote}”</blockquote>
+      {t.sample && <span className="badge" style={{ position: "static", alignSelf: "flex-start", marginBottom: 6 }}>Sample · preview only</span>}
       <figcaption className="who">
         {t.photo ? <img src={`/api/site/media/${t.photo}?size=thumb`} alt="" loading="lazy" /> : <span className="av" aria-hidden>{t.name[0]}</span>}
         <span><strong style={{ color: "var(--heading)" }}>{t.name}</strong>{t.position && <span className="muted" style={{ display: "block", fontSize: ".86em" }}>{t.position}</span>}</span>

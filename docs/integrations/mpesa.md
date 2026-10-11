@@ -65,8 +65,10 @@ nothing.
 ## The platform's own Daraja app (Railway variables, roadmap 92)
 
 S'Shop's own Daraja app (e.g. the Sandbox app with M-Pesa Express) is read from the `sshop` service's variables —
-the same service, no other one. It serves **only the platform owner's own business**, and only until that business adds
-an account of its own; other businesses always use their own accounts.
+the same service, no other one. It serves **only the platform owner's own business and demo businesses** (such as the
+Pablo Niche demo, which shows S'Shop to prospects), and only until they add an account of their own; customers'
+businesses always use their own accounts. The *Platform M-Pesa (Railway)* card shows to the platform owner also inside
+a demo or support session, and says whether the configuration serves that business.
 
 | Variable | Value |
 |---|---|

@@ -80,12 +80,13 @@ pub async fn account_creds(state: &AppState, tenant: Uuid, id: Uuid) -> AppResul
     creds_of(state, a)
 }
 
-/// The platform's `MPESA_*` configuration, used only by the platform owner's own business without an account of
-/// its own (never by other businesses: their customers would pay into the platform's shortcode).
+/// The platform's `MPESA_*` configuration, used only by the platform owner's own business — and by demo businesses,
+/// which show S'Shop to prospects — without an account of their own (never by customers' businesses: their customers
+/// would pay into the platform's shortcode).
 async fn env_creds(state: &AppState, tenant: Uuid) -> AppResult<Option<Creds>> {
     let Some(c) = &state.cfg.mpesa else { return Ok(None) };
     let (own, platform): (bool, bool) = sqlx::query_as(
-        "SELECT EXISTS (SELECT 1 FROM mpesa_accounts WHERE tenant_id = $1), COALESCE((SELECT ownership = 'platform' FROM tenants WHERE id = $1), false)",
+        "SELECT EXISTS (SELECT 1 FROM mpesa_accounts WHERE tenant_id = $1), COALESCE((SELECT ownership = 'platform' OR is_demo FROM tenants WHERE id = $1), false)",
     )
     .bind(tenant)
     .fetch_one(&state.db)

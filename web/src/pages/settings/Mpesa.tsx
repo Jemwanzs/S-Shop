@@ -267,11 +267,13 @@ interface PlatformMpesa {
   callback_matches_server?: boolean; public_url: string; used_by_this_business?: boolean; problem: string | null;
 }
 
-/** Platform owner only (roadmap 92): the platform's Daraja app from the Railway variables — status and Sandbox tests. */
+/** Platform owner only (roadmap 92): the platform's Daraja app from the Railway variables — status and Sandbox tests.
+ * It serves the platform owner's own business and demo businesses. */
 export function PlatformMpesaCard() {
   const qc = useQueryClient();
   const { profile } = useSession();
-  const owner = !!profile?.user.platform_admin && !profile?.acting;
+  // The platform owner, also inside a demo or support session (the configuration then says whether it serves that business).
+  const owner = !!profile?.user.platform_admin;
   const q = useQuery({ queryKey: ["mpesa-platform"], queryFn: () => api<PlatformMpesa>("/mpesa/platform"), enabled: owner });
   const [phone, setPhone] = useState("");
   if (!owner) return null;
@@ -286,7 +288,7 @@ export function PlatformMpesaCard() {
     <Card title="Platform M-Pesa (Railway)" action={<Pill tone={p.configured ? (p.environment === "production" ? "primary" : "info") : p.problem ? "danger" : "neutral"}>
       {p.configured ? (p.environment === "production" ? "Production" : "Sandbox") : p.problem ? "Error" : "Not set"}</Pill>}>
       <div className="space-y-2 py-2 text-sm">
-        <p className="text-xs text-muted-foreground">{t("S'Shop's own Daraja app from the MPESA_* variables. It serves only the platform owner's business until that business adds its own account; other businesses always use their own.")}</p>
+        <p className="text-xs text-muted-foreground">{t("S'Shop's own Daraja app from the MPESA_* variables. It serves the platform owner's business and demo businesses until they add their own account; customers' businesses always use their own.")}</p>
         {p.problem && <p className="rounded-lg bg-destructive/10 p-2.5 text-xs text-destructive">{p.problem}</p>}
         {p.configured && (
           <>
@@ -296,7 +298,7 @@ export function PlatformMpesaCard() {
               <p className="num break-all text-xs">{p.callback_url}</p>
               {!p.callback_matches_server && <p className="mt-1 text-xs text-warning">{t("This is not this server's address")} ({p.public_url}) — {t("Safaricom's confirmations would not reach S'Shop.")}</p>}
             </div>
-            {!p.used_by_this_business && <p className="text-xs text-muted-foreground">{t("This business has its own M-Pesa account, which is used instead.")}</p>}
+            {!p.used_by_this_business && <p className="text-xs text-muted-foreground">{t("Not used in this business: it has its own M-Pesa account, or it is a customer's business (which always uses its own).")}</p>}
             {p.used_by_this_business && (
               <div className="flex flex-wrap items-end gap-2">
                 <ActionButton size="sm" variant="outline" online onAction={async () => show(await api("/mpesa/platform/test", { method: "POST" }))}><Wifi /> {t("Test OAuth")}</ActionButton>

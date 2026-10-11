@@ -457,7 +457,8 @@ Existing Railway Service*; [integrations/mpesa.md](integrations/mpesa.md)).
   `MPESA_CONSUMER_SECRET`, `MPESA_STK_PASSKEY`, `MPESA_SHORTCODE`, `MPESA_CALLBACK_URL` (earlier names still read);
   validated at start-up without ever stopping the server (problem shown and logged); callback URL must be HTTPS with a
   long secret path; OAuth tokens cached and renewed; platform-owner card with masked callback URL, address check, *Test
-  OAuth* and *Test STK prompt*. STK Push sales, callbacks, status queries and duplicate protection are those of 91;
+  OAuth* and *Test STK prompt* (also inside a demo or support session). Serves the platform owner's business and demo
+  businesses (so the demo can show STK Push), never customers' businesses. STK Push sales, callbacks, status queries and duplicate protection are those of 91;
   tenants keep their own encrypted production accounts (91).
 
 Health check 2026-10-11 (owner request: *health check of the S'Shop app; detect and fix gaps or bugs*).

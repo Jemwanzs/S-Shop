@@ -460,6 +460,19 @@ Existing Railway Service*; [integrations/mpesa.md](integrations/mpesa.md)).
   OAuth* and *Test STK prompt*. STK Push sales, callbacks, status queries and duplicate protection are those of 91;
   tenants keep their own encrypted production accounts (91).
 
+Health check 2026-10-11 (owner request: *health check of the S'Shop app; detect and fix gaps or bugs*).
+- ✅ **93. Health check** — production healthy (health check, sign-in, manual, API and site answer in under 1 s; strict
+  CSP, HSTS, framing denied; no errors in the service logs); M-Pesa release live (new routes answer, forged callbacks
+  refused); full smoke suite 653/653 and 54 unit tests. Fixed: **jsPDF 3.0.4 → 4.2.1** (critical/high advisories incl.
+  HTML injection in new-window output and image-decoding denial of service; receipt and report PDFs verified).
+- ⏳ **94. Railway config migration (before 2026-12-01)** — `railway.json` (Config as Code) is deprecated and stops on
+  2026-12-01. Railway's automatic migration drops the Dockerfile builder and restart policy and renames the service,
+  so it is done by hand with the owner: write `.railway/railway.ts` (Dockerfile build, `/healthz` with 120 s,
+  restart on failure × 5), `railway config plan`, then apply.
+- ⏳ **95. Front-end dependency majors** — React Router 6.30 → 7 (open-redirect advisory; not reachable today: no
+  navigation to user-supplied paths) and Tailwind 3 → 4 (advisories in build-time tooling only, never shipped). Both
+  are breaking upgrades, planned with a full UI regression pass.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

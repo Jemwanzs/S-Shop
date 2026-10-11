@@ -2,7 +2,7 @@
  * and the first sign-in with a one-time PIN. Links carry their token in the URL fragment (#t=…), never sent to servers. */
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { CheckCircle2, Clock, Loader2, Mail, MessageCircle, Phone, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Mail, MessageCircle, Phone, ShieldCheck, XCircle } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
 import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
+import { SShopLoader } from "@/components/SShopLoader";
 
 export const SUPPORT_PHONES = ["0798 993 404", "0732 968 898"];
 const intl = (p: string) => "254" + p.replace(/\D/g, "").replace(/^0/, "");
@@ -77,7 +78,7 @@ export function ForgotPage() {
           <p className="text-xs text-muted-foreground">{t("Applied for access? You'll receive a link to your request's status instead. Links expire after 30 minutes.")}</p>
           <div className="grid grid-cols-2 gap-2">
             <Button variant="outline" asChild><Link to="/login">{t("Back to Sign In")}</Link></Button>
-            <Button variant="outline" onClick={() => submit()} disabled={busy || cooldown > 0}>{busy ? <Loader2 className="animate-spin" /> : cooldown > 0 ? `${t("Resend Link")} (${cooldown})` : t("Resend Link")}</Button>
+            <Button variant="outline" onClick={() => submit()} disabled={busy || cooldown > 0}>{busy ? <SShopLoader size="sm" /> : cooldown > 0 ? `${t("Resend Link")} (${cooldown})` : t("Resend Link")}</Button>
           </div>
           <SupportContacts title="Can't reach that email? Contact S'Shop Support" />
         </div>
@@ -91,7 +92,7 @@ export function ForgotPage() {
             </div>
           </label>
           {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
-          <Button type="submit" className="w-full" disabled={busy || !email.includes("@")}>{busy ? <Loader2 className="animate-spin" /> : t("Send Reset Link")}</Button>
+          <Button type="submit" className="w-full" disabled={busy || !email.includes("@")}>{busy ? <SShopLoader size="sm" /> : t("Send Reset Link")}</Button>
           <Link to="/login" className="block text-center text-xs text-muted-foreground hover:text-foreground">{t("Back to Sign In")}</Link>
         </form>
       )}
@@ -159,7 +160,7 @@ export function SetPinPage() {
       </AuthLayout>
     );
   }
-  if (!info) return <AuthLayout title="Checking your link…"><Loader2 className="mx-auto animate-spin" /></AuthLayout>;
+  if (!info) return <AuthLayout title="Checking your link…"><SShopLoader className="mx-auto flex" label="Checking your link…" /></AuthLayout>;
   return (
     <AuthLayout title={info.kind === "setup" ? "Set up your account" : "Choose a new PIN"} subtitle={info.business}>
       <form onSubmit={submit} className="space-y-4">
@@ -169,7 +170,7 @@ export function SetPinPage() {
         <label className="block"><AuthLabel>{t("Confirm new PIN")}</AuthLabel><PasswordInput withIcon autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} maxLength={12} /></label>
         <p className="text-xs text-muted-foreground">{t("4–12 characters — letters, numbers and symbols allowed")}</p>
         {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
-        <Button type="submit" className="w-full" disabled={busy || !!problem}>{busy ? <Loader2 className="animate-spin" /> : problem && (pin || confirm) ? t(problem) : t("Save PIN")}</Button>
+        <Button type="submit" className="w-full" disabled={busy || !!problem}>{busy ? <SShopLoader size="sm" /> : problem && (pin || confirm) ? t(problem) : t("Save PIN")}</Button>
       </form>
     </AuthLayout>
   );
@@ -215,7 +216,7 @@ export function AccessStatusPage() {
       </AuthLayout>
     );
   }
-  if (!s) return <AuthLayout title="Checking your link…"><Loader2 className="mx-auto animate-spin" /></AuthLayout>;
+  if (!s) return <AuthLayout title="Checking your link…"><SShopLoader className="mx-auto flex" label="Checking your link…" /></AuthLayout>;
   const view: Record<Status["status"], { icon: ReactNode; title: string; text: string }> = {
     pending: { icon: <Clock className="mx-auto h-10 w-10 text-warning" />, title: "Under review", text: "Your access request is currently under review. Please allow us a little time to complete the approval process." },
     approved_setup: { icon: <ShieldCheck className="mx-auto h-10 w-10 text-success" />, title: "Approved", text: "Your S'Shop access has been approved. Please check your email for your account setup instructions." },
@@ -231,7 +232,7 @@ export function AccessStatusPage() {
         <p className="text-sm">{t(v.text)}</p>
         {s.status === "approved_setup" && (
           resent === null ? (
-            <Button className="w-full" onClick={resend} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : t("Resend Setup Instructions")}</Button>
+            <Button className="w-full" onClick={resend} disabled={busy}>{busy ? <SShopLoader size="sm" /> : t("Resend Setup Instructions")}</Button>
           ) : (
             <p className="rounded-lg bg-success/10 p-2.5 text-xs text-success">{t("If your account still needs setting up, a new email is on its way.")}</p>
           )
@@ -276,7 +277,7 @@ export function ForcedPinChange() {
         <label className="block"><AuthLabel>{t("New PIN")}</AuthLabel><PasswordInput withIcon autoComplete="new-password" value={pin} onChange={(e) => setPin(e.target.value)} maxLength={12} /></label>
         <label className="block"><AuthLabel>{t("Confirm new PIN")}</AuthLabel><PasswordInput withIcon autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} maxLength={12} /></label>
         {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
-        <Button type="submit" className="w-full" disabled={busy || !!problem}>{busy ? <Loader2 className="animate-spin" /> : problem && (current || pin || confirm) ? t(problem) : t("Save PIN & continue")}</Button>
+        <Button type="submit" className="w-full" disabled={busy || !!problem}>{busy ? <SShopLoader size="sm" /> : problem && (current || pin || confirm) ? t(problem) : t("Save PIN & continue")}</Button>
         <button type="button" onClick={signOut} className="block w-full text-center text-xs text-muted-foreground hover:text-foreground">{t("Sign out")}</button>
       </form>
     </AuthLayout>

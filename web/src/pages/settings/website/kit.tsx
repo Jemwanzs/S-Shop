@@ -1,7 +1,7 @@
 /** Building blocks shared by the Website Management Centre tabs. */
 import { useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ImagePlus, Loader2, X, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ImagePlus, X, XCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { optimizeImage } from "@/lib/image";
@@ -12,6 +12,7 @@ import { Field, Select } from "@/components/Form";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { t } from "@/lib/i18n";
 import { contrast, mediaUrl, uid, useMedia, type Cta, type Media } from "./data";
+import { SShopLoader } from "@/components/SShopLoader";
 
 export function Block({ title, hint, children, action }: { title: string; hint?: ReactNode; children: ReactNode; action?: ReactNode }) {
   return (
@@ -207,11 +208,11 @@ export function MediaPicker({ open, onOpenChange, kind, onPick }: { open: boolea
     <ResponsiveDialog open={open} onOpenChange={onOpenChange} wide title="Choose an image" description="From your website media library, or upload a new one.">
       <div className="space-y-3">
         <Button type="button" variant="outline" onClick={() => input.current?.click()} disabled={busy}>
-          {busy ? <Loader2 className="animate-spin" /> : <ImagePlus />} {busy ? t("Checking & uploading…") : t("Upload image")}
+          {busy ? <SShopLoader size="sm" /> : <ImagePlus />} {busy ? t("Checking & uploading…") : t("Upload image")}
         </Button>
         <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
         {refused && <p className="flex items-start gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive"><XCircle className="mt-0.5 h-4 w-4 shrink-0" /> {t("Cannot upload")}: {refused}</p>}
-        {isLoading ? <Loader2 className="animate-spin" /> : (
+        {isLoading ? <SShopLoader size="sm" /> : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
             {(data?.items ?? []).map((m) => (
               <button key={m.id} type="button" onClick={() => onPick(m.id)} className="group overflow-hidden rounded-lg border text-start hover:ring-2 hover:ring-primary">

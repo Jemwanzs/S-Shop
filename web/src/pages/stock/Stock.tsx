@@ -9,7 +9,7 @@ import { count, dateTime, money, signed, titleCase } from "@/lib/format";
 import type { Category, Money, Paged, StockLevel } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { PageHeader, EmptyState } from "@/components/Page";
+import { PageHeader, EmptyState, Loading } from "@/components/Page";
 import { DataList, Pager, CardRow } from "@/components/DataList";
 import { PeriodFilter, SearchInput, Segments, type PeriodValue } from "@/components/Filters";
 import { Select } from "@/components/Form";
@@ -300,7 +300,7 @@ function Barcodes({ productId }: { productId?: string }) {
       <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={setLookup} title="Trace a barcode" />
       <ResponsiveDialog open={!!lookup} onOpenChange={(o) => !o && setLookup(null)} title={<span className="num">{lookup}</span>} description="Barcode history">
         {history.isLoading ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">{tr("Loading…")}</p>
+          <Loading className="py-6" />
         ) : history.data && (
           <div className="space-y-4">
             {history.data.product_barcode_of && <p className="text-sm">{tr("Product barcode of")} <span className="font-medium">{history.data.product_barcode_of.name}</span></p>}

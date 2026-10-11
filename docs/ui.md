@@ -63,6 +63,14 @@ options get a search box (`searchable` forces it on or off); disabled options an
 the sheet and the field for screen readers.
 
 ## Feedback & resilience
+- **Loading** — one loader everywhere: `SShopLoader` (`components/SShopLoader.tsx`), the official S'Shop mark, still,
+  inside a rotating brand-gradient ring (`--brand-from` → `--brand-to`, light and dark). Sizes: `sm` buttons and
+  compact spots (immediate, no text), `md` cards, tables, dialogs, `lg` full page. md / lg fade in after 150 ms so quick
+  loads never flash; with reduced motion the ring stays still; announced as a status. Sections use
+  `<Loading />` (`components/Page.tsx`, md with *Loading…*; `size="lg"` for page fallbacks). `index.html` shows the same
+  mark and ring as a boot splash until the app renders. Skeletons stay where they already exist. Never add another
+  spinner: the business's public website (`src/site`) keeps its own neutral spinner because it carries the business's
+  brand, not S'Shop's.
 - **Notifications** — import `toast` from `@/lib/toast` (never from `sonner` directly). `toast.success` / `toast.info`
   are brief toasts at the top centre (5 s, close × on the right). `toast.error` opens a **centred alert** with an icon,
   close × top-right and an OK button; it stays until dismissed, repeats are collapsed and several queue one after

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { FileDown, FileSpreadsheet, Loader2 } from "lucide-react";
+import { FileDown, FileSpreadsheet } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, download } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -14,6 +14,7 @@ import { PeriodFilter, type PeriodValue } from "@/components/Filters";
 import { Select } from "@/components/Form";
 import { DataList, type Column } from "@/components/DataList";
 import { t } from "@/lib/i18n";
+import { SShopLoader } from "@/components/SShopLoader";
 
 interface Col {
   key: string;
@@ -150,7 +151,7 @@ export default function ReportView() {
               {users.data.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </Select>
           )}
-          {isFetching && <Loader2 className="h-5 w-5 animate-spin self-center text-muted-foreground" />}
+          {isFetching && <SShopLoader size="sm" className="self-center" />}
         </div>
       </div>
       <DataList

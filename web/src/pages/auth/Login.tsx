@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { Download, Loader2, Mail, TimerReset } from "lucide-react";
+import { Download, Mail, TimerReset } from "lucide-react";
 import { api, ApiError, errorMessage, SESSION_EXPIRED } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import type { Profile } from "@/lib/types";
@@ -11,6 +11,7 @@ import { PinPad } from "@/components/PinPad";
 import { forgetQuickDevice, preferredMethod, quickDevice, rememberMethod } from "@/lib/quick";
 import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
+import { SShopLoader } from "@/components/SShopLoader";
 
 /** Roadmap 88: the public Product User Manual (no sign-in), built by scripts/manual/build.mjs. */
 const MANUAL = "SShop_Product_User_Manual.pdf";
@@ -89,7 +90,7 @@ export default function LoginPage() {
           {expiredNote}
           <p className="text-center text-sm text-muted-foreground">{t("Enter your Quick PIN")} · <span className="text-foreground">{device.business}</span></p>
           <PinPad key={shake} value={quick} onChange={(v) => { setQuick(v); setError(""); }} onSubmit={quickLogin} disabled={busy} error={shake > 0 && !quick} />
-          {busy && <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />}
+          {busy && <SShopLoader size="md" className="mx-auto flex" label="Signing in…" />}
           {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">{error}</p>}
           <div className="flex items-center justify-between text-xs font-medium">
             <button type="button" className="text-primary hover:underline" onClick={() => { rememberMethod("full"); setEmail(device.email); setMode("full"); setError(""); }}>{t("Use password instead")}</button>
@@ -140,7 +141,7 @@ export default function LoginPage() {
           </div>
         )}
         <Button type="submit" className="w-full" disabled={busy}>
-          {busy ? <Loader2 className="animate-spin" /> : t("Sign in")}
+          {busy ? <SShopLoader size="sm" /> : t("Sign in")}
         </Button>
         <Link to={`/forgot${email.trim() ? `?email=${encodeURIComponent(email.trim())}` : ""}`} className="block text-center text-xs font-medium text-primary hover:underline">{t("Forgot PIN / Password?")}</Link>
         {device && (

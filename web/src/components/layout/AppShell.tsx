@@ -2,7 +2,7 @@ import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { IdleGuard } from "@/components/IdleGuard";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRightLeft, Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, Loader2, LogOut, Menu, Moon, Search, ShoppingCart, Store, Sun } from "lucide-react";
+import { ArrowRightLeft, Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, LogOut, Menu, Moon, Search, ShoppingCart, Store, Sun } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -34,6 +34,7 @@ import { allowed, BOTTOM, NAV } from "./nav";
 import { t } from "@/lib/i18n";
 import { onLocationStatus, locationStatus, startLocation, stopLocation, type LocationStatus } from "@/lib/location";
 import { MapPinOff } from "lucide-react";
+import { SShopLoader } from "@/components/SShopLoader";
 
 export function useTheme() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -142,7 +143,7 @@ export function ChangePin({ open, onOpenChange }: { open: boolean; onOpenChange:
       onOpenChange={onOpenChange}
       title="Change PIN"
       description="Use the PIN you signed in with, then choose a new one."
-      footer={<Button type="submit" form="change-pin" className="w-full md:w-auto" disabled={!!problem || busy}>{busy ? <Loader2 className="animate-spin" /> : t("Save PIN")}</Button>}
+      footer={<Button type="submit" form="change-pin" className="w-full md:w-auto" disabled={!!problem || busy}>{busy ? <SShopLoader size="sm" /> : t("Save PIN")}</Button>}
     >
       <form id="change-pin" onSubmit={save} className="space-y-4">
         {/* Lets password managers file the new PIN under the right account. */}
@@ -282,7 +283,7 @@ function ActingBanner() {
         {support && <> · {t(support.scope === "view" ? "View only" : "Full access")} · <span className="num">{left >= 60 ? `${Math.floor(left / 60)} h ${left % 60} min` : `${left} min`}</span> {t("left")}<span className="hidden md:inline"> · {support.reason}</span></>}
       </span>
       <button onClick={end} disabled={busy} className="shrink-0 rounded-full bg-background/15 px-2.5 py-0.5 font-medium hover:bg-background/25">
-        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("End session")}
+        {busy ? <SShopLoader size="sm" /> : t("End session")}
       </button>
     </div>
   );
@@ -518,7 +519,7 @@ export function AppShell() {
         </header>
         <main className="mx-auto w-full max-w-[1680px] px-3.5 pb-[calc(var(--nav-h)+env(safe-area-inset-bottom,0px)+2rem)] pt-4 md:px-6 lg:px-8 lg:pb-12 lg:pt-6">
           <ErrorBoundary key={pathname}>
-            <Suspense fallback={<Loading className="min-h-[50vh]" />}>
+            <Suspense fallback={<Loading size="lg" className="min-h-[50vh]" />}>
               <Outlet />
             </Suspense>
           </ErrorBoundary>

@@ -82,7 +82,7 @@ const queryClient = new QueryClient({
 
 function RequireStaff({ children }: { children: ReactNode }) {
   const { profile, loading, needsBranch } = useSession();
-  if (loading) return <Loading className="min-h-screen" />;
+  if (loading) return <Loading size="lg" className="min-h-screen" />;
   if (!profile) return <Navigate to="/login" replace />;
   // Signed in with a one-time PIN: replace it before anything else (the server enforces the same).
   if (profile.user.must_change_pin) return <ForcedPinChange />;
@@ -96,7 +96,7 @@ export default function App() {
       <TooltipProvider delayDuration={300}>
         <SessionProvider>
           <BrowserRouter>
-            <Suspense fallback={<Loading className="min-h-[60vh]" />}>
+            <Suspense fallback={<Loading size="lg" className="min-h-[60vh]" />}>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/select-branch" element={<SelectBranchPage />} />

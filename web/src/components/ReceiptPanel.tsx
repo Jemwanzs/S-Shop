@@ -2,7 +2,7 @@
  * Original and updated (adjustment) receipts are kept side by side; nothing is ever re-issued by sharing. */
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Copy, Download, ImageDown, Loader2, Mail, MessageCircle, Printer } from "lucide-react";
+import { Copy, Download, ImageDown, Mail, MessageCircle, Printer } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useSession } from "@/lib/session";
@@ -16,6 +16,7 @@ import { Field } from "@/components/Form";
 import { Loading } from "@/components/Page";
 import { Receipt } from "./Receipt";
 import { t } from "@/lib/i18n";
+import { SShopLoader } from "@/components/SShopLoader";
 
 interface Receipts { items: ReceiptRecord[]; customer: { mobile: string; email: string } | null }
 
@@ -103,14 +104,14 @@ export function ReceiptPanel({ saleId, zoom = 1.6, compact }: { saleId: string; 
       {can("sales.print") && (
         <div className={cn("grid gap-2", compact ? "grid-cols-3" : "grid-cols-3 sm:grid-cols-6")}>
           <Button variant="outline" size="sm" disabled={!!busy} onClick={() => run("pdf", async () => download(await receiptPdf(snap), fileName(snap, "pdf")))}>
-            {busy === "pdf" ? <Loader2 className="animate-spin" /> : <Download />} PDF
+            {busy === "pdf" ? <SShopLoader size="sm" /> : <Download />} PDF
           </Button>
           <Button variant="outline" size="sm" disabled={!!busy} onClick={() => run("print", () => printReceipt(snap))}><Printer /> {t("Print")}</Button>
           <Button variant="outline" size="sm" disabled={!!busy} onClick={() => run("img", async () => { if (ref.current) download(await receiptPng(ref.current), fileName(snap, "png")); })}>
-            {busy === "img" ? <Loader2 className="animate-spin" /> : <ImageDown />} {t("Image")}
+            {busy === "img" ? <SShopLoader size="sm" /> : <ImageDown />} {t("Image")}
           </Button>
           <Button variant="outline" size="sm" disabled={!!busy} onClick={() => { setTo(data?.customer?.email ?? ""); setEmailOpen(true); }}><Mail /> {t("Email")}</Button>
-          <Button variant="success" size="sm" disabled={!!busy} onClick={whatsapp}>{busy === "wa" ? <Loader2 className="animate-spin" /> : <MessageCircle />} WhatsApp</Button>
+          <Button variant="success" size="sm" disabled={!!busy} onClick={whatsapp}>{busy === "wa" ? <SShopLoader size="sm" /> : <MessageCircle />} WhatsApp</Button>
           <Button variant="outline" size="sm" disabled={!!busy} onClick={() => run("link", async () => { await navigator.clipboard.writeText(await receiptLink(current.id)); toast.success("Secure receipt link copied"); })}>
             <Copy /> {t("Link")}
           </Button>

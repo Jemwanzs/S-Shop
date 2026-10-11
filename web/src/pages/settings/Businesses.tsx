@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRightLeft, Building2, ChevronRight, FlaskConical, Loader2, RotateCcw } from "lucide-react";
+import { ArrowRightLeft, Building2, ChevronRight, FlaskConical, RotateCcw } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -13,6 +13,7 @@ import { Pill } from "@/components/Badges";
 import { ConfirmDialog } from "@/components/Form";
 import { OpenBusinessDialog, type OpenTarget } from "@/components/OpenBusinessDialog";
 import { Card, SettingsPage } from "./shared";
+import { SShopLoader } from "@/components/SShopLoader";
 
 export interface TenantRow {
   id: string;
@@ -116,7 +117,7 @@ export function BusinessesSettings() {
           </p>
           {!demo.data?.pexels && <p className="rounded-lg bg-warning/10 p-2.5 text-xs text-warning">{t("Product photos need PEXELS_API_KEY on the server (free Pexels API key). Without it the demo is built without photos.")}</p>}
           {running && (
-            <p className="flex items-center gap-2 rounded-lg bg-muted p-2.5"><Loader2 className="h-4 w-4 animate-spin" /> {st?.step}</p>
+            <p className="flex items-center gap-2 rounded-lg bg-muted p-2.5"><SShopLoader size="sm" /> {st?.step}</p>
           )}
           {!running && st?.error && <p className="rounded-lg bg-destructive/10 p-2.5 text-xs text-destructive">{st.error}</p>}
           {!running && st?.report && (
@@ -133,7 +134,7 @@ export function BusinessesSettings() {
                 <Button size="sm" variant="outline" disabled={running} onClick={() => setConfirmReset(true)}><RotateCcw /> {t("Reset demo")}</Button>
               </>
             ) : (
-              <Button size="sm" disabled={running || build.isPending} onClick={() => build.mutate(false)}>{running ? <Loader2 className="animate-spin" /> : <FlaskConical />} {t("Build demo business")}</Button>
+              <Button size="sm" disabled={running || build.isPending} onClick={() => build.mutate(false)}>{running ? <SShopLoader size="sm" /> : <FlaskConical />} {t("Build demo business")}</Button>
             )}
           </div>
         </div>

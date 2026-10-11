@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Loader2, Phone } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Phone } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/Form";
 import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
+import { SShopLoader } from "@/components/SShopLoader";
 
 const BUSINESS_TYPES = ["Retail shop", "Supermarket / mini-mart", "Fashion & boutique", "Jewellery & accessories", "Electronics", "Pharmacy & beauty", "Hardware", "Restaurant / café", "Wholesale", "Other"];
 const SUPPORT = ["0798 993 404", "0732 968 898"];
@@ -78,7 +79,7 @@ export default function RequestAccessPage() {
         {/* Honeypot for bots: hidden from people and assistive tech. */}
         <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden value={f.website} onChange={(e) => set("website")(e.target.value)} className="absolute -left-[9999px] h-0 w-0 opacity-0" />
         {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
-        <Button type="submit" className="w-full" disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : t("Submit request")}</Button>
+        <Button type="submit" className="w-full" disabled={busy}>{busy ? <SShopLoader size="sm" /> : t("Submit request")}</Button>
         <Link to="/login" className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5 rtl:rotate-180" /> {t("Back to sign in")}</Link>
       </form>
     </AuthLayout>

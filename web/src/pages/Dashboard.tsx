@@ -391,7 +391,7 @@ function ActivityFeed({ items, loading }: { items?: ActivityItem[]; loading: boo
   return (
     <Section title="Recent activity">
       {loading ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">{t("Loading…")}</p>
+        <Loading className="py-6" />
       ) : !items?.length ? (
         <p className="py-6 text-center text-sm text-muted-foreground">{t("No recent activity")}</p>
       ) : (

@@ -525,6 +525,9 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   in S'Shop, *pending* as drafts). **Migration reconciliation** (filters: dataset, batch, branch, dates; Excel export) and
   **Complete onboarding**, refused while any difference or unfinished import remains. Gaps closed: an imported delivered
   order could have been moved to *Completed* and created a duplicate sale; history orders no longer sit in *Active*.
+- ✅ **102. Branded loader** — every generic spinner in the app replaced by one `SShopLoader` (official mark inside a
+  rotating brand ring; sm / md / lg; light and dark; reduced motion; delayed fade-in against flicker), plus a boot
+  splash in `index.html`. Buttons, pages, dialogs, scanner, receipts, reports, onboarding, website management, sign-in.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

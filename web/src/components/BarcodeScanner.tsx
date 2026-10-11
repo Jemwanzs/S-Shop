@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useSession } from "@/lib/session";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { CameraOff, Check, Flashlight, FlashlightOff, Keyboard, Loader2, RefreshCw, SwitchCamera, X } from "lucide-react";
+import { CameraOff, Check, Flashlight, FlashlightOff, Keyboard, RefreshCw, SwitchCamera, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
 import { ApiError } from "@/lib/api";
@@ -9,6 +9,7 @@ import { cameraProblemText, scanFeedback, startScanning, type CameraProblem, typ
 import { useIsDesktop } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SShopLoader } from "@/components/SShopLoader";
 
 /** What a scan led to, shown inside the scanner so the user never has to leave it. */
 export interface ScanOutcome {
@@ -240,7 +241,7 @@ export function BarcodeScanner({
                   {frameState === "scanning" && <span className="absolute inset-x-4 top-1/2 h-0.5 -translate-y-1/2 animate-pulse rounded bg-[hsl(var(--primary))] shadow-[0_0_12px_hsl(var(--primary))]" />}
                 </div>
                 <p className="mt-4 rounded-full bg-black/55 px-3 py-1 text-xs font-medium backdrop-blur">
-                  {busy ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />{t("Checking…")}</span>
+                  {busy ? <span className="inline-flex items-center gap-1.5"><SShopLoader size="sm" />{t("Checking…")}</span>
                     : frameState === "ok" ? <span className="inline-flex items-center gap-1.5 text-emerald-300"><Check className="h-3.5 w-3.5" />{t("Barcode detected")}</span>
                     : frameState === "error" ? t("Scanning paused")
                     : t("Position the barcode inside the frame")}
@@ -248,7 +249,7 @@ export function BarcodeScanner({
               </div>
             )}
             {camera.state === "starting" && (
-              <div className="absolute inset-0 flex items-center justify-center text-sm text-white/80"><Loader2 className="me-2 h-4 w-4 animate-spin" />{t("Starting camera…")}</div>
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-white/80"><SShopLoader size="sm" className="me-2" />{t("Starting camera…")}</div>
             )}
             {camera.state === "off" && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center">

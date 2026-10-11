@@ -221,3 +221,8 @@
 
 /* Roadmap 83: wrong Quick PIN */
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+
+/* The S'Shop loader (components/SShopLoader): page and card loaders appear after a short delay, so quick loads never flash. */
+@keyframes sshop-loader-in { from { opacity: 0; } to { opacity: 1; } }
+.sshop-loader-in { animation: sshop-loader-in 200ms ease-out 150ms both; }
+@media (prefers-reduced-motion: reduce) { .sshop-loader-in { animation: none; } }

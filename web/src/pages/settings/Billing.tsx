@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, CreditCard, Download, FileText, Landmark, Loader2, Receipt } from "lucide-react";
+import { CheckCircle2, CreditCard, Download, FileText, Landmark, Receipt } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { date, dateTime, moneyDoc } from "@/lib/format";
@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/ActionButton";
 import { Pill, StatusBadge } from "@/components/Badges";
 import { Card, Fact, PriceLines, SettingsPage } from "./shared";
+import { SShopLoader } from "@/components/SShopLoader";
 
 interface MyBilling {
   summary: BillingSummary;
@@ -106,7 +107,7 @@ export function BillingSettings() {
   return (
     <SettingsPage title="Billing" description="Your S'Shop plan, invoices and receipts. Payments are confirmed with Paystack before they show as paid." loading={q.isLoading}>
       {verify.isPending && (
-        <p className="flex items-center gap-2 rounded-lg bg-muted p-3 text-sm"><Loader2 className="h-4 w-4 animate-spin" /> {t("Confirming your payment with Paystack…")}</p>
+        <p className="flex items-center gap-2 rounded-lg bg-muted p-3 text-sm"><SShopLoader size="sm" /> {t("Confirming your payment with Paystack…")}</p>
       )}
       {s && (
         <Card title="Plan" action={<Pill tone={STATUS_TONE[s.status]}>{t(STATUS_LABEL[s.status])}</Pill>}>

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { AlertTriangle, Inbox, Loader2 } from "lucide-react";
+import { AlertTriangle, Inbox } from "lucide-react";
+import { SShopLoader, type LoaderSize } from "@/components/SShopLoader";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -64,10 +65,11 @@ export function EmptyState({ icon: Icon = Inbox, title, hint, action }: { icon?:
   );
 }
 
-export function Loading({ label = "Loading…", className }: { label?: string; className?: string }) {
+/** Section / page loading: the S'Shop loader, centred (`size="lg"` for full-page). */
+export function Loading({ label = "Loading…", className, size = "md" }: { label?: string; className?: string; size?: LoaderSize }) {
   return (
-    <div className={cn("flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground", className)}>
-      <Loader2 className="h-4 w-4 animate-spin" /> {t(label)}
+    <div className={cn("flex items-center justify-center py-12", className)}>
+      <SShopLoader size={size} label={label} showLabel />
     </div>
   );
 }

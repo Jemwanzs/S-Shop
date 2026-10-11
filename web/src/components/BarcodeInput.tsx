@@ -2,7 +2,7 @@
  * Enter submits; the outcome shows under the field and the field clears and keeps focus for the next code. The camera
  * button opens the shared scanner when camera scanning is on. */
 import { useRef, useState } from "react";
-import { Camera, CheckCircle2, Info, Loader2, ScanLine, XCircle } from "lucide-react";
+import { Camera, CheckCircle2, Info, ScanLine, XCircle } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { toast } from "@/lib/toast";
 import { t } from "@/lib/i18n";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BarcodeScanner, type ScanHandler, type ScanOutcome } from "@/components/BarcodeScanner";
+import { SShopLoader } from "@/components/SShopLoader";
 
 export function useBarcodeSettings() {
   const { profile } = useSession();
@@ -62,7 +63,7 @@ export function BarcodeInput({ onCode, placeholder, autoFocus, className, contin
             onPaste={(e) => { if (!cfg.manual) { e.preventDefault(); toast.error("Typing barcodes is switched off — scan the label"); } }}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void submit(value); } }} />
-          {busy && <Loader2 className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
+          {busy && <SShopLoader size="sm" className="absolute end-3 top-1/2 -translate-y-1/2" />}
         </div>
         {cfg.camera && <Button type="button" variant="outline" size="icon" onClick={() => setCamera(true)} aria-label={t("Scan with camera")}><Camera /></Button>}
       </div>

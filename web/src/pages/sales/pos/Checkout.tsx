@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Pencil, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
+import { CheckCircle2, Pencil, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { enqueueSale, offlineBlocker, type QueuedSale } from "@/lib/offline";
@@ -17,6 +17,7 @@ import { Chip } from "@/components/Filters";
 import { PointsPill } from "@/components/Badges";
 import { exceedsMax, lineTotal, linePoints, marked, totals, type CartLine } from "./cart";
 import { t as tr } from "@/lib/i18n";
+import { SShopLoader } from "@/components/SShopLoader";
 
 interface MpesaReq {
   id: string;
@@ -370,7 +371,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
             {stkSale && (
               <div className={cn("flex items-start gap-2 rounded-lg p-2.5 text-sm",
                 stkSale.status === "awaiting" ? "bg-muted" : stkSale.status === "attention" ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive")} role="status" aria-live="polite">
-                {stkSale.status === "awaiting" ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" /> : <X className="mt-0.5 h-4 w-4 shrink-0" />}
+                {stkSale.status === "awaiting" ? <SShopLoader size="sm" className="mt-0.5" /> : <X className="mt-0.5 h-4 w-4 shrink-0" />}
                 <span className="min-w-0 flex-1">
                   <b>{tr(STK_LABEL[stkSale.status])}</b>
                   {" · "}
@@ -415,7 +416,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
             {!stkReady && <p className="-mt-1 text-xs text-muted-foreground">{tr("STK not configured — record the M-Pesa payment manually.")}</p>}
             {stk && (
               <div className={cn("flex items-center gap-2 rounded-lg p-2.5 text-sm", stk.status === "success" ? "bg-success/10 text-success" : stk.status === "pending" ? "bg-muted" : "bg-destructive/10 text-destructive")}>
-                {stk.status === "pending" ? <Loader2 className="h-4 w-4 animate-spin" /> : stk.status === "success" ? <CheckCircle2 className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                {stk.status === "pending" ? <SShopLoader size="sm" /> : stk.status === "success" ? <CheckCircle2 className="h-4 w-4" /> : <X className="h-4 w-4" />}
                 <span className="flex-1">
                   {stk.status === "pending" && tr("Waiting for the customer to enter their M-Pesa PIN…")}
                   {stk.status === "success" && <>{tr("Paid")} · <span className="num font-semibold">{stk.mpesa_receipt}</span></>}

@@ -2893,4 +2893,5 @@ export const DICT: Record<string, [string, string, string]> = {
   "in transit": ["njiani", "en transit", "قيد النقل"],
   "left out": ["zimeachwa", "exclues", "مستبعدة"],
   "Imported history": ["Historia iliyoletwa", "Historique importé", "سجل مستورد"],
+  "Signing in…": ["Inaingia…", "Connexion…", "جارٍ تسجيل الدخول…"],
 };

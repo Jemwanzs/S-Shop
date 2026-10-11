@@ -1,7 +1,7 @@
 /** Website media library: this business's images only, graded on upload (✓ good · ⚠ warning · ✕ cannot upload). */
 import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, ImagePlus, Loader2, Trash2, XCircle } from "lucide-react";
+import { Archive, ArchiveRestore, ImagePlus, Trash2, XCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useSession } from "@/lib/session";
@@ -12,6 +12,7 @@ import { Loading } from "@/components/Page";
 import { t } from "@/lib/i18n";
 import { mediaUrl, useMedia, type Media } from "./data";
 import { Block, Choice, QualityBadge, uploadMedia } from "./kit";
+import { SShopLoader } from "@/components/SShopLoader";
 
 const KINDS: [string, string][] = [["product", "Product"], ["banner", "Banner"], ["promotion", "Promotion"], ["about", "About"], ["service", "Service"], ["testimonial", "Testimonial"], ["logo", "Logo"], ["other", "Other"]];
 
@@ -61,7 +62,7 @@ export function MediaTab() {
         <Block title="Upload images" hint="Images are resized in your browser and checked for size, resolution, proportions and sharpness.">
           <div className="flex flex-wrap items-end gap-2">
             <Field label="Used for" className="min-w-40"><Select value={kind} onChange={setKind}>{KINDS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</Select></Field>
-            <Button onClick={() => input.current?.click()} disabled={busy > 0}>{busy ? <Loader2 className="animate-spin" /> : <ImagePlus />} {busy ? `${t("Uploading…")} ${busy}` : t("Choose images")}</Button>
+            <Button onClick={() => input.current?.click()} disabled={busy > 0}>{busy ? <SShopLoader size="sm" /> : <ImagePlus />} {busy ? `${t("Uploading…")} ${busy}` : t("Choose images")}</Button>
             <input ref={input} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => onFiles(e.target.files)} />
           </div>
           {results.length > 0 && (

@@ -13,12 +13,13 @@
  *   ready so the user can retry — their input is untouched. The server refuses duplicate submissions as well.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { Check } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { useSession } from "@/lib/session";
 import { useOnline } from "@/lib/offline";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { SShopLoader } from "@/components/SShopLoader";
 
 /** A reason the action is unavailable, or a falsy value when that condition is met. */
 export type Blocker = string | false | null | undefined | 0;
@@ -122,7 +123,7 @@ export function ActionButton({
   if (processing) {
     content = (
       <>
-        <Loader2 className="animate-spin" />
+        <SShopLoader size="sm" />
         {busyLabel ? t(busyLabel) : null}
       </>
     );

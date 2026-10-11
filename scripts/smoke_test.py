@@ -160,6 +160,74 @@ if PS_PORT:
     threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", int(PS_PORT)), _Paystack).serve_forever, daemon=True).start()
 
 
+def make_xlsx(headers, rows, sheet="Data"):
+    """A minimal .xlsx workbook (first sheet: headers on row 1, then rows; strings inline, numbers as numbers)."""
+    import zipfile
+    from xml.sax.saxutils import escape
+
+    def col(i):
+        s = ""
+        i += 1
+        while i:
+            i, r = divmod(i - 1, 26)
+            s = chr(65 + r) + s
+        return s
+
+    def cell(ref, v):
+        if v is None or v == "":
+            return ""
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return f'<c r="{ref}"><v>{v}</v></c>'
+        return f'<c r="{ref}" t="inlineStr"><is><t>{escape(str(v))}</t></is></c>'
+
+    xml_rows = []
+    for r, values in enumerate([headers] + rows, start=1):
+        xml_rows.append(f'<row r="{r}">' + "".join(cell(f"{col(c)}{r}", v) for c, v in enumerate(values)) + "</row>")
+    sheet_xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                 "<sheetData>" + "".join(xml_rows) + "</sheetData></worksheet>")
+    buf = io_bytes()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                   '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
+                   '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+                   '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>')
+        z.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
+        z.writestr("xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                   'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'
+                   f'<sheet name="{sheet}" sheetId="1" r:id="rId1"/></sheets></workbook>')
+        z.writestr("xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
+        z.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return buf.getvalue()
+
+
+def io_bytes():
+    import io as _io
+    return _io.BytesIO()
+
+
+def upload_xlsx(dataset, data, mode="create", expect=200, token=None, name="import.xlsx"):
+    """Multipart upload of a workbook to the onboarding centre."""
+    boundary = "----sshop" + uuid.uuid4().hex
+    parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="mode"\r\n\r\n{mode}\r\n'.encode(),
+             f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n'.encode()
+             + data + b"\r\n", f"--{boundary}--\r\n".encode()]
+    req = urllib.request.Request(BASE + f"/api/onboarding/{dataset}/upload", data=b"".join(parts), method="POST")
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    req.add_header("Authorization", "Bearer " + (token or TOKEN))
+    req.add_header("X-Branch-Id", BRANCH)
+    req.add_header("X-User-Activity", "1")
+    try:
+        with urllib.request.urlopen(req) as res:
+            status, body = res.status, json.loads(res.read() or b"null")
+    except urllib.error.HTTPError as e:
+        status, body = e.code, json.loads(e.read() or b"null")
+    if expect is not None and status != expect:
+        raise AssertionError(f"upload {dataset} → {status} (expected {expect}): {body}")
+    return body
+
+
 def mails_to(address, subject_part=""):
     """Emails the server sent to this address (newest last), waiting briefly for background sends."""
     for _ in range(40):
@@ -2569,6 +2637,89 @@ check("barcodes required at stock takes: a barcoded product typed in is refused"
 call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": z, "counted": 0, "scanned": True}]})
 check("…and accepted once counted by its barcode", True)
 call("PUT", "/settings", st)
+
+step("Roadmap 99: onboarding — Excel templates, validation, approval and posting")
+ov = call("GET", "/onboarding")
+check("onboarding centre: four datasets, cutover, totals", [d["key"] for d in ov["datasets"]] == ["products", "customers", "opening_stock", "expenses"] and "totals" in ov, [d["key"] for d in ov["datasets"]])
+req = urllib.request.Request(BASE + "/api/onboarding/products/template", headers={"Authorization": "Bearer " + TOKEN})
+tpl = urllib.request.urlopen(req).read()
+check("templates download as Excel workbooks", tpl[:2] == b"PK" and len(tpl) > 3000, len(tpl))
+main_code = next(b["code"] for b in call("GET", "/branches") if b["id"] == BRANCH)
+ob = suffix.lower()
+prod_rows = [
+    [f"Imported Mug {suffix}", "", "Kitchen", 450, 200, f"77{suffix}001", "YES"],      # auto-numbered
+    [f"Imported Jar {suffix}", f"OBJ{suffix}", "Kitchen", 600, 250, f"77{suffix}002", "YES"],
+    [f"Duplicate Jar {suffix}", f"OBJ{suffix}", "Kitchen", 600, 250, f"77{suffix}003", "YES"],  # code twice in the file
+    [f"Bad Price {suffix}", "", "Kitchen", "abc", 1, f"77{suffix}004", "YES"],              # not an amount
+    [f"No Barcode {suffix}", "", "Kitchen", 300, 100, "", "YES"],                           # barcode required
+]
+prod_book = make_xlsx(["Product Name", "SKU", "Category", "Price", "Cost", "Barcode", "Barcode Required During Sale"], prod_rows)
+up = upload_xlsx("products", prod_book, name=f"products-{ob}.xlsx")
+b = up["batch"]
+check("columns mapped by their usual names (SKU, Price, Cost, Barcode)", b["mapping"].get("SKU") == "code" and b["mapping"].get("Price") == "selling_price", b["mapping"])
+check("preview: 2 valid, 3 invalid (duplicate code, bad amount, missing barcode)", b["total_rows"] == 5 and b["invalid_rows"] == 3, (b["valid_rows"], b["warning_rows"], b["invalid_rows"]))
+msgs = " | ".join(m["message"] for r in up["rows"] for m in r["messages"])
+check("errors explained per row", "already on row" in msgs and "not an amount" in msgs and "Barcode Number is required" in msgs, msgs[:300])
+r = call("POST", f"/onboarding/batches/{b['id']}/post", {}, expect=422)
+check("not posted while rows are invalid, unless explicitly asked", r["error"]["title"] == "Fix the invalid rows", r)
+er = urllib.request.urlopen(urllib.request.Request(BASE + f"/api/onboarding/batches/{b['id']}/errors", headers={"Authorization": "Bearer " + TOKEN})).read()
+check("error report downloads (the rows to fix)", er[:2] == b"PK")
+done = call("POST", f"/onboarding/batches/{b['id']}/post", {"skip_invalid": True})
+check("products: valid rows posted, invalid ones left out on request", done["status"] == "posted" and done["summary"]["created"] == 2, done)
+mug = [p for p in call("GET", f"/products?q=Imported Mug {suffix}&status=all")["items"]]
+check("S'Shop numbered the product without a code; barcode kept", mug and mug[0]["code"].startswith("PRD") and mug[0].get("barcode", f"77{suffix}001") == f"77{suffix}001", mug[:1])
+r = upload_xlsx("products", prod_book, name=f"products-{ob}.xlsx", expect=422)
+check("the same workbook cannot be imported twice", r["error"]["title"] == "Already imported", r)
+upd = upload_xlsx("products", make_xlsx(["Product Code", "Product Name", "Category", "Selling Price"], [[f"OBJ{suffix}", f"Imported Jar {suffix}", "Kitchen", 650]]), mode="update")
+call("POST", f"/onboarding/batches/{upd['batch']['id']}/post", {})
+check("update mode changes an existing product by code", float(call("GET", f"/products?q=OBJ{suffix}&status=all")["items"][0]["marked_price"]) == 650)
+
+known = "0744" + str(int(time.time()))[-6:]
+call("POST", "/customers", {"mobile": known, "first_name": "Known"})
+cust = upload_xlsx("customers", make_xlsx(["Phone Number", "First Name", "Email"], [["0733" + str(int(time.time()))[-6:], "Imported", "imp@example.com"], [known, "Known", ""], ["12345", "Bad", ""]]))
+check("customers: an existing mobile is matched, an invalid one refused", cust["batch"]["warning_rows"] == 1 and cust["batch"]["invalid_rows"] == 1, cust["batch"])
+cdone = call("POST", f"/onboarding/batches/{cust['batch']['id']}/post", {"skip_invalid": True})
+check("customers posted: 1 created, 1 matched (not duplicated)", cdone["summary"]["created"] == 1 and cdone["summary"]["matched"] == 1, cdone)
+
+today_s = datetime.date.today().isoformat()
+osb = upload_xlsx("opening_stock", make_xlsx(["Product Code", "Branch Code", "Opening Quantity", "Unit Cost", "As-of Date"],
+                                             [[f"OBJ{suffix}", main_code, 12, 250, today_s], ["NO-SUCH-CODE", main_code, 3, 1, today_s]]))
+r = call("POST", f"/onboarding/batches/{osb['batch']['id']}/post", {"skip_invalid": True}, expect=422)
+check("opening stock never posts with invalid rows (stock must be complete)", "stock and money" in r["error"]["message"], r)
+call("POST", f"/onboarding/batches/{osb['batch']['id']}/cancel", {})
+osb = upload_xlsx("opening_stock", make_xlsx(["Product Code", "Branch Code", "Opening Quantity", "Unit Cost", "As-of Date"], [[f"OBJ{suffix}", main_code, 12, 250, today_s]]))
+odone = call("POST", f"/onboarding/batches/{osb['batch']['id']}/post", {})
+jar = call("GET", f"/stock?q=Imported Jar {suffix}")["items"][0]
+check("opening stock posted through the stock ledger (12 on hand)", odone["summary"]["quantity"] == 12 and jar["on_hand"] == 12, (odone, jar["on_hand"]))
+again = upload_xlsx("opening_stock", make_xlsx(["Product Code", "Branch Code", "Opening Quantity", "As-of Date"], [[f"OBJ{suffix}", main_code, 5, today_s]]))
+check("opening stock is never added on top of recorded stock", again["batch"]["invalid_rows"] == 1 and "already has stock" in again["rows"][0]["messages"][0]["message"], again["rows"][0]["messages"])
+
+exp = upload_xlsx("expenses", make_xlsx(["Voucher No", "Date", "Branch", "Category", "Amount", "Payment Method", "Paid To"],
+                                        [[f"V{suffix}1", "14/09/2026", main_code, f"Imported rent {suffix}", 45000, "Cash", "Landlord"]]))
+check("expenses: day-first dates and a new category understood", exp["batch"]["invalid_rows"] == 0 and exp["rows"][0]["data"]["date"] == "2026-09-14", exp["rows"][0])
+# Approval: a second administrator approves imports when the workflow is on.
+call("PUT", "/settings/workflows/data.import", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+pend = call("POST", f"/onboarding/batches/{exp['batch']['id']}/post", {})
+check("with the Data import workflow on, the batch waits for approval", pend["status"] == "pending_approval", pend)
+call("POST", f"/approvals/{pend['approval_id']}/approve", {"comments": "self"}, expect=403)
+admin_role = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Tenant Administrator")
+a2 = f"importapprover{ob}@sshop.test"
+call("POST", "/users", {"name": "Import Approver", "email": a2, "pin": "4321", "role_id": admin_role, "all_branches": True, "branch_ids": []})
+a2t = call("POST", "/auth/login", {"email": a2, "pin": "4321"})["token"]
+call("POST", f"/approvals/{pend['approval_id']}/approve", {"comments": "Checked against the vouchers"}, token=a2t)
+eb = call("GET", f"/onboarding/batches/{exp['batch']['id']}")["batch"]
+check("approved by someone else: posted, with who approved", eb["status"] == "posted" and eb["decided_by"] == "Import Approver", eb)
+call("PUT", "/settings/workflows/data.import", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+dup = upload_xlsx("expenses", make_xlsx(["Expense Reference", "Expense Date", "Branch Code", "Category", "Amount"], [[f"V{suffix}1", today_s, main_code, "Rent", 10]]))
+check("an expense reference imported before is refused", dup["batch"]["invalid_rows"] == 1, dup["rows"][0]["messages"])
+call("POST", f"/onboarding/batches/{dup['batch']['id']}/cancel", {})
+tot = call("GET", "/onboarding")["totals"]
+check("onboarding totals: products, customers, opening stock and expenses", tot["products"] >= 2 and tot["customers"] >= 1 and tot["opening_quantity"] >= 12 and float(tot["expenses_amount"]) >= 45000, tot)
+spr = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
+s_mail = f"importclerk{ob}@sshop.test"
+call("POST", "/users", {"name": "Import Clerk", "email": s_mail, "pin": "4321", "role_id": spr, "all_branches": True, "branch_ids": []})
+call("GET", "/onboarding", token=call("POST", "/auth/login", {"email": s_mail, "pin": "4321"})["token"], expect=403)
+check("only people allowed to onboard data see the centre", True)
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

@@ -311,6 +311,19 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | POST | `/api/site/events` (`campaign_view`, `campaign_product`, `campaign_cta` + `campaign_id`) | this business's campaigns only |
 | GET / PUT | `/api/platform/campaigns` | feature on/off, campaigns per business, products per campaign |
 
+## Onboarding ([module 33](modules/33-onboarding.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/onboarding` | datasets with their columns, cutover, recent imports, totals (`settings.onboarding`) |
+| PUT | `/api/onboarding/cutover` (`date`) | migration cutover, full sign-in, audited |
+| GET | `/api/onboarding/{dataset}/template` | `.xlsx` template (`products`, `customers`, `opening_stock`, `expenses`) |
+| POST | `/api/onboarding/{dataset}/upload` (multipart `file`, `mode` create/update, optional `mapping` JSON) | reads, validates and stores a batch; returns the preview |
+| GET | `/api/onboarding/batches/{id}?status=&offset=` | batch and up to 200 rows |
+| POST | `/api/onboarding/batches/{id}/remap` (`mapping`) · `/revalidate` · `/cancel` | before submission |
+| GET | `/api/onboarding/batches/{id}/errors` | `.xlsx` of the rows to fix |
+| POST | `/api/onboarding/batches/{id}/post` (`skip_invalid`) | posts (atomic, re-validated) or sends for approval (`data.import` workflow) |
+
 ## M-Pesa per business & STK Push sales ([module 32](modules/32-mpesa-stk.md))
 
 | Method | Path | Notes |

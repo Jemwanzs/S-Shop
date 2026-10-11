@@ -44,6 +44,7 @@ pub const ACTIONS: &[Action] = &[
     Action { key: "sale.owner_change", label: "Sale ownership change", uses_amount: true, uses_category: false },
     Action { key: "credit.recall", label: "Credit sale recall", uses_amount: true, uses_category: false },
     Action { key: "expense", label: "Expense", uses_amount: true, uses_category: true },
+    Action { key: "data.import", label: "Data import (onboarding)", uses_amount: false, uses_category: false },
 ];
 
 /// One approval level: who may decide at this step.

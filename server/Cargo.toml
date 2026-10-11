@@ -11,6 +11,7 @@ anyhow = "1"
 argon2 = "0.5"
 axum = { version = "0.8", features = ["macros", "multipart"] }
 base64 = "0.22"
+calamine = { version = "0.26", features = ["dates"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 dotenvy = "0.15"

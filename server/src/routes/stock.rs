@@ -200,6 +200,14 @@ async fn product_info(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid) -> App
 }
 
 /// Validates a receipt against settings; normalises barcodes. Shared by request and approval execution.
+/// A receipt checked and recorded inside the caller's transaction, without its own approval (onboarding imports,
+/// approved as a batch). The same rules as Stock → Receive stock.
+pub async fn receive_in_tx(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &mut ReceiveBody) -> AppResult<Value> {
+    let p = product_info(conn, ctx.tenant_id, b.product_id).await?;
+    check_receipt(conn, ctx, s, b, &p).await?;
+    execute_receipt(conn, ctx, b, None).await
+}
+
 async fn check_receipt(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &mut ReceiveBody, p: &ProductInfo) -> AppResult<()> {
     if b.quantity <= 0 {
         return Err(bad("Quantity must be at least 1"));

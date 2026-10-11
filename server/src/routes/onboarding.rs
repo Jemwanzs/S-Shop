@@ -1,0 +1,1150 @@
+//! Settings → Business → Onboarding (roadmap 99, phase 1): Excel uploads of products, customers, opening stock
+//! balances and expenses.
+//!
+//! **Upload → map columns → preview & validate → (approval) → post.** A batch keeps the workbook, every row as read and
+//! as understood, and what became of it. Validation reads the business's own data (branches by code, products by code
+//! or barcode, customers by mobile, categories, payment methods) and is repeated inside the posting transaction, so a
+//! batch posts exactly what it validated or nothing. Posting reuses the existing rules: product numbering and barcode
+//! checks, customer matching by mobile, the stock ledger's opening receipt (`stock::execute_receipt`) and expenses.
+//!
+//! Never silently skipped: a batch with invalid rows posts only when the person explicitly asks to leave them out, and
+//! only for products and customers — stock and money must be complete. The same workbook posts once per dataset;
+//! opening stock never lands on top of stock already recorded for that product and branch; posted records point back
+//! to their batch, and nothing sends notifications or payment requests.
+
+use std::collections::{HashMap, HashSet};
+
+use axum::body::Bytes;
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::http::header;
+use axum::response::IntoResponse;
+use axum::routing::{get, post, put};
+use axum::{Json, Router};
+use chrono::{NaiveDate, Utc};
+use rust_decimal::Decimal;
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
+use sqlx::PgConnection;
+use uuid::Uuid;
+
+use crate::audit::{self, Entry};
+use crate::auth::Ctx;
+use crate::error::{bad, refused, rule, AppError, AppResult};
+use crate::onboarding::{self as ob, Kind, Need};
+use crate::settings;
+use crate::state::AppState;
+use crate::workflow;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/onboarding", get(overview))
+        .route("/onboarding/cutover", put(set_cutover))
+        .route("/onboarding/{dataset}/template", get(template))
+        .route("/onboarding/{dataset}/upload", post(upload).layer(DefaultBodyLimit::max(6 * 1024 * 1024)))
+        .route("/onboarding/batches/{id}", get(batch))
+        .route("/onboarding/batches/{id}/remap", post(remap))
+        .route("/onboarding/batches/{id}/revalidate", post(revalidate))
+        .route("/onboarding/batches/{id}/errors", get(error_report))
+        .route("/onboarding/batches/{id}/post", post(post_batch))
+        .route("/onboarding/batches/{id}/cancel", post(cancel))
+}
+
+fn can(ctx: &Ctx) -> AppResult<()> {
+    ctx.require("settings.onboarding")
+}
+
+/// Stock and money must import complete; leaving invalid rows out is allowed only for these.
+fn may_skip(dataset: &str) -> bool {
+    matches!(dataset, "products" | "customers")
+}
+
+// ── Overview, cutover, templates ────────────────────────────────────────────────────────────────────────────────────
+
+async fn overview(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    let cutover: Option<NaiveDate> = sqlx::query_scalar("SELECT migration_cutover FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&state.db).await?;
+    let batches: Vec<Value> = sqlx::query_scalar(
+        "SELECT json_build_object('id', b.id, 'dataset', b.dataset, 'mode', b.mode, 'status', b.status, 'file_name', b.file_name,
+                'total_rows', b.total_rows, 'valid_rows', b.valid_rows, 'warning_rows', b.warning_rows, 'invalid_rows', b.invalid_rows,
+                'posted_rows', b.posted_rows, 'created_at', b.created_at, 'posted_at', b.posted_at, 'uploaded_by', u.name,
+                'decided_by', d.name, 'error', b.error)
+         FROM import_batches b LEFT JOIN users u ON u.id = b.uploaded_by LEFT JOIN users d ON d.id = b.decided_by
+         WHERE b.tenant_id = $1 ORDER BY b.created_at DESC LIMIT 100",
+    )
+    .bind(ctx.tenant_id)
+    .fetch_all(&state.db)
+    .await?;
+    let totals: Value = sqlx::query_scalar(
+        "SELECT json_build_object(
+            'products', (SELECT count(*) FROM products WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
+            'customers', (SELECT count(*) FROM customers WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
+            'opening_quantity', (SELECT COALESCE(sum(quantity), 0) FROM stock_movements WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
+            'opening_value', (SELECT COALESCE(sum(quantity * COALESCE(unit_cost, 0)), 0) FROM stock_movements WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
+            'expenses_count', (SELECT count(*) FROM expenses WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
+            'expenses_amount', (SELECT COALESCE(sum(amount), 0) FROM expenses WHERE tenant_id = $1 AND import_batch_id IS NOT NULL))",
+    )
+    .bind(ctx.tenant_id)
+    .fetch_one(&state.db)
+    .await?;
+    let branches: i64 = sqlx::query_scalar("SELECT count(*) FROM branches WHERE tenant_id = $1 AND is_active").bind(ctx.tenant_id).fetch_one(&state.db).await?;
+    let datasets: Vec<Value> = ob::DATASETS
+        .iter()
+        .map(|(k, l)| {
+            let cols: Vec<Value> = ob::columns(k)
+                .iter()
+                .map(|c| json!({ "key": c.key, "header": c.header, "required": c.need == Need::Required, "help": c.help }))
+                .collect();
+            json!({ "key": k, "label": l, "columns": cols, "may_skip_invalid": may_skip(k) })
+        })
+        .collect();
+    Ok(Json(json!({ "cutover": cutover, "datasets": datasets, "batches": batches, "totals": totals, "branches": branches })))
+}
+
+#[derive(Deserialize)]
+struct CutoverBody {
+    date: Option<NaiveDate>,
+}
+
+/// The migration cutover: history before it, balances as of it, S'Shop after it.
+async fn set_cutover(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CutoverBody>) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    ctx.require_full()?;
+    if b.date.is_some_and(|d| d > Utc::now().with_timezone(&ctx.tz).date_naive()) {
+        return Err(bad("The cutover date cannot be in the future"));
+    }
+    let mut tx = state.db.begin().await?;
+    let before: Option<NaiveDate> = sqlx::query_scalar("SELECT migration_cutover FROM tenants WHERE id = $1 FOR UPDATE").bind(ctx.tenant_id).fetch_one(&mut *tx).await?;
+    sqlx::query("UPDATE tenants SET migration_cutover = $2 WHERE id = $1").bind(ctx.tenant_id).bind(b.date).execute(&mut *tx).await?;
+    audit::record(&mut tx, &ctx, Entry::new("settings", "migration_cutover", "tenant", ctx.tenant_id).before(json!({ "cutover": before })).after(json!({ "cutover": b.date })))
+        .await?;
+    tx.commit().await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn template(State(state): State<AppState>, ctx: Ctx, Path(dataset): Path<String>) -> AppResult<impl IntoResponse> {
+    can(&ctx)?;
+    let label = ob::label(&dataset).ok_or(AppError::NotFound("Dataset"))?;
+    let mut extra: HashMap<&'static str, Vec<String>> = HashMap::new();
+    let codes: Vec<String> = sqlx::query_scalar("SELECT code FROM branches WHERE tenant_id = $1 AND is_active ORDER BY code").bind(ctx.tenant_id).fetch_all(&state.db).await?;
+    extra.insert("branch", codes);
+    let s = settings::load(&mut *state.db.acquire().await?, ctx.tenant_id).await?;
+    extra.insert("payment_method", s.sales.payment_methods.iter().filter(|m| m.enabled && m.key != "credit").map(|m| m.label.clone()).collect());
+    let bytes = ob::template(&dataset, &extra)?;
+    let name = format!("SShop_{}_template.xlsx", label.replace(' ', "_"));
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+        ],
+        bytes,
+    ))
+}
+
+// ── Validation ──────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// The business's data a batch is checked against (read once per validation).
+struct Refs {
+    branches: HashMap<String, Uuid>,
+    categories: HashMap<String, Uuid>,
+    suppliers: HashMap<String, Uuid>,
+    expense_categories: HashMap<String, Uuid>,
+    /// upper(code) → (id, track_items, barcode, name)
+    products: HashMap<String, (Uuid, bool, Option<String>, String)>,
+    /// barcode → product id
+    product_barcodes: HashMap<String, Uuid>,
+    item_barcodes: HashSet<String>,
+    customers: HashSet<String>,
+    /// product id + branch id with any stock recorded already
+    stocked: HashSet<(Uuid, Uuid)>,
+    /// lower(label or key) → key
+    payment_methods: HashMap<String, String>,
+    /// expense references already imported
+    expense_refs: HashSet<String>,
+    barcodes_on: bool,
+    cutover: Option<NaiveDate>,
+    today: NaiveDate,
+}
+
+async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
+    let t = ctx.tenant_id;
+    let pairs = |rows: Vec<(String, Uuid)>| rows.into_iter().map(|(k, v)| (k.trim().to_lowercase(), v)).collect::<HashMap<_, _>>();
+    let branches = sqlx::query_as::<_, (String, Uuid)>("SELECT code, id FROM branches WHERE tenant_id = $1 AND is_active").bind(t).fetch_all(&mut *conn).await?;
+    let categories = sqlx::query_as::<_, (String, Uuid)>("SELECT name, id FROM categories WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let suppliers = sqlx::query_as::<_, (String, Uuid)>("SELECT name, id FROM suppliers WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let ecats = sqlx::query_as::<_, (String, Uuid)>("SELECT name, id FROM expense_categories WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let prods: Vec<(Uuid, String, bool, Option<String>, String)> =
+        sqlx::query_as("SELECT id, code, track_items, barcode, name FROM products WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let items: Vec<String> = sqlx::query_scalar("SELECT barcode FROM stock_items WHERE tenant_id = $1 AND status IN ('in_stock','reserved','in_transit')")
+        .bind(t)
+        .fetch_all(&mut *conn)
+        .await?;
+    let customers: Vec<String> = sqlx::query_scalar("SELECT mobile FROM customers WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let stocked: Vec<(Uuid, Uuid)> = sqlx::query_as("SELECT DISTINCT product_id, branch_id FROM stock_movements WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let expense_refs: Vec<String> = sqlx::query_scalar(
+        "SELECT r.data->>'reference' FROM import_rows r JOIN import_batches b ON b.id = r.batch_id
+         WHERE b.tenant_id = $1 AND b.dataset = 'expenses' AND r.status = 'posted' AND r.data->>'reference' IS NOT NULL",
+    )
+    .bind(t)
+    .fetch_all(&mut *conn)
+    .await?;
+    let s = settings::load(conn, t).await?;
+    let cutover: Option<NaiveDate> = sqlx::query_scalar("SELECT migration_cutover FROM tenants WHERE id = $1").bind(t).fetch_one(&mut *conn).await?;
+    let mut payment_methods = HashMap::new();
+    for m in s.sales.payment_methods.iter().filter(|m| m.enabled && m.key != "credit") {
+        payment_methods.insert(m.label.trim().to_lowercase(), m.key.clone());
+        payment_methods.insert(m.key.to_lowercase(), m.key.clone());
+    }
+    Ok(Refs {
+        branches: pairs(branches),
+        categories: pairs(categories),
+        suppliers: pairs(suppliers),
+        expense_categories: pairs(ecats),
+        product_barcodes: prods.iter().filter_map(|p| p.3.clone().map(|b| (b, p.0))).collect(),
+        products: prods.into_iter().map(|(id, code, track, barcode, name)| (code.to_uppercase(), (id, track, barcode, name))).collect(),
+        item_barcodes: items.into_iter().collect(),
+        customers: customers.into_iter().collect(),
+        stocked: stocked.into_iter().collect(),
+        payment_methods,
+        expense_refs: expense_refs.into_iter().map(|r| r.to_uppercase()).collect(),
+        barcodes_on: s.stock.barcode_requirement != settings::BarcodeRequirement::Disabled,
+        cutover,
+        today: Utc::now().with_timezone(&ctx.tz).date_naive(),
+    })
+}
+
+/// One row's problems: errors stop it, warnings are shown and allowed.
+#[derive(Default)]
+struct Check {
+    msgs: Vec<Value>,
+    errors: usize,
+    warnings: usize,
+}
+impl Check {
+    fn err(&mut self, field: &str, m: impl Into<String>) {
+        self.errors += 1;
+        self.msgs.push(json!({ "level": "error", "field": field, "message": m.into() }));
+    }
+    fn warn(&mut self, field: &str, m: impl Into<String>) {
+        self.warnings += 1;
+        self.msgs.push(json!({ "level": "warning", "field": field, "message": m.into() }));
+    }
+}
+
+fn s<'a>(d: &'a Map<String, Value>, k: &str) -> Option<&'a str> {
+    d.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|v| !v.is_empty())
+}
+
+/// Generic checks from the column definitions: required values present, numbers / dates / yes-no readable.
+fn basic(dataset: &str, d: &Map<String, Value>, c: &mut Check) {
+    for col in ob::columns(dataset) {
+        let v = d.get(col.key).unwrap_or(&Value::Null);
+        if let Some(bad) = v.get("invalid").and_then(|x| x.as_str()) {
+            let what = match col.kind {
+                Kind::Money => "an amount",
+                Kind::Int => "a whole number",
+                Kind::Date => "a date (e.g. 2026-10-01)",
+                Kind::YesNo => "YES or NO",
+                _ => "valid",
+            };
+            c.err(col.key, format!("{}: “{bad}” is not {what}", col.header));
+        } else if v.is_null() && col.need == Need::Required {
+            c.err(col.key, format!("{} is required", col.header));
+        }
+    }
+}
+
+fn money(d: &Map<String, Value>, k: &str) -> Option<Decimal> {
+    d.get(k).and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok()).map(|v| v.round_dp(2))
+}
+
+/// Validates every row; returns the per-row (normalised data, check). `seen` catches duplicates within the file.
+fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &Refs) -> Vec<(Map<String, Value>, Check)> {
+    let mut seen: HashMap<String, u32> = HashMap::new();
+    let mut out = Vec::with_capacity(rows.len());
+    for (row_no, data) in rows {
+        let mut d = data.clone();
+        let mut c = Check::default();
+        basic(dataset, &d, &mut c);
+        let mut dup = |key: String, field: &str, what: &str, c: &mut Check| {
+            if let Some(first) = seen.get(&key) {
+                c.err(field, format!("{what} already on row {first} of this file"));
+            } else {
+                seen.insert(key, *row_no);
+            }
+        };
+        match dataset {
+            "products" => {
+                if let Some(code) = s(&d, "code").map(str::to_uppercase) {
+                    d.insert("code".into(), json!(code));
+                    dup(format!("code:{code}"), "code", &format!("Product code {code}"), &mut c);
+                    match (mode, r.products.get(&code)) {
+                        ("create", Some((_, _, _, name))) => c.err("code", format!("{code} already exists ({name}) — use “Update existing products” to change it")),
+                        ("update", None) => c.err("code", format!("{code} is not an existing product")),
+                        _ => {}
+                    }
+                } else if mode == "update" {
+                    c.err("code", "Product Code is required to update a product");
+                }
+                let target = s(&d, "code").and_then(|code| r.products.get(code)).map(|p| p.0);
+                if let Some(p) = money(&d, "selling_price") {
+                    if p < Decimal::ZERO {
+                        c.err("selling_price", "Selling Price cannot be negative");
+                    }
+                    if let Some(m) = money(&d, "max_discount") {
+                        if m < Decimal::ZERO || m > p {
+                            c.err("max_discount", "Maximum Discount must be between 0 and the selling price");
+                        }
+                    }
+                }
+                if money(&d, "cost_price").is_some_and(|v| v < Decimal::ZERO) {
+                    c.err("cost_price", "Cost Price cannot be negative");
+                }
+                if d.get("low_stock").and_then(|v| v.as_i64()).is_some_and(|v| v < 0) {
+                    c.err("low_stock", "Low-Stock Alert cannot be negative");
+                }
+                let tracking = s(&d, "tracking").map(str::to_lowercase);
+                let individual = match tracking.as_deref() {
+                    None | Some("product barcode") | Some("product") => false,
+                    Some("individual items") | Some("individual") | Some("individual item") => true,
+                    Some(other) => {
+                        c.err("tracking", format!("Stock Tracking “{other}”: Product barcode or Individual items"));
+                        false
+                    }
+                };
+                if individual && !r.barcodes_on {
+                    c.err("tracking", "Individual items need barcode management (Settings → Stock → Barcode settings)");
+                }
+                d.insert("individual".into(), json!(individual));
+                let required = d.get("barcode_required").and_then(|v| v.as_bool()).unwrap_or(r.barcodes_on && !individual);
+                match s(&d, "barcode").map(str::to_string) {
+                    Some(code) if !r.barcodes_on => {
+                        c.warn("barcode", format!("Barcode management is off — {code} is not saved"));
+                        d.remove("barcode");
+                    }
+                    Some(code) if individual => {
+                        c.err("barcode", format!("{code}: individually tracked products have no product barcode (each unit gets its own when stock is added)"));
+                    }
+                    Some(code) => match crate::util::clean_barcode(&code) {
+                        Err(e) => c.err("barcode", e.to_string()),
+                        Ok(code) => {
+                            dup(format!("barcode:{code}"), "barcode", &format!("Barcode {code}"), &mut c);
+                            match r.product_barcodes.get(&code) {
+                                Some(owner) if Some(*owner) != target => {
+                                    let name = r.products.values().find(|p| p.0 == *owner).map(|p| p.3.clone()).unwrap_or_default();
+                                    c.err("barcode", format!("Barcode {code} already belongs to {name}"));
+                                }
+                                _ => {}
+                            }
+                            if r.item_barcodes.contains(&code) {
+                                c.err("barcode", format!("Barcode {code} is an individual item's label in stock"));
+                            }
+                            d.insert("barcode".into(), json!(code));
+                        }
+                    },
+                    None if required && r.barcodes_on && !individual && mode == "create" => {
+                        c.err("barcode", "Barcode Number is required (Barcode Required During Sale = YES) — or set it to NO");
+                    }
+                    None => {}
+                }
+                if let Some(cat) = s(&d, "category") {
+                    if !r.categories.contains_key(&cat.to_lowercase()) {
+                        c.warn("category", format!("New category “{cat}” will be created"));
+                    }
+                }
+                if let Some(sup) = s(&d, "supplier") {
+                    if !r.suppliers.contains_key(&sup.to_lowercase()) {
+                        c.warn("supplier", format!("New supplier “{sup}” will be created"));
+                    }
+                }
+                match s(&d, "status").map(str::to_lowercase).as_deref() {
+                    None | Some("active") => {
+                        d.insert("active".into(), json!(true));
+                    }
+                    Some("inactive") => {
+                        d.insert("active".into(), json!(false));
+                    }
+                    Some(o) => c.err("status", format!("Status “{o}”: Active or Inactive")),
+                }
+                let branches = s(&d, "branches").unwrap_or("ALL").to_string();
+                if branches.eq_ignore_ascii_case("all") {
+                    d.insert("branch_ids".into(), Value::Null);
+                } else {
+                    let mut ids = Vec::new();
+                    for code in branches.split([';', ',']).map(str::trim).filter(|x| !x.is_empty()) {
+                        match r.branches.get(&code.to_lowercase()) {
+                            Some(id) => ids.push(json!(id)),
+                            None => c.err("branches", format!("Branch code {code} does not exist (Settings → Branches)")),
+                        }
+                    }
+                    if ids.is_empty() && c.errors == 0 {
+                        c.err("branches", "Branch Applicability: ALL or branch codes separated by ;");
+                    }
+                    d.insert("branch_ids".into(), Value::Array(ids));
+                }
+            }
+            "customers" => {
+                if let Some(m) = s(&d, "mobile") {
+                    match crate::util::normalize_mobile(m) {
+                        Err(_) => c.err("mobile", format!("{m} is not a valid Kenyan mobile number (07…, 01… or 254…)")),
+                        Ok(n) => {
+                            dup(format!("mobile:{n}"), "mobile", &format!("Mobile {n}"), &mut c);
+                            if r.customers.contains(&n) {
+                                c.warn("mobile", format!("{n} is already a customer — matched, not duplicated"));
+                                d.insert("existing".into(), json!(true));
+                            }
+                            d.insert("mobile".into(), json!(n));
+                        }
+                    }
+                }
+                if let Some(e) = s(&d, "email") {
+                    if !e.contains('@') || e.len() > 120 {
+                        c.err("email", format!("{e} is not an email address"));
+                    }
+                }
+            }
+            "opening_stock" => {
+                let product = s(&d, "product").map(str::to_string);
+                let p = product.as_deref().and_then(|code| {
+                    r.products.get(&code.to_uppercase()).cloned().or_else(|| r.product_barcodes.get(code).and_then(|id| r.products.values().find(|p| p.0 == *id).cloned()))
+                });
+                let b = s(&d, "branch").and_then(|code| r.branches.get(&code.to_lowercase()).copied());
+                if let (Some(code), None) = (&product, &p) {
+                    c.err("product", format!("No product with code or barcode {code} — import products first"));
+                }
+                if let (Some(code), None) = (s(&d, "branch"), b) {
+                    c.err("branch", format!("Branch code {code} does not exist (Settings → Branches)"));
+                }
+                let qty = d.get("quantity").and_then(|v| v.as_i64());
+                if qty.is_some_and(|q| q < 0) {
+                    c.err("quantity", "Opening Quantity cannot be negative");
+                }
+                if money(&d, "unit_cost").is_some_and(|v| v < Decimal::ZERO) {
+                    c.err("unit_cost", "Unit Cost cannot be negative");
+                }
+                if let Some(date) = s(&d, "as_of").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()) {
+                    if date > r.today {
+                        c.err("as_of", "As-of Date cannot be in the future");
+                    } else if r.cutover.is_some_and(|cut| cut != date) {
+                        c.warn("as_of", format!("As-of Date differs from the migration cutover ({})", r.cutover.unwrap_or(date)));
+                    }
+                }
+                if let (Some(p), Some(b)) = (&p, b) {
+                    d.insert("product_id".into(), json!(p.0));
+                    d.insert("branch_id".into(), json!(b));
+                    dup(format!("stock:{}:{b}", p.0), "product", &format!("{} at this branch", p.3), &mut c);
+                    if r.stocked.contains(&(p.0, b)) {
+                        c.err("product", format!("{} already has stock recorded at this branch — opening stock is not added on top; use a stock take to correct it", p.3));
+                    }
+                    let units: Vec<String> = s(&d, "item_barcodes").map(|x| x.split([';', ',', '\n']).map(str::trim).filter(|x| !x.is_empty()).map(String::from).collect()).unwrap_or_default();
+                    if p.1 {
+                        if units.len() as i64 != qty.unwrap_or(-1) {
+                            c.err("item_barcodes", format!("{} is tracked per item: give one Item Barcode per unit ({} given for {})", p.3, units.len(), qty.unwrap_or(0)));
+                        }
+                        for u in &units {
+                            match crate::util::clean_barcode(u) {
+                                Err(e) => c.err("item_barcodes", e.to_string()),
+                                Ok(u) => {
+                                    dup(format!("item:{u}"), "item_barcodes", &format!("Item barcode {u}"), &mut c);
+                                    if r.item_barcodes.contains(&u) || r.product_barcodes.contains_key(&u) {
+                                        c.err("item_barcodes", format!("Item barcode {u} is already in use"));
+                                    }
+                                }
+                            }
+                        }
+                    } else if !units.is_empty() {
+                        c.err("item_barcodes", format!("{} uses one product barcode — leave Item Barcodes empty", p.3));
+                    }
+                    d.insert("units".into(), json!(units));
+                    if qty == Some(0) {
+                        c.warn("quantity", "Zero: nothing is recorded for this row");
+                    }
+                }
+            }
+            "expenses" => {
+                if let Some(rf) = s(&d, "reference").map(str::to_uppercase) {
+                    dup(format!("ref:{rf}"), "reference", &format!("Reference {rf}"), &mut c);
+                    if r.expense_refs.contains(&rf) {
+                        c.err("reference", format!("Expense {rf} was already imported"));
+                    }
+                    d.insert("reference".into(), json!(rf));
+                }
+                if let Some(a) = money(&d, "amount") {
+                    if a <= Decimal::ZERO {
+                        c.err("amount", "Amount must be more than 0");
+                    }
+                }
+                if let Some(date) = s(&d, "date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()) {
+                    if date > r.today {
+                        c.err("date", "Expense Date cannot be in the future");
+                    }
+                }
+                match s(&d, "branch").map(|code| (code, r.branches.get(&code.to_lowercase()))) {
+                    Some((_, Some(id))) => {
+                        d.insert("branch_id".into(), json!(id));
+                    }
+                    Some((code, None)) => c.err("branch", format!("Branch code {code} does not exist (Settings → Branches)")),
+                    None => {}
+                }
+                if let Some(cat) = s(&d, "category") {
+                    if !r.expense_categories.contains_key(&cat.to_lowercase()) {
+                        c.warn("category", format!("New expense category “{cat}” will be created"));
+                    }
+                }
+                let pm = s(&d, "payment_method").unwrap_or("cash").to_lowercase();
+                match r.payment_methods.get(&pm) {
+                    Some(key) => {
+                        d.insert("method_key".into(), json!(key));
+                    }
+                    None => c.err("payment_method", format!("Payment method “{pm}” is not one of your payment methods (Settings → Sales & payments)")),
+                }
+                if s(&d, "reference").is_none() {
+                    c.warn("reference", "No reference: re-importing the same expense would not be detected");
+                }
+            }
+            _ => {}
+        }
+        out.push((d, c));
+    }
+    out
+}
+
+fn row_status(c: &Check) -> &'static str {
+    if c.errors > 0 {
+        "invalid"
+    } else if c.warnings > 0 {
+        "warning"
+    } else {
+        "valid"
+    }
+}
+
+/// (Re)validates a batch's rows from its stored data and saves rows and counts.
+async fn store_validation(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, dataset: &str, mode: &str) -> AppResult<()> {
+    let rows: Vec<(u32, Value)> = sqlx::query_as::<_, (i32, Value)>("SELECT row_no, data FROM import_rows WHERE batch_id = $1 ORDER BY row_no")
+        .bind(batch)
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .map(|(n, v)| (n as u32, v))
+        .collect();
+    let parsed: Vec<(u32, Map<String, Value>)> = rows.into_iter().map(|(n, v)| (n, raw_fields(dataset, v))).collect();
+    let r = refs(conn, ctx).await?;
+    let checked = validate(dataset, mode, &parsed, &r);
+    let (mut valid, mut warn, mut invalid) = (0, 0, 0);
+    for ((row_no, _), (d, c)) in parsed.iter().zip(checked) {
+        let st = row_status(&c);
+        match st {
+            "valid" => valid += 1,
+            "warning" => warn += 1,
+            _ => invalid += 1,
+        }
+        sqlx::query("UPDATE import_rows SET data = $3, status = $4, messages = $5 WHERE batch_id = $1 AND row_no = $2")
+            .bind(batch)
+            .bind(*row_no as i32)
+            .bind(Value::Object(d))
+            .bind(st)
+            .bind(Value::Array(c.msgs))
+            .execute(&mut *conn)
+            .await?;
+    }
+    sqlx::query("UPDATE import_batches SET valid_rows = $2, warning_rows = $3, invalid_rows = $4 WHERE id = $1")
+        .bind(batch)
+        .bind(valid)
+        .bind(warn)
+        .bind(invalid)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+/// Every header of the workbook with the field it is read as ("" = ignored), for the column-mapping screen.
+fn all_headers(sheet: &ob::Sheet) -> Value {
+    let m: Map<String, Value> = sheet.headers.iter().map(|h| (h.clone(), json!(sheet.mapping.get(h).cloned().unwrap_or_default()))).collect();
+    Value::Object(m)
+}
+
+/// The fields as read (drops what validation added, so re-validation starts from the workbook's values).
+fn raw_fields(dataset: &str, v: Value) -> Map<String, Value> {
+    let keys: HashSet<&str> = ob::columns(dataset).iter().map(|c| c.key).collect();
+    match v {
+        Value::Object(m) => m.into_iter().filter(|(k, _)| keys.contains(k.as_str())).collect(),
+        _ => Map::new(),
+    }
+}
+
+// ── Upload, view, remap, error report ───────────────────────────────────────────────────────────────────────────────
+
+async fn upload(State(state): State<AppState>, ctx: Ctx, Path(dataset): Path<String>, mut mp: Multipart) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    ob::label(&dataset).ok_or(AppError::NotFound("Dataset"))?;
+    let (mut file, mut name, mut mode, mut mapping) = (None::<Bytes>, String::from("upload.xlsx"), String::from("create"), HashMap::<String, String>::new());
+    while let Some(f) = mp.next_field().await.map_err(|_| bad("The file could not be read. Try again."))? {
+        match f.name() {
+            Some("file") => {
+                name = f.file_name().unwrap_or("upload.xlsx").chars().take(120).collect();
+                file = Some(f.bytes().await.map_err(|_| bad("The file could not be read. Try again."))?);
+            }
+            Some("mode") => mode = f.text().await.unwrap_or_default(),
+            Some("mapping") => mapping = serde_json::from_str(&f.text().await.unwrap_or_default()).unwrap_or_default(),
+            _ => {}
+        }
+    }
+    let file = file.ok_or_else(|| bad("Choose an Excel (.xlsx) file"))?;
+    if !matches!(mode.as_str(), "create" | "update") || (mode == "update" && dataset != "products") {
+        return Err(bad("Unknown import mode"));
+    }
+    if mode == "update" {
+        ctx.require("products.edit")?;
+    }
+    let sheet = ob::read(&dataset, &file, &mapping)?;
+    let sha = crate::secrets::digest_bytes(&file);
+    let posted: Option<String> = sqlx::query_scalar("SELECT file_name FROM import_batches WHERE tenant_id = $1 AND dataset = $2 AND file_sha256 = $3 AND status = 'posted' LIMIT 1")
+        .bind(ctx.tenant_id)
+        .bind(&dataset)
+        .bind(&sha)
+        .fetch_optional(&state.db)
+        .await?;
+    if let Some(f) = posted {
+        return Err(refused("Already imported", format!("This workbook ({f}) was already imported — nothing would change. Upload a corrected or new workbook.")));
+    }
+    let mut tx = state.db.begin().await?;
+    let id: Uuid = sqlx::query_scalar(
+        "INSERT INTO import_batches (tenant_id, dataset, mode, file_name, file_sha256, file, mapping, total_rows, uploaded_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
+    )
+    .bind(ctx.tenant_id)
+    .bind(&dataset)
+    .bind(&mode)
+    .bind(&name)
+    .bind(&sha)
+    .bind(file.to_vec())
+    .bind(all_headers(&sheet))
+    .bind(sheet.rows.len() as i32)
+    .bind(ctx.user_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    for (row_no, data, source) in &sheet.rows {
+        sqlx::query("INSERT INTO import_rows (batch_id, row_no, source, data, status) VALUES ($1, $2, $3, $4, 'valid')")
+            .bind(id)
+            .bind(*row_no as i32)
+            .bind(Value::Object(source.clone()))
+            .bind(Value::Object(data.clone()))
+            .execute(&mut *tx)
+            .await?;
+    }
+    store_validation(&mut tx, &ctx, id, &dataset, &mode).await?;
+    audit::record(&mut tx, &ctx, Entry::new("onboarding", "uploaded", "import_batch", id).after(json!({ "dataset": dataset, "file": name, "rows": sheet.rows.len() }))).await?;
+    tx.commit().await?;
+    Ok(Json(batch_view(&state, &ctx, id, None, 0).await?))
+}
+
+#[derive(Deserialize)]
+struct RowsQuery {
+    status: Option<String>,
+    #[serde(default)]
+    offset: i64,
+}
+
+async fn batch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Query(q): Query<RowsQuery>) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    Ok(Json(batch_view(&state, &ctx, id, q.status.as_deref(), q.offset).await?))
+}
+
+async fn batch_view(state: &AppState, ctx: &Ctx, id: Uuid, status: Option<&str>, offset: i64) -> AppResult<Value> {
+    let b: Value = sqlx::query_scalar(
+        "SELECT json_build_object('id', b.id, 'dataset', b.dataset, 'mode', b.mode, 'status', b.status, 'file_name', b.file_name,
+                'mapping', b.mapping, 'total_rows', b.total_rows, 'valid_rows', b.valid_rows, 'warning_rows', b.warning_rows,
+                'invalid_rows', b.invalid_rows, 'posted_rows', b.posted_rows, 'skip_invalid', b.skip_invalid, 'summary', b.summary,
+                'created_at', b.created_at, 'posted_at', b.posted_at, 'uploaded_by', u.name, 'decided_by', d.name, 'error', b.error,
+                'approval_id', b.approval_id)
+         FROM import_batches b LEFT JOIN users u ON u.id = b.uploaded_by LEFT JOIN users d ON d.id = b.decided_by
+         WHERE b.id = $1 AND b.tenant_id = $2",
+    )
+    .bind(id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("Import"))?;
+    let rows: Vec<Value> = sqlx::query_scalar(
+        "SELECT json_build_object('row_no', row_no, 'status', status, 'data', data, 'source', source, 'messages', messages, 'target_id', target_id)
+         FROM import_rows WHERE batch_id = $1 AND ($2::text IS NULL OR status = $2) ORDER BY row_no LIMIT 200 OFFSET $3",
+    )
+    .bind(id)
+    .bind(status)
+    .bind(offset.max(0))
+    .fetch_all(&state.db)
+    .await?;
+    let dataset = b["dataset"].as_str().unwrap_or_default().to_string();
+    let headers: Vec<Value> = ob::columns(&dataset).iter().map(|c| json!({ "key": c.key, "header": c.header, "required": c.need == Need::Required })).collect();
+    Ok(json!({ "batch": b, "rows": rows, "columns": headers, "may_skip_invalid": may_skip(&dataset) }))
+}
+
+#[derive(Deserialize)]
+struct RemapBody {
+    mapping: HashMap<String, String>,
+}
+
+/// Re-reads the stored workbook with another column mapping (source header → field, "" = ignore).
+async fn remap(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(body): Json<RemapBody>) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    let mut tx = state.db.begin().await?;
+    let (dataset, mode, status, file): (String, String, String, Vec<u8>) =
+        sqlx::query_as("SELECT dataset, mode, status, file FROM import_batches WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+            .bind(id)
+            .bind(ctx.tenant_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(AppError::NotFound("Import"))?;
+    if status != "validated" {
+        return Err(rule("Only an import not yet submitted can be re-mapped"));
+    }
+    let sheet = ob::read(&dataset, &file, &body.mapping)?;
+    sqlx::query("DELETE FROM import_rows WHERE batch_id = $1").bind(id).execute(&mut *tx).await?;
+    for (row_no, data, source) in &sheet.rows {
+        sqlx::query("INSERT INTO import_rows (batch_id, row_no, source, data, status) VALUES ($1, $2, $3, $4, 'valid')")
+            .bind(id)
+            .bind(*row_no as i32)
+            .bind(Value::Object(source.clone()))
+            .bind(Value::Object(data.clone()))
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("UPDATE import_batches SET mapping = $2, total_rows = $3 WHERE id = $1").bind(id).bind(all_headers(&sheet)).bind(sheet.rows.len() as i32).execute(&mut *tx).await?;
+    store_validation(&mut tx, &ctx, id, &dataset, &mode).await?;
+    tx.commit().await?;
+    Ok(Json(batch_view(&state, &ctx, id, None, 0).await?))
+}
+
+/// Checks again (e.g. after importing the products an opening-stock file refers to).
+async fn revalidate(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    let mut tx = state.db.begin().await?;
+    let (dataset, mode, status): (String, String, String) = sqlx::query_as("SELECT dataset, mode, status FROM import_batches WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound("Import"))?;
+    if status != "validated" {
+        return Err(rule("Only an import not yet submitted can be checked again"));
+    }
+    store_validation(&mut tx, &ctx, id, &dataset, &mode).await?;
+    tx.commit().await?;
+    Ok(Json(batch_view(&state, &ctx, id, None, 0).await?))
+}
+
+/// The rows with errors or warnings, as uploaded, plus what to fix — correct them and upload this file again.
+async fn error_report(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<impl IntoResponse> {
+    can(&ctx)?;
+    let (dataset, file_name): (String, String) = sqlx::query_as("SELECT dataset, file_name FROM import_batches WHERE id = $1 AND tenant_id = $2")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Import"))?;
+    let rows: Vec<(i32, String, Value, Value)> = sqlx::query_as(
+        "SELECT row_no, status, data, messages FROM import_rows WHERE batch_id = $1 AND status IN ('invalid','warning') ORDER BY row_no",
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await?;
+    let x = |e: rust_xlsxwriter::XlsxError| AppError::Other(anyhow::anyhow!(e));
+    let mut wb = rust_xlsxwriter::Workbook::new();
+    let ws = wb.add_worksheet().set_name("Rows to fix").map_err(x)?;
+    let bold = rust_xlsxwriter::Format::new().set_bold().set_background_color("F9E3CF");
+    let text = rust_xlsxwriter::Format::new().set_num_format("@");
+    let cols = ob::columns(&dataset);
+    for (i, c) in cols.iter().enumerate() {
+        ws.write_string_with_format(0, i as u16, c.header, &bold).map_err(x)?;
+        ws.set_column_format(i as u16, &text).map_err(x)?;
+        ws.set_column_width(i as u16, 18).map_err(x)?;
+    }
+    let n = cols.len() as u16;
+    ws.write_string_with_format(0, n, "Status", &bold).map_err(x)?;
+    ws.write_string_with_format(0, n + 1, "Row in your file", &bold).map_err(x)?;
+    ws.write_string_with_format(0, n + 2, "What to fix", &bold).map_err(x)?;
+    ws.set_column_width(n + 2, 80).map_err(x)?;
+    for (r, (row_no, status, data, msgs)) in rows.iter().enumerate() {
+        let r = r as u32 + 1;
+        for (i, c) in cols.iter().enumerate() {
+            let v = match data.get(c.key) {
+                Some(Value::String(s)) => s.clone(),
+                Some(Value::Number(n)) => n.to_string(),
+                Some(Value::Bool(b)) => if *b { "YES" } else { "NO" }.into(),
+                Some(o) if o.get("invalid").is_some() => o["invalid"].as_str().unwrap_or_default().to_string(),
+                _ => String::new(),
+            };
+            ws.write_string(r, i as u16, v).map_err(x)?;
+        }
+        ws.write_string(r, n, if status == "invalid" { "Error" } else { "Warning" }).map_err(x)?;
+        ws.write_number(r, n + 1, *row_no as f64).map_err(x)?;
+        let what: Vec<String> = msgs.as_array().into_iter().flatten().filter_map(|m| m["message"].as_str().map(String::from)).collect();
+        ws.write_string(r, n + 2, what.join(" · ")).map_err(x)?;
+    }
+    let bytes = wb.save_to_buffer().map_err(x)?;
+    let name = format!("Fix_{}", file_name.trim_end_matches(".xlsx").chars().take(60).collect::<String>()) + ".xlsx";
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+        ],
+        bytes,
+    ))
+}
+
+async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    let n = sqlx::query("UPDATE import_batches SET status = 'cancelled', decided_by = $3, decided_at = now(), file = '' WHERE id = $1 AND tenant_id = $2 AND status = 'validated'")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .bind(ctx.user_id)
+        .execute(&state.db)
+        .await?
+        .rows_affected();
+    if n == 0 {
+        return Err(rule("Only an import not yet submitted can be discarded"));
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ── Posting ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PostBody {
+    /// Leave the invalid rows out (products and customers only).
+    #[serde(default)]
+    skip_invalid: bool,
+}
+
+/// Posts now, or sends the batch for approval when the *Data import* workflow is on.
+async fn post_batch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<PostBody>) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    ctx.require_full()?;
+    let mut tx = state.db.begin().await?;
+    let (dataset, status, total, invalid, file_name): (String, String, i32, i32, String) =
+        sqlx::query_as("SELECT dataset, status, total_rows, invalid_rows, file_name FROM import_batches WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+            .bind(id)
+            .bind(ctx.tenant_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(AppError::NotFound("Import"))?;
+    if status != "validated" {
+        return Err(rule("This import was already submitted"));
+    }
+    if invalid > 0 && !(b.skip_invalid && may_skip(&dataset)) {
+        return Err(refused(
+            "Fix the invalid rows",
+            if may_skip(&dataset) {
+                format!("{invalid} row(s) have errors — fix them, or choose to import only the valid rows")
+            } else {
+                format!("{invalid} row(s) have errors — stock and money import complete or not at all: fix them and upload again")
+            },
+        ));
+    }
+    if invalid == total {
+        return Err(rule("No valid rows to import"));
+    }
+    sqlx::query("UPDATE import_batches SET skip_invalid = $2 WHERE id = $1").bind(id).bind(b.skip_invalid).execute(&mut *tx).await?;
+    if workflow::needs_approval(&mut tx, &ctx, "data.import", workflow::Gate::default()).await? {
+        let label = ob::label(&dataset).unwrap_or("Data");
+        let approval = workflow::submit(
+            &mut tx,
+            &ctx,
+            workflow::Request {
+                action: "data.import",
+                entity_type: "import_batch",
+                entity_id: id,
+                branch_id: None,
+                summary: format!("{label} import: {} row(s) from {file_name}", total - if b.skip_invalid { invalid } else { 0 }),
+                amount: None,
+                payload: json!({ "batch_id": id, "dataset": dataset }),
+            },
+        )
+        .await?;
+        sqlx::query("UPDATE import_batches SET status = 'pending_approval', approval_id = $2 WHERE id = $1").bind(id).bind(approval).execute(&mut *tx).await?;
+        tx.commit().await?;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
+        return Ok(Json(json!({ "status": "pending_approval", "approval_id": approval })));
+    }
+    let summary = post_rows(&mut tx, &ctx, id).await?;
+    tx.commit().await?;
+    state.emit(ctx.tenant_id, None, "stock", json!({}));
+    Ok(Json(json!({ "status": "posted", "summary": summary })))
+}
+
+/// Approved by the *Data import* workflow (inside the approval's transaction).
+pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &super::approvals::ApprovalRow) -> AppResult<()> {
+    sqlx::query("UPDATE import_batches SET decided_by = $2, decided_at = now() WHERE id = $1").bind(a.entity_id).bind(ctx.user_id).execute(&mut *conn).await?;
+    post_rows(conn, ctx, a.entity_id).await.map(|_| ())
+}
+
+pub async fn on_rejected(conn: &mut PgConnection, ctx: &Ctx, a: &super::approvals::ApprovalRow, outcome: &str) -> AppResult<()> {
+    sqlx::query("UPDATE import_batches SET status = $3, decided_by = $2, decided_at = now() WHERE id = $1 AND status = 'pending_approval'")
+        .bind(a.entity_id)
+        .bind(ctx.user_id)
+        .bind(if outcome == "cancelled" { "cancelled" } else { "rejected" })
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+/// Validates again (data may have changed since the upload) and writes every valid row — all in the caller's
+/// transaction: the batch posts completely or not at all.
+async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Value> {
+    let (dataset, mode, status, skip, uploader): (String, String, String, bool, Option<Uuid>) =
+        sqlx::query_as("SELECT dataset, mode, status, skip_invalid, uploaded_by FROM import_batches WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+            .bind(id)
+            .bind(ctx.tenant_id)
+            .fetch_one(&mut *conn)
+            .await?;
+    if !matches!(status.as_str(), "validated" | "pending_approval") {
+        return Err(rule("This import was already processed"));
+    }
+    store_validation(conn, ctx, id, &dataset, &mode).await?;
+    let invalid: i64 = sqlx::query_scalar("SELECT count(*) FROM import_rows WHERE batch_id = $1 AND status = 'invalid'").bind(id).fetch_one(&mut *conn).await?;
+    if invalid > 0 && !(skip && may_skip(&dataset)) {
+        return Err(refused("Data changed", format!("{invalid} row(s) are no longer valid (the business's data changed since the upload) — check the import again")));
+    }
+    let rows: Vec<(i32, Value)> = sqlx::query_as("SELECT row_no, data FROM import_rows WHERE batch_id = $1 AND status IN ('valid','warning') ORDER BY row_no")
+        .bind(id)
+        .fetch_all(&mut *conn)
+        .await?;
+    let cfg = settings::load(conn, ctx.tenant_id).await?;
+    let mut posted = 0;
+    let mut created = 0;
+    let mut matched = 0;
+    let mut quantity: i64 = 0;
+    let mut amount = Decimal::ZERO;
+    for (row_no, data) in &rows {
+        let d = data.as_object().cloned().unwrap_or_default();
+        let target = match dataset.as_str() {
+            "products" => {
+                let (pid, new) = post_product(conn, ctx, id, &mode, &d).await?;
+                if new {
+                    created += 1;
+                } else {
+                    matched += 1;
+                }
+                Some(pid)
+            }
+            "customers" => {
+                let mobile = s_req(&d, "mobile")?;
+                let (cid, new) = super::customers::upsert_by_mobile(conn, ctx.tenant_id, uploader, &mobile, s(&d, "first_name").unwrap_or(""), s(&d, "nickname").unwrap_or("")).await?;
+                if new {
+                    sqlx::query("UPDATE customers SET other_names = $2, email = $3, import_batch_id = $4 WHERE id = $1")
+                        .bind(cid)
+                        .bind(s(&d, "other_names").unwrap_or(""))
+                        .bind(s(&d, "email").unwrap_or(""))
+                        .bind(id)
+                        .execute(&mut *conn)
+                        .await?;
+                    created += 1;
+                } else {
+                    matched += 1;
+                }
+                Some(cid)
+            }
+            "opening_stock" => {
+                let qty = d.get("quantity").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                if qty == 0 {
+                    None
+                } else {
+                    let product_id = uuid_of(&d, "product_id")?;
+                    let branch_id = uuid_of(&d, "branch_id")?;
+                    let mut body = super::stock::ReceiveBody {
+                        product_id,
+                        branch_id: Some(branch_id),
+                        quantity: qty,
+                        barcodes: d.get("units").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default(),
+                        cost_price: money(&d, "unit_cost"),
+                        marked_price: None,
+                        max_discount: None,
+                        supplier_id: None,
+                        reference: format!("Opening stock (import, row {row_no})"),
+                        date_received: s(&d, "as_of").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()),
+                        activate: false,
+                        kind: Some("opening".into()),
+                    };
+                    super::stock::receive_in_tx(conn, ctx, &cfg, &mut body).await?;
+                    sqlx::query(
+                        "UPDATE stock_movements SET import_batch_id = $1 WHERE tenant_id = $2 AND product_id = $3 AND branch_id = $4
+                           AND kind = 'opening' AND import_batch_id IS NULL AND created_at = now()",
+                    )
+                    .bind(id)
+                    .bind(ctx.tenant_id)
+                    .bind(product_id)
+                    .bind(branch_id)
+                    .execute(&mut *conn)
+                    .await?;
+                    quantity += qty as i64;
+                    amount += money(&d, "unit_cost").unwrap_or(Decimal::ZERO) * Decimal::from(qty);
+                    Some(product_id)
+                }
+            }
+            "expenses" => {
+                let cat = s_req(&d, "category")?;
+                let cat_id = find_or_create(conn, ctx.tenant_id, "expense_categories", &cat).await?;
+                let value = money(&d, "amount").ok_or_else(|| bad("Amount"))?;
+                let desc = match s(&d, "reference") {
+                    Some(r) => format!("{} [{r}]", s(&d, "description").unwrap_or("")).trim().to_string(),
+                    None => s(&d, "description").unwrap_or("").to_string(),
+                };
+                let eid: Uuid = sqlx::query_scalar(
+                    "INSERT INTO expenses (tenant_id, branch_id, category_id, amount, expense_date, description, payee, payment_method, status, user_id, import_batch_id)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'approved',$9,$10) RETURNING id",
+                )
+                .bind(ctx.tenant_id)
+                .bind(uuid_of(&d, "branch_id")?)
+                .bind(cat_id)
+                .bind(value)
+                .bind(s(&d, "date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()).ok_or_else(|| bad("Expense Date"))?)
+                .bind(desc)
+                .bind(s(&d, "payee").unwrap_or(""))
+                .bind(s(&d, "method_key").unwrap_or("cash"))
+                .bind(uploader)
+                .bind(id)
+                .fetch_one(&mut *conn)
+                .await?;
+                amount += value;
+                created += 1;
+                Some(eid)
+            }
+            _ => return Err(bad("Unknown dataset")),
+        };
+        sqlx::query("UPDATE import_rows SET status = 'posted', target_id = $3 WHERE batch_id = $1 AND row_no = $2")
+            .bind(id)
+            .bind(row_no)
+            .bind(target)
+            .execute(&mut *conn)
+            .await?;
+        posted += 1;
+    }
+    sqlx::query("UPDATE import_rows SET status = 'skipped' WHERE batch_id = $1 AND status = 'invalid'").bind(id).execute(&mut *conn).await?;
+    let summary = json!({ "posted": posted, "created": created, "matched": matched, "quantity": quantity, "amount": amount });
+    sqlx::query("UPDATE import_batches SET status = 'posted', posted_rows = $2, posted_at = now(), summary = $3, file = '' WHERE id = $1")
+        .bind(id)
+        .bind(posted)
+        .bind(&summary)
+        .execute(&mut *conn)
+        .await?;
+    audit::record(conn, ctx, Entry::new("onboarding", "posted", "import_batch", id).after(json!({ "dataset": dataset, "mode": mode, "summary": summary }))).await?;
+    Ok(summary)
+}
+
+fn s_req(d: &Map<String, Value>, k: &str) -> AppResult<String> {
+    s(d, k).map(String::from).ok_or_else(|| bad(format!("{k} missing")))
+}
+
+fn uuid_of(d: &Map<String, Value>, k: &str) -> AppResult<Uuid> {
+    s(d, k).and_then(|v| Uuid::parse_str(v).ok()).ok_or_else(|| bad(format!("{k} missing")))
+}
+
+/// A category / supplier / expense category by name, created when new.
+async fn find_or_create(conn: &mut PgConnection, tenant: Uuid, table: &str, name: &str) -> AppResult<Uuid> {
+    let name = name.trim();
+    let found: Option<Uuid> = sqlx::query_scalar(&format!("SELECT id FROM {table} WHERE tenant_id = $1 AND lower(name) = lower($2) LIMIT 1"))
+        .bind(tenant)
+        .bind(name)
+        .fetch_optional(&mut *conn)
+        .await?;
+    if let Some(id) = found {
+        return Ok(id);
+    }
+    Ok(sqlx::query_scalar(&format!("INSERT INTO {table} (tenant_id, name) VALUES ($1, $2) RETURNING id")).bind(tenant).bind(name).fetch_one(&mut *conn).await?)
+}
+
+/// Creates a product (S'Shop's numbering when no code is given) or updates an existing one by code.
+async fn post_product(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, mode: &str, d: &Map<String, Value>) -> AppResult<(Uuid, bool)> {
+    let cat = find_or_create(conn, ctx.tenant_id, "categories", &s_req(d, "category")?).await?;
+    let sup = match s(d, "supplier") {
+        Some(n) => Some(find_or_create(conn, ctx.tenant_id, "suppliers", n).await?),
+        None => None,
+    };
+    let all = d.get("branch_ids").is_none_or(|v| v.is_null());
+    let branch_ids: Vec<Uuid> = d.get("branch_ids").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+    let individual = d.get("individual").and_then(|v| v.as_bool()).unwrap_or(false);
+    let barcode = s(d, "barcode").map(String::from);
+    let id: Uuid;
+    let new;
+    if mode == "update" {
+        let code = s_req(d, "code")?;
+        id = sqlx::query_scalar(
+            "UPDATE products SET name = $3, nickname = COALESCE($4, nickname), description = COALESCE($5, description), category_id = $6,
+                    supplier_id = COALESCE($7, supplier_id), marked_price = $8, cost_price = COALESCE($9, cost_price),
+                    max_discount = COALESCE($10, max_discount), barcode = COALESCE($11, barcode), low_stock_threshold = COALESCE($12, low_stock_threshold),
+                    is_active = $13, available_for_orders = $14, all_branches = $15, updated_at = now()
+             WHERE tenant_id = $1 AND upper(code) = $2 RETURNING id",
+        )
+        .bind(ctx.tenant_id)
+        .bind(&code)
+        .bind(s_req(d, "name")?)
+        .bind(s(d, "nickname"))
+        .bind(s(d, "description"))
+        .bind(cat)
+        .bind(sup)
+        .bind(money(d, "selling_price").unwrap_or_default())
+        .bind(money(d, "cost_price"))
+        .bind(money(d, "max_discount"))
+        .bind(&barcode)
+        .bind(d.get("low_stock").and_then(|v| v.as_i64()).map(|v| v as i32))
+        .bind(d.get("active").and_then(|v| v.as_bool()).unwrap_or(true))
+        .bind(d.get("publish_online").and_then(|v| v.as_bool()).unwrap_or(true))
+        .bind(all)
+        .fetch_one(&mut *conn)
+        .await?;
+        new = false;
+    } else {
+        let code = match s(d, "code") {
+            Some(c) => c.to_uppercase(),
+            None => {
+                let prefix = settings::load(conn, ctx.tenant_id).await?.product.auto_code_prefix;
+                let n: i64 = sqlx::query_scalar(
+                    "INSERT INTO doc_counters (tenant_id, kind, year, value) VALUES ($1, 'product_code', 0, 1)
+                     ON CONFLICT (tenant_id, kind, year) DO UPDATE SET value = doc_counters.value + 1 RETURNING value",
+                )
+                .bind(ctx.tenant_id)
+                .fetch_one(&mut *conn)
+                .await?;
+                format!("{prefix}{n:04}")
+            }
+        };
+        id = sqlx::query_scalar(
+            "INSERT INTO products (tenant_id, code, name, nickname, description, category_id, supplier_id, marked_price, max_discount, cost_price,
+                    barcode, track_items, is_active, available_for_orders, low_stock_threshold, all_branches, created_by, import_batch_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id",
+        )
+        .bind(ctx.tenant_id)
+        .bind(&code)
+        .bind(s_req(d, "name")?)
+        .bind(s(d, "nickname").unwrap_or(""))
+        .bind(s(d, "description").unwrap_or(""))
+        .bind(cat)
+        .bind(sup)
+        .bind(money(d, "selling_price").unwrap_or_default())
+        .bind(money(d, "max_discount"))
+        .bind(money(d, "cost_price"))
+        .bind(&barcode)
+        .bind(individual)
+        .bind(d.get("active").and_then(|v| v.as_bool()).unwrap_or(true))
+        .bind(d.get("publish_online").and_then(|v| v.as_bool()).unwrap_or(true))
+        .bind(d.get("low_stock").and_then(|v| v.as_i64()).map(|v| v as i32))
+        .bind(all)
+        .bind(ctx.user_id)
+        .bind(batch)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => rule(format!("Product code {code} or its barcode is already used")),
+            _ => e.into(),
+        })?;
+        new = true;
+    }
+    // Catalogue branches (stock is never created here).
+    sqlx::query("DELETE FROM product_branches WHERE product_id = $1").bind(id).execute(&mut *conn).await?;
+    if !all {
+        for b in branch_ids {
+            sqlx::query("INSERT INTO product_branches (product_id, branch_id) VALUES ($1, $2)").bind(id).bind(b).execute(&mut *conn).await?;
+        }
+    }
+    Ok((id, new))
+}

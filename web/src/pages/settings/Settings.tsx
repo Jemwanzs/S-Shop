@@ -26,6 +26,7 @@ import {
   Wallet,
   Warehouse,
   type LucideIcon,
+  FileSpreadsheet,
 } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { useMediaQuery } from "@/lib/hooks";
@@ -35,6 +36,7 @@ import { BusinessSettings, IntegrationsSettings } from "./General";
 import { BranchesSettings, RolesSettings, UsersSettings } from "./People";
 import { CustomerSettings, ExpenseSettings, LoyaltySettings, OrderSettings, ProductSettings, ReportSettings, SalesSettings, StockSettings, WorkspaceSettings } from "./Config";
 import { WorkflowSettings } from "./Workflows";
+import { OnboardingSettings } from "./Onboarding";
 import { AccessRequests } from "./AccessRequests";
 import { PreferencesSettings } from "./Preferences";
 import { BusinessesSettings } from "./Businesses";
@@ -67,6 +69,7 @@ const SECTIONS: SectionDef[] = [
   { path: "workspace", label: "Workspace & hours", group: "Business", icon: CalendarClock, perm: "settings.workspace", element: <WorkspaceSettings /> },
   { path: "roles", label: "Roles & permissions", group: "Business", icon: KeyRound, perm: "roles.manage", element: <RolesSettings /> },
   { path: "billing", label: "Billing", group: "Business", icon: Receipt, perm: "settings.billing", element: <BillingSettings /> },
+  { path: "onboarding", label: "Onboarding", group: "Business", icon: FileSpreadsheet, perm: "settings.onboarding", element: <OnboardingSettings /> },
   { path: "products", label: "Products", group: "Configuration", icon: Package, perm: "settings.products", element: <ProductSettings /> },
   { path: "sales", label: "Sales & payments", group: "Configuration", icon: CreditCard, perm: "settings.sales", element: <SalesSettings /> },
   { path: "stock", label: "Stock", group: "Configuration", icon: Warehouse, perm: "settings.stock", element: <StockSettings /> },

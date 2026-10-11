@@ -48,6 +48,7 @@
 | 30 | Session timeout & automatic logout | [modules/30-session-timeout.md](modules/30-session-timeout.md) |
 | 31 | Product User Manual (PDF) | [modules/31-product-user-manual.md](modules/31-product-user-manual.md) |
 | 32 | M-Pesa per business & STK Push sales | [modules/32-mpesa-stk.md](modules/32-mpesa-stk.md) |
+| 33 | Business onboarding & data migration | [modules/33-onboarding.md](modules/33-onboarding.md) |
 
 ## Glossary
 

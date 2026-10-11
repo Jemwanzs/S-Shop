@@ -66,6 +66,11 @@ pub fn digest(s: &str) -> String {
     Sha256::digest(s.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// SHA-256 hex of bytes (an uploaded file's fingerprint).
+pub fn digest_bytes(b: &[u8]) -> String {
+    Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()
+}
+
 /// A random URL-safe token (32 bytes).
 pub fn random_token() -> String {
     let mut b = [0u8; 32];

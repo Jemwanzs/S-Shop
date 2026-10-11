@@ -502,6 +502,23 @@ Entry, Scanning & Inventory Validation Enhancement*; [module 19](modules/19-barc
   counted at all; a refresh lost the count; Enter in the till's search did nothing with a scanned code; product
   barcodes were unique only in application code.
 
+Added 2026-10-11 — **Business onboarding & data migration** (owner request: *Business Onboarding, Excel Bulk Uploads &
+Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in phases.
+- ✅ **99. Onboarding centre, phase 1** — Settings → Business → Onboarding: migration cutover; Excel templates from the
+  real fields (Instructions sheet, required marks, sample row, text codes, dropdowns incl. branch codes and payment
+  methods); upload → column mapping (common alternative names, re-mapping) → colour-coded preview with per-row reasons →
+  error report → import or send for approval (*Data import* workflow, never the uploader) → history and totals; posting
+  re-validated and atomic; the same workbook once; records point to their batch. Datasets: **Products** (numbering,
+  barcode rules, update mode, catalogue branches without stock), **Customers** (matched by mobile, never duplicated),
+  **Opening stock** (stock-ledger opening receipts at the as-of date, item barcodes, never on top of recorded stock),
+  **Expenses** (original dates, references once). Invalid stock or money rows never skipped.
+- ⏳ **100. Onboarding phase 2** — Sales history (historical mode: original dates and references, no stock movements,
+  no loyalty awarded again, in reports for their dates), Credit sales and opening credit balances (aging from original
+  due dates, partial payments, no invented history), Loyalty opening points (migration entries, no double allocation).
+- ⏳ **101. Onboarding phase 3** — Orders and Stock transfers (closed as history; outstanding into the live modules with
+  reservations / in-transit reconciled against opening stock), migration dashboard filters and the Migration
+  Reconciliation Report (source totals vs imported, unresolved differences block completion).
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

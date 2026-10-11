@@ -112,6 +112,7 @@ pub const CATALOGUE: &[PermGroup] = &[
         ("settings.workflows", "Approval workflows"),
         ("settings.integrations", "M-Pesa & WhatsApp settings"),
         ("settings.billing", "Billing: invoices, receipts & paying S'Shop"),
+        ("settings.onboarding", "Onboarding: Excel imports of products, customers, stock & expenses"),
     ]},
 ];
 

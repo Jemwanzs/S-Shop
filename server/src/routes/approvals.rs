@@ -281,6 +281,7 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
         "sale.return" | "sale.cancel" | "credit.recall" | "sale.owner_change" => super::sales::on_approved(&mut tx, &ctx, &a).await?,
         "credit.write_off" => super::credit::on_approved(&mut tx, &ctx, &a).await?,
         "expense" => super::expenses::on_decided(&mut tx, &a, true).await?,
+        "data.import" => super::onboarding::on_approved(&mut tx, &ctx, &a).await?,
         _ => {}
     }
 
@@ -378,6 +379,7 @@ async fn on_closed_without_approval(conn: &mut sqlx::PgConnection, ctx: &Ctx, a:
                 .await?;
         }
         "expense" => super::expenses::on_decided(conn, a, false).await?,
+        "data.import" => super::onboarding::on_rejected(conn, ctx, a, outcome).await?,
         _ => {}
     }
     Ok(())

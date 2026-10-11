@@ -1,7 +1,7 @@
 /** Settings → Business → Onboarding (roadmap 99): Excel templates and uploads to bring a business's records into
  * S'Shop — upload → map columns → preview & validate → (approval) → post — with import history and totals.
  * Phase 1: products, customers, opening stock balances and expenses; the other datasets follow. */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Download, FileSpreadsheet, Info, RefreshCw, Scale, Trash2, Upload } from "lucide-react";
 import { api, session } from "@/lib/api";
@@ -20,6 +20,7 @@ import { Field } from "@/components/Form";
 import { Select } from "@/components/Select";
 import { Pill, type Tone } from "@/components/Badges";
 import { Loading } from "@/components/Page";
+import { ImportProgress } from "@/components/ImportProgress";
 import { Card, SettingsPage } from "./shared";
 
 interface Column { key: string; header: string; required: boolean; help?: string }
@@ -27,6 +28,7 @@ interface Dataset { key: string; label: string; columns: Column[]; may_skip_inva
 interface BatchRow {
   id: string; dataset: string; mode: string; status: string; file_name: string; total_rows: number; valid_rows: number; warning_rows: number;
   invalid_rows: number; posted_rows: number; created_at: string; posted_at: string | null; uploaded_by: string | null; decided_by: string | null; error: string | null;
+  reference?: string | null;
 }
 interface Overview {
   cutover: string | null; completed_at: string | null; datasets: Dataset[]; batches: BatchRow[]; branches: number;
@@ -49,7 +51,7 @@ interface Row { row_no: number; status: "valid" | "warning" | "invalid" | "poste
 interface BatchView { batch: BatchRow & { mapping: Record<string, string>; summary: Record<string, number> }; rows: Row[]; columns: Column[]; may_skip_invalid: boolean }
 
 const STATUS: Record<string, [Tone, string]> = {
-  validated: ["info", "Ready to post"], pending_approval: ["warning", "Awaiting approval"], posted: ["success", "Imported"],
+  validated: ["info", "Ready to post"], pending_approval: ["warning", "Awaiting approval"], posting: ["info", "Importing"], posted: ["success", "Imported"],
   rejected: ["danger", "Rejected"], cancelled: ["neutral", "Discarded"], failed: ["danger", "Failed"],
 };
 const ROW_TONE: Record<string, Tone> = { valid: "success", warning: "warning", invalid: "danger", posted: "success", skipped: "neutral" };
@@ -69,8 +71,19 @@ export function OnboardingSettings() {
   const { can } = useSession();
   const q = useQuery({ queryKey: ["onboarding"], queryFn: () => api<Overview>("/onboarding") });
   const [open, setOpen] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
   const [cutover, setCutover] = useState<string | null>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ["onboarding"] });
+  // An import still running (e.g. after a refresh) opens its progress again — once.
+  const running = q.data?.batches.find((b) => b.status === "posting")?.id;
+  const reopened = useRef(false);
+  useEffect(() => {
+    if (running && !reopened.current) {
+      reopened.current = true;
+      setProgress(running);
+    }
+  }, [running]);
+  const showBatch = (b: BatchRow) => (b.status === "posting" ? setProgress(b.id) : setOpen(b.id));
   if (!q.data) return <SettingsPage title="Onboarding" loading><span /></SettingsPage>;
   const o = q.data;
   const cut = cutover ?? o.cutover ?? "";
@@ -123,7 +136,7 @@ export function OnboardingSettings() {
                 </Button>
                 <UploadButton dataset={d.key} canUpdate={d.key === "products" && can("products.edit")} onDone={(id) => { refresh(); setOpen(id); }} />
               </div>
-              {last && <button className="text-xs text-primary underline" onClick={() => setOpen(last.id)}>{t("Last import")}: {last.file_name} · {ago(last.created_at)}</button>}
+              {last && <button className="text-xs text-primary underline" onClick={() => showBatch(last)}>{t("Last import")}: {last.file_name} · {ago(last.created_at)}</button>}
             </section>
           );
         })}
@@ -133,7 +146,7 @@ export function OnboardingSettings() {
         <ul className="divide-y text-sm">
           {o.batches.map((b) => (
             <li key={b.id}>
-              <button className="flex w-full flex-wrap items-center gap-2 py-2.5 text-start hover:bg-muted/40" onClick={() => setOpen(b.id)}>
+              <button className="flex w-full flex-wrap items-center gap-2 py-2.5 text-start hover:bg-muted/40" onClick={() => showBatch(b)}>
                 <Pill tone={STATUS[b.status]?.[0] ?? "neutral"}>{STATUS[b.status]?.[1] ?? b.status}</Pill>
                 <span className="font-medium">{t(o.datasets.find((d) => d.key === b.dataset)?.label ?? b.dataset)}</span>
                 <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{b.file_name}</span>
@@ -144,7 +157,16 @@ export function OnboardingSettings() {
           {!o.batches.length && <li className="py-3 text-muted-foreground">{t("No imports yet.")}</li>}
         </ul>
       </Card>
-      {open && <BatchDialog id={open} datasets={o.datasets} onClose={() => { setOpen(null); refresh(); }} />}
+      {open && <BatchDialog id={open} datasets={o.datasets} onClose={() => { setOpen(null); refresh(); }} onProgress={(id) => { setOpen(null); setProgress(id); refresh(); }} />}
+      {progress && (() => {
+        const b = o.batches.find((x) => x.id === progress);
+        const label = o.datasets.find((d) => d.key === b?.dataset)?.label ?? "Data";
+        return (
+          <ImportProgress id={progress} label={label} onClose={() => { setProgress(null); refresh(); }}
+            onCheckAgain={() => { const id = progress; setProgress(null); setOpen(id); }}
+            errorReport={() => fetchFile(`/onboarding/batches/${progress}/errors`, `Fix_${b?.file_name ?? "import.xlsx"}`).catch((e) => toast.error(e))} />
+        );
+      })()}
     </SettingsPage>
   );
 }
@@ -288,7 +310,7 @@ function UploadButton({ dataset, canUpdate, onDone }: { dataset: string; canUpda
   );
 }
 
-function BatchDialog({ id, datasets, onClose }: { id: string; datasets: Dataset[]; onClose: () => void }) {
+function BatchDialog({ id, datasets, onClose, onProgress }: { id: string; datasets: Dataset[]; onClose: () => void; onProgress: (id: string) => void }) {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<string>("");
   const [skip, setSkip] = useState(false);
@@ -298,7 +320,7 @@ function BatchDialog({ id, datasets, onClose }: { id: string; datasets: Dataset[
   const v = q.data;
   const b = v?.batch;
   const label = datasets.find((d) => d.key === b?.dataset)?.label ?? "";
-  const editable = b?.status === "validated";
+  const editable = b?.status === "validated" || b?.status === "failed";
   const map = mapping ?? b?.mapping ?? {};
   const mapDirty = !!mapping && JSON.stringify(mapping) !== JSON.stringify(b?.mapping);
   const val = (r: Row, c: Column) => {
@@ -321,11 +343,11 @@ function BatchDialog({ id, datasets, onClose }: { id: string; datasets: Dataset[
           {editable && (
             <ActionButton size="sm" online blockedBy={[b.invalid_rows > 0 && !(skip && v?.may_skip_invalid) && "Fix the invalid rows first", b.invalid_rows === b.total_rows && "No valid rows", mapDirty && "Apply the column mapping first"]}
               onAction={async () => {
-                const r = await api<{ status: string; summary?: Record<string, number> }>(`/onboarding/batches/${id}/post`, { body: { skip_invalid: skip } });
-                toast.success(r.status === "pending_approval" ? "Sent for approval" : `Imported: ${r.summary?.posted ?? 0} row(s)`);
-                reload();
+                await api<{ status: string }>(`/onboarding/batches/${id}/post`, { body: { skip_invalid: skip } });
+                onProgress(id);
               }}><CheckCircle2 /> {t("Import")} {count(b.total_rows - (skip ? b.invalid_rows : 0))} {t("rows")}</ActionButton>
           )}
+          {(b.status === "posted" || b.status === "posting") && <Button size="sm" onClick={() => onProgress(id)}><CheckCircle2 /> {t(b.status === "posted" ? "Import summary" : "View progress")}</Button>}
         </div>
       )}>
       {!v || !b ? <Loading /> : (
@@ -342,6 +364,9 @@ function BatchDialog({ id, datasets, onClose }: { id: string; datasets: Dataset[
             <p className="rounded-lg bg-success/10 p-2.5 text-sm text-success">
               {t("Imported")} {count(b.posted_rows)} {t("row(s)")}{b.summary?.created ? ` · ${count(b.summary.created)} ${t("created")}` : ""}{b.summary?.matched ? ` · ${count(b.summary.matched)} ${t("matched (not duplicated)")}` : ""}{b.decided_by ? ` · ${t("approved by")} ${b.decided_by}` : ""}
             </p>
+          )}
+          {b.status === "failed" && b.error && (
+            <p className="rounded-lg bg-destructive/10 p-2.5 text-sm text-destructive">{b.error} · {t("Nothing was saved — check again, then import again.")}</p>
           )}
           {b.status === "pending_approval" && <p className="rounded-lg bg-warning/10 p-2.5 text-sm text-warning">{t("Waiting for approval in Approvals. Nothing is saved until it is approved.")}</p>}
           {editable && b.invalid_rows > 0 && v.may_skip_invalid && (

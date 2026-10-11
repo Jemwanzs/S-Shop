@@ -33,6 +33,7 @@ use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::onboarding::{self as ob, Kind, Need};
 use crate::settings;
 use crate::state::AppState;
+use crate::util::next_doc_no;
 use crate::workflow;
 
 pub fn routes() -> Router<AppState> {
@@ -47,6 +48,8 @@ pub fn routes() -> Router<AppState> {
         .route("/onboarding/batches/{id}/errors", get(error_report))
         .route("/onboarding/batches/{id}/post", post(post_batch))
         .route("/onboarding/batches/{id}/cancel", post(cancel))
+        .route("/onboarding/batches/{id}/progress", get(progress))
+        .route("/onboarding/batches/{id}/report", get(import_report))
         .route("/onboarding/reconciliation", get(reconciliation))
         .route("/onboarding/reconciliation/export", get(reconciliation_export))
         .route("/onboarding/complete", post(complete_onboarding))
@@ -65,13 +68,14 @@ fn may_skip(dataset: &str) -> bool {
 
 async fn overview(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
     can(&ctx)?;
+    fail_interrupted(&state.db, ctx.tenant_id).await?;
     let (cutover, completed_at): (Option<NaiveDate>, Option<chrono::DateTime<Utc>>) =
         sqlx::query_as("SELECT migration_cutover, onboarding_completed_at FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&state.db).await?;
     let batches: Vec<Value> = sqlx::query_scalar(
         "SELECT json_build_object('id', b.id, 'dataset', b.dataset, 'mode', b.mode, 'status', b.status, 'file_name', b.file_name,
                 'total_rows', b.total_rows, 'valid_rows', b.valid_rows, 'warning_rows', b.warning_rows, 'invalid_rows', b.invalid_rows,
                 'posted_rows', b.posted_rows, 'created_at', b.created_at, 'posted_at', b.posted_at, 'uploaded_by', u.name,
-                'decided_by', d.name, 'error', b.error)
+                'decided_by', d.name, 'error', b.error, 'reference', b.reference)
          FROM import_batches b LEFT JOIN users u ON u.id = b.uploaded_by LEFT JOIN users d ON d.id = b.decided_by
          WHERE b.tenant_id = $1 ORDER BY b.created_at DESC LIMIT 100",
     )
@@ -1097,7 +1101,7 @@ async fn batch_view(state: &AppState, ctx: &Ctx, id: Uuid, status: Option<&str>,
                 'mapping', b.mapping, 'total_rows', b.total_rows, 'valid_rows', b.valid_rows, 'warning_rows', b.warning_rows,
                 'invalid_rows', b.invalid_rows, 'posted_rows', b.posted_rows, 'skip_invalid', b.skip_invalid, 'summary', b.summary,
                 'created_at', b.created_at, 'posted_at', b.posted_at, 'uploaded_by', u.name, 'decided_by', d.name, 'error', b.error,
-                'approval_id', b.approval_id)
+                'approval_id', b.approval_id, 'reference', b.reference)
          FROM import_batches b LEFT JOIN users u ON u.id = b.uploaded_by LEFT JOIN users d ON d.id = b.decided_by
          WHERE b.id = $1 AND b.tenant_id = $2",
     )
@@ -1136,7 +1140,7 @@ async fn remap(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Js
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(AppError::NotFound("Import"))?;
-    if status != "validated" {
+    if !matches!(status.as_str(), "validated" | "failed") {
         return Err(rule("Only an import not yet submitted can be re-mapped"));
     }
     let sheet = ob::read(&dataset, &file, &body.mapping)?;
@@ -1166,10 +1170,11 @@ async fn revalidate(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(AppError::NotFound("Import"))?;
-    if status != "validated" {
+    if !matches!(status.as_str(), "validated" | "failed") {
         return Err(rule("Only an import not yet submitted can be checked again"));
     }
     store_validation(&mut tx, &ctx, id, &dataset, &mode).await?;
+    sqlx::query("UPDATE import_batches SET status = 'validated', error = NULL WHERE id = $1").bind(id).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(batch_view(&state, &ctx, id, None, 0).await?))
 }
@@ -1184,17 +1189,95 @@ async fn error_report(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
         .await?
         .ok_or(AppError::NotFound("Import"))?;
     let rows: Vec<(i32, String, Value, Value)> = sqlx::query_as(
-        "SELECT row_no, status, data, messages FROM import_rows WHERE batch_id = $1 AND status IN ('invalid','warning') ORDER BY row_no",
+        "SELECT row_no, status, data, messages FROM import_rows WHERE batch_id = $1 AND status IN ('invalid','warning','skipped') ORDER BY row_no",
     )
     .bind(id)
     .fetch_all(&state.db)
     .await?;
     let x = |e: rust_xlsxwriter::XlsxError| AppError::Other(anyhow::anyhow!(e));
     let mut wb = rust_xlsxwriter::Workbook::new();
-    let ws = wb.add_worksheet().set_name("Rows to fix").map_err(x)?;
+    rows_sheet(wb.add_worksheet().set_name("Rows to fix").map_err(x)?, &dataset, &rows).map_err(x)?;
+    let bytes = wb.save_to_buffer().map_err(x)?;
+    let name = format!("Fix_{}", file_name.trim_end_matches(".xlsx").chars().take(60).collect::<String>()) + ".xlsx";
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+        ],
+        bytes,
+    ))
+}
+
+/// The import report: a summary (reference, who, when, counts) and every row with what happened to it.
+async fn import_report(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<impl IntoResponse> {
+    can(&ctx)?;
+    type Head = (String, String, String, String, Option<String>, Option<Value>, Option<chrono::DateTime<Utc>>, Option<String>, Option<String>, Option<String>);
+    let (dataset, mode, status, file_name, reference, summary, posted_at, uploader, approver, error): Head = sqlx::query_as(
+        "SELECT b.dataset, b.mode, b.status, b.file_name, b.reference, b.summary, b.posted_at, u.name, d.name, b.error
+         FROM import_batches b LEFT JOIN users u ON u.id = b.uploaded_by LEFT JOIN users d ON d.id = b.decided_by
+         WHERE b.id = $1 AND b.tenant_id = $2",
+    )
+    .bind(id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("Import"))?;
+    let rows: Vec<(i32, String, Value, Value)> = sqlx::query_as("SELECT row_no, status, data, messages FROM import_rows WHERE batch_id = $1 ORDER BY row_no")
+        .bind(id)
+        .fetch_all(&state.db)
+        .await?;
+    let x = |e: rust_xlsxwriter::XlsxError| AppError::Other(anyhow::anyhow!(e));
+    let mut wb = rust_xlsxwriter::Workbook::new();
+    let ws = wb.add_worksheet().set_name("Summary").map_err(x)?;
+    let bold = rust_xlsxwriter::Format::new().set_bold();
+    ws.set_column_width(0, 26).map_err(x)?;
+    ws.set_column_width(1, 44).map_err(x)?;
+    let sm = summary.unwrap_or(Value::Null);
+    let num = |k: &str| sm[k].as_i64().map(|n| n.to_string()).unwrap_or_else(|| "—".into());
+    let at = posted_at.map(|a| a.with_timezone(&ctx.tz).format("%Y-%m-%d %H:%M").to_string()).unwrap_or_else(|| "—".into());
+    let lines: Vec<(&str, String)> = vec![
+        ("Import reference", reference.unwrap_or_else(|| "—".into())),
+        ("Dataset", ob::label(&dataset).unwrap_or("Data").to_string()),
+        ("Mode", if mode == "update" { "Update existing" } else { "Add new" }.to_string()),
+        ("File", file_name.clone()),
+        ("Status", match status.as_str() { "posted" => "Imported", "failed" => "Failed — nothing saved", "posting" => "Importing", "pending_approval" => "Awaiting approval", other => other }.to_string()),
+        ("Imported at", at),
+        ("Uploaded by", uploader.unwrap_or_default()),
+        ("Approved by", approver.unwrap_or_else(|| "—".into())),
+        ("Records processed", num("total")),
+        ("Imported", num("posted")),
+        ("Created", num("created")),
+        ("Updated", num("updated")),
+        ("Matched existing (not duplicated)", num("matched")),
+        ("Left out (invalid)", num("skipped")),
+        ("Failed", num("failed")),
+    ];
+    for (r, (k, v)) in lines.iter().enumerate() {
+        ws.write_string_with_format(r as u32, 0, *k, &bold).map_err(x)?;
+        ws.write_string(r as u32, 1, v).map_err(x)?;
+    }
+    if let Some(e) = error {
+        ws.write_string_with_format(lines.len() as u32, 0, "Error", &bold).map_err(x)?;
+        ws.write_string(lines.len() as u32, 1, e).map_err(x)?;
+    }
+    rows_sheet(wb.add_worksheet().set_name("Rows").map_err(x)?, &dataset, &rows).map_err(x)?;
+    let bytes = wb.save_to_buffer().map_err(x)?;
+    let name = format!("Import_report_{}", file_name.trim_end_matches(".xlsx").chars().take(60).collect::<String>()) + ".xlsx";
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+        ],
+        bytes,
+    ))
+}
+
+/// Rows as uploaded, with their status and messages (error report and import report).
+fn rows_sheet(ws: &mut rust_xlsxwriter::Worksheet, dataset: &str, rows: &[(i32, String, Value, Value)]) -> Result<(), rust_xlsxwriter::XlsxError> {
+    let x = |e: rust_xlsxwriter::XlsxError| e;
     let bold = rust_xlsxwriter::Format::new().set_bold().set_background_color("F9E3CF");
     let text = rust_xlsxwriter::Format::new().set_num_format("@");
-    let cols = ob::columns(&dataset);
+    let cols = ob::columns(dataset);
     for (i, c) in cols.iter().enumerate() {
         ws.write_string_with_format(0, i as u16, c.header, &bold).map_err(x)?;
         ws.set_column_format(i as u16, &text).map_err(x)?;
@@ -1217,20 +1300,19 @@ async fn error_report(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
             };
             ws.write_string(r, i as u16, v).map_err(x)?;
         }
-        ws.write_string(r, n, if status == "invalid" { "Error" } else { "Warning" }).map_err(x)?;
+        let label = match status.as_str() {
+            "invalid" => "Error",
+            "warning" => "Warning",
+            "posted" => "Imported",
+            "skipped" => "Left out",
+            _ => "Valid",
+        };
+        ws.write_string(r, n, label).map_err(x)?;
         ws.write_number(r, n + 1, *row_no as f64).map_err(x)?;
         let what: Vec<String> = msgs.as_array().into_iter().flatten().filter_map(|m| m["message"].as_str().map(String::from)).collect();
         ws.write_string(r, n + 2, what.join(" · ")).map_err(x)?;
     }
-    let bytes = wb.save_to_buffer().map_err(x)?;
-    let name = format!("Fix_{}", file_name.trim_end_matches(".xlsx").chars().take(60).collect::<String>()) + ".xlsx";
-    Ok((
-        [
-            (header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
-            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
-        ],
-        bytes,
-    ))
+    Ok(())
 }
 
 async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
@@ -1354,7 +1436,7 @@ async fn reconcile_data(conn: &mut PgConnection, tenant: Uuid, q: &RecQuery) -> 
     }
     let unfinished: Vec<Value> = sqlx::query_scalar(
         "SELECT json_build_object('id', id, 'dataset', dataset, 'file_name', file_name, 'status', status, 'created_at', created_at)
-         FROM import_batches WHERE tenant_id = $1 AND status IN ('validated', 'pending_approval', 'failed') ORDER BY created_at",
+         FROM import_batches WHERE tenant_id = $1 AND status IN ('validated', 'pending_approval', 'posting', 'failed') ORDER BY created_at",
     )
     .bind(tenant)
     .fetch_all(&mut *conn)
@@ -1459,8 +1541,10 @@ async fn post_batch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(AppError::NotFound("Import"))?;
-    if status != "validated" {
-        return Err(rule("This import was already submitted"));
+    match status.as_str() {
+        "validated" | "failed" => {}
+        "posting" => return Err(rule("This import is already running")),
+        _ => return Err(rule("This import was already submitted")),
     }
     if invalid > 0 && !(b.skip_invalid && may_skip(&dataset)) {
         return Err(refused(
@@ -1475,7 +1559,14 @@ async fn post_batch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
     if invalid == total {
         return Err(rule("No valid rows to import"));
     }
-    sqlx::query("UPDATE import_batches SET skip_invalid = $2 WHERE id = $1").bind(id).bind(b.skip_invalid).execute(&mut *tx).await?;
+    let has_ref: bool = sqlx::query_scalar("SELECT reference IS NOT NULL FROM import_batches WHERE id = $1").bind(id).fetch_one(&mut *tx).await?;
+    let reference = if has_ref { None } else { Some(next_doc_no(&mut tx, ctx.tenant_id, "IMP", ctx.tz).await?) };
+    sqlx::query("UPDATE import_batches SET skip_invalid = $2, error = NULL, reference = COALESCE(reference, $3) WHERE id = $1")
+        .bind(id)
+        .bind(b.skip_invalid)
+        .bind(&reference)
+        .execute(&mut *tx)
+        .await?;
     if workflow::needs_approval(&mut tx, &ctx, "data.import", workflow::Gate::default()).await? {
         let label = ob::label(&dataset).unwrap_or("Data");
         let approval = workflow::submit(
@@ -1497,16 +1588,143 @@ async fn post_batch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
         super::approvals::notify_approvers(&state, &ctx, approval).await;
         return Ok(Json(json!({ "status": "pending_approval", "approval_id": approval })));
     }
-    let summary = post_rows(&mut tx, &ctx, id).await?;
+    // Runs in the background: the request returns at once and the screen follows the real progress.
+    let rows = total - if b.skip_invalid && may_skip(&dataset) { invalid } else { 0 };
+    sqlx::query("UPDATE import_batches SET status = 'posting', started_at = now() WHERE id = $1").bind(id).execute(&mut *tx).await?;
+    sqlx::query(
+        "INSERT INTO import_progress (batch_id, stage, done, total, updated_at) VALUES ($1, 'preparing', 0, $2, now())
+         ON CONFLICT (batch_id) DO UPDATE SET stage = 'preparing', done = 0, total = $2, updated_at = now()",
+    )
+    .bind(id)
+    .bind(rows)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
-    state.emit(ctx.tenant_id, None, "stock", json!({}));
-    Ok(Json(json!({ "status": "posted", "summary": summary })))
+    tokio::spawn(run_import(state.clone(), ctx.clone(), id));
+    Ok(Json(json!({ "status": "posting", "batch_id": id })))
+}
+
+/// Reports real progress on its own connection (throttled), so the import's transaction never waits on it.
+/// Without a pool (posting inside an approval), it records nothing.
+pub struct Progress {
+    db: Option<sqlx::PgPool>,
+    batch: Uuid,
+    done: i32,
+    last: std::time::Instant,
+}
+
+impl Progress {
+    fn live(db: sqlx::PgPool, batch: Uuid) -> Self {
+        Self { db: Some(db), batch, done: 0, last: std::time::Instant::now() }
+    }
+    fn off(batch: Uuid) -> Self {
+        Self { db: None, batch, done: 0, last: std::time::Instant::now() }
+    }
+    async fn stage(&mut self, stage: &str) {
+        if let Some(db) = &self.db {
+            let _ = sqlx::query("UPDATE import_progress SET stage = $2, done = $3, updated_at = now() WHERE batch_id = $1")
+                .bind(self.batch)
+                .bind(stage)
+                .bind(self.done)
+                .execute(db)
+                .await;
+            self.last = std::time::Instant::now();
+        }
+    }
+    async fn step(&mut self, rows: i32) {
+        self.done += rows;
+        if self.db.is_some() && self.last.elapsed() >= std::time::Duration::from_millis(250) {
+            self.stage("importing").await;
+        }
+    }
+}
+
+/// What a failed import tells the person: business refusals as they are, anything unexpected without internals.
+fn failure_text(e: &AppError) -> String {
+    match e {
+        AppError::Refused { title, message } => format!("{title}: {message}"),
+        AppError::Rule(m) | AppError::BadRequest(m) => m.clone(),
+        _ => "Something went wrong while importing. Nothing was saved — try again.".into(),
+    }
+}
+
+/// The import itself: one transaction (everything or nothing), progress reported as it goes, a heartbeat while it
+/// runs, and a clear failed state (never a stuck one) if anything goes wrong — including a crash of the task.
+async fn run_import(state: AppState, ctx: Ctx, id: Uuid) {
+    let beat_db = state.db.clone();
+    let heartbeat = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            let _ = sqlx::query("UPDATE import_progress SET updated_at = now() WHERE batch_id = $1").bind(id).execute(&beat_db).await;
+        }
+    });
+    let (st, c) = (state.clone(), ctx.clone());
+    let work = tokio::spawn(async move {
+        let mut p = Progress::live(st.db.clone(), id);
+        let mut tx = st.db.begin().await?;
+        post_rows(&mut tx, &c, id, &mut p).await?;
+        tx.commit().await?;
+        AppResult::Ok(())
+    });
+    let outcome = match work.await {
+        Ok(r) => r,
+        Err(_) => Err(AppError::Other(anyhow::anyhow!("import task stopped"))),
+    };
+    heartbeat.abort();
+    match outcome {
+        Ok(()) => {
+            let _ = sqlx::query("UPDATE import_progress SET stage = 'completed', done = total, updated_at = now() WHERE batch_id = $1").bind(id).execute(&state.db).await;
+            state.emit(ctx.tenant_id, None, "stock", json!({}));
+        }
+        Err(e) => {
+            tracing::warn!(batch = %id, error = %e, "import failed");
+            let _ = sqlx::query("UPDATE import_batches SET status = 'failed', error = $2 WHERE id = $1 AND status = 'posting'")
+                .bind(id)
+                .bind(failure_text(&e))
+                .execute(&state.db)
+                .await;
+            let _ = sqlx::query("UPDATE import_progress SET stage = 'failed', updated_at = now() WHERE batch_id = $1").bind(id).execute(&state.db).await;
+        }
+    }
+}
+
+/// An import whose worker stopped (the server restarted mid-way) rolled back: mark it failed rather than running forever.
+async fn fail_interrupted(db: &sqlx::PgPool, tenant: Uuid) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE import_batches b SET status = 'failed', error = 'The import was interrupted. Nothing was saved — import it again.'
+         FROM import_progress p
+         WHERE p.batch_id = b.id AND b.tenant_id = $1 AND b.status = 'posting' AND p.updated_at < now() - interval '2 minutes'",
+    )
+    .bind(tenant)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Live state of one import for the progress screen (polled while it runs; works again after a refresh).
+async fn progress(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    fail_interrupted(&state.db, ctx.tenant_id).await?;
+    let v: Value = sqlx::query_scalar(
+        "SELECT json_build_object('id', b.id, 'dataset', b.dataset, 'mode', b.mode, 'status', b.status, 'file_name', b.file_name,
+                'reference', b.reference, 'total_rows', b.total_rows, 'invalid_rows', b.invalid_rows, 'posted_rows', b.posted_rows,
+                'skip_invalid', b.skip_invalid, 'summary', b.summary, 'error', b.error, 'started_at', b.started_at, 'posted_at', b.posted_at,
+                'stage', p.stage, 'done', COALESCE(p.done, 0), 'total', COALESCE(p.total, 0))
+         FROM import_batches b LEFT JOIN import_progress p ON p.batch_id = b.id
+         WHERE b.id = $1 AND b.tenant_id = $2",
+    )
+    .bind(id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("Import"))?;
+    Ok(Json(v))
 }
 
 /// Approved by the *Data import* workflow (inside the approval's transaction).
 pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &super::approvals::ApprovalRow) -> AppResult<()> {
-    sqlx::query("UPDATE import_batches SET decided_by = $2, decided_at = now() WHERE id = $1").bind(a.entity_id).bind(ctx.user_id).execute(&mut *conn).await?;
-    post_rows(conn, ctx, a.entity_id).await.map(|_| ())
+    sqlx::query("UPDATE import_batches SET decided_by = $2, decided_at = now(), started_at = now() WHERE id = $1").bind(a.entity_id).bind(ctx.user_id).execute(&mut *conn).await?;
+    post_rows(conn, ctx, a.entity_id, &mut Progress::off(a.entity_id)).await.map(|_| ())
 }
 
 pub async fn on_rejected(conn: &mut PgConnection, ctx: &Ctx, a: &super::approvals::ApprovalRow, outcome: &str) -> AppResult<()> {
@@ -1521,16 +1739,17 @@ pub async fn on_rejected(conn: &mut PgConnection, ctx: &Ctx, a: &super::approval
 
 /// Validates again (data may have changed since the upload) and writes every valid row — all in the caller's
 /// transaction: the batch posts completely or not at all.
-async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Value> {
+async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, p: &mut Progress) -> AppResult<Value> {
     let (dataset, mode, status, skip, uploader): (String, String, String, bool, Option<Uuid>) =
         sqlx::query_as("SELECT dataset, mode, status, skip_invalid, uploaded_by FROM import_batches WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
             .bind(id)
             .bind(ctx.tenant_id)
             .fetch_one(&mut *conn)
             .await?;
-    if !matches!(status.as_str(), "validated" | "pending_approval") {
+    if !matches!(status.as_str(), "validated" | "pending_approval" | "posting") {
         return Err(rule("This import was already processed"));
     }
+    p.stage("validating").await;
     store_validation(conn, ctx, id, &dataset, &mode).await?;
     let invalid: i64 = sqlx::query_scalar("SELECT count(*) FROM import_rows WHERE batch_id = $1 AND status = 'invalid'").bind(id).fetch_one(&mut *conn).await?;
     if invalid > 0 && !(skip && may_skip(&dataset)) {
@@ -1541,6 +1760,7 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Va
         .fetch_all(&mut *conn)
         .await?;
     let cfg = settings::load(conn, ctx.tenant_id).await?;
+    p.stage("importing").await;
     let mut posted = 0;
     let mut created = 0;
     let mut matched = 0;
@@ -1549,9 +1769,9 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Va
     let grouped = matches!(dataset.as_str(), "sales" | "orders" | "transfers");
     if grouped {
         let (n, total, units) = match dataset.as_str() {
-            "sales" => post_sales(conn, ctx, &cfg, id, uploader, &rows).await.map(|(n, v)| (n, v, 0))?,
-            "orders" => post_orders(conn, ctx, &cfg, id, uploader, &rows).await?,
-            _ => post_transfers(conn, ctx, id, uploader, &rows).await?,
+            "sales" => post_sales(conn, ctx, &cfg, id, uploader, &rows, p).await.map(|(n, v)| (n, v, 0))?,
+            "orders" => post_orders(conn, ctx, &cfg, id, uploader, &rows, p).await?,
+            _ => post_transfers(conn, ctx, id, uploader, &rows, p).await?,
         };
         posted = rows.len() as i32;
         created = n;
@@ -1721,9 +1941,17 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Va
             .execute(&mut *conn)
             .await?;
         posted += 1;
+        p.step(1).await;
     }
-    sqlx::query("UPDATE import_rows SET status = 'skipped' WHERE batch_id = $1 AND status = 'invalid'").bind(id).execute(&mut *conn).await?;
-    let summary = json!({ "posted": posted, "created": created, "matched": matched, "quantity": quantity, "amount": amount });
+    p.stage("finalizing").await;
+    let skipped = sqlx::query("UPDATE import_rows SET status = 'skipped' WHERE batch_id = $1 AND status = 'invalid'").bind(id).execute(&mut *conn).await?.rows_affected();
+    let total: i64 = sqlx::query_scalar("SELECT count(*) FROM import_rows WHERE batch_id = $1").bind(id).fetch_one(&mut *conn).await?;
+    // Updating existing products changes them; matching an existing customer leaves them as they were (not duplicated).
+    let updated = if dataset == "products" && mode == "update" { std::mem::take(&mut matched) } else { 0 };
+    let summary = json!({
+        "total": total, "posted": posted, "created": created, "updated": updated, "matched": matched, "skipped": skipped,
+        "failed": 0, "quantity": quantity, "amount": amount,
+    });
     sqlx::query("UPDATE import_batches SET status = 'posted', posted_rows = $2, posted_at = now(), summary = $3, file = '' WHERE id = $1")
         .bind(id)
         .bind(posted)
@@ -1742,7 +1970,7 @@ fn noon(ctx: &Ctx, d: NaiveDate) -> chrono::DateTime<Utc> {
 
 /// Historical sales, one per receipt reference: original date and receipt number, lines, payment and the customer's
 /// totals — never stock movements or loyalty points (`is_legacy`). Returns (sales created, value).
-async fn post_sales(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantSettings, batch: Uuid, uploader: Option<Uuid>, rows: &[(i32, Value)]) -> AppResult<(i32, Decimal)> {
+async fn post_sales(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantSettings, batch: Uuid, uploader: Option<Uuid>, rows: &[(i32, Value)], p: &mut Progress) -> AppResult<(i32, Decimal)> {
     let mut order: Vec<String> = Vec::new();
     let mut by_receipt: HashMap<String, Vec<(i32, Map<String, Value>)>> = HashMap::new();
     for (row_no, v) in rows {
@@ -1836,6 +2064,7 @@ async fn post_sales(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantSe
         for (row_no, _) in lines {
             sqlx::query("UPDATE import_rows SET status = 'posted', target_id = $3 WHERE batch_id = $1 AND row_no = $2").bind(batch).bind(row_no).bind(sale).execute(&mut *conn).await?;
         }
+        p.step(lines.len() as i32).await;
         value += total;
     }
     Ok((order.len() as i32, value))
@@ -1864,7 +2093,7 @@ async fn mark_posted(conn: &mut PgConnection, batch: Uuid, lines: &[(i32, Map<St
 
 /// Orders: history (closed: no sale, no stock held) or outstanding (into Orders with the original date; confirmed
 /// stages hold stock like the live flow). No messages are sent. Returns (orders, value, units held).
-async fn post_orders(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantSettings, batch: Uuid, uploader: Option<Uuid>, rows: &[(i32, Value)]) -> AppResult<(i32, Decimal, i64)> {
+async fn post_orders(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantSettings, batch: Uuid, uploader: Option<Uuid>, rows: &[(i32, Value)], p: &mut Progress) -> AppResult<(i32, Decimal, i64)> {
     let groups = group(rows, "order")?;
     let mut value = Decimal::ZERO;
     let mut held = 0i64;
@@ -1917,6 +2146,7 @@ async fn post_orders(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantS
             }
         }
         mark_posted(conn, batch, lines, order).await?;
+        p.step(lines.len() as i32).await;
         value += total;
     }
     Ok((groups.len() as i32, value, held))
@@ -1925,7 +2155,7 @@ async fn post_orders(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantS
 /// Transfers: received / cancelled history (no stock moves: opening stock already reflects it), in transit (sent
 /// before the cutover; receiving it in S'Shop adds it at the destination) or pending (a draft to dispatch).
 /// Returns (transfers, 0, units).
-async fn post_transfers(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, uploader: Option<Uuid>, rows: &[(i32, Value)]) -> AppResult<(i32, Decimal, i64)> {
+async fn post_transfers(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, uploader: Option<Uuid>, rows: &[(i32, Value)], p: &mut Progress) -> AppResult<(i32, Decimal, i64)> {
     let groups = group(rows, "transfer")?;
     let mut units = 0i64;
     for (rf, lines) in &groups {
@@ -1982,6 +2212,7 @@ async fn post_transfers(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, uploade
             units += qty as i64;
         }
         mark_posted(conn, batch, lines, transfer).await?;
+        p.step(lines.len() as i32).await;
     }
     Ok((groups.len() as i32, Decimal::ZERO, units))
 }

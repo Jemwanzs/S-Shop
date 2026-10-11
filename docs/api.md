@@ -322,7 +322,9 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | GET | `/api/onboarding/batches/{id}?status=&offset=` | batch and up to 200 rows |
 | POST | `/api/onboarding/batches/{id}/remap` (`mapping`) · `/revalidate` · `/cancel` | before submission |
 | GET | `/api/onboarding/batches/{id}/errors` | `.xlsx` of the rows to fix |
-| POST | `/api/onboarding/batches/{id}/post` (`skip_invalid`) | posts (atomic, re-validated) or sends for approval (`data.import` workflow) |
+| POST | `/api/onboarding/batches/{id}/post` (`skip_invalid`) | starts the import in the background (`status: posting`; atomic, re-validated) or sends it for approval (`data.import` workflow); refused while it runs or once posted; a failed import may be posted again |
+| GET | `/api/onboarding/batches/{id}/progress` | status, stage (`preparing` → `validating` → `importing` → `finalizing` → `completed` / `failed`), records done / total, summary, reference, error — polled by the progress screen |
+| GET | `/api/onboarding/batches/{id}/report` | import report `.xlsx`: summary (reference, who, when, counts) and every row with what happened to it |
 | GET | `/api/onboarding/reconciliation?dataset=&batch_id=&branch_id=&from=&to=` | per posted batch: workbook total, S'Shop total, difference; unfinished imports; `reconciled` |
 | GET | `/api/onboarding/reconciliation/export` (same filters) | the Migration Reconciliation Report as `.xlsx` |
 | POST | `/api/onboarding/complete` | marks onboarding complete (full sign-in, audited); 422 while differences or unfinished imports remain |

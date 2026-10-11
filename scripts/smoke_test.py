@@ -207,6 +207,21 @@ def io_bytes():
     return _io.BytesIO()
 
 
+
+def import_now(batch_id, body=None, token=None):
+    """Roadmap 103: posting runs in the background — submit, then follow the real progress until it settles."""
+    r = call("POST", f"/onboarding/batches/{batch_id}/post", body or {}, token=token)
+    if r["status"] != "posting":
+        return r
+    seen = []
+    for _ in range(600):
+        pr = call("GET", f"/onboarding/batches/{batch_id}/progress", token=token)
+        seen.append((pr["stage"], pr["done"]))
+        if pr["status"] != "posting":
+            return {"status": pr["status"], "summary": pr["summary"], "progress": pr, "seen": seen}
+        time.sleep(0.1)
+    raise AssertionError(f"import {batch_id} still running: {seen[-3:]}")
+
 def upload_xlsx(dataset, data, mode="create", expect=200, token=None, name="import.xlsx"):
     """Multipart upload of a workbook to the onboarding centre."""
     boundary = "----sshop" + uuid.uuid4().hex
@@ -2664,21 +2679,21 @@ r = call("POST", f"/onboarding/batches/{b['id']}/post", {}, expect=422)
 check("not posted while rows are invalid, unless explicitly asked", r["error"]["title"] == "Fix the invalid rows", r)
 er = urllib.request.urlopen(urllib.request.Request(BASE + f"/api/onboarding/batches/{b['id']}/errors", headers={"Authorization": "Bearer " + TOKEN})).read()
 check("error report downloads (the rows to fix)", er[:2] == b"PK")
-done = call("POST", f"/onboarding/batches/{b['id']}/post", {"skip_invalid": True})
+done = import_now(b['id'], {"skip_invalid": True})
 check("products: valid rows posted, invalid ones left out on request", done["status"] == "posted" and done["summary"]["created"] == 2, done)
 mug = [p for p in call("GET", f"/products?q=Imported Mug {suffix}&status=all")["items"]]
 check("S'Shop numbered the product without a code; barcode kept", mug and mug[0]["code"].startswith("PRD") and mug[0].get("barcode", f"77{suffix}001") == f"77{suffix}001", mug[:1])
 r = upload_xlsx("products", prod_book, name=f"products-{ob}.xlsx", expect=422)
 check("the same workbook cannot be imported twice", r["error"]["title"] == "Already imported", r)
 upd = upload_xlsx("products", make_xlsx(["Product Code", "Product Name", "Category", "Selling Price"], [[f"OBJ{suffix}", f"Imported Jar {suffix}", "Kitchen", 650]]), mode="update")
-call("POST", f"/onboarding/batches/{upd['batch']['id']}/post", {})
+import_now(upd['batch']['id'], {})
 check("update mode changes an existing product by code", float(call("GET", f"/products?q=OBJ{suffix}&status=all")["items"][0]["marked_price"]) == 650)
 
 known = "0744" + str(int(time.time()))[-6:]
 call("POST", "/customers", {"mobile": known, "first_name": "Known"})
 cust = upload_xlsx("customers", make_xlsx(["Phone Number", "First Name", "Email"], [["0733" + str(int(time.time()))[-6:], "Imported", "imp@example.com"], [known, "Known", ""], ["12345", "Bad", ""]]))
 check("customers: an existing mobile is matched, an invalid one refused", cust["batch"]["warning_rows"] == 1 and cust["batch"]["invalid_rows"] == 1, cust["batch"])
-cdone = call("POST", f"/onboarding/batches/{cust['batch']['id']}/post", {"skip_invalid": True})
+cdone = import_now(cust['batch']['id'], {"skip_invalid": True})
 check("customers posted: 1 created, 1 matched (not duplicated)", cdone["summary"]["created"] == 1 and cdone["summary"]["matched"] == 1, cdone)
 
 today_s = datetime.date.today().isoformat()
@@ -2688,7 +2703,7 @@ r = call("POST", f"/onboarding/batches/{osb['batch']['id']}/post", {"skip_invali
 check("opening stock never posts with invalid rows (stock must be complete)", "stock and money" in r["error"]["message"], r)
 call("POST", f"/onboarding/batches/{osb['batch']['id']}/cancel", {})
 osb = upload_xlsx("opening_stock", make_xlsx(["Product Code", "Branch Code", "Opening Quantity", "Unit Cost", "As-of Date"], [[f"OBJ{suffix}", main_code, 12, 250, today_s]]))
-odone = call("POST", f"/onboarding/batches/{osb['batch']['id']}/post", {})
+odone = import_now(osb['batch']['id'], {})
 jar = call("GET", f"/stock?q=Imported Jar {suffix}")["items"][0]
 check("opening stock posted through the stock ledger (12 on hand)", odone["summary"]["quantity"] == 12 and jar["on_hand"] == 12, (odone, jar["on_hand"]))
 again = upload_xlsx("opening_stock", make_xlsx(["Product Code", "Branch Code", "Opening Quantity", "As-of Date"], [[f"OBJ{suffix}", main_code, 5, today_s]]))
@@ -2699,7 +2714,7 @@ exp = upload_xlsx("expenses", make_xlsx(["Voucher No", "Date", "Branch", "Catego
 check("expenses: day-first dates and a new category understood", exp["batch"]["invalid_rows"] == 0 and exp["rows"][0]["data"]["date"] == "2026-09-14", exp["rows"][0])
 # Approval: a second administrator approves imports when the workflow is on.
 call("PUT", "/settings/workflows/data.import", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
-pend = call("POST", f"/onboarding/batches/{exp['batch']['id']}/post", {})
+pend = import_now(exp['batch']['id'], {})
 check("with the Data import workflow on, the batch waits for approval", pend["status"] == "pending_approval", pend)
 call("POST", f"/approvals/{pend['approval_id']}/approve", {"comments": "self"}, expect=403)
 admin_role = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Tenant Administrator")
@@ -2735,7 +2750,7 @@ check("sales history never imports with invalid rows (money must be complete)", 
 call("POST", f"/onboarding/batches/{hs['batch']['id']}/cancel", {})
 hs = upload_xlsx("sales", make_xlsx(heads, sh[:3]))
 check("valid history: 3 lines, 2 receipts", hs["batch"]["invalid_rows"] == 0 and hs["batch"]["total_rows"] == 3, hs["batch"])
-hd = call("POST", f"/onboarding/batches/{hs['batch']['id']}/post", {})
+hd = import_now(hs['batch']['id'], {})
 check("posted as 2 historical sales worth 1,950 + 650", hd["summary"]["created"] == 2 and float(hd["summary"]["amount"]) == 2500, hd)
 h1 = next(x for x in call("GET", "/sales?period=all&limit=200")["items"] if x["receipt_no"] == "H" + suffix + "1")
 h1d = call("GET", f"/sales/{h1['id']}")
@@ -2759,7 +2774,7 @@ check("credit: due date before the sale and over-payment refused; no product = o
 call("POST", f"/onboarding/batches/{cr['batch']['id']}/cancel", {})
 cr = upload_xlsx("credit", make_xlsx(ch, [["CR" + suffix + "1", known, main_code, "2026-02-01", "2026-03-01", 12000, 5000, f"OBJ{suffix}", 2],
                                           ["CR" + suffix + "2", known, main_code, "2026-01-10", "2026-02-10", 3000, 0, "", ""]]))
-cd_ = call("POST", f"/onboarding/batches/{cr['batch']['id']}/post", {})
+cd_ = import_now(cr['batch']['id'], {})
 c1 = call("GET", f"/credit?q=CR{suffix}1")["items"][0]
 c2 = call("GET", f"/credit?q=CR{suffix}2")["items"][0]
 check("credit imported with balances and original due dates (both past due: shown overdue, aging from the due date)", float(c1["balance"]) == 7000 and float(c1["amount_paid"]) == 5000
@@ -2773,7 +2788,7 @@ check("loyalty: earned − redeemed must equal the balance", ly["batch"]["invali
 call("POST", f"/onboarding/batches/{ly['batch']['id']}/cancel", {})
 pts_before = int((kc.get("customer", kc))["points_available"])
 ly = upload_xlsx("loyalty", make_xlsx(lh, [[known, 400, 500, 100, today_s]]))
-call("POST", f"/onboarding/batches/{ly['batch']['id']}/post", {})
+import_now(ly['batch']['id'], {})
 kc2 = call("GET", f"/customers/{known_id}")
 check("opening points added once (+400 available, history kept as earned and redeemed)", int((kc2.get("customer", kc2))["points_available"]) == pts_before + 400)
 ly2 = upload_xlsx("loyalty", make_xlsx(lh, [[known, 50, "", "", today_s]]))
@@ -2798,7 +2813,7 @@ call("POST", f"/onboarding/batches/{ob_o['batch']['id']}/post", {"skip_invalid":
 call("POST", f"/onboarding/batches/{ob_o['batch']['id']}/cancel", {})
 jar_main = call("GET", f"/stock?q=Imported Jar {suffix}&branch_id={BRANCH}")["items"][0]
 ob_o = upload_xlsx("orders", make_xlsx(oh, orows[:3]))
-od = call("POST", f"/onboarding/batches/{ob_o['batch']['id']}/post", {})
+od = import_now(ob_o['batch']['id'], {})
 check("orders posted: 3 orders, 2 units held for the confirmed one", od["summary"]["created"] == 3 and od["summary"]["quantity"] == 2, od["summary"])
 olist = call("GET", f"/orders?q=O{suffix}&status=all&limit=50")["items"]
 o1 = call("GET", f"/orders/{next(x['id'] for x in olist if x['order_no'] == 'O' + suffix + '1')}")
@@ -2827,7 +2842,7 @@ call("POST", f"/onboarding/batches/{tb['batch']['id']}/cancel", {})
 wl_jar = lambda: next((x["on_hand"] for x in call("GET", f"/stock?q=Imported Jar {suffix}&branch_id={b2}", branch=b2)["items"]), 0)
 wl_before = wl_jar()
 tb = upload_xlsx("transfers", make_xlsx(th, trows[:3]))
-td = call("POST", f"/onboarding/batches/{tb['batch']['id']}/post", {})
+td = import_now(tb['batch']['id'], {})
 check("transfers posted: 3 transfers, 9 units", td["summary"]["created"] == 3 and td["summary"]["quantity"] == 9, td["summary"])
 tl = call("GET", "/transfers?limit=200")["items"]
 tmap = {x["transfer_no"]: x for x in tl if x["transfer_no"].startswith("T" + suffix)}
@@ -2858,6 +2873,28 @@ for u in leftover:
     call("POST", f"/onboarding/batches/{u['id']}/cancel", {})
 call("POST", "/onboarding/complete", {})
 check("reconciled: onboarding completed", call("GET", "/onboarding")["completed_at"] is not None)
+# ── Roadmap 103: imports run in the background with real progress, a summary and a report ──
+check("import progress: completed, every row counted, with an import reference", done["progress"]["stage"] == "completed" and done["progress"]["done"] == done["progress"]["total"] == 2
+      and str(done["progress"]["reference"]).startswith("IMP"), done["progress"])
+check("import summary: processed, imported, created, updated, left out, failed", {k: done["summary"][k] for k in ("total", "posted", "created", "updated", "skipped", "failed")}
+      == {"total": 5, "posted": 2, "created": 2, "updated": 0, "skipped": 3, "failed": 0}, done["summary"])
+call("POST", f"/onboarding/batches/{b['id']}/post", {"skip_invalid": True}, expect=422)
+check("an import cannot be submitted again", True)
+rep = urllib.request.urlopen(urllib.request.Request(BASE + f"/api/onboarding/batches/{b['id']}/report", headers={"Authorization": "Bearer " + TOKEN})).read()
+check("import report downloads (summary and every row)", rep[:2] == b"PK" and b"xl/worksheets/sheet2.xml" in rep)
+mug_code = mug[0]["code"]
+osh = ["Product Code", "Branch Code", "Opening Quantity", "As-of Date"]
+first = upload_xlsx("opening_stock", make_xlsx(osh, [[mug_code, main_code, 5, today_s]]), name=f"mug-a-{ob}.xlsx")
+second = upload_xlsx("opening_stock", make_xlsx(osh, [[mug_code, main_code, 7, today_s]]), name=f"mug-b-{ob}.xlsx")
+check("two opening stock files for the same product, both valid on upload", first["batch"]["invalid_rows"] == 0 and second["batch"]["invalid_rows"] == 0)
+import_now(first["batch"]["id"])
+fail = import_now(second["batch"]["id"])
+check("data changed before posting: the import fails clearly, it never hangs", fail["status"] == "failed" and "no longer valid" in (fail["progress"]["error"] or "") and fail["progress"]["stage"] == "failed", fail["progress"])
+mug_stock = call("GET", f"/stock?q=Imported Mug {suffix}&branch_id={BRANCH}")["items"][0]["on_hand"]
+check("a failed import saves nothing (the first file's 5 only)", mug_stock == 5, mug_stock)
+again = call("POST", f"/onboarding/batches/{second['batch']['id']}/revalidate", {})
+check("a failed import can be checked again: the row shows why", again["batch"]["status"] == "validated" and again["batch"]["invalid_rows"] == 1, again["batch"])
+call("POST", f"/onboarding/batches/{second['batch']['id']}/cancel", {})
 spr = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
 s_mail = f"importclerk{ob}@sshop.test"
 call("POST", "/users", {"name": "Import Clerk", "email": s_mail, "pin": "4321", "role_id": spr, "all_branches": True, "branch_ids": []})

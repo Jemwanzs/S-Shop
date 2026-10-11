@@ -528,6 +528,11 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 - ✅ **102. Branded loader** — every generic spinner in the app replaced by one `SShopLoader` (official mark inside a
   rotating brand ring; sm / md / lg; light and dark; reduced motion; delayed fade-in against flicker), plus a boot
   splash in `index.html`. Buttons, pages, dialogs, scanner, receipts, reports, onboarding, website management, sign-in.
+- ✅ **103. Import progress & result** — imports run in the background (still one all-or-nothing transaction) with real
+  progress (stage, records processed, %) on a shared S'Shop-branded progress screen, a success / partially completed /
+  failed summary with an import reference, the Excel import report, reopening after a refresh, no double submission,
+  and interrupted imports marked failed instead of hanging. Gap closed: the rows-to-fix report was empty after a
+  partial import (left-out rows are now included).
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

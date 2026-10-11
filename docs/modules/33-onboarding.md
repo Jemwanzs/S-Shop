@@ -45,6 +45,27 @@
   - The same workbook cannot post twice per dataset.
   - Row-level checks catch re-imported codes, barcodes, mobiles and expense references even in a re-saved file.
 
+## Import progress and result (roadmap 103)
+
+- **Import** starts the posting in the background (`run_import`) and returns at once; the batch is `posting`.
+  It is still **one transaction** — everything or nothing — and is never slowed down for display.
+- **Real progress** is written to `import_progress` on its own connection (the import's transaction holds the batch
+  row): stage, records done / total, throttled to 4 writes a second, plus a heartbeat every 15 s.
+- **Progress screen** (`components/ImportProgress.tsx`, shared by every dataset): the S'Shop loader, a progress bar
+  (validation fills the first 10 %, imported rows most of the rest), *x of y records processed*, the percentage and
+  the stages *Preparing → Validating → Importing → Finalizing → Completed*. A quick import shows a brief completed
+  state on screen (display only), then the summary. It can be closed: the import continues, and the screen reopens
+  on the running import after a refresh or from Import history.
+- **Summary** only once the server reports the import committed: *imported successfully* or **Partially completed**
+  (rows left out), with records processed, imported, created, updated (product updates), matched existing customers
+  (not duplicated), left out and failed, the date and time and the **import reference** (`IMP-YYYY-NNNNNN`).
+  Actions: *View imported records*, *Download import report*, *Rows to fix* (partial), *Done*.
+- **Failure**: the transaction rolls back (nothing saved), the batch becomes `failed` with the reason (business
+  refusals verbatim, anything unexpected without internals); *Check again* re-validates it and it can be imported
+  again. An import whose worker stopped (server restart) is marked failed once its heartbeat is 2 minutes old — never
+  left running forever. Submitting twice is refused (the batch row is locked and must be *ready* or *failed*).
+- Approvals are unchanged: with the *Data import* workflow on, the approver's approval posts it.
+
 ## Datasets (phase 1)
 
 | Dataset | Rules |
@@ -104,5 +125,8 @@ unfinished import remains; the date is shown on the centre afterwards.
   - totals and permissions;
   - orders: closed history frozen, outstanding holding stock, short stock, statuses, mismatched lines, re-imports;
   - transfers: history, in transit received in S'Shop at the destination only, invalid branches and dates;
-  - reconciliation without differences, filters, Excel export, completion refused while an import is unfinished.
+  - reconciliation without differences, filters, Excel export, completion refused while an import is unfinished;
+  - background import: progress to completion, summary counts, reference, no second submission, import report,
+    a failed import saves nothing and can be checked again.
+- **Browser** (Playwright): progress screen on a 1,874-row file, partial and full summaries, report download.
 - **Unit**: templates read back, header aliases, value conversion.

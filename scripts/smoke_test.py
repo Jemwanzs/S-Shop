@@ -2432,6 +2432,15 @@ if PS_PORT:
     live_req = [v["req"] for v in STK.values()][-1]
     check("production Buy Goods: Store number as shortcode, Till number as PartyB", live_req["TransactionType"] == "CustomerBuyGoodsOnline"
           and live_req["BusinessShortCode"] == "7928587" and live_req["PartyB"] == "4489262", live_req)
+    call("POST", f"/mpesa/accounts/{prod_acc}/test-prompt", {"phone": "0712345678", "amount": 500}, expect=400)
+    check("a test payment is limited to KSh 1–100", True)
+    cs = call("POST", f"/mpesa/accounts/{prod_acc}/check-status", {})
+    check("check payment status: still waiting while Safaricom is processing", cs["status"] == "pending" and not cs["ok"], cs)
+    STK[list(STK)[-1]]["query"] = (0, "The service request is processed successfully.")
+    cs = call("POST", f"/mpesa/accounts/{prod_acc}/check-status", {})
+    check("check payment status: confirmed by Safaricom on demand", cs["ok"] and cs["status"] == "success", cs)
+    check("…and shown as a confirmed test payment", next(x for x in call("GET", "/mpesa/accounts")["items"] if x["id"] == prod_acc)["last_test_status"] == "success")
+    call("POST", "/mpesa/platform/check-status", {}, expect=422)
     # A forged callback (wrong token) changes nothing.
     bad_cb = urllib.request.Request(BASE + f"/api/webhooks/mpesa/a/{acc_id}/not-the-token", data=b"{}", method="POST", headers={"Content-Type": "application/json"})
     try:

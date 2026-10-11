@@ -482,6 +482,13 @@ Added 2026-10-11 — **Daraja InvalidTransactionType** (owner request: *Fix Dara
   credentials, shortcode, phone, callback); refusals logged with environment, transaction type and shortcodes, never
   secrets. Root cause: a Sandbox account carried the business's real Buy Goods numbers, which Daraja's Sandbox refuses.
 
+Added 2026-10-11 — **Daraja production activation** (owner request: *Daraja Production Activation & Live STK Push*).
+- ✅ **97. Production testing actions** — per account and for the platform configuration: *Test OAuth connection*,
+  *Test STK Push* (a controlled real payment of KSh 1–100, default 1), *Check payment status* (asks Safaricom at once
+  about the latest test) and the STK switch; production Buy Goods requests send Store → `BusinessShortCode`, Till →
+  `PartyB`, `CustomerBuyGoodsOnline`; go-live steps documented. Production credentials stay encrypted per business,
+  STK never switches on when saved, and S'Shop's own configuration never serves customers' businesses.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

@@ -104,8 +104,23 @@ Earlier names still work: `MPESA_ENV`, `MPESA_PASSKEY`, `MPESA_CALLBACK_TOKEN` (
   - **Test STK prompt** (KSh 1 — its result arrives on the callback URL and appears in M-Pesa activity).
 - **Access tokens** are cached per app and renewed a minute before they expire.
 
-## Going live
+## Going live (roadmap 97)
 
-Test in Sandbox with the Daraja test credentials and phone numbers. For production, edit the account: choose
-*Production*, enter the production credentials (after Safaricom's *Go Live* approval), send a test prompt to verify,
-then switch STK Push on. No code changes are needed.
+Test in Sandbox first. Then, for a Buy Goods Till approved for *Lipa na M-Pesa Production*:
+
+1. In the business that owns the till (not a demo), go to **Settings → M-Pesa & WhatsApp → M-Pesa → Add account**:
+   - *Buy Goods Till*, *Production*;
+   - Store / Head Office number (e.g. `7928587`) and Till number (e.g. `4489262`), kept as distinct numbers;
+   - the production consumer key, consumer secret and passkey (encrypted, never shown again);
+   - all branches, or the branches that use this till.
+   Saving never switches STK Push on.
+2. **Test OAuth connection** confirms the production key and secret (`https://api.safaricom.co.ke`).
+3. **Test STK Push** sends a real prompt of KSh 1–100 to your own phone. The request is sent as `BusinessShortCode` =
+   Store number, `PartyB` = Till number, `CustomerBuyGoodsOnline`, with the password built from the Store number,
+   the production passkey and the timestamp. Safaricom accepting it verifies the account.
+4. Pay the prompt, then **Check payment status**: Safaricom confirms the payment (also arriving by callback with the
+   M-Pesa receipt). *Test payment confirmed* turns green.
+5. Switch **STK Push** on. Cashiers at those branches now see *Manual M-PESA | STK Push*.
+
+Any of Safaricom's refusals is explained on the card (e.g. a till not enabled for M-Pesa Express). Businesses without
+STK keep recording M-Pesa manually.

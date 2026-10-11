@@ -29,6 +29,8 @@ pub fn routes() -> Router<AppState> {
         .route("/mpesa/accounts/{id}/test", post(test_connection))
         .route("/mpesa/accounts/{id}/test-prompt", post(test_prompt))
         .route("/mpesa/accounts/{id}/stk", put(set_stk))
+        .route("/mpesa/accounts/{id}/check-status", post(check_status))
+        .route("/mpesa/platform/check-status", post(platform_check_status))
         .route("/mpesa/activity", get(activity))
         .route("/mpesa/platform", get(platform_status))
         .route("/mpesa/platform/test", post(platform_test))
@@ -107,6 +109,11 @@ async fn status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     Ok(Json(load(&state, ctx.tenant_id, id).await?))
 }
 
+/// The automatic check: a pending request quiet for 20 s is asked about; after 3 minutes it times out.
+pub async fn reconcile(state: &AppState, tenant: Uuid, id: Uuid) -> AppResult<()> {
+    reconcile_with(state, tenant, id, false).await
+}
+
 pub async fn load(state: &AppState, tenant: Uuid, id: Uuid) -> AppResult<Request> {
     sqlx::query_as::<_, Request>(
         "SELECT id, phone, amount, status, result_desc, mpesa_receipt, consumed_by IS NOT NULL AS consumed, created_at
@@ -119,8 +126,9 @@ pub async fn load(state: &AppState, tenant: Uuid, id: Uuid) -> AppResult<Request
     .ok_or(AppError::NotFound("M-Pesa request"))
 }
 
-/// A pending request older than 20 s is checked with Safaricom; after 3 minutes without an answer it times out.
-pub async fn reconcile(state: &AppState, tenant: Uuid, id: Uuid) -> AppResult<()> {
+/// A pending request older than 20 s (or any, when `force`d by *Check payment status*) is checked with Safaricom;
+/// after 3 minutes without an answer it times out.
+pub async fn reconcile_with(state: &AppState, tenant: Uuid, id: Uuid, force: bool) -> AppResult<()> {
     let row: Option<(String, DateTime<Utc>, Option<String>, Option<Uuid>)> =
         sqlx::query_as("SELECT status, created_at, checkout_request_id, account_id FROM mpesa_requests WHERE id = $1 AND tenant_id = $2")
             .bind(id)
@@ -128,7 +136,7 @@ pub async fn reconcile(state: &AppState, tenant: Uuid, id: Uuid) -> AppResult<()
             .fetch_optional(&state.db)
             .await?;
     let Some((status, created, checkout, account)) = row else { return Err(AppError::NotFound("M-Pesa request")) };
-    if status != "pending" || Utc::now() - created < chrono::Duration::seconds(20) {
+    if status != "pending" || (!force && Utc::now() - created < chrono::Duration::seconds(20)) {
         return Ok(());
     }
     if let Some(checkout) = checkout {
@@ -272,11 +280,12 @@ async fn platform_test(State(state): State<AppState>, ctx: Ctx) -> AppResult<Jso
 async fn platform_test_prompt(State(state): State<AppState>, ctx: Ctx, Json(b): Json<TestPrompt>) -> AppResult<Json<Value>> {
     let creds = platform_creds(&state, &ctx).await?;
     let phone = normalize_mobile(&b.phone)?;
-    match mpesa::stk_push(&state, &creds, &phone, Decimal::ONE, "Test", "S'Shop test").await {
+    let amount = b.amount()?;
+    match mpesa::stk_push(&state, &creds, &phone, amount, "Test", "S'Shop test").await {
         Ok(accepted) => {
             let id: Uuid = sqlx::query_scalar(
                 "INSERT INTO mpesa_requests (tenant_id, branch_id, merchant_request_id, checkout_request_id, phone, amount, account_ref, user_id, purpose)
-                 VALUES ($1, $2, $3, $4, $5, 1, 'Test', $6, 'test') RETURNING id",
+                 VALUES ($1, $2, $3, $4, $5, $7, 'Test', $6, 'test') RETURNING id",
             )
             .bind(ctx.tenant_id)
             .bind(ctx.branch_id)
@@ -284,6 +293,7 @@ async fn platform_test_prompt(State(state): State<AppState>, ctx: Ctx, Json(b): 
             .bind(&accepted.checkout_request_id)
             .bind(&phone)
             .bind(ctx.user_id)
+            .bind(amount)
             .fetch_one(&state.db)
             .await?;
             Ok(Json(json!({ "ok": true, "id": id, "message": "Prompt accepted by Safaricom — the result appears in M-Pesa activity when the callback arrives" })))
@@ -582,6 +592,57 @@ async fn test_connection(State(state): State<AppState>, ctx: Ctx, Path(id): Path
 #[derive(Deserialize)]
 struct TestPrompt {
     phone: String,
+    /// A controlled real payment in production: KSh 1–100 (default 1).
+    #[serde(default)]
+    amount: Option<i64>,
+}
+
+impl TestPrompt {
+    fn amount(&self) -> AppResult<Decimal> {
+        match self.amount.unwrap_or(1) {
+            a @ 1..=100 => Ok(Decimal::from(a)),
+            _ => Err(bad("A test payment is KSh 1–100")),
+        }
+    }
+}
+
+/// The latest test prompt of an account (`None` = the platform configuration) in this business, checked with
+/// Safaricom now: *Check payment status*.
+async fn check_latest_test(state: &AppState, tenant: Uuid, account: Option<Uuid>) -> AppResult<Json<Value>> {
+    let id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM mpesa_requests WHERE tenant_id = $1 AND purpose = 'test' AND account_id IS NOT DISTINCT FROM $2 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(tenant)
+    .bind(account)
+    .fetch_optional(&state.db)
+    .await?;
+    let id = id.ok_or_else(|| rule("No test payment yet — send a test STK Push first"))?;
+    reconcile_with(state, tenant, id, true).await?;
+    let r = load(state, tenant, id).await?;
+    let message = match r.status.as_str() {
+        "success" => format!("Payment confirmed by Safaricom{}", r.mpesa_receipt.as_deref().map(|x| format!(" — receipt {x}")).unwrap_or_default()),
+        "pending" => "Still waiting — the customer has not completed (or Safaricom has not answered) yet".to_string(),
+        _ => r.result_desc.clone().unwrap_or_else(|| "Payment not completed".into()),
+    };
+    Ok(Json(json!({ "ok": r.status == "success", "status": r.status, "message": message, "request": r })))
+}
+
+async fn check_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+    can_manage(&ctx)?;
+    let mine: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM mpesa_accounts WHERE id = $1 AND tenant_id = $2)")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_one(&state.db)
+        .await?;
+    if !mine {
+        return Err(AppError::NotFound("M-Pesa account"));
+    }
+    check_latest_test(&state, ctx.tenant_id, Some(id)).await
+}
+
+async fn platform_check_status(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    platform_creds(&state, &ctx).await?;
+    check_latest_test(&state, ctx.tenant_id, None).await
 }
 
 /// Sends a KSh 1 prompt to a phone. Safaricom accepting it proves the shortcode, passkey and Till / Paybill
@@ -589,13 +650,14 @@ struct TestPrompt {
 async fn test_prompt(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<TestPrompt>) -> AppResult<Json<Value>> {
     can_manage(&ctx)?;
     let phone = normalize_mobile(&b.phone)?;
+    let amount = b.amount()?;
     let creds = mpesa::account_creds(&state, ctx.tenant_id, id).await?;
-    match mpesa::stk_push(&state, &creds, &phone, Decimal::ONE, "Test", "S'Shop test").await {
+    match mpesa::stk_push(&state, &creds, &phone, amount, "Test", "S'Shop test").await {
         Ok(accepted) => {
             let mut tx = state.db.begin().await?;
             sqlx::query(
                 "INSERT INTO mpesa_requests (tenant_id, branch_id, merchant_request_id, checkout_request_id, phone, amount, account_ref, user_id, account_id, purpose)
-                 VALUES ($1, $2, $3, $4, $5, 1, 'Test', $6, $7, 'test')",
+                 VALUES ($1, $2, $3, $4, $5, $8, 'Test', $6, $7, 'test')",
             )
             .bind(ctx.tenant_id)
             .bind(ctx.branch_id)
@@ -604,12 +666,13 @@ async fn test_prompt(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uui
             .bind(&phone)
             .bind(ctx.user_id)
             .bind(id)
+            .bind(amount)
             .execute(&mut *tx)
             .await?;
             sqlx::query("UPDATE mpesa_accounts SET verified_at = now(), last_tested_at = now(), last_error = NULL, oauth_ok_at = now() WHERE id = $1").bind(id).execute(&mut *tx).await?;
             audit::record(&mut tx, &ctx, Entry::new("settings", "mpesa_account_verified", "mpesa_account", id)).await?;
             tx.commit().await?;
-            Ok(Json(json!({ "ok": true, "message": "STK request accepted by Safaricom — the account is verified. Paying the KSh 1 prompt confirms a payment end to end (or cancel it on the phone)." })))
+            Ok(Json(json!({ "ok": true, "message": format!("STK request accepted by Safaricom — the account is verified. Paying the KSh {amount} prompt confirms a payment end to end (or cancel it on the phone); then Check payment status.") })))
         }
         Err(e) => {
             sqlx::query("UPDATE mpesa_accounts SET last_tested_at = now(), last_error = $2, last_error_at = now() WHERE id = $1")

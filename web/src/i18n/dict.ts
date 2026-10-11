@@ -2764,4 +2764,12 @@ export const DICT: Record<string, [string, string, string]> = {
   "STK request accepted": ["Ombi la STK limekubaliwa", "Requête STK acceptée", "تم قبول طلب STK"],
   "Test payment confirmed": ["Malipo ya majaribio yamethibitishwa", "Paiement test confirmé", "تم تأكيد دفعة الاختبار"],
   "Checks": ["Ukaguzi", "Vérifications", "الفحوصات"],
+  "Amount (KSh)": ["Kiasi (KSh)", "Montant (KSh)", "المبلغ (شلن)"],
+  "Check payment status": ["Angalia hali ya malipo", "Vérifier le statut du paiement", "التحقق من حالة الدفع"],
+  "Test OAuth connection": ["Jaribu muunganisho wa OAuth", "Tester la connexion OAuth", "اختبار اتصال OAuth"],
+  "Test STK Push": ["Jaribu STK Push", "Tester le STK Push", "اختبار STK Push"],
+  "Send a test STK Push first": ["Tuma STK Push ya majaribio kwanza", "Envoyez d'abord un STK Push de test", "أرسل STK Push تجريبيًا أولاً"],
+  "KSh 1–100": ["KSh 1–100", "1 à 100 KSh", "1–100 شلن"],
+  "Production: this is a real payment into your till. Use a small amount (KSh 1–100) and your own phone. Safaricom accepting the request verifies the account; paying it confirms a payment end to end.": ["Production: haya ni malipo halisi kwenye till yako. Tumia kiasi kidogo (KSh 1–100) na simu yako. Safaricom ikikubali ombi, akaunti inathibitishwa; ukilipa, malipo yanathibitishwa kikamilifu.", "Production : c'est un vrai paiement vers votre till. Utilisez un petit montant (1 à 100 KSh) et votre propre téléphone. L'acceptation de la requête par Safaricom vérifie le compte ; le paiement confirme un encaissement de bout en bout.", "الإنتاج: هذه دفعة حقيقية إلى حسابك. استخدم مبلغًا صغيرًا (1–100 شلن) وهاتفك الخاص. قبول Safaricom للطلب يتحقق من الحساب؛ والدفع يؤكد العملية كاملة."],
+  "Safaricom sends a prompt to this phone. Accepting the request verifies the account; nobody has to pay — cancel it on the phone.": ["Safaricom inatuma ombi kwenye simu hii. Kukubaliwa kwa ombi kunathibitisha akaunti; hakuna anayelazimika kulipa — ghairi kwenye simu.", "Safaricom envoie une demande à ce téléphone. L'acceptation de la requête vérifie le compte ; personne ne doit payer — annulez-la sur le téléphone.", "ترسل Safaricom طلبًا إلى هذا الهاتف. قبول الطلب يتحقق من الحساب؛ لا أحد مضطر للدفع — ألغه على الهاتف."],
 };

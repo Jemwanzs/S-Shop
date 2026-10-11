@@ -3,7 +3,7 @@
  * shows every M-Pesa request with its outcome, and sales paid but not recorded (needs attention). */
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Pencil, Plus, Send, ShieldCheck, Trash2, Wifi } from "lucide-react";
+import { CheckCircle2, Pencil, Plus, RefreshCw, Send, ShieldCheck, Trash2, Wifi } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useSession } from "@/lib/session";
@@ -60,7 +60,7 @@ export function MpesaAccounts() {
   const { profile, can } = useSession();
   const q = useQuery({ queryKey: ["mpesa-accounts"], queryFn: () => api<Accounts>("/mpesa/accounts") });
   const [edit, setEdit] = useState<{ id: string | null; d: Draft } | null>(null);
-  const [prompt, setPrompt] = useState<{ id: string; phone: string } | null>(null);
+  const [prompt, setPrompt] = useState<{ id: string; phone: string; amount: string; production: boolean } | null>(null);
   const [remove, setRemove] = useState<Account | null>(null);
   const manage = can("settings.integrations") && !profile?.acting && !profile?.quick;
   const refresh = () => {
@@ -130,8 +130,10 @@ export function MpesaAccounts() {
               {a.last_error && <p className="rounded-lg bg-destructive/10 p-2 text-xs text-destructive">{a.last_error} {a.last_error_at && <span className="opacity-70">· {ago(a.last_error_at)}</span>}</p>}
               {manage && a.is_active && (
                 <div className="flex flex-wrap gap-2">
-                  <ActionButton size="sm" variant="outline" online onAction={async () => result(await api(`/mpesa/accounts/${a.id}/test`, { method: "POST" }))}><Wifi /> {t("Test connection")}</ActionButton>
-                  <Button size="sm" variant="outline" onClick={() => setPrompt({ id: a.id, phone: "" })}><Send /> {t("Send test prompt")}</Button>
+                  <ActionButton size="sm" variant="outline" online onAction={async () => result(await api(`/mpesa/accounts/${a.id}/test`, { method: "POST" }))}><Wifi /> {t("Test OAuth connection")}</ActionButton>
+                  <Button size="sm" variant="outline" onClick={() => setPrompt({ id: a.id, phone: "", amount: "1", production: a.environment === "production" })}><Send /> {t("Test STK Push")}</Button>
+                  <ActionButton size="sm" variant="outline" online blockedBy={[!a.last_test_status && "Send a test STK Push first"]}
+                    onAction={async () => result(await api(`/mpesa/accounts/${a.id}/check-status`, { method: "POST" }))}><RefreshCw /> {t("Check payment status")}</ActionButton>
                 </div>
               )}
             </div>
@@ -141,11 +143,17 @@ export function MpesaAccounts() {
       </div>
 
       {edit && <AccountEditor value={edit} onChange={setEdit} branches={branches} busy={save.isPending} onSave={() => save.mutate(edit)} />}
-      <ResponsiveDialog open={!!prompt} onOpenChange={(o) => !o && setPrompt(null)} title="Send a test prompt"
-        description="Safaricom sends a KSh 1 prompt to this phone. Accepting it verifies the account; nobody has to pay — cancel it on the phone."
-        footer={<ActionButton className="w-full sm:w-auto" online blockedBy={[(prompt?.phone.replace(/\D/g, "").length ?? 0) < 9 && "Enter a phone number"]}
-          onAction={async () => { result(await api(`/mpesa/accounts/${prompt!.id}/test-prompt`, { body: { phone: prompt!.phone } })); setPrompt(null); }}><Send /> {t("Send")}</ActionButton>}>
-        <Field label="Phone number"><Input inputMode="tel" className="num" placeholder="07XXXXXXXX" value={prompt?.phone ?? ""} onChange={(e) => prompt && setPrompt({ ...prompt, phone: e.target.value })} /></Field>
+      <ResponsiveDialog open={!!prompt} onOpenChange={(o) => !o && setPrompt(null)} title="Test STK Push"
+        description={prompt?.production
+          ? "Production: this is a real payment into your till. Use a small amount (KSh 1–100) and your own phone. Safaricom accepting the request verifies the account; paying it confirms a payment end to end."
+          : "Safaricom sends a prompt to this phone. Accepting the request verifies the account; nobody has to pay — cancel it on the phone."}
+        footer={<ActionButton className="w-full sm:w-auto" online blockedBy={[(prompt?.phone.replace(/\D/g, "").length ?? 0) < 9 && "Enter a phone number",
+          !(Number(prompt?.amount) >= 1 && Number(prompt?.amount) <= 100) && "KSh 1–100"]}
+          onAction={async () => { result(await api(`/mpesa/accounts/${prompt!.id}/test-prompt`, { body: { phone: prompt!.phone, amount: Number(prompt!.amount) } })); setPrompt(null); }}><Send /> {t("Send")}</ActionButton>}>
+        <div className="grid grid-cols-[1fr_7rem] gap-3">
+          <Field label="Phone number"><Input inputMode="tel" className="num" placeholder="07XXXXXXXX" value={prompt?.phone ?? ""} onChange={(e) => prompt && setPrompt({ ...prompt, phone: e.target.value })} /></Field>
+          <Field label="Amount (KSh)"><Input inputMode="numeric" className="num" value={prompt?.amount ?? "1"} onChange={(e) => prompt && setPrompt({ ...prompt, amount: e.target.value.replace(/\D/g, "").slice(0, 3) })} /></Field>
+        </div>
       </ResponsiveDialog>
       <ConfirmDialog open={!!remove} onOpenChange={(o) => !o && setRemove(null)} title="Remove this M-Pesa account?" destructive confirmLabel="Remove"
         description="An account that has taken payments is switched off and kept for the records; STK Push stops at once."
@@ -287,6 +295,7 @@ export function PlatformMpesaCard() {
   const owner = !!profile?.user.platform_admin;
   const q = useQuery({ queryKey: ["mpesa-platform"], queryFn: () => api<PlatformMpesa>("/mpesa/platform"), enabled: owner });
   const [phone, setPhone] = useState("");
+  const [amount, setAmount] = useState("1");
   if (!owner) return null;
   if (!q.data) return <Card title="Platform M-Pesa (Railway)"><Loading /></Card>;
   const p = q.data;
@@ -312,10 +321,12 @@ export function PlatformMpesaCard() {
             {!p.used_by_this_business && <p className="text-xs text-muted-foreground">{t("Not used in this business: it has its own M-Pesa account, or it is a customer's business (which always uses its own).")}</p>}
             {p.used_by_this_business && (
               <div className="flex flex-wrap items-end gap-2">
-                <ActionButton size="sm" variant="outline" online onAction={async () => show(await api("/mpesa/platform/test", { method: "POST" }))}><Wifi /> {t("Test OAuth")}</ActionButton>
-                <Input inputMode="tel" className="num h-9 w-40" placeholder="07XXXXXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} aria-label={t("Phone number")} />
-                <ActionButton size="sm" variant="outline" online blockedBy={[phone.replace(/\D/g, "").length < 9 && "Enter a phone number"]}
-                  onAction={async () => show(await api("/mpesa/platform/test-prompt", { body: { phone } }))}><Send /> {t("Test STK prompt")}</ActionButton>
+                <ActionButton size="sm" variant="outline" online onAction={async () => show(await api("/mpesa/platform/test", { method: "POST" }))}><Wifi /> {t("Test OAuth connection")}</ActionButton>
+                <Input inputMode="tel" className="num h-9 w-36" placeholder="07XXXXXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} aria-label={t("Phone number")} />
+                <Input inputMode="numeric" className="num h-9 w-20" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, "").slice(0, 3))} aria-label={t("Amount (KSh)")} />
+                <ActionButton size="sm" variant="outline" online blockedBy={[phone.replace(/\D/g, "").length < 9 && "Enter a phone number", !(Number(amount) >= 1 && Number(amount) <= 100) && "KSh 1–100"]}
+                  onAction={async () => show(await api("/mpesa/platform/test-prompt", { body: { phone, amount: Number(amount) } }))}><Send /> {t("Test STK Push")}</ActionButton>
+                <ActionButton size="sm" variant="outline" online onAction={async () => show(await api("/mpesa/platform/check-status", { method: "POST" }))}><RefreshCw /> {t("Check payment status")}</ActionButton>
               </div>
             )}
           </>

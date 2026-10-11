@@ -43,7 +43,18 @@ export default function Pos() {
   const [q, setQ] = useState("");
   const term = useDebounced(q);
   const [category, setCategory] = useState<string | null>(null);
-  const [cart, setCart] = usePersistentState<{ lines: CartLine[]; ref: string; owner?: Owner | null }>(`sshop.cart.${branch?.id}`, { lines: [], ref: newRef() });
+  const [cart, setCartRaw] = usePersistentState<{ lines: CartLine[]; ref: string; owner?: Owner | null }>(`sshop.cart.${branch?.id}`, { lines: [], ref: newRef() });
+  // Roadmap 91: while a sale waits for its M-Pesa STK Push, the server completes it exactly as sent — the cart is locked.
+  const [waiting, setWaiting] = useState(false);
+  const waitingRef = useRef(false);
+  waitingRef.current = waiting;
+  const setCart: typeof setCartRaw = (v) => {
+    if (waitingRef.current) {
+      toast.error("Waiting for the M-Pesa payment — the cart is locked until it is paid or you stop waiting");
+      return;
+    }
+    setCartRaw(v);
+  };
   const [selected, setSelected] = useState<PosProduct | null>(null);
   const [editing, setEditing] = useState<CartLine | null>(null);
   const [prefillBarcode, setPrefillBarcode] = useState<string | undefined>();
@@ -159,12 +170,13 @@ export default function Pos() {
   };
 
   const savedOffline = (q: QueuedSale) => {
-    setCart({ lines: [], ref: newRef() });
+    setCartRaw({ lines: [], ref: newRef() });
     setCartOpen(false);
     setQueued(q);
   };
   const finished = (sale: SaleDetail) => {
-    setCart({ lines: [], ref: newRef() });
+    setWaiting(false);
+    setCartRaw({ lines: [], ref: newRef() });
     setCartOpen(false);
     setDone(sale);
     qc.invalidateQueries({ queryKey: ["pos-products"] });
@@ -187,7 +199,7 @@ export default function Pos() {
       ) : (
         <>
           <CartLines lines={cart.lines} onEdit={(l) => { setEditing(l); setSelected(l.product); }} onRemove={(key) => setCart((c) => ({ ...c, lines: c.lines.filter((l) => l.key !== key) }))} />
-          <Checkout lines={cart.lines} onDone={finished} onQueued={savedOffline} clientRef={cart.ref} ownerId={cart.owner?.id} />
+          <Checkout lines={cart.lines} onDone={finished} onQueued={savedOffline} clientRef={cart.ref} ownerId={cart.owner?.id} onWaiting={setWaiting} />
         </>
       )}
     </div>

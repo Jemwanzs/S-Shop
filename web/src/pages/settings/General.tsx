@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Field, ToggleRow } from "@/components/Form";
 import { Card, SettingsPage, useSettings, useSettingsDraft } from "./shared";
 import { t } from "@/lib/i18n";
+import { MpesaAccounts, MpesaActivity, PlatformMpesaCard } from "./Mpesa";
 
 type ProfileForm = { name: string; slug: string; tagline: string; phone: string; email: string; address: string; currency: string; timezone: string };
 const pickProfile = (p: ProfileForm): ProfileForm => ({
@@ -91,18 +92,16 @@ export function IntegrationsSettings() {
   return (
     <SettingsPage
       title="M-Pesa & WhatsApp"
-      description="API credentials are server secrets (Railway variables), never stored in the app. See docs/integrations."
+      description="M-Pesa: your own Till or Paybill, with credentials encrypted on the server. WhatsApp: S'Shop's server configuration."
       loading={!d.draft}
       dirty={d.dirty}
       saving={d.saving}
       onSave={d.save}
       onReset={d.reset}
     >
-      <Card title="M-Pesa (Daraja STK Push)" action={<Status ok={i?.mpesa_stk} />}>
-        <p className="py-3 text-sm text-muted-foreground">
-          {i?.mpesa_stk ? `Environment: ${i.mpesa_environment}. Cashiers can push payment prompts to customers' phones.` : "Set MPESA_CONSUMER_KEY, MPESA_CONSUMER_SECRET, MPESA_SHORTCODE, MPESA_PASSKEY and MPESA_CALLBACK_TOKEN to enable STK Push. Manual code entry works without it."}
-        </p>
-      </Card>
+      <PlatformMpesaCard />
+      <MpesaAccounts />
+      <MpesaActivity />
       <Card title="WhatsApp Cloud API" action={<Status ok={i?.whatsapp} />}>
         <div className="space-y-2 py-3 text-sm text-muted-foreground">
           <p>{i?.whatsapp ? "Messages are sent automatically. Customers can reply with an order number to get its status." : "Without the API, WhatsApp buttons open a pre-filled chat (wa.me) instead."}</p>

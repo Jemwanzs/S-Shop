@@ -16,6 +16,7 @@ use crate::state::AppState;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/webhooks/mpesa/{token}", post(mpesa_callback))
+        .route("/webhooks/mpesa/a/{account}/{token}", post(mpesa_account_callback))
         .route("/webhooks/whatsapp", get(whatsapp_verify).post(whatsapp_event))
 }
 
@@ -24,6 +25,7 @@ fn constant_eq(a: &str, b: &str) -> bool {
 }
 
 /// Daraja does not sign callbacks, so the URL carries a secret token.
+/// The platform owner's own business (the `MPESA_*` configuration): requests sent without an account.
 async fn mpesa_callback(State(state): State<AppState>, Path(token): Path<String>, Json(body): Json<Value>) -> impl IntoResponse {
     let ack = Json(json!({ "ResultCode": 0, "ResultDesc": "Accepted" }));
     let Some(cfg) = &state.cfg.mpesa else { return (StatusCode::NOT_FOUND, ack) };
@@ -31,37 +33,46 @@ async fn mpesa_callback(State(state): State<AppState>, Path(token): Path<String>
         tracing::warn!("mpesa callback with bad token");
         return (StatusCode::NOT_FOUND, ack);
     }
-    let Some(cb) = mpesa::parse_callback(&body) else {
-        tracing::warn!("unrecognised mpesa callback");
-        return (StatusCode::OK, ack);
-    };
-    let status = match cb.result_code {
-        0 => "success",
-        1032 => "cancelled",
-        _ => "failed",
-    };
-    let updated: Result<Option<(Uuid, Uuid)>, _> = sqlx::query_as(
-        "UPDATE mpesa_requests SET status = $2, result_code = $3, result_desc = $4, mpesa_receipt = $5,
-                amount = COALESCE($6, amount), raw_callback = $7, updated_at = now()
-         WHERE checkout_request_id = $1 AND status IN ('pending','timeout') RETURNING id, tenant_id",
-    )
-    .bind(&cb.checkout_request_id)
-    .bind(status)
-    .bind(cb.result_code)
-    .bind(&cb.result_desc)
-    .bind(&cb.receipt)
-    .bind(cb.amount)
-    .bind(&body)
-    .fetch_optional(&state.db)
-    .await;
-    match updated {
-        Ok(Some((id, tenant))) => {
-            state.emit(tenant, None, "mpesa", json!({ "id": id, "status": status, "receipt": cb.receipt, "message": cb.result_desc }));
-        }
-        Ok(None) => tracing::info!(checkout = %cb.checkout_request_id, "mpesa callback for unknown or settled request"),
-        Err(e) => tracing::error!(error = %e, "mpesa callback update failed"),
-    }
+    record_mpesa(&state, None, &body).await;
     (StatusCode::OK, ack)
+}
+
+/// A business's own account (roadmap 91): the account id and its secret token are in the URL Safaricom calls.
+async fn mpesa_account_callback(State(state): State<AppState>, Path((account, token)): Path<(Uuid, String)>, Json(body): Json<Value>) -> impl IntoResponse {
+    let ack = Json(json!({ "ResultCode": 0, "ResultDesc": "Accepted" }));
+    let digest: Option<String> = sqlx::query_scalar("SELECT callback_token_digest FROM mpesa_accounts WHERE id = $1")
+        .bind(account)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+    if !digest.is_some_and(|d| constant_eq(&crate::secrets::digest(&token), &d)) {
+        tracing::warn!(%account, "mpesa callback with bad token");
+        return (StatusCode::NOT_FOUND, ack);
+    }
+    record_mpesa(&state, Some(account), &body).await;
+    (StatusCode::OK, ack)
+}
+
+/// Matches the callback to the request it answers — same checkout id and the same account that sent it — and records
+/// the result once (payments::apply_result). Unknown, foreign or already-settled requests change nothing.
+async fn record_mpesa(state: &AppState, account: Option<Uuid>, body: &Value) {
+    let Some(cb) = mpesa::parse_callback(body) else {
+        tracing::warn!("unrecognised mpesa callback");
+        return;
+    };
+    let id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM mpesa_requests WHERE checkout_request_id = $1 AND account_id IS NOT DISTINCT FROM $2")
+        .bind(&cb.checkout_request_id)
+        .bind(account)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+    let Some(id) = id else {
+        tracing::info!(checkout = %cb.checkout_request_id, "mpesa callback for an unknown request");
+        return;
+    };
+    if let Err(e) = crate::routes::payments::apply_result(state, id, cb.result_code, &cb.result_desc, cb.receipt.as_deref(), cb.amount, "callback", Some(body)).await {
+        tracing::error!(error = %e, "mpesa callback update failed");
+    }
 }
 
 #[derive(Deserialize)]

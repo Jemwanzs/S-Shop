@@ -5,6 +5,11 @@ use std::env;
 pub struct Config {
     pub port: u16,
     pub jwt_secret: String,
+    /// Roadmap 91: key for credentials stored at rest (`DATA_ENCRYPTION_KEY`, else derived from `JWT_SECRET`).
+    pub data_key: crate::secrets::DataKey,
+    /// Daraja base URLs (`MPESA_SANDBOX_URL` / `MPESA_PRODUCTION_URL` override them, e.g. for the test stand-in).
+    pub daraja_sandbox_url: String,
+    pub daraja_production_url: String,
     /// Public base URL (https://sshop.up.railway.app) — used for webhook callbacks and links.
     pub public_url: String,
     /// Directory containing the built web app (index.html + assets).
@@ -12,6 +17,8 @@ pub struct Config {
     pub cors_origins: Vec<String>,
     pub bootstrap: Option<Bootstrap>,
     pub mpesa: Option<MpesaConfig>,
+    /// Why the platform's `MPESA_*` configuration is not in use (shown to the platform owner).
+    pub mpesa_problem: Option<String>,
     pub whatsapp: Option<WhatsAppConfig>,
     pub email: Option<EmailConfig>,
     pub paystack: Option<PaystackConfig>,
@@ -71,7 +78,7 @@ impl std::fmt::Debug for PaystackConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Bootstrap {
     pub business_name: String,
     pub slug: String,
@@ -80,8 +87,10 @@ pub struct Bootstrap {
     pub admin_pin: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MpesaConfig {
+    /// `sandbox` | `production`
+    pub environment: String,
     pub base_url: String,
     pub consumer_key: String,
     pub consumer_secret: String,
@@ -93,9 +102,142 @@ pub struct MpesaConfig {
     pub party_b: String,
     /// Secret path segment that authenticates Daraja callbacks.
     pub callback_token: String,
+    /// The public HTTPS URL given to Daraja: `<public>/api/webhooks/mpesa/<callback_token>`.
+    pub callback_url: String,
 }
 
-#[derive(Clone, Debug)]
+/// The platform's Daraja app from the environment (roadmap 92). Variable names as set on Railway, with the earlier
+/// names still accepted:
+///
+/// | Purpose | Variable | Also read |
+/// |---|---|---|
+/// | sandbox / production | `MPESA_ENVIRONMENT` | `MPESA_ENV` |
+/// | app credentials | `MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET` | |
+/// | Lipa na M-Pesa Online passkey | `MPESA_STK_PASSKEY` | `MPESA_PASSKEY` |
+/// | shortcode (sandbox `174379`) | `MPESA_SHORTCODE` | |
+/// | callback | `MPESA_CALLBACK_URL` = `https://<domain>/api/webhooks/mpesa/<long secret>` | `MPESA_CALLBACK_TOKEN` (+ `PUBLIC_URL`) |
+/// | Paybill / Till | `MPESA_TRANSACTION_TYPE` (`CustomerPayBillOnline` default, `CustomerBuyGoodsOnline`), `MPESA_PARTY_B` | |
+///
+/// `Ok(None)` when no credentials are set; `Err` explains a configuration that cannot work.
+pub fn mpesa_from_env(var: &dyn Fn(&str) -> Option<String>, public_url: &str) -> Result<Option<MpesaConfig>, String> {
+    let get = |names: &[&str]| names.iter().find_map(|n| var(n).map(|v| v.trim().to_string()).filter(|v| !v.is_empty()));
+    let key = get(&["MPESA_CONSUMER_KEY"]);
+    let secret = get(&["MPESA_CONSUMER_SECRET"]);
+    let passkey = get(&["MPESA_STK_PASSKEY", "MPESA_PASSKEY"]);
+    let shortcode = get(&["MPESA_SHORTCODE"]);
+    if key.is_none() && secret.is_none() && passkey.is_none() && shortcode.is_none() {
+        return Ok(None);
+    }
+    let missing: Vec<&str> = [("MPESA_CONSUMER_KEY", &key), ("MPESA_CONSUMER_SECRET", &secret), ("MPESA_STK_PASSKEY", &passkey), ("MPESA_SHORTCODE", &shortcode)]
+        .iter()
+        .filter(|(_, v)| v.is_none())
+        .map(|(n, _)| *n)
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!("Missing {}", missing.join(", ")));
+    }
+    let (key, secret, passkey, shortcode) = (key.unwrap_or_default(), secret.unwrap_or_default(), passkey.unwrap_or_default(), shortcode.unwrap_or_default());
+    if !shortcode.chars().all(|c| c.is_ascii_digit()) || !(5..=10).contains(&shortcode.len()) {
+        return Err("MPESA_SHORTCODE must be 5–10 digits (sandbox: 174379)".into());
+    }
+    let environment = match get(&["MPESA_ENVIRONMENT", "MPESA_ENV"]).map(|v| v.to_lowercase()).as_deref() {
+        None | Some("sandbox") => "sandbox".to_string(),
+        Some("production") | Some("live") => "production".to_string(),
+        Some(other) => return Err(format!("MPESA_ENVIRONMENT must be sandbox or production (not {other})")),
+    };
+    let transaction_type = get(&["MPESA_TRANSACTION_TYPE"]).unwrap_or_else(|| "CustomerPayBillOnline".into());
+    if !["CustomerPayBillOnline", "CustomerBuyGoodsOnline"].contains(&transaction_type.as_str()) {
+        return Err("MPESA_TRANSACTION_TYPE must be CustomerPayBillOnline or CustomerBuyGoodsOnline".into());
+    }
+    let shape = "MPESA_CALLBACK_URL must be https://<your domain>/api/webhooks/mpesa/<a long random secret> (at least 24 letters, digits, - or _)";
+    let (callback_url, callback_token) = match (get(&["MPESA_CALLBACK_URL"]), get(&["MPESA_CALLBACK_TOKEN"])) {
+        (Some(url), _) => {
+            let url = url.trim_end_matches('/').to_string();
+            let local = url.starts_with("http://localhost") || url.starts_with("http://127.0.0.1");
+            if !url.starts_with("https://") && !local {
+                return Err(format!("{shape} — Safaricom only calls HTTPS addresses"));
+            }
+            let token = url.split_once("/api/webhooks/mpesa/").map(|(_, t)| t.to_string()).unwrap_or_default();
+            if token.len() < 24 || !token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+                return Err(shape.into());
+            }
+            (url, token)
+        }
+        (None, Some(token)) if token.len() >= 16 => (format!("{}/api/webhooks/mpesa/{token}", public_url.trim_end_matches('/')), token),
+        _ => return Err(shape.into()),
+    };
+    let base_url = if environment == "production" {
+        var("MPESA_PRODUCTION_URL").unwrap_or_else(|| "https://api.safaricom.co.ke".into())
+    } else {
+        var("MPESA_SANDBOX_URL").unwrap_or_else(|| "https://sandbox.safaricom.co.ke".into())
+    }
+    .trim_end_matches('/')
+    .to_string();
+    Ok(Some(MpesaConfig {
+        environment,
+        base_url,
+        consumer_key: key,
+        consumer_secret: secret,
+        party_b: get(&["MPESA_PARTY_B"]).unwrap_or_else(|| shortcode.clone()),
+        shortcode,
+        passkey,
+        transaction_type,
+        callback_token,
+        callback_url,
+    }))
+}
+
+#[cfg(test)]
+mod mpesa_env_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn parse(pairs: &[(&str, &str)]) -> Result<Option<MpesaConfig>, String> {
+        let m: HashMap<String, String> = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        mpesa_from_env(&move |k: &str| m.get(k).cloned(), "https://s-shop.store")
+    }
+    const OK: [(&str, &str); 6] = [
+        ("MPESA_ENVIRONMENT", "sandbox"),
+        ("MPESA_CONSUMER_KEY", "key"),
+        ("MPESA_CONSUMER_SECRET", "secret"),
+        ("MPESA_STK_PASSKEY", "passkey"),
+        ("MPESA_SHORTCODE", "174379"),
+        ("MPESA_CALLBACK_URL", "https://s-shop.store/api/webhooks/mpesa/Zx9_long-random-secret-1234"),
+    ];
+
+    #[test]
+    fn railway_names_and_callback_url() {
+        let c = parse(&OK).unwrap().unwrap();
+        assert_eq!((c.environment.as_str(), c.shortcode.as_str(), c.passkey.as_str()), ("sandbox", "174379", "passkey"));
+        assert_eq!(c.callback_token, "Zx9_long-random-secret-1234");
+        assert_eq!(c.callback_url, "https://s-shop.store/api/webhooks/mpesa/Zx9_long-random-secret-1234");
+        assert!(c.base_url.contains("sandbox"));
+        assert_eq!((c.transaction_type.as_str(), c.party_b.as_str()), ("CustomerPayBillOnline", "174379"));
+        let shown = format!("{c:?}");
+        assert!(!shown.contains("Zx9_long") && !shown.contains("\"passkey\"") && !shown.contains("\"secret\""), "{shown}");
+    }
+
+    #[test]
+    fn nothing_set_is_off_and_mistakes_are_explained() {
+        assert!(parse(&[]).unwrap().is_none());
+        assert!(parse(&OK[..5]).unwrap_err().contains("MPESA_CALLBACK_URL"));
+        let mut v = OK.to_vec();
+        v[5] = ("MPESA_CALLBACK_URL", "http://s-shop.store/api/webhooks/mpesa/Zx9_long-random-secret-1234");
+        assert!(parse(&v).unwrap_err().contains("HTTPS"));
+        v[5] = ("MPESA_CALLBACK_URL", "https://s-shop.store/api/mpesa/callback");
+        assert!(parse(&v).is_err(), "a guessable callback is refused");
+        v[5] = OK[5];
+        v[4] = ("MPESA_SHORTCODE", "17A379");
+        assert!(parse(&v).is_err());
+        assert!(parse(&OK[1..3]).unwrap_err().contains("MPESA_STK_PASSKEY"));
+        let old = [("MPESA_ENV", "production"), ("MPESA_CONSUMER_KEY", "k"), ("MPESA_CONSUMER_SECRET", "s"), ("MPESA_PASSKEY", "p"), ("MPESA_SHORTCODE", "600000"), ("MPESA_CALLBACK_TOKEN", "abcdefghijklmnop")];
+        let c = parse(&old).unwrap().unwrap();
+        assert_eq!(c.callback_url, "https://s-shop.store/api/webhooks/mpesa/abcdefghijklmnop");
+        assert!(c.base_url.contains("api.safaricom"));
+    }
+}
+
+#[derive(Clone)]
 pub struct WhatsAppConfig {
     pub token: String,
     pub phone_number_id: String,
@@ -139,26 +281,14 @@ impl Config {
             _ => None,
         };
 
-        let mpesa = match (var("MPESA_CONSUMER_KEY"), var("MPESA_CONSUMER_SECRET"), var("MPESA_SHORTCODE"), var("MPESA_PASSKEY")) {
-            (Some(consumer_key), Some(consumer_secret), Some(shortcode), Some(passkey)) => {
-                let base_url = match var("MPESA_ENV").as_deref() {
-                    Some("production") => "https://api.safaricom.co.ke".to_string(),
-                    _ => "https://sandbox.safaricom.co.ke".to_string(),
-                };
-                let transaction_type = var("MPESA_TRANSACTION_TYPE").unwrap_or_else(|| "CustomerPayBillOnline".into());
-                Some(MpesaConfig {
-                    base_url,
-                    consumer_key,
-                    consumer_secret,
-                    party_b: var("MPESA_PARTY_B").unwrap_or_else(|| shortcode.clone()),
-                    shortcode,
-                    passkey,
-                    transaction_type,
-                    callback_token: var("MPESA_CALLBACK_TOKEN")
-                        .ok_or_else(|| anyhow::anyhow!("MPESA_CALLBACK_TOKEN must be set when M-Pesa is configured"))?,
-                })
+        // The platform's own Daraja app (roadmap 92). A mistake never stops the server: M-Pesa through it is simply off
+        // and the reason is shown to the platform owner (Settings → M-Pesa & WhatsApp) and logged.
+        let (mpesa, mpesa_problem) = match mpesa_from_env(&var, &public_url) {
+            Ok(m) => (m, None),
+            Err(problem) => {
+                tracing::error!(%problem, "platform M-Pesa configuration ignored");
+                (None, Some(problem))
             }
-            _ => None,
         };
 
         let whatsapp = match (var("WHATSAPP_TOKEN"), var("WHATSAPP_PHONE_NUMBER_ID")) {
@@ -198,7 +328,11 @@ impl Config {
 
         Ok(Self {
             port: var("PORT").and_then(|p| p.parse().ok()).unwrap_or(8080),
+            data_key: crate::secrets::DataKey(crate::secrets::key_from_env(var("DATA_ENCRYPTION_KEY").as_deref(), &jwt_secret)?),
+            daraja_sandbox_url: var("MPESA_SANDBOX_URL").unwrap_or_else(|| "https://sandbox.safaricom.co.ke".into()).trim_end_matches('/').to_string(),
+            daraja_production_url: var("MPESA_PRODUCTION_URL").unwrap_or_else(|| "https://api.safaricom.co.ke".into()).trim_end_matches('/').to_string(),
             jwt_secret,
+            mpesa_problem,
             public_url,
             web_dir: var("WEB_DIR").unwrap_or_else(|| "web/dist".into()),
             cors_origins: var("CORS_ORIGINS")
@@ -213,5 +347,24 @@ impl Config {
             access_request_notify,
             railway,
         })
+    }
+}
+
+// Secrets never reach logs, even if a configuration is debug-printed.
+impl std::fmt::Debug for Bootstrap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Bootstrap").field("business_name", &self.business_name).field("admin_email", &self.admin_email).field("admin_pin", &"<redacted>").finish()
+    }
+}
+impl std::fmt::Debug for MpesaConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MpesaConfig").field("base_url", &self.base_url).field("shortcode", &self.shortcode).field("transaction_type", &self.transaction_type)
+            .field("consumer_secret", &"<redacted>").field("passkey", &"<redacted>").field("callback_token", &"<redacted>").finish()
+    }
+}
+impl std::fmt::Debug for WhatsAppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WhatsAppConfig").field("phone_number_id", &self.phone_number_id).field("api_version", &self.api_version)
+            .field("token", &"<redacted>").field("verify_token", &"<redacted>").field("app_secret", &"<redacted>").finish()
     }
 }

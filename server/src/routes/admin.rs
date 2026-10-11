@@ -79,8 +79,7 @@ async fn get_settings(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
         "settings": settings,
         "workflows": actions,
         "integrations": {
-            "mpesa_stk": state.cfg.mpesa.is_some(),
-            "mpesa_environment": state.cfg.mpesa.as_ref().map(|m| if m.base_url.contains("sandbox") { "sandbox" } else { "production" }),
+            "mpesa_stk": crate::integrations::mpesa::stk_branches(&state, ctx.tenant_id).await?.0,
             "whatsapp": state.cfg.whatsapp.is_some(),
             "whatsapp_webhook_url": format!("{}/api/webhooks/whatsapp", state.cfg.public_url),
         }

@@ -26,6 +26,20 @@ interface MpesaReq {
   amount: string;
 }
 
+/** Roadmap 91: a sale waiting for its STK Push — the server records it only once Safaricom confirms the payment. */
+interface StkSale {
+  id: string;
+  status: "awaiting" | "completed" | "failed" | "cancelled" | "timeout" | "attention";
+  amount: string;
+  phone: string;
+  error: string | null;
+  request: MpesaReq | null;
+  sale: SaleDetail | null;
+}
+const STK_LABEL: Record<StkSale["status"], string> = {
+  awaiting: "Pending", completed: "Successful", failed: "Failed", cancelled: "Cancelled", timeout: "Timed out", attention: "Needs attention",
+};
+
 export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEdit: (l: CartLine) => void; onRemove: (key: string) => void }) {
   const { profile } = useSession();
   const s = profile!.settings;
@@ -62,7 +76,11 @@ export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEd
   );
 }
 
-export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { lines: CartLine[]; onDone: (sale: SaleDetail) => void; onQueued: (sale: QueuedSale) => void; clientRef: string; ownerId?: string }) {
+export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaiting }: {
+  lines: CartLine[]; onDone: (sale: SaleDetail) => void; onQueued: (sale: QueuedSale) => void; clientRef: string; ownerId?: string;
+  /** A sale is waiting for its STK Push (the cart must not change). */
+  onWaiting?: (waiting: boolean) => void;
+}) {
   const { profile, can, branch } = useSession();
   const s = profile!.settings;
   const methods = s.sales.payment_methods.filter((m) => m.enabled && (m.key !== "credit" || s.sales.credit_enabled));
@@ -97,8 +115,12 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { line
   const [deposit, setDeposit] = useState("");
   const [depositMethod, setDepositMethod] = useState(depositMethods[0]?.key ?? "cash");
   const [stk, setStk] = useState<MpesaReq | null>(null);
-  // Push STK is available only when the M-Pesa STK integration is configured and active.
-  const stkReady = !!profile?.integrations.mpesa_stk;
+  // Push STK: only with the business's verified M-Pesa account serving this branch (roadmap 91).
+  const stkBranches = profile?.integrations.mpesa_stk_branches;
+  const stkReady = !!profile?.integrations.mpesa_stk && (!stkBranches || stkBranches.includes(branch?.id ?? ""));
+  const manualMpesa = s.sales.mpesa_manual_confirmation;
+  const [mpesaMode, setMpesaMode] = useState<"stk" | "manual">(stkReady ? "stk" : "manual");
+  const [stkSale, setStkSale] = useState<StkSale | null>(null);
   const [supEmail, setSupEmail] = useState("");
   const [supPin, setSupPin] = useState("");
   const [needSupervisor, setNeedSupervisor] = useState(false);
@@ -116,6 +138,9 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { line
   const payMethod = isCredit ? depositMethod : method;
   const payAmount = isCredit ? depositAmount : t.payable;
   const collecting = !isCredit || takingDeposit;
+  // A full M-Pesa sale by STK Push: sent with the cart, completed by the server once paid.
+  const stkMode = method === "mpesa" && stkReady && (mpesaMode === "stk" || !manualMpesa);
+  const stkWaiting = stkSale?.status === "awaiting";
   const excessive = lines.some(exceedsMax) && !can("sales.discount_override");
   const showSupervisor = excessive || needSupervisor;
   const canRedeem = s.loyalty.enabled && s.loyalty.redemption_enabled && can("customers.redeem_points") && !!customer && customer.points_available >= s.loyalty.min_redemption_points;
@@ -130,6 +155,28 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { line
   useEffect(() => {
     if (stkStatus.data) setStk(stkStatus.data);
   }, [stkStatus.data]);
+
+  const stkPoll = useQuery({
+    queryKey: ["stk-sale", stkSale?.id],
+    queryFn: () => api<StkSale>(`/sales/stk/${stkSale!.id}`),
+    enabled: !!stkSale && stkSale.status === "awaiting",
+    refetchInterval: 3000,
+  });
+  useEffect(() => {
+    if (stkPoll.data) setStkSale(stkPoll.data);
+  }, [stkPoll.data]);
+  useEffect(() => {
+    onWaiting?.(stkWaiting);
+  }, [stkWaiting, onWaiting]);
+  useEffect(() => () => onWaiting?.(false), [onWaiting]);
+  useEffect(() => {
+    if (stkSale?.status === "completed" && stkSale.sale) {
+      const sale = stkSale.sale;
+      setStkSale(null);
+      onWaiting?.(false);
+      onDone(sale);
+    }
+  }, [stkSale, onDone, onWaiting]);
 
   const push = useMutation({
     mutationFn: () => api<{ id: string; message: string }>("/mpesa/stk", { body: { phone: payPhone, amount: payAmount, reference: profile!.tenant.name.slice(0, 12) } }),
@@ -168,9 +215,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { line
     await enqueueSale(queued);
     return { queued };
   };
-  const complete = useMutation({
-    mutationFn: async (): Promise<SaleDetail | { queued: QueuedSale }> => {
-      const body = {
+  const saleBody = () => ({
           customer_id: customer?.id,
           customer: !customer && digits.length >= 9 ? { mobile: digits, first_name: firstName, nickname } : undefined,
           items: lines.map((l) => ({ product_id: l.product.id, quantity: l.quantity, unit_price: l.unitPrice, barcode: l.barcode })),
@@ -193,7 +238,10 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { line
           supervisor: showSupervisor && supEmail ? { email: supEmail, pin: supPin } : undefined,
           client_ref: clientRef,
           owner_id: ownerId,
-      };
+  });
+  const complete = useMutation({
+    mutationFn: async (): Promise<SaleDetail | { queued: QueuedSale }> => {
+      const body = saleBody();
       if (!navigator.onLine) return queueOffline(body);
       try {
         return await api<SaleDetail>("/sales", { body });
@@ -208,6 +256,26 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { line
       toast.error(e);
     },
   });
+  // STK Push sale: validated in full and the stock held by the server, then the prompt goes to the customer.
+  const sendStk = useMutation({
+    mutationFn: () => api<StkSale | { status: "completed"; sale: SaleDetail }>("/sales/stk", {
+      body: { phone: payPhone, sale: { ...saleBody(), payment: { method: "mpesa", reference: "", phone: payPhone.replace(/\D/g, "") } } },
+    }),
+    onSuccess: (r) => {
+      if (r.status === "completed" && r.sale && !("request" in r)) return onDone(r.sale);
+      setStkSale(r as StkSale);
+      toast.success("Prompt sent — the customer enters their M-Pesa PIN");
+    },
+    onError: (e) => {
+      if (e instanceof ApiError && /supervisor/i.test(e.message)) setNeedSupervisor(true);
+      toast.error(e);
+    },
+  });
+  const stopStk = useMutation({
+    mutationFn: () => api<StkSale>(`/sales/stk/${stkSale!.id}/cancel`, { method: "POST" }),
+    onSuccess: (r) => setStkSale(r),
+    onError: (e) => toast.error(e),
+  });
 
   const change = toNum(tendered) - payAmount;
   const blockers: string[] = [];
@@ -216,10 +284,12 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { line
   if (isNew && digits.length >= 9 && !firstName.trim()) blockers.push("Enter the customer's first name");
   if (takingDeposit && depositAmount >= t.payable) blockers.push("A deposit must be less than the total");
   if (collecting && payMethod === "mpesa" && stk?.status === "pending") blockers.push("Waiting for the M-Pesa payment");
-  if (collecting && payMethod === "mpesa" && !s.sales.mpesa_manual_confirmation && stk?.status !== "success")
+  if (collecting && payMethod === "mpesa" && !stkMode && !s.sales.mpesa_manual_confirmation && stk?.status !== "success")
     blockers.push(stkReady ? "Push STK to collect payment" : "M-Pesa needs Push STK, which is not configured");
   if (collecting && payMethod === "mpesa" && reference && (reference.length < 8 || reference.length > 12)) blockers.push("Check the M-Pesa code (8–12 characters) or clear it");
   if (showSupervisor && (!supEmail || !supPin)) blockers.push("Supervisor approval needed");
+  if (stkMode && payPhone.replace(/\D/g, "").length < 9) blockers.push("Enter the customer's M-Pesa number");
+  if (stkWaiting) blockers.push("Waiting for the M-Pesa payment");
   if (redeemPts > 0 && customer && redeemPts > customer.points_available) blockers.push("Not enough points");
 
   return (
@@ -277,7 +347,45 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { line
             )}
           </div>
         )}
-        {collecting && payMethod === "mpesa" && (
+        {method === "mpesa" && stkReady && manualMpesa && (
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1" role="radiogroup" aria-label={tr("M-Pesa payment")}>
+            {([["manual", "Manual M-PESA"], ["stk", "STK Push"]] as const).map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={mpesaMode === k} disabled={stkWaiting} onClick={() => setMpesaMode(k)}
+                className={cn("h-9 rounded-lg text-sm font-medium transition-colors", mpesaMode === k ? "bg-card shadow-sm" : "text-muted-foreground")}>{tr(label)}</button>
+            ))}
+          </div>
+        )}
+        {stkMode && (
+          <div className="space-y-3 rounded-xl border p-3">
+            <Field label="Customer phone number" hint="07XXXXXXXX, 01XXXXXXXX or 254XXXXXXXXX">
+              <div className="relative">
+                <Smartphone className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input inputMode="tel" placeholder="07XXXXXXXX" value={payPhone} onChange={(e) => setPayPhone(e.target.value)} className="num ps-9" disabled={stkWaiting} />
+              </div>
+            </Field>
+            <div className="flex items-baseline justify-between text-sm">
+              <span className="text-muted-foreground">{tr("Amount")}</span>
+              <span className="num text-lg font-semibold">{money(stkSale?.amount ?? t.payable)}</span>
+            </div>
+            {stkSale && (
+              <div className={cn("flex items-start gap-2 rounded-lg p-2.5 text-sm",
+                stkSale.status === "awaiting" ? "bg-muted" : stkSale.status === "attention" ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive")} role="status" aria-live="polite">
+                {stkSale.status === "awaiting" ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" /> : <X className="mt-0.5 h-4 w-4 shrink-0" />}
+                <span className="min-w-0 flex-1">
+                  <b>{tr(STK_LABEL[stkSale.status])}</b>
+                  {" · "}
+                  {stkSale.status === "awaiting" && tr("Waiting for the customer to enter their M-Pesa PIN… The sale completes by itself once paid.")}
+                  {["failed", "cancelled", "timeout"].includes(stkSale.status) && (stkSale.request?.result_desc || stkSale.error || tr("Payment not completed"))}
+                  {stkSale.status === "attention" && <>{stkSale.error} {tr("— see Settings → M-Pesa & WhatsApp → Activity.")}</>}
+                </span>
+                {stkSale.status === "awaiting"
+                  ? <button className="shrink-0 underline" disabled={stopStk.isPending} onClick={() => stopStk.mutate()}>{tr("Stop waiting")}</button>
+                  : stkSale.status !== "attention" && <button className="shrink-0 underline" onClick={() => setStkSale(null)}>{tr("Retry")}</button>}
+              </div>
+            )}
+          </div>
+        )}
+        {collecting && payMethod === "mpesa" && !stkMode && (
           <div className="space-y-3 rounded-xl border p-3">
             {/* Number: optional for a manual M-Pesa sale, required only to push an STK prompt. */}
             <Field label="M-Pesa number" optional hint={stkReady ? "Needed only for Push STK" : undefined}>
@@ -378,11 +486,19 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId }: { line
       </section>
 
       {/* Offline sales are queued on the device (cash-style only), so this action does not require a connection. */}
-      <ActionButton size="lg" className="h-14 w-full text-base" busy={complete.isPending} busyLabel="Processing…"
-        blockedBy={[!lines.length && REASONS.emptyCart, blockers.length > 0 && lines.length > 0 && "Complete the details below"]}
-        onAction={() => complete.mutateAsync()}>
-        <>Complete sale · <span className="num">{money(t.payable)}</span></>
-      </ActionButton>
+      {stkMode ? (
+        <ActionButton size="lg" variant="success" className="h-14 w-full text-base" online busy={sendStk.isPending || stkWaiting} busyLabel={stkWaiting ? "Waiting for payment…" : "Sending…"}
+          blockedBy={[!lines.length && REASONS.emptyCart, blockers.length > 0 && lines.length > 0 && !stkWaiting && "Complete the details below"]}
+          onAction={() => sendStk.mutateAsync()}>
+          <>{tr("Send STK Push")} · <span className="num">{money(t.payable)}</span></>
+        </ActionButton>
+      ) : (
+        <ActionButton size="lg" className="h-14 w-full text-base" busy={complete.isPending} busyLabel="Processing…"
+          blockedBy={[!lines.length && REASONS.emptyCart, blockers.length > 0 && lines.length > 0 && "Complete the details below"]}
+          onAction={() => complete.mutateAsync()}>
+          <>Complete sale · <span className="num">{money(t.payable)}</span></>
+        </ActionButton>
+      )}
       {blockers.length > 0 && lines.length > 0 && <p className="text-center text-xs text-muted-foreground">{blockers[0]}</p>}
     </div>
   );

@@ -1,7 +1,7 @@
 {
   "title": "S'Shop — Smart Retail & Business Management",
   "subtitle": "Product Features & Capabilities Manual",
-  "version": "Version 1.0 · October 2026",
+  "version": "Version 1.1 · October 2026",
   "intro": "S'Shop runs a retail business end to end, from the till and stock room to the customer's phone and the business's own website. It works on phones, tablets and computers, across branches, online and offline. Each module below describes features available today.",
   "modules": [
     {
@@ -22,7 +22,8 @@
       "bullets": [
         "Search by name, nickname, code or barcode, or scan with the phone camera or a handheld scanner",
         "Selling price and discounts within each product's limits, with the difference from the marked price shown",
-        "Cash with change calculation, M-Pesa (Push STK or confirmation code), credit and custom payment methods",
+        "Cash with change calculation, credit and custom payment methods",
+        "M-Pesa into the business's own Till or Paybill: STK Push to the customer's phone completes the sale once paid, or a manual confirmation code",
         "Optional customer on every sale, with loyalty points shown before completing",
         "Offline selling: walk-in cash sales are saved on the device and synced when the connection returns",
         "Sales history with ownership, returns, exchanges and cancellations under approval rules"

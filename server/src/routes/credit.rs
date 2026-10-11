@@ -246,14 +246,15 @@ async fn repay(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Js
     let mut reference = b.reference.trim().to_uppercase();
     if b.method == "mpesa" {
         if let Some(req) = b.mpesa_request_id {
-            let (st, amount, receipt, consumed): (String, Decimal, Option<String>, Option<Uuid>) = sqlx::query_as(
-                "SELECT status, amount, mpesa_receipt, consumed_by FROM mpesa_requests WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
-            )
+            let (st, amount, receipt, consumed, usable): (String, Decimal, Option<String>, Option<Uuid>, bool) = sqlx::query_as(&format!(
+                "SELECT status, COALESCE(paid_amount, amount), mpesa_receipt, consumed_by, {} FROM mpesa_requests WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+                super::payments::CONSUMABLE
+            ))
             .bind(req)
             .bind(ctx.tenant_id)
             .fetch_one(&mut *tx)
             .await?;
-            if st != "success" || consumed.is_some() || amount < b.amount {
+            if st != "success" || consumed.is_some() || amount < b.amount || !usable {
                 return Err(rule("The M-Pesa payment is not confirmed for this amount"));
             }
             sqlx::query("UPDATE mpesa_requests SET consumed_by = $2 WHERE id = $1").bind(req).bind(id).execute(&mut *tx).await?;

@@ -435,6 +435,31 @@ Centering*; *Testimonials Visibility Toggles & Publishing Controls*).
   drafts may be incomplete. Root causes fixed: the sample switch was disabled without explanation, and any switched-on
   sample blocked publishing ([module 23](modules/23-website.md)).
 
+Added 2026-10-11 — **M-Pesa per business & STK Push sales** (owner request: *M-PESA Till Integration & Customer STK
+Push*; [module 32](modules/32-mpesa-stk.md)).
+- ✅ **91. M-Pesa Till / Paybill per business** — each business's own Buy Goods Till or Paybill accounts (Store / Head
+  Office or Paybill number, Till number, account reference, Sandbox / Production) assigned to branches; Daraja
+  credentials encrypted at rest (AES-256-GCM) and never shown again; test connection and test prompt (verification);
+  STK Push off until verified and again after any change; per-account secret callback URL matched to the request;
+  activity log with errors and masked phones. At the till: *Manual M-PESA | STK Push*, customer phone (07 / 01 / 254),
+  amount, *Send STK Push* with Pending / Successful / Failed / Cancelled / Timed out, retry, stop waiting, cart locked
+  while waiting, no duplicate prompts. The sale is validated in full, its stock held, and completed **exactly once**
+  only after Safaricom confirms (callback or status query; late receipts filled in); failures release the stock and
+  are kept; paid-but-unrecordable payments are flagged for attention, notified and completed by an authorised person.
+  Gaps closed on the way: the platform's `MPESA_*` configuration served every business (customers would have paid into
+  one shortcode) — now only the platform owner's own business; the callback overwrote the requested amount — the
+  reported amount is kept apart and must cover what is due; test prompts can never pay for a sale; server
+  configuration secrets are redacted from debug output.
+
+Added 2026-10-11 — **Daraja Sandbox app in the existing Railway service** (owner request: *Daraja Integration in
+Existing Railway Service*; [integrations/mpesa.md](integrations/mpesa.md)).
+- ✅ **92. Platform Daraja app from Railway variables** — `MPESA_ENVIRONMENT`, `MPESA_CONSUMER_KEY`,
+  `MPESA_CONSUMER_SECRET`, `MPESA_STK_PASSKEY`, `MPESA_SHORTCODE`, `MPESA_CALLBACK_URL` (earlier names still read);
+  validated at start-up without ever stopping the server (problem shown and logged); callback URL must be HTTPS with a
+  long secret path; OAuth tokens cached and renewed; platform-owner card with masked callback URL, address check, *Test
+  OAuth* and *Test STK prompt*. STK Push sales, callbacks, status queries and duplicate protection are those of 91;
+  tenants keep their own encrypted production accounts (91).
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

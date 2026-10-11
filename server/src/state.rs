@@ -27,7 +27,8 @@ pub struct AppState {
     pub cfg: Arc<Config>,
     pub http: reqwest::Client,
     pub events: broadcast::Sender<LiveEvent>,
-    pub mpesa_token: Arc<Mutex<Option<(String, Instant)>>>,
+    /// Daraja access tokens per app (base URL + consumer key), roadmap 91.
+    pub mpesa_token: Arc<Mutex<std::collections::HashMap<String, (String, Instant)>>>,
     /// Cached exchange rates (routes/prefs.rs).
     pub fx: Arc<Mutex<Option<(Instant, serde_json::Value)>>>,
     /// Progress of the demo-business build (routes/platform.rs).
@@ -50,7 +51,7 @@ impl AppState {
                 .build()
                 .expect("http client"),
             events,
-            mpesa_token: Arc::new(Mutex::new(None)),
+            mpesa_token: Arc::default(),
             fx: Arc::new(Mutex::new(None)),
             demo: Arc::new(std::sync::Mutex::new(Default::default())),
             limits: Arc::default(),

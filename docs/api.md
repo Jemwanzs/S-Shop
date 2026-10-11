@@ -311,6 +311,25 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | POST | `/api/site/events` (`campaign_view`, `campaign_product`, `campaign_cta` + `campaign_id`) | this business's campaigns only |
 | GET / PUT | `/api/platform/campaigns` | feature on/off, campaigns per business, products per campaign |
 
+## M-Pesa per business & STK Push sales ([module 32](modules/32-mpesa-stk.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/mpesa/accounts` | `settings.integrations` or `settings.sales`; secrets never returned (`consumer_key_hint`, `has_secret`, `has_passkey`); `stk` availability |
+| POST / PUT / DELETE | `/api/mpesa/accounts[/{id}]` (`name`, `kind` till/paybill, `shortcode`, `till_number`, `account_reference`, `environment`, `consumer_key`, `consumer_secret`, `passkey`, `is_active`, `all_branches`, `branch_ids`) | `settings.integrations`, full sign-in, no support session; empty secrets keep the saved ones; changes clear verification; DELETE switches off an account with history |
+| POST | `/api/mpesa/accounts/{id}/test` · `/test-prompt` (`phone`) | credentials check · KSh 1 prompt (accepted = verified) |
+| PUT | `/api/mpesa/accounts/{id}/stk` (`enabled`) | 422 *Verify the account first* until verified |
+| GET | `/api/mpesa/activity?status=attention` | requests with outcome (phones masked), sales needing attention |
+| POST | `/api/sales/stk` (`phone`, `sale`: the `POST /api/sales` body with `payment.method = mpesa` and `client_ref`) | validates, holds stock, sends the prompt; returns the waiting sale (or the completed sale for that cart) |
+| GET | `/api/sales/stk/{id}` | status (`awaiting`, `completed` with `sale`, `failed`, `cancelled`, `timeout`, `attention`); checks Safaricom after 20 s |
+| POST | `/api/sales/stk/{id}/cancel` · `/complete` | stop waiting (stock released) · complete a paid sale flagged for attention |
+| POST | `/api/webhooks/mpesa/a/{account}/{token}` | Safaricom callback (secret per account) |
+| POST | `/api/webhooks/mpesa/{secret}` | Safaricom callback for the platform's Railway configuration (`MPESA_CALLBACK_URL`) |
+| GET | `/api/mpesa/platform` | platform owner: environment, shortcode, masked callback URL, problems |
+| POST | `/api/mpesa/platform/test` · `/test-prompt` (`phone`) | platform owner, full sign-in: OAuth check · KSh 1 prompt through the Railway configuration |
+
+`GET /auth/me` → `integrations.mpesa_stk`, `integrations.mpesa_stk_branches` (null = every branch).
+
 ## Sessions & automatic logout ([module 30](modules/30-session-timeout.md))
 
 | Method | Path | Notes |

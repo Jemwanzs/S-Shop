@@ -120,10 +120,13 @@ pub struct PaymentInput {
     pub mpesa_request_id: Option<Uuid>,
     #[serde(default)]
     pub phone: String,
+    /// Roadmap 91: validating a sale that will wait for its STK Push — everything is checked except the payment.
+    #[serde(skip)]
+    pub dry_run: bool,
 }
 
 /// Part-payment taken at the moment of a credit sale; the rest stays on credit.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct DepositInput {
     pub amount: Decimal,
     pub method: String,
@@ -132,7 +135,7 @@ pub struct DepositInput {
     pub mpesa_request_id: Option<Uuid>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct CustomerInput {
     pub mobile: String,
     #[serde(default)]
@@ -141,31 +144,33 @@ pub struct CustomerInput {
     pub nickname: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Supervisor {
     pub email: String,
     pub pin: String,
 }
 
-#[derive(Deserialize)]
-struct CreateBody {
-    branch_id: Option<Uuid>,
-    customer_id: Option<Uuid>,
-    customer: Option<CustomerInput>,
-    items: Vec<LineInput>,
-    payment: PaymentInput,
+#[derive(Deserialize, Serialize, Clone)]
+pub struct CreateBody {
+    pub branch_id: Option<Uuid>,
+    pub customer_id: Option<Uuid>,
+    pub customer: Option<CustomerInput>,
+    pub items: Vec<LineInput>,
+    pub payment: PaymentInput,
     #[serde(default)]
-    redeem_points: i64,
-    due_date: Option<NaiveDate>,
-    deposit: Option<DepositInput>,
+    pub redeem_points: i64,
+    pub due_date: Option<NaiveDate>,
+    pub deposit: Option<DepositInput>,
     #[serde(default)]
-    notes: String,
-    supervisor: Option<Supervisor>,
-    client_ref: Option<Uuid>,
+    pub notes: String,
+    /// Never stored: a sale waiting for its STK Push keeps only the verified approver (roadmap 91).
+    #[serde(skip_serializing)]
+    pub supervisor: Option<Supervisor>,
+    pub client_ref: Option<Uuid>,
     /// Offline POS: when the sale was made on the device (sent later). Needs `client_ref`; within 72 hours.
-    offline_at: Option<DateTime<Utc>>,
+    pub offline_at: Option<DateTime<Utc>>,
     /// Sale Owner (roadmap 62): the employee credited with the sale; default the signed-in user.
-    owner_id: Option<Uuid>,
+    pub owner_id: Option<Uuid>,
 }
 
 /// Offline sales may be at most this old when they reach the server.
@@ -371,14 +376,18 @@ async fn confirm_mpesa(
         }
         return Ok((code, None));
     };
-    let (status, paid, receipt, consumed): (String, Decimal, Option<String>, Option<Uuid>) = sqlx::query_as(
-        "SELECT status, amount, mpesa_receipt, consumed_by FROM mpesa_requests WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
-    )
+    let (status, paid, receipt, consumed, usable): (String, Decimal, Option<String>, Option<Uuid>, bool) = sqlx::query_as(&format!(
+        "SELECT status, COALESCE(paid_amount, amount), mpesa_receipt, consumed_by, {} FROM mpesa_requests WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+        super::payments::CONSUMABLE
+    ))
     .bind(req_id)
     .bind(ctx.tenant_id)
     .fetch_optional(&mut *conn)
     .await?
     .ok_or(AppError::NotFound("M-Pesa request"))?;
+    if !usable {
+        return Err(rule("This M-Pesa prompt belongs to another sale"));
+    }
     if status != "success" {
         return Err(rule("The M-Pesa payment has not been confirmed yet"));
     }
@@ -475,6 +484,8 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
             }
             _ => Decimal::ZERO,
         },
+        // Roadmap 91: a sale being validated before its STK Push — the payment is what it will wait for.
+        "mpesa" if due_now > Decimal::ZERO && input.payment.dry_run => total,
         "mpesa" if due_now > Decimal::ZERO => {
             (reference, mpesa_request) = confirm_mpesa(conn, ctx, s, input.payment.mpesa_request_id, reference, due_now, sale_id).await?;
             total
@@ -815,22 +826,36 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             return Err(refused("Needs a connection", "Credit, M-Pesa push, points, deposits, new customers and supervisor approvals cannot be recorded offline."));
         }
     }
-    let sold_at = b.offline_at.unwrap_or_else(Utc::now);
     let mut tx = state.db.begin().await?;
+    let (sale_id, branch, product_ids, s) = create_in_tx(&mut tx, &ctx, b, None).await?;
+    // The receipt is issued with the sale and never changes afterwards (roadmap 65).
+    crate::receipts::issue_original(&mut tx, ctx.tenant_id, sale_id, Some(ctx.user_id)).await?;
+    tx.commit().await?;
+
+    after_sale(&state, &ctx, &s, sale_id, branch, &product_ids).await;
+    Ok(Json(sale_detail(&state, &ctx, sale_id).await?))
+}
+
+/// Records a counter sale inside the caller's transaction (everything but the receipt and the after-sale effects):
+/// customer, trading hours, supervisor approval, lines, payment. Shared by the counter and by sales that waited for
+/// their STK Push (roadmap 91), which pass the approver verified when they were submitted.
+pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, approved: Option<Uuid>) -> AppResult<(Uuid, Uuid, Vec<Uuid>, TenantSettings)> {
+    let sold_at = b.offline_at.unwrap_or_else(Utc::now);
+    let branch = ctx.branch_or_current(b.branch_id)?;
     // Sale Owner: someone else only with "Assign sale owner", and only an eligible salesperson of this branch.
     let owner_id = match b.owner_id {
         Some(o) if o != ctx.user_id => {
             ctx.require("sales.assign_owner")?;
-            if !eligible_owner(&mut tx, ctx.tenant_id, branch, o).await? {
+            if !eligible_owner(&mut *tx, ctx.tenant_id, branch, o).await? {
                 return Err(rule("That person cannot be credited with sales at this branch"));
             }
             Some(o)
         }
         _ => None,
     };
-    let s = settings::load(&mut tx, ctx.tenant_id).await?;
+    let s = settings::load(&mut *tx, ctx.tenant_id).await?;
     if s.workspace.outside_hours == settings::OutsideHours::Block && !ctx.can("sales.outside_hours") {
-        let hours = settings::branch_hours(&mut tx, ctx.tenant_id, branch, &s).await?;
+        let hours = settings::branch_hours(&mut *tx, ctx.tenant_id, branch, &s).await?;
         if !hours.is_open(sold_at.with_timezone(&ctx.tz).naive_local()) {
             return Err(rule(format!("The branch is closed (trading hours {}–{}). Sales outside trading hours need permission.", hours.open, hours.close)));
         }
@@ -849,16 +874,18 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             Some(id)
         }
         (None, Some(c)) if !c.mobile.trim().is_empty() => {
-            Some(super::customers::upsert_by_mobile(&mut tx, ctx.tenant_id, Some(ctx.user_id), &c.mobile, &c.first_name, &c.nickname).await?.0)
+            Some(super::customers::upsert_by_mobile(&mut *tx, ctx.tenant_id, Some(ctx.user_id), &c.mobile, &c.first_name, &c.nickname).await?.0)
         }
         _ => None,
     };
 
-    let mut approved_by = None;
-    if let Some(sup) = &b.supervisor {
-        let approver = verify_supervisor(&mut tx, &ctx, sup).await?;
-        let allowed = if workflow::needs_approval(&mut tx, &ctx, "sale.discount", workflow::Gate::branch(branch)).await? {
-            workflow::can_decide(&mut tx, ctx.tenant_id, "sale.discount", Some(branch), Some(ctx.user_id), workflow::Decider { approver, level: 1, decided_by: &[] }).await?
+    let mut approved_by = approved;
+    if approved.is_some() {
+        // Verified when the sale was submitted (a sale that waited for its STK Push).
+    } else if let Some(sup) = &b.supervisor {
+        let approver = verify_supervisor(&mut *tx, &ctx, sup).await?;
+        let allowed = if workflow::needs_approval(&mut *tx, &ctx, "sale.discount", workflow::Gate::branch(branch)).await? {
+            workflow::can_decide(&mut *tx, ctx.tenant_id, "sale.discount", Some(branch), Some(ctx.user_id), workflow::Decider { approver, level: 1, decided_by: &[] }).await?
         } else {
             let perms: Vec<String> = sqlx::query_scalar("SELECT r.permissions FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1")
                 .bind(approver)
@@ -870,7 +897,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             return Err(rule("That supervisor cannot approve discounts"));
         }
         approved_by = Some(approver);
-    } else if workflow::needs_approval(&mut tx, &ctx, "sale.discount", workflow::Gate::branch(branch)).await? {
+    } else if workflow::needs_approval(&mut *tx, &ctx, "sale.discount", workflow::Gate::branch(branch)).await? {
         // With the workflow on, even override holders need a second person for excessive discounts.
         let input = SaleInput {
             branch_id: branch,
@@ -887,7 +914,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             exchange: None,
             owner_id: None,
         };
-        let (_, excessive) = prepare_lines(&mut tx, &ctx, &s, &input, false).await?;
+        let (_, excessive) = prepare_lines(&mut *tx, &ctx, &s, &input, false).await?;
         if excessive {
             return Err(rule("A discount exceeds the allowed maximum — supervisor approval required"));
         }
@@ -895,8 +922,8 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
 
     let product_ids: Vec<Uuid> = b.items.iter().map(|i| i.product_id).collect();
     let sale_id = record_sale(
-        &mut tx,
-        &ctx,
+        &mut *tx,
+        ctx,
         &s,
         SaleInput {
             branch_id: branch,
@@ -938,7 +965,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             .execute(&mut *tx)
             .await?;
         audit::record(
-            &mut tx,
+            &mut *tx,
             &ctx,
             Entry::new("sales", "offline_sync", "sale", sale_id)
                 .branch(branch)
@@ -947,12 +974,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
         )
         .await?;
     }
-    // The receipt is issued with the sale and never changes afterwards (roadmap 65).
-    crate::receipts::issue_original(&mut tx, ctx.tenant_id, sale_id, Some(ctx.user_id)).await?;
-    tx.commit().await?;
-
-    after_sale(&state, &ctx, &s, sale_id, branch, &product_ids).await;
-    Ok(Json(sale_detail(&state, &ctx, sale_id).await?))
+    Ok((sale_id, branch, product_ids, s))
 }
 
 /// Post-commit side effects: live updates, stock alerts, WhatsApp receipt.

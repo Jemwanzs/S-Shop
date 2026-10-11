@@ -18,7 +18,7 @@ const MAX_ACCURACY_M: f64 = 500.0;
 /// At most this much of the reported accuracy counts in the user's favour.
 const ACCURACY_ALLOWANCE_M: f64 = 100.0;
 
-#[derive(Clone, Copy, Debug, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, serde::Deserialize, PartialEq)]
 pub struct Location {
     pub lat: f64,
     pub lng: f64,

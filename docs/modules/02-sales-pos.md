@@ -25,10 +25,11 @@ Two separate flows inside the M-Pesa payment section:
   M-Pesa as the method either way. A code, when entered, must look like one (8–12 letters/digits) and must not have
   been used on another sale (*M-Pesa code already used*). Allowed when Settings → Sales → *Allow manual M-Pesa
   confirmation* is on (default); also works offline.
-- **Push STK** — always shown; enabled only when the M-Pesa STK integration is configured and active (otherwise
-  greyed out with *STK not configured*, never blocking a manual sale). The number is required for the push; the till
-  waits for the confirmed result (completing the sale is held while the prompt is pending) and records the M-Pesa
-  receipt from the confirmed payment, which can be used once.
+- **STK Push** (roadmap 91, [module 32](32-mpesa-stk.md)) — offered as *Manual M-PESA | STK Push* when the business's
+  verified M-Pesa account with STK on serves the branch. The cashier enters the customer's phone and taps *Send STK
+  Push*: the server validates the sale, holds its stock and completes it by itself, exactly once, when Safaricom
+  confirms the payment (the cart is locked meanwhile; *Stop waiting* releases it). Deposits on credit sales still take
+  the prompt first (*Push STK*) and use the confirmed payment once.
 
 ## Offline selling (installable app)
 The app installs to the home screen and opens without a connection (service worker: app shell and build files only —

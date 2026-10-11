@@ -135,6 +135,70 @@ pub struct Support {
     pub id: Uuid,
 }
 
+/// The cashier's context as it was when a sale waiting for its STK Push was validated (roadmap 91). The sale is
+/// completed with it when Safaricom confirms the payment — possibly from the callback, with nobody signed in.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct CtxSnapshot {
+    pub user_id: Uuid,
+    pub tenant_id: Uuid,
+    pub name: String,
+    pub permissions: Vec<String>,
+    pub branch_ids: Vec<Uuid>,
+    pub branch_id: Uuid,
+    pub tz: String,
+    pub day_shift: i32,
+    pub location: Option<crate::geo::Location>,
+    pub ip: String,
+    pub user_agent: String,
+    pub acting_from: Option<Uuid>,
+    pub support: Option<Uuid>,
+    pub session_id: Uuid,
+    pub modules: Option<Vec<String>>,
+}
+
+impl Ctx {
+    pub fn snapshot(&self) -> CtxSnapshot {
+        CtxSnapshot {
+            user_id: self.user_id,
+            tenant_id: self.tenant_id,
+            name: self.name.clone(),
+            permissions: self.permissions.clone(),
+            branch_ids: self.branch_ids.clone(),
+            branch_id: self.branch_id,
+            tz: self.tz.name().to_string(),
+            day_shift: self.day_shift,
+            location: self.location,
+            ip: self.ip.clone(),
+            user_agent: self.user_agent.clone(),
+            acting_from: self.acting_from,
+            support: self.support.as_ref().map(|s| s.id),
+            session_id: self.session_id,
+            modules: self.modules.clone(),
+        }
+    }
+
+    pub fn from_snapshot(s: CtxSnapshot) -> Ctx {
+        Ctx {
+            user_id: s.user_id,
+            tenant_id: s.tenant_id,
+            name: s.name,
+            permissions: s.permissions,
+            branch_ids: s.branch_ids,
+            branch_id: s.branch_id,
+            tz: parse_tz(&s.tz),
+            day_shift: s.day_shift,
+            location: s.location,
+            ip: s.ip,
+            user_agent: s.user_agent,
+            acting_from: s.acting_from,
+            support: s.support.map(|id| Support { id }),
+            quick: false,
+            session_id: s.session_id,
+            modules: s.modules,
+        }
+    }
+}
+
 /// Authenticated staff member + the branch they are currently operating from.
 #[derive(Clone, Debug)]
 pub struct Ctx {

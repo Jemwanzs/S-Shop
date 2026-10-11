@@ -18,6 +18,17 @@ pub fn spawn(state: AppState) {
         tracing::warn!("background jobs are switched off (BACKGROUND_JOBS=off) — never do this in production");
         return;
     }
+    // Roadmap 91: sales waiting for an STK Push are checked every minute (late or lost callbacks).
+    let sweeper = state.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            tick.tick().await;
+            if let Err(e) = crate::routes::stk_sales::sweep(&sweeper).await {
+                tracing::warn!(error = %e, "stk sales sweep");
+            }
+        }
+    });
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(30)).await;
         let mut tick = tokio::time::interval(Duration::from_secs(15 * 60));
@@ -36,7 +47,7 @@ async fn run_once(state: &AppState) -> anyhow::Result<()> {
     }
     sqlx::query(
         "UPDATE mpesa_requests SET status = 'timeout', result_desc = 'No response from M-Pesa', updated_at = now()
-         WHERE status = 'pending' AND created_at < now() - interval '10 minutes'",
+         WHERE status = 'pending' AND purpose <> 'sale' AND created_at < now() - interval '10 minutes'",
     )
     .execute(&state.db)
     .await?;

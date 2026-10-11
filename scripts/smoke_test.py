@@ -70,6 +70,11 @@ PS = {}
 RS_KEY = os.environ.get("SMOKE_RESEND_KEY", "")
 RS_WEBHOOK = os.environ.get("SMOKE_RESEND_WEBHOOK_SECRET", "")
 EMAILS = []
+# Daraja stand-in (roadmap 91): the server is started with MPESA_SANDBOX_URL pointing here. Only the consumer key and
+# secret below get a token; a prompt is accepted only with a password built from the right passkey. Every accepted
+# prompt is kept (with its callback URL) so the suite can answer as Safaricom would.
+DARAJA = {"key": "ck_smoke_key_1234", "secret": "cs_smoke_secret_9f8e7d", "passkey": "pk_smoke_passkey_a1b2c3"}
+STK = {}
 
 
 class _Paystack(BaseHTTPRequestHandler):
@@ -90,7 +95,28 @@ class _Paystack(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _daraja(self):
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        if not self.headers.get("Authorization", "").startswith("Bearer tok_"):
+            return self._send(401, {"errorCode": "404.001.03", "errorMessage": "Invalid Access Token"})
+        if self.path == "/mpesa/stkpush/v1/processrequest":
+            pwd = base64.b64decode(body["Password"]).decode()
+            if pwd != body["BusinessShortCode"] + DARAJA["passkey"] + body["Timestamp"]:
+                return self._send(400, {"errorCode": "400.002.02", "errorMessage": "Bad Request - Invalid Password"})
+            cid = "ws_CO_" + uuid.uuid4().hex[:20]
+            STK[cid] = {"req": body, "query": None}
+            return self._send(200, {"MerchantRequestID": "m-" + cid, "CheckoutRequestID": cid, "ResponseCode": "0",
+                                    "ResponseDescription": "Success. Request accepted for processing", "CustomerMessage": "Success. Request accepted for processing"})
+        if self.path == "/mpesa/stkpushquery/v1/query":
+            q = STK.get(body.get("CheckoutRequestID"), {}).get("query")
+            if q is None:
+                return self._send(500, {"errorCode": "500.001.1001", "errorMessage": "The transaction is being processed"})
+            return self._send(200, {"ResponseCode": "0", "ResultCode": str(q[0]), "ResultDesc": q[1]})
+        self._send(404, {"errorMessage": "Not found"})
+
     def do_POST(self):
+        if self.path.startswith("/mpesa/"):
+            return self._daraja()
         if self.path == "/emails":
             if not RS_KEY or self.headers.get("Authorization") != "Bearer " + RS_KEY:
                 return self._send(401, {"message": "API key is invalid"})
@@ -110,6 +136,11 @@ class _Paystack(BaseHTTPRequestHandler):
         self._send(404, {"status": False, "message": "Not found"})
 
     def do_GET(self):
+        if self.path.startswith("/oauth/v1/generate"):
+            ok = self.headers.get("Authorization") == "Basic " + base64.b64encode(f"{DARAJA['key']}:{DARAJA['secret']}".encode()).decode()
+            if not ok:
+                return self._send(400, {"errorCode": "400.008.01", "errorMessage": "Invalid Authentication passed"})
+            return self._send(200, {"access_token": "tok_" + uuid.uuid4().hex, "expires_in": "3599"})
         if not self._authorised():
             return
         if self.path.startswith("/transaction/verify/"):
@@ -2343,6 +2374,147 @@ call("POST", "/auth/logout", {}, **IT3)
 r = call("GET", "/auth/me", **IT3, expect=401)
 check("log out ends the session on the server (not reported as inactivity)", r["error"]["code"] == "unauthorized", r)
 call("PUT", "/security/sessions", pol["policy"])
+
+step("Roadmap 91: M-Pesa per business — accounts, verification, STK Push sales")
+def mpesa_callback(cid, code, desc, amount=None, receipt=None):
+    """Answers a prompt as Safaricom would: POST to the callback URL the server gave with the request."""
+    meta = [] if code != 0 else [{"Name": "Amount", "Value": amount}, {"Name": "MpesaReceiptNumber", "Value": receipt},
+                                 {"Name": "TransactionDate", "Value": 20261011101010}, {"Name": "PhoneNumber", "Value": 254712345678}]
+    cb = {"Body": {"stkCallback": {"MerchantRequestID": "m-" + cid, "CheckoutRequestID": cid, "ResultCode": code, "ResultDesc": desc,
+                                   **({"CallbackMetadata": {"Item": meta}} if meta else {})}}}
+    url = STK[cid]["req"]["CallBackURL"]
+    req = urllib.request.Request(BASE + url[url.index("/api/"):], data=json.dumps(cb).encode(), method="POST", headers={"Content-Type": "application/json"})
+    return urllib.request.urlopen(req).status
+
+if PS_PORT:
+    pm = call("GET", "/mpesa/platform")
+    check("platform M-Pesa (Railway variables): status without secrets", pm["configured"] is False and "public_url" in pm, pm)
+    r = call("POST", "/mpesa/platform/test", {}, expect=422)
+    check("platform test refused clearly when not configured", r["error"]["title"] == "Platform M-Pesa not in use", r)
+    call("GET", "/mpesa/platform", **T2, expect=403)
+    check("only the platform owner sees the platform's M-Pesa", True)
+    acc0 = call("GET", "/mpesa/accounts")
+    check("no account yet: STK Push not available", acc0["items"] == [] and not acc0["stk"]["available"], acc0["stk"])
+    base_acc = {"name": "Main Till", "kind": "till", "shortcode": "174379", "till_number": "5123456", "environment": "sandbox",
+                "consumer_key": DARAJA["key"], "consumer_secret": DARAJA["secret"], "passkey": "wrong-passkey", "all_branches": True}
+    call("POST", "/mpesa/accounts", {**base_acc, "shortcode": "12ab"}, expect=400)
+    call("POST", "/mpesa/accounts", {**base_acc, "kind": "till", "till_number": ""}, expect=400)
+    call("POST", "/mpesa/accounts", {**base_acc, "passkey": ""}, expect=400)
+    check("account details validated (digits, till number, credentials)", True)
+    acc_id = call("POST", "/mpesa/accounts", base_acc)["id"]
+    raw = json.dumps(call("GET", "/mpesa/accounts"), ensure_ascii=False)
+    check("secrets never leave the server (key shown as its last 4 only)", DARAJA["secret"] not in raw and DARAJA["key"] not in raw
+          and "wrong-passkey" not in raw and "••••1234" in raw)
+    tc = call("POST", f"/mpesa/accounts/{acc_id}/test", {})
+    check("test connection: Safaricom accepts the key and secret", tc["ok"], tc)
+    tp = call("POST", f"/mpesa/accounts/{acc_id}/test-prompt", {"phone": "0712345678"})
+    check("wrong passkey: the test prompt is refused and the error kept", not tp["ok"] and "Password" in tp["message"]
+          and "Password" in (call("GET", "/mpesa/accounts")["items"][0]["last_error"] or ""), tp)
+    r = call("PUT", f"/mpesa/accounts/{acc_id}/stk", {"enabled": True}, expect=422)
+    check("STK Push stays off until verified", r["error"]["title"] == "Verify the account first", r)
+    upd = call("PUT", f"/mpesa/accounts/{acc_id}", {**base_acc, "consumer_key": "", "consumer_secret": "", "passkey": DARAJA["passkey"]})
+    check("a new passkey needs verification again", upd["needs_verification"])
+    tp = call("POST", f"/mpesa/accounts/{acc_id}/test-prompt", {"phone": "254712345678"})
+    check("test prompt accepted: account verified", tp["ok"] and call("GET", "/mpesa/accounts")["items"][0]["verified_at"], tp)
+    call("PUT", f"/mpesa/accounts/{acc_id}/stk", {"enabled": True})
+    me_now = call("GET", "/auth/me")
+    check("STK Push on: the till offers it", me_now["integrations"]["mpesa_stk"] and me_now["integrations"]["mpesa_stk_branches"] is None)
+    till_req = [v["req"] for v in STK.values()][-1]
+    check("Buy Goods: Store number + Till number, callback per account", till_req["TransactionType"] == "CustomerBuyGoodsOnline"
+          and till_req["BusinessShortCode"] == "174379" and till_req["PartyB"] == "5123456" and f"/mpesa/a/{acc_id}/" in till_req["CallBackURL"], till_req)
+    # A forged callback (wrong token) changes nothing.
+    bad_cb = urllib.request.Request(BASE + f"/api/webhooks/mpesa/a/{acc_id}/not-the-token", data=b"{}", method="POST", headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(bad_cb)
+        forged = 200
+    except urllib.error.HTTPError as e:
+        forged = e.code
+    check("callbacks need the account's secret token", forged == 404, forged)
+
+    # A product with 3 in stock.
+    stk_p = call("POST", "/products", {"name": f"STK Kettle {suffix}", "marked_price": 1500, "cost_price": 900})["result"]["id"]
+    call("POST", "/stock/receive", {"product_id": stk_p, "quantity": 3, "cost_price": 900})
+    lvl = lambda: call("GET", f"/stock?q=STK Kettle {suffix}")["items"][0]
+    def stk_sale(qty, ref=None, phone="0712345678", expect=200):
+        return call("POST", "/sales/stk", {"phone": phone, "sale": {"items": [{"product_id": stk_p, "quantity": qty, "unit_price": 1500}],
+                                                                    "payment": {"method": "mpesa"}, "client_ref": ref or str(uuid.uuid4())}}, expect=expect)
+    ref1 = str(uuid.uuid4())
+    ps = stk_sale(2, ref1)
+    check("STK sale waits for payment: pending, amount from the sale", ps["status"] == "awaiting" and float(ps["amount"]) == 3000
+          and ps["request"]["status"] == "pending" and ps["sale"] is None, ps)
+    l1 = lvl()
+    check("its stock is held (2 reserved, 1 available)", l1["reserved"] == 2 and l1["available"] == 1 and l1["on_hand"] == 3, l1)
+    stk_sale(2, expect=422)
+    check("another cashier cannot sell the held units", True)
+    pushes = len(STK)
+    again = stk_sale(2, ref1)
+    check("a second tap returns the waiting sale, no second prompt", again["id"] == ps["id"] and len(STK) == pushes)
+    cid1 = [k for k, v in STK.items() if v["req"]["Amount"] == 3000][-1]
+    check("never paid on initiation", call("GET", f"/sales/stk/{ps['id']}")["status"] == "awaiting")
+    mpesa_callback(cid1, 0, "The service request is processed successfully.", 3000, "SSK1A2B3C4")
+    done = call("GET", f"/sales/stk/{ps['id']}")
+    sale1 = (done.get("sale") or {}).get("sale") or {}
+    check("confirmed by Safaricom: the sale completes once, with the M-Pesa receipt", done["status"] == "completed" and sale1.get("receipt_no")
+          and any(p["reference"] == "SSK1A2B3C4" for p in (done.get("sale") or {}).get("payments", [])), done)
+    l2 = lvl()
+    check("stock sold once: on hand 1, nothing reserved", l2["on_hand"] == 1 and l2["reserved"] == 0, l2)
+    mpesa_callback(cid1, 0, "duplicate", 3000, "SSK1A2B3C4")
+    same = [x for x in call("GET", "/sales?period=today&limit=200")["items"] if x["receipt_no"] == sale1.get("receipt_no")]
+    check("a repeated callback sells nothing twice", lvl()["on_hand"] == 1 and len(same) == 1 and len(call("GET", "/sales?period=today&limit=200&payment_method=mpesa")["items"]) >= 1, len(same))
+
+    call("POST", "/stock/receive", {"product_id": stk_p, "quantity": 4, "cost_price": 900})
+    ps2 = stk_sale(1)
+    cid2 = list(STK)[-1]
+    mpesa_callback(cid2, 1032, "Request cancelled by user")
+    c2 = call("GET", f"/sales/stk/{ps2['id']}")
+    check("customer cancels: kept as cancelled, stock released", c2["status"] == "cancelled" and lvl()["reserved"] == 0, c2)
+
+    ps3 = stk_sale(1)
+    cid3 = list(STK)[-1]
+    STK[cid3]["query"] = (0, "The service request is processed successfully.")
+    time.sleep(21)
+    c3 = call("GET", f"/sales/stk/{ps3['id']}")
+    check("lost callback: the status query confirms it and the sale completes", c3["status"] == "completed", c3)
+    mpesa_callback(cid3, 0, "late", 1500, "SSK9Z8Y7X6")
+    s3 = call("GET", f"/sales/{c3['sale']['sale']['id']}")
+    check("the late callback adds the M-Pesa receipt to the payment", any(p["reference"] == "SSK9Z8Y7X6" for p in s3["payments"]), s3["payments"])
+
+    ps4 = stk_sale(1)
+    cid4 = list(STK)[-1]
+    mpesa_callback(cid4, 0, "ok", 100, "SSK5555555")
+    c4 = call("GET", f"/sales/stk/{ps4['id']}")
+    check("less paid than due: no sale, flagged for attention", c4["status"] == "attention" and "due" in (c4["error"] or ""), c4)
+    call("POST", f"/sales/stk/{ps4['id']}/complete", {}, expect=422)
+    check("…and it cannot be forced through", True)
+
+    ps5 = stk_sale(1)
+    cid5 = list(STK)[-1]
+    call("POST", f"/sales/stk/{ps5['id']}/cancel", {})
+    check("cancelled at the till: stock released", lvl()["reserved"] == 0)
+    mpesa_callback(cid5, 0, "ok", 1500, "SSK6666666")
+    c5 = call("GET", f"/sales/stk/{ps5['id']}")
+    check("paid after cancelling: flagged for attention, never lost", c5["status"] == "attention", c5)
+    c5b = call("POST", f"/sales/stk/{ps5['id']}/complete", {})
+    check("an authorised person completes it from the record", c5b["status"] == "completed" and c5b["sale"], c5b)
+
+    act = call("GET", "/mpesa/activity")
+    check("activity: requests with outcome, phones masked", any(i["purpose"] == "test" for i in act["items"]) and all("12345678" not in (i["phone"] or "") for i in act["items"])
+          and act["attention"] >= 1, act["items"][:2])
+    test_req = next(i["id"] for i in act["items"] if i["purpose"] == "test")
+    r = call("POST", "/sales", {"items": [{"product_id": stk_p, "quantity": 1, "unit_price": 1500}], "payment": {"method": "mpesa", "mpesa_request_id": test_req}}, expect=422)
+    check("a test prompt can never pay for a sale", True)
+    sp_role = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
+    sp_mail = f"mpesasp{suffix.lower()}@sshop.test"
+    call("POST", "/users", {"name": "M-Pesa Clerk", "email": sp_mail, "pin": "4321", "role_id": sp_role, "all_branches": True, "branch_ids": []})
+    sp_tok = call("POST", "/auth/login", {"email": sp_mail, "pin": "4321"})["token"]
+    call("POST", "/mpesa/accounts", base_acc, token=sp_tok, expect=403)
+    call("GET", "/mpesa/accounts", token=sp_tok, expect=403)
+    check("only those allowed configure or see M-Pesa accounts", True)
+    call("GET", f"/sales/stk/{ps['id']}", **T2, expect=404)
+    check("another business never sees these sales or accounts", call("GET", "/mpesa/accounts", **T2)["items"] == [])
+    d = call("DELETE", f"/mpesa/accounts/{acc_id}")
+    check("an account with payments is switched off, not deleted", d["deactivated"] and not call("GET", "/mpesa/accounts")["items"][0]["is_active"])
+    check("…and STK Push stops", not call("GET", "/auth/me")["integrations"]["mpesa_stk"])
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

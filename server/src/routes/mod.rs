@@ -17,6 +17,7 @@ pub mod loyalty;
 pub mod notifications;
 pub mod orders;
 pub mod payments;
+pub mod stk_sales;
 pub mod platform;
 pub mod portal;
 pub mod prefs;
@@ -61,6 +62,7 @@ pub fn api() -> Router<AppState> {
         .merge(loyalty::routes())
         .merge(sales::routes())
         .merge(payments::routes())
+        .merge(stk_sales::routes())
         .merge(credit::routes())
         .merge(orders::routes())
         .merge(portal::routes())

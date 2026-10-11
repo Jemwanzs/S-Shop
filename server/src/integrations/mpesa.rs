@@ -2,7 +2,8 @@
 //!
 //! Flow: `stk_push` → customer enters PIN on their phone → Daraja calls our
 //! callback (routes::webhooks::mpesa_callback) → request marked success/failed.
-//! `stk_query` lets the UI recover when a callback is late or lost.
+//! `stk_query` lets the UI recover when a callback is late or lost. Each business uses its own Till or Paybill
+//! and Daraja app (roadmap 91, `mpesa_accounts`).
 
 use std::time::{Duration, Instant};
 
@@ -11,47 +12,181 @@ use chrono::Utc;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
-use crate::config::MpesaConfig;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-pub fn config(state: &AppState) -> AppResult<&MpesaConfig> {
-    state
-        .cfg
-        .mpesa
-        .as_ref()
-        .ok_or_else(|| AppError::Rule("M-Pesa STK Push is not configured. Capture the M-Pesa code manually.".into()))
+/// Everything one Daraja call needs. Built per request from the business's account (roadmap 91) — or, for the
+/// platform owner's own business only, from the `MPESA_*` environment variables.
+pub struct Creds {
+    pub account_id: Option<Uuid>,
+    pub base_url: String,
+    pub consumer_key: String,
+    pub consumer_secret: String,
+    pub shortcode: String,
+    pub passkey: String,
+    /// "CustomerPayBillOnline" (Paybill) or "CustomerBuyGoodsOnline" (Till)
+    pub transaction_type: String,
+    /// PartyB: the Till number for Buy Goods, else the shortcode.
+    pub party_b: String,
+    pub callback_url: String,
+    /// Paybill account reference (empty = the caller's reference).
+    pub account_reference: String,
 }
 
-async fn access_token(state: &AppState, cfg: &MpesaConfig) -> AppResult<String> {
-    let mut cached = state.mpesa_token.lock().await;
-    if let Some((token, expires)) = cached.as_ref() {
+#[derive(sqlx::FromRow)]
+struct AccountRow {
+    id: Uuid,
+    kind: String,
+    shortcode: String,
+    till_number: String,
+    account_reference: String,
+    environment: String,
+    consumer_key: String,
+    consumer_secret_enc: String,
+    passkey_enc: String,
+    callback_token_enc: String,
+}
+
+const ACCOUNT_COLS: &str = "id, kind, shortcode, till_number, account_reference, environment, consumer_key, consumer_secret_enc, passkey_enc, callback_token_enc";
+
+fn creds_of(state: &AppState, a: AccountRow) -> AppResult<Creds> {
+    let key = &state.cfg.data_key.0;
+    let token = crate::secrets::decrypt(key, &a.callback_token_enc)?;
+    let till = a.kind == "till";
+    Ok(Creds {
+        account_id: Some(a.id),
+        base_url: if a.environment == "production" { state.cfg.daraja_production_url.clone() } else { state.cfg.daraja_sandbox_url.clone() },
+        consumer_secret: crate::secrets::decrypt(key, &a.consumer_secret_enc)?,
+        passkey: crate::secrets::decrypt(key, &a.passkey_enc)?,
+        consumer_key: a.consumer_key,
+        transaction_type: if till { "CustomerBuyGoodsOnline" } else { "CustomerPayBillOnline" }.into(),
+        party_b: if till && !a.till_number.is_empty() { a.till_number } else { a.shortcode.clone() },
+        shortcode: a.shortcode,
+        callback_url: format!("{}/api/webhooks/mpesa/a/{}/{}", state.cfg.public_url, a.id, token),
+        account_reference: a.account_reference,
+    })
+}
+
+/// One account by id (settings: test connection, test prompt, status checks of its requests).
+pub async fn account_creds(state: &AppState, tenant: Uuid, id: Uuid) -> AppResult<Creds> {
+    let a: AccountRow = sqlx::query_as(&format!("SELECT {ACCOUNT_COLS} FROM mpesa_accounts WHERE id = $1 AND tenant_id = $2"))
+        .bind(id)
+        .bind(tenant)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("M-Pesa account"))?;
+    creds_of(state, a)
+}
+
+/// The platform's `MPESA_*` configuration, used only by the platform owner's own business without an account of
+/// its own (never by other businesses: their customers would pay into the platform's shortcode).
+async fn env_creds(state: &AppState, tenant: Uuid) -> AppResult<Option<Creds>> {
+    let Some(c) = &state.cfg.mpesa else { return Ok(None) };
+    let (own, platform): (bool, bool) = sqlx::query_as(
+        "SELECT EXISTS (SELECT 1 FROM mpesa_accounts WHERE tenant_id = $1), COALESCE((SELECT ownership = 'platform' FROM tenants WHERE id = $1), false)",
+    )
+    .bind(tenant)
+    .fetch_one(&state.db)
+    .await?;
+    if own || !platform {
+        return Ok(None);
+    }
+    Ok(Some(Creds {
+        account_id: None,
+        base_url: c.base_url.clone(),
+        consumer_key: c.consumer_key.clone(),
+        consumer_secret: c.consumer_secret.clone(),
+        shortcode: c.shortcode.clone(),
+        passkey: c.passkey.clone(),
+        transaction_type: c.transaction_type.clone(),
+        party_b: c.party_b.clone(),
+        callback_url: c.callback_url.clone(),
+        account_reference: String::new(),
+    }))
+}
+
+/// The account that takes STK Push payments at this branch: the business's own active account with STK on (verified),
+/// one assigned to the branch first, then one for every branch.
+pub async fn for_branch(state: &AppState, tenant: Uuid, branch: Uuid) -> AppResult<Creds> {
+    let a: Option<AccountRow> = sqlx::query_as(&format!(
+        "SELECT {ACCOUNT_COLS} FROM mpesa_accounts
+         WHERE tenant_id = $1 AND is_active AND stk_enabled AND (all_branches OR $2 = ANY(branch_ids))
+         ORDER BY all_branches, created_at LIMIT 1"
+    ))
+    .bind(tenant)
+    .bind(branch)
+    .fetch_optional(&state.db)
+    .await?;
+    if let Some(a) = a {
+        return creds_of(state, a);
+    }
+    env_creds(state, tenant)
+        .await?
+        .ok_or_else(|| AppError::Rule("M-Pesa STK Push is not set up for this branch. Capture the M-Pesa code manually.".into()))
+}
+
+/// The credentials a request was sent with (status queries must use the same account).
+pub async fn for_request(state: &AppState, tenant: Uuid, account: Option<Uuid>) -> AppResult<Creds> {
+    match account {
+        Some(id) => account_creds(state, tenant, id).await,
+        None => env_creds(state, tenant).await?.ok_or_else(|| AppError::Rule("M-Pesa is not configured".into())),
+    }
+}
+
+/// Where STK Push works: (any, branches — `None` = every branch). For the profile and the till.
+pub async fn stk_branches(state: &AppState, tenant: Uuid) -> AppResult<(bool, Option<Vec<Uuid>>)> {
+    let rows: Vec<(bool, Vec<Uuid>)> = sqlx::query_as("SELECT all_branches, branch_ids FROM mpesa_accounts WHERE tenant_id = $1 AND is_active AND stk_enabled")
+        .bind(tenant)
+        .fetch_all(&state.db)
+        .await?;
+    if rows.iter().any(|r| r.0) {
+        return Ok((true, None));
+    }
+    if !rows.is_empty() {
+        let mut ids: Vec<Uuid> = rows.into_iter().flat_map(|r| r.1).collect();
+        ids.sort();
+        ids.dedup();
+        return Ok((!ids.is_empty(), Some(ids)));
+    }
+    Ok((env_creds(state, tenant).await?.is_some(), None))
+}
+
+async fn access_token(state: &AppState, c: &Creds) -> AppResult<String> {
+    let cache_key = format!("{}|{}", c.base_url, c.consumer_key);
+    if let Some((token, expires)) = state.mpesa_token.lock().await.get(&cache_key) {
         if Instant::now() < *expires {
             return Ok(token.clone());
         }
     }
-    let url = format!("{}/oauth/v1/generate?grant_type=client_credentials", cfg.base_url);
+    let url = format!("{}/oauth/v1/generate?grant_type=client_credentials", c.base_url);
     let res = state
         .http
         .get(&url)
-        .basic_auth(&cfg.consumer_key, Some(&cfg.consumer_secret))
+        .basic_auth(&c.consumer_key, Some(&c.consumer_secret))
         .send()
         .await
         .map_err(|e| AppError::Upstream(format!("M-Pesa unreachable: {e}")))?;
     if !res.status().is_success() {
-        return Err(AppError::Upstream("M-Pesa rejected the API credentials".into()));
+        return Err(AppError::Upstream("M-Pesa rejected the consumer key or secret".into()));
     }
     let body: Value = res.json().await.map_err(|e| AppError::Upstream(e.to_string()))?;
     let token = body["access_token"].as_str().ok_or_else(|| AppError::Upstream("No M-Pesa token".into()))?.to_string();
-    let ttl: u64 = body["expires_in"].as_str().and_then(|s| s.parse().ok()).unwrap_or(3599);
-    *cached = Some((token.clone(), Instant::now() + Duration::from_secs(ttl.saturating_sub(60))));
+    let ttl: u64 = body["expires_in"].as_str().and_then(|s| s.parse().ok()).or_else(|| body["expires_in"].as_u64()).unwrap_or(3599);
+    state.mpesa_token.lock().await.insert(cache_key, (token.clone(), Instant::now() + Duration::from_secs(ttl.saturating_sub(60))));
     Ok(token)
 }
 
-fn password(cfg: &MpesaConfig) -> (String, String) {
+/// Checks the consumer key and secret: Safaricom issues an access token.
+pub async fn check_credentials(state: &AppState, c: &Creds) -> AppResult<()> {
+    state.mpesa_token.lock().await.remove(&format!("{}|{}", c.base_url, c.consumer_key));
+    access_token(state, c).await.map(|_| ())
+}
+
+fn password(c: &Creds) -> (String, String) {
     let ts = Utc::now().with_timezone(&chrono_tz::Africa::Nairobi).format("%Y%m%d%H%M%S").to_string();
-    let pwd = base64::engine::general_purpose::STANDARD.encode(format!("{}{}{}", cfg.shortcode, cfg.passkey, ts));
+    let pwd = base64::engine::general_purpose::STANDARD.encode(format!("{}{}{}", c.shortcode, c.passkey, ts));
     (pwd, ts)
 }
 
@@ -61,31 +196,31 @@ pub struct StkAccepted {
     pub customer_message: String,
 }
 
-pub async fn stk_push(state: &AppState, phone: &str, amount: Decimal, account_ref: &str, desc: &str) -> AppResult<StkAccepted> {
-    let cfg = config(state)?;
-    let token = access_token(state, cfg).await?;
-    let (pwd, ts) = password(cfg);
+pub async fn stk_push(state: &AppState, c: &Creds, phone: &str, amount: Decimal, account_ref: &str, desc: &str) -> AppResult<StkAccepted> {
+    let token = access_token(state, c).await?;
+    let (pwd, ts) = password(c);
     // M-Pesa only accepts whole shillings.
     let whole = amount.ceil().to_i64().unwrap_or(0).max(1);
-    let callback = format!("{}/api/webhooks/mpesa/{}", state.cfg.public_url, cfg.callback_token);
+    let paybill = c.transaction_type == "CustomerPayBillOnline";
+    let reference = if paybill && !c.account_reference.trim().is_empty() { c.account_reference.trim() } else { account_ref };
 
     let payload = json!({
-        "BusinessShortCode": cfg.shortcode,
+        "BusinessShortCode": c.shortcode,
         "Password": pwd,
         "Timestamp": ts,
-        "TransactionType": cfg.transaction_type,
+        "TransactionType": c.transaction_type,
         "Amount": whole,
         "PartyA": phone,
-        "PartyB": cfg.party_b,
+        "PartyB": c.party_b,
         "PhoneNumber": phone,
-        "CallBackURL": callback,
-        "AccountReference": account_ref.chars().take(12).collect::<String>(),
+        "CallBackURL": c.callback_url,
+        "AccountReference": reference.chars().take(12).collect::<String>(),
         "TransactionDesc": desc.chars().take(13).collect::<String>(),
     });
 
     let res = state
         .http
-        .post(format!("{}/mpesa/stkpush/v1/processrequest", cfg.base_url))
+        .post(format!("{}/mpesa/stkpush/v1/processrequest", c.base_url))
         .bearer_auth(token)
         .json(&payload)
         .send()
@@ -108,16 +243,15 @@ pub async fn stk_push(state: &AppState, phone: &str, amount: Decimal, account_re
 }
 
 /// Returns Some((result_code, result_desc)) once Daraja knows the outcome; None while still processing.
-pub async fn stk_query(state: &AppState, checkout_request_id: &str) -> AppResult<Option<(i32, String)>> {
-    let cfg = config(state)?;
-    let token = access_token(state, cfg).await?;
-    let (pwd, ts) = password(cfg);
+pub async fn stk_query(state: &AppState, c: &Creds, checkout_request_id: &str) -> AppResult<Option<(i32, String)>> {
+    let token = access_token(state, c).await?;
+    let (pwd, ts) = password(c);
     let res = state
         .http
-        .post(format!("{}/mpesa/stkpushquery/v1/query", cfg.base_url))
+        .post(format!("{}/mpesa/stkpushquery/v1/query", c.base_url))
         .bearer_auth(token)
         .json(&json!({
-            "BusinessShortCode": cfg.shortcode,
+            "BusinessShortCode": c.shortcode,
             "Password": pwd,
             "Timestamp": ts,
             "CheckoutRequestID": checkout_request_id,

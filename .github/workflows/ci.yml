@@ -70,6 +70,8 @@ jobs:
           RESEND_API_KEY: re_test_ci_stand_in
           RESEND_BASE_URL: http://127.0.0.1:8098
           RESEND_WEBHOOK_SECRET: whsec_Y2ktd2ViaG9vay1zZWNyZXQtMTIzNDU2
+          # Daraja stand-in (same smoke-suite server): M-Pesa accounts, STK Push sales and callbacks (roadmap 91).
+          MPESA_SANDBOX_URL: http://127.0.0.1:8098
           # Renewal invoices / trial ends / suspension would otherwise run part-way through the suite.
           BACKGROUND_JOBS: "off"
         run: |

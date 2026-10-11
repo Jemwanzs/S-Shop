@@ -272,10 +272,11 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
             .collect(),
         permissions,
         settings: serde_json::to_value(settings).unwrap_or_default(),
-        integrations: serde_json::json!({
-            "mpesa_stk": state.cfg.mpesa.is_some(),
-            "whatsapp": state.cfg.whatsapp.is_some(),
-        }),
+        integrations: {
+            // Roadmap 91: STK Push follows the business's own verified M-Pesa accounts (and the branches they serve).
+            let (stk, stk_branches) = crate::integrations::mpesa::stk_branches(state, tenant_id).await.unwrap_or((false, None));
+            serde_json::json!({ "mpesa_stk": stk, "mpesa_stk_branches": stk_branches, "whatsapp": state.cfg.whatsapp.is_some() })
+        },
     })
 }
 

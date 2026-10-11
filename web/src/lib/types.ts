@@ -110,7 +110,8 @@ export interface Profile {
   branches: Branch[];
   permissions: string[];
   settings: Settings;
-  integrations: { mpesa_stk: boolean; whatsapp: boolean };
+  /** Roadmap 91: STK Push with the business's own verified M-Pesa account; `mpesa_stk_branches` null = every branch. */
+  integrations: { mpesa_stk: boolean; mpesa_stk_branches?: string[] | null; whatsapp: boolean };
   /** Package and billing access (roadmap 41–45). `modules` null = every module. */
   billing?: {
     modules: string[] | null;

@@ -55,6 +55,8 @@ pub struct OrderRow {
     pub item_count: i64,
     pub reserved: bool,
     pub sale_id: Option<Uuid>,
+    /// Imported order history: shown, never moved again.
+    pub is_legacy: bool,
     pub receipt_no: Option<String>,
     pub track_token: Uuid,
     pub created_at: DateTime<Utc>,
@@ -64,7 +66,7 @@ pub struct OrderRow {
 const SELECT: &str = "SELECT o.id, o.order_no, o.status, o.source, o.branch_id, b.name AS branch_name, o.customer_id,
         TRIM(c.first_name || ' ' || c.other_names) AS customer_name, c.mobile AS customer_mobile, o.delivery_location, o.notes,
         o.total, (SELECT COALESCE(SUM(quantity),0) FROM order_items oi WHERE oi.order_id = o.id)::bigint AS item_count,
-        o.reserved, o.sale_id, s.receipt_no, o.track_token, o.created_at, o.updated_at
+        o.reserved, o.sale_id, o.is_legacy, s.receipt_no, o.track_token, o.created_at, o.updated_at
     FROM orders o JOIN branches b ON b.id = o.branch_id JOIN customers c ON c.id = o.customer_id
     LEFT JOIN sales s ON s.id = o.sale_id";
 
@@ -90,7 +92,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     let rows: Vec<Counted<OrderRow>> = sqlx::query_as(&format!(
         "{select} WHERE o.tenant_id = $1 AND o.branch_id = ANY($2)
            AND (CASE $3 WHEN 'all' THEN true
-                        WHEN 'active' THEN o.status NOT IN ('completed','cancelled','rejected','returned')
+                        WHEN 'active' THEN o.status NOT IN ('completed','cancelled','rejected','returned') AND NOT o.is_legacy
                         ELSE o.status = $3 END)
            AND ($4::text IS NULL OR o.order_no ILIKE $4 OR c.first_name ILIKE $4 OR c.mobile ILIKE $4)
            AND o.business_date BETWEEN $5 AND $6
@@ -190,6 +192,9 @@ pub async fn order_events(conn: &mut PgConnection, s: &TenantSettings, order_id:
 /// Forward steps the business uses, plus cancel/reject while no sale exists.
 fn next_statuses(o: &OrderRow, s: &TenantSettings) -> Vec<&'static str> {
     let mut out = Vec::new();
+    if o.is_legacy {
+        return out;
+    }
     if let Some(r) = rank(&o.status) {
         out.extend(FLOW.iter().skip(r + 1).copied().filter(|f| s.order_status_enabled(f)));
         if o.sale_id.is_none() {

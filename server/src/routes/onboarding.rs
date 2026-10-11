@@ -47,6 +47,9 @@ pub fn routes() -> Router<AppState> {
         .route("/onboarding/batches/{id}/errors", get(error_report))
         .route("/onboarding/batches/{id}/post", post(post_batch))
         .route("/onboarding/batches/{id}/cancel", post(cancel))
+        .route("/onboarding/reconciliation", get(reconciliation))
+        .route("/onboarding/reconciliation/export", get(reconciliation_export))
+        .route("/onboarding/complete", post(complete_onboarding))
 }
 
 fn can(ctx: &Ctx) -> AppResult<()> {
@@ -62,7 +65,8 @@ fn may_skip(dataset: &str) -> bool {
 
 async fn overview(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
     can(&ctx)?;
-    let cutover: Option<NaiveDate> = sqlx::query_scalar("SELECT migration_cutover FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&state.db).await?;
+    let (cutover, completed_at): (Option<NaiveDate>, Option<chrono::DateTime<Utc>>) =
+        sqlx::query_as("SELECT migration_cutover, onboarding_completed_at FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&state.db).await?;
     let batches: Vec<Value> = sqlx::query_scalar(
         "SELECT json_build_object('id', b.id, 'dataset', b.dataset, 'mode', b.mode, 'status', b.status, 'file_name', b.file_name,
                 'total_rows', b.total_rows, 'valid_rows', b.valid_rows, 'warning_rows', b.warning_rows, 'invalid_rows', b.invalid_rows,
@@ -86,7 +90,11 @@ async fn overview(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Val
             'sales_value', (SELECT COALESCE(sum(total), 0) FROM sales WHERE tenant_id = $1 AND import_batch_id IS NOT NULL AND payment_method <> 'credit'),
             'credit_outstanding', (SELECT COALESCE(sum(original_amount - amount_paid - adjustments), 0) FROM credit_sales
                                    WHERE tenant_id = $1 AND import_batch_id IS NOT NULL AND status IN ('outstanding','partially_paid')),
-            'loyalty_points', (SELECT COALESCE(sum(points), 0) FROM loyalty_ledger WHERE tenant_id = $1 AND import_batch_id IS NOT NULL))",
+            'loyalty_points', (SELECT COALESCE(sum(points), 0) FROM loyalty_ledger WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
+            'orders_history', (SELECT count(*) FROM orders WHERE tenant_id = $1 AND import_batch_id IS NOT NULL AND is_legacy),
+            'orders_outstanding', (SELECT count(*) FROM orders WHERE tenant_id = $1 AND import_batch_id IS NOT NULL AND NOT is_legacy),
+            'transfers', (SELECT count(*) FROM transfers WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
+            'transfers_in_transit', (SELECT count(*) FROM transfers WHERE tenant_id = $1 AND import_batch_id IS NOT NULL AND status = 'dispatched'))",
     )
     .bind(ctx.tenant_id)
     .fetch_one(&state.db)
@@ -102,7 +110,7 @@ async fn overview(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Val
             json!({ "key": k, "label": l, "columns": cols, "may_skip_invalid": may_skip(k) })
         })
         .collect();
-    Ok(Json(json!({ "cutover": cutover, "datasets": datasets, "batches": batches, "totals": totals, "branches": branches })))
+    Ok(Json(json!({ "cutover": cutover, "completed_at": completed_at, "datasets": datasets, "batches": batches, "totals": totals, "branches": branches })))
 }
 
 #[derive(Deserialize)]
@@ -174,6 +182,15 @@ struct Refs {
     /// customers whose loyalty opening points were already imported
     loyalty_imported: HashSet<Uuid>,
     loyalty_on: bool,
+    order_nos: HashSet<String>,
+    transfer_nos: HashSet<String>,
+    /// product + branch → units available to sell (on hand − reserved)
+    available: HashMap<(Uuid, Uuid), i64>,
+    /// the order stage that turns an order into a sale, whether confirming reserves stock, negative stock allowed
+    sale_rank: usize,
+    reserve_stock: bool,
+    allow_negative: bool,
+    order_statuses: HashSet<String>,
     barcodes_on: bool,
     cutover: Option<NaiveDate>,
     today: NaiveDate,
@@ -208,6 +225,12 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
     .bind(t)
     .fetch_all(&mut *conn)
     .await?;
+    let order_nos: Vec<String> = sqlx::query_scalar("SELECT upper(order_no) FROM orders WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let transfer_nos: Vec<String> = sqlx::query_scalar("SELECT upper(transfer_no) FROM transfers WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let available: Vec<(Uuid, Uuid, i64)> = sqlx::query_as("SELECT product_id, branch_id, (on_hand - reserved)::bigint FROM stock_levels WHERE tenant_id = $1")
+        .bind(t)
+        .fetch_all(&mut *conn)
+        .await?;
     let s = settings::load(conn, t).await?;
     let cutover: Option<NaiveDate> = sqlx::query_scalar("SELECT migration_cutover FROM tenants WHERE id = $1").bind(t).fetch_one(&mut *conn).await?;
     let mut payment_methods = HashMap::new();
@@ -232,6 +255,13 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
         users: users.into_iter().collect(),
         loyalty_imported: loyalty_imported.into_iter().collect(),
         loyalty_on: s.loyalty.enabled,
+        order_nos: order_nos.into_iter().collect(),
+        transfer_nos: transfer_nos.into_iter().collect(),
+        available: available.into_iter().map(|(p, b, a)| ((p, b), a)).collect(),
+        sale_rank: super::orders::FLOW.iter().position(|f| *f == s.orders.sale_on_status).unwrap_or(5),
+        reserve_stock: s.orders.reserve_stock,
+        allow_negative: s.stock.allow_negative,
+        order_statuses: super::orders::FLOW.iter().filter(|f| s.order_status_enabled(f)).map(|f| f.to_string()).collect(),
         barcodes_on: s.stock.barcode_requirement != settings::BarcodeRequirement::Disabled,
         cutover,
         today: Utc::now().with_timezone(&ctx.tz).date_naive(),
@@ -655,6 +685,143 @@ fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &R
                     }
                 }
             }
+            "orders" => {
+                let rf = s(&d, "order").map(str::to_uppercase);
+                if let Some(rf) = &rf {
+                    d.insert("order".into(), json!(rf));
+                    if r.order_nos.contains(rf) {
+                        c.err("order", format!("Order {rf} is already in S'Shop"));
+                    }
+                }
+                let status = s(&d, "status").map(|x| x.trim().to_lowercase().replace(' ', "_"));
+                let rank = status.as_deref().and_then(|x| super::orders::FLOW.iter().position(|f| *f == x));
+                let closed = match (status.as_deref(), rank) {
+                    (Some("cancelled" | "rejected" | "returned"), _) => Some(true),
+                    (_, Some(rk)) => Some(rk >= r.sale_rank),
+                    (Some(other), None) => {
+                        c.err("status", format!("Order Status “{other}”: New, Confirmed, Preparing, Dispatched, On delivery, Delivered, Completed, Cancelled, Rejected or Returned"));
+                        None
+                    }
+                    (None, _) => None,
+                };
+                if let Some(st) = &status {
+                    d.insert("status".into(), json!(st));
+                }
+                if closed == Some(false) {
+                    if let Some(st) = &status {
+                        if !r.order_statuses.contains(st) {
+                            c.err("status", format!("The {st} stage is switched off for this business (Settings → Orders)"));
+                        }
+                    }
+                }
+                d.insert("closed".into(), json!(closed.unwrap_or(false)));
+                d.insert("reserve".into(), json!(closed == Some(false) && rank.is_some_and(|rk| rk >= 1) && r.reserve_stock));
+                let date = s(&d, "date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok());
+                if let Some(date) = date {
+                    if date > r.today {
+                        c.err("date", "The Order Date cannot be in the future");
+                    } else if closed == Some(true) {
+                        match r.cutover {
+                            Some(cut) if date >= cut => c.err("date", format!("A closed order on or after the migration cutover ({cut}) belongs in S'Shop, not in history")),
+                            None => c.warn("date", "Set the migration cutover (above) so history and S'Shop's own records stay apart"),
+                            _ => {}
+                        }
+                    }
+                }
+                if closed == Some(true) {
+                    c.warn("status", "History: no sale is created and no stock is held (import its sale in Sales history)");
+                }
+                order_or_transfer_refs(&mut d, &mut c, r, true);
+                if d.get("quantity").and_then(|v| v.as_i64()).is_some_and(|q| q <= 0) {
+                    c.err("quantity", "Quantity must be more than 0");
+                }
+                if money(&d, "unit_price").is_some_and(|v| v < Decimal::ZERO) {
+                    c.err("unit_price", "Unit Price cannot be negative");
+                }
+            }
+            "transfers" => {
+                let rf = s(&d, "transfer").map(str::to_uppercase);
+                if let Some(rf) = &rf {
+                    d.insert("transfer".into(), json!(rf));
+                    if r.transfer_nos.contains(rf) {
+                        c.err("transfer", format!("Transfer {rf} is already in S'Shop"));
+                    }
+                }
+                let status = match s(&d, "status").map(|x| x.trim().to_lowercase()).as_deref() {
+                    Some("received" | "completed") => Some("received"),
+                    Some("in transit" | "in_transit" | "dispatched") => Some("dispatched"),
+                    Some("pending" | "draft") => Some("draft"),
+                    Some("cancelled" | "canceled") => Some("cancelled"),
+                    Some(other) => {
+                        c.err("status", format!("Transfer Status “{other}”: Received, In transit, Pending or Cancelled"));
+                        None
+                    }
+                    None => None,
+                };
+                if let Some(st) = status {
+                    d.insert("status".into(), json!(st));
+                }
+                for (key, id_key) in [("from_branch", "from_id"), ("to_branch", "to_id")] {
+                    match s(&d, key).map(|code| (code.to_string(), r.branches.get(&code.to_lowercase()).copied())) {
+                        Some((_, Some(id))) => {
+                            d.insert(id_key.into(), json!(id));
+                        }
+                        Some((code, None)) => c.err(key, format!("Branch code {code} does not exist (Settings → Branches)")),
+                        None => {}
+                    }
+                }
+                if d.get("from_id").is_some() && d.get("from_id") == d.get("to_id") {
+                    c.err("to_branch", "The destination must differ from the origin");
+                }
+                order_or_transfer_refs(&mut d, &mut c, r, false);
+                let sent = d.get("dispatched").and_then(|v| v.as_i64());
+                if sent.is_some_and(|q| q <= 0) {
+                    c.err("dispatched", "Quantity Dispatched must be more than 0");
+                }
+                let got = d.get("received").and_then(|v| v.as_i64());
+                let date = s(&d, "date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok());
+                let rdate = s(&d, "received_date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok());
+                if date.is_some_and(|x| x > r.today) {
+                    c.err("date", "The Transfer Date cannot be in the future");
+                }
+                match status {
+                    Some("received") => {
+                        if got.is_some_and(|g| g < 0 || sent.is_some_and(|s| g > s)) {
+                            c.err("received", "Quantity Received must be between 0 and the quantity dispatched");
+                        }
+                        if rdate.is_none() {
+                            c.err("received_date", "A received transfer needs its Receipt Date");
+                        }
+                        if let (Some(a), Some(b)) = (date, rdate) {
+                            if b < a {
+                                c.err("received_date", "The Receipt Date is before the Transfer Date");
+                            }
+                        }
+                        match (r.cutover, rdate.or(date)) {
+                            (Some(cut), Some(x)) if x >= cut => c.err("received_date", format!("Received on or after the migration cutover ({cut}) — receive it in S'Shop instead")),
+                            (None, _) => c.warn("date", "Set the migration cutover (above) so history and S'Shop's own records stay apart"),
+                            _ => {}
+                        }
+                        c.warn("status", "History: stock does not move again (opening stock already reflects it)");
+                    }
+                    Some("dispatched") => {
+                        if got.is_some() {
+                            c.err("received", "An in-transit transfer has not been received — leave Quantity Received empty");
+                        }
+                        if let Some(true) = s(&d, "product_id").and_then(|x| Uuid::parse_str(x).ok()).and_then(|id| r.products.values().find(|p| p.0 == id).map(|p| p.1)) {
+                            c.err("product", "Individually tracked items cannot be in transit here — record each unit as opening stock where it is");
+                        }
+                        c.warn("dispatched", "In transit: receive it in S'Shop when it arrives — it must not be counted in either branch's opening stock");
+                    }
+                    Some("draft") => c.warn("status", "Pending: imported as a draft to dispatch in S'Shop (stock leaves the origin then)"),
+                    Some("cancelled") => {
+                        if r.cutover.is_some_and(|cut| date.is_some_and(|x| x >= cut)) {
+                            c.err("date", "A cancelled transfer on or after the migration cutover belongs in S'Shop");
+                        }
+                    }
+                    _ => {}
+                }
+            }
             "loyalty" => {
                 match s(&d, "customer").map(|m| (m.to_string(), crate::util::normalize_mobile(m).ok())) {
                     Some((m, None)) => c.err("customer", format!("{m} is not a valid mobile number")),
@@ -705,7 +872,81 @@ fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &R
         }
         out.push((d, c));
     }
+    if matches!(dataset, "orders" | "transfers") {
+        documents(dataset, rows, &mut out, r);
+    }
     out
+}
+
+/// Product, branch and customer references shared by orders and transfers.
+fn order_or_transfer_refs(d: &mut Map<String, Value>, c: &mut Check, r: &Refs, order: bool) {
+    if let Some(code) = s(d, "product").map(str::to_string) {
+        let p = r.products.get(&code.to_uppercase()).cloned().or_else(|| r.product_barcodes.get(&code).and_then(|id| r.products.values().find(|p| p.0 == *id).cloned()));
+        match p {
+            Some(p) => {
+                d.insert("product_id".into(), json!(p.0));
+            }
+            None => c.err("product", format!("No product with code or barcode {code} — import products first")),
+        }
+    }
+    if order {
+        match s(d, "branch").map(|code| (code.to_string(), r.branches.get(&code.to_lowercase()).copied())) {
+            Some((_, Some(id))) => {
+                d.insert("branch_id".into(), json!(id));
+            }
+            Some((code, None)) => c.err("branch", format!("Branch code {code} does not exist (Settings → Branches)")),
+            None => {}
+        }
+        match s(d, "customer").map(|m| (m.to_string(), crate::util::normalize_mobile(m).ok())) {
+            Some((m, None)) => c.err("customer", format!("{m} is not a valid mobile number")),
+            Some((_, Some(n))) => match r.customer_ids.get(&n) {
+                Some(id) => {
+                    d.insert("customer_id".into(), json!(id));
+                }
+                None => c.err("customer", format!("No customer with mobile {n} — import customers first")),
+            },
+            None => {}
+        }
+    }
+}
+
+/// One reference = one order / transfer: its lines must agree on the header; outstanding orders that hold stock must
+/// fit what is available at their branch (unless negative stock is allowed).
+fn documents(dataset: &str, rows: &[(u32, Map<String, Value>)], out: &mut [(Map<String, Value>, Check)], r: &Refs) {
+    let (ref_key, header, names): (&str, &[&str], &str) = if dataset == "orders" {
+        ("order", &["date", "customer_id", "branch_id", "status", "delivery"], "date, customer, branch, status and delivery location")
+    } else {
+        ("transfer", &["from_id", "to_id", "date", "status", "received_date"], "branches, dates and status")
+    };
+    let mut first: HashMap<String, (u32, Vec<Option<String>>)> = HashMap::new();
+    for ((row_no, _), (d, c)) in rows.iter().zip(out.iter_mut()) {
+        let Some(rf) = s(d, ref_key).map(String::from) else { continue };
+        let sig: Vec<Option<String>> = header.iter().map(|k| d.get(*k).filter(|v| !v.is_null()).map(|v| v.to_string().to_lowercase())).collect();
+        match first.get(&rf) {
+            Some((row0, sig0)) if *sig0 != sig => c.err(ref_key, format!("{rf}: every line must have the same {names} as its first line (row {row0})")),
+            Some(_) => {}
+            None => {
+                first.insert(rf, (*row_no, sig));
+            }
+        }
+    }
+    if dataset == "orders" && !r.allow_negative {
+        // In file order: the line that takes the running total past what is available is the one refused.
+        let mut held: HashMap<(Uuid, Uuid), i64> = HashMap::new();
+        for (d, c) in out.iter_mut() {
+            if d.get("reserve").and_then(|v| v.as_bool()) != Some(true) {
+                continue;
+            }
+            if let (Some(p), Some(b)) = (s(d, "product_id").and_then(|x| Uuid::parse_str(x).ok()), s(d, "branch_id").and_then(|x| Uuid::parse_str(x).ok())) {
+                let have = r.available.get(&(p, b)).copied().unwrap_or(0);
+                let want = held.entry((p, b)).or_default();
+                *want += d.get("quantity").and_then(|v| v.as_i64()).unwrap_or(0);
+                if *want > have {
+                    c.err("quantity", format!("Outstanding orders up to this line hold {want} of this product at this branch but only {have} are available — import the opening stock first or correct the orders"));
+                }
+            }
+        }
+    }
 }
 
 fn row_status(c: &Check) -> &'static str {
@@ -994,7 +1235,7 @@ async fn error_report(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
 
 async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     can(&ctx)?;
-    let n = sqlx::query("UPDATE import_batches SET status = 'cancelled', decided_by = $3, decided_at = now(), file = '' WHERE id = $1 AND tenant_id = $2 AND status = 'validated'")
+    let n = sqlx::query("UPDATE import_batches SET status = 'cancelled', decided_by = $3, decided_at = now(), file = '' WHERE id = $1 AND tenant_id = $2 AND status IN ('validated', 'failed')")
         .bind(id)
         .bind(ctx.tenant_id)
         .bind(ctx.user_id)
@@ -1004,6 +1245,196 @@ async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     if n == 0 {
         return Err(rule("Only an import not yet submitted can be discarded"));
     }
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ── Reconciliation ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize, Default)]
+struct RecQuery {
+    dataset: Option<String>,
+    batch_id: Option<Uuid>,
+    branch_id: Option<Uuid>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+}
+
+/// Per posted batch: what the workbook said (its posted rows) against what S'Shop holds for it now, plus what is
+/// unfinished (imports not posted, rows left out). Branch-filtered where the dataset has branches.
+async fn reconcile_data(conn: &mut PgConnection, tenant: Uuid, q: &RecQuery) -> AppResult<Value> {
+    let batches: Vec<(Uuid, String, String, i32, i32, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT id, dataset, file_name, posted_rows, total_rows, posted_at FROM import_batches
+         WHERE tenant_id = $1 AND status = 'posted' AND ($2::text IS NULL OR dataset = $2) AND ($3::uuid IS NULL OR id = $3)
+           AND ($4::date IS NULL OR posted_at::date >= $4) AND ($5::date IS NULL OR posted_at::date <= $5)
+         ORDER BY posted_at",
+    )
+    .bind(tenant)
+    .bind(&q.dataset)
+    .bind(q.batch_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&mut *conn)
+    .await?;
+    let br = q.branch_id;
+    let mut lines = Vec::new();
+    let mut differences = 0usize;
+    for (id, dataset, file, posted, total, at) in batches {
+        // (measure, source total from the posted rows, total S'Shop holds for this batch)
+        let (measure, src, held): (&str, Decimal, Decimal) = match dataset.as_str() {
+            "products" | "customers" => {
+                let n: i64 = sqlx::query_scalar(&format!(
+                    "SELECT count(*) FROM import_rows r JOIN {} x ON x.id = r.target_id WHERE r.batch_id = $1 AND r.status = 'posted'",
+                    if dataset == "products" { "products" } else { "customers" }
+                ))
+                .bind(id)
+                .fetch_one(&mut *conn)
+                .await?;
+                ("records", Decimal::from(posted), Decimal::from(n))
+            }
+            "opening_stock" => {
+                let src: Decimal = sqlx::query_scalar("SELECT COALESCE(sum((data->>'quantity')::numeric), 0) FROM import_rows WHERE batch_id = $1 AND status = 'posted' AND ($2::uuid IS NULL OR data->>'branch_id' = $2::text)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                let held: Decimal = sqlx::query_scalar("SELECT COALESCE(sum(quantity), 0)::numeric FROM stock_movements WHERE import_batch_id = $1 AND ($2::uuid IS NULL OR branch_id = $2)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                ("units", src, held)
+            }
+            "expenses" => {
+                let src: Decimal = sqlx::query_scalar("SELECT COALESCE(sum((data->>'amount')::numeric), 0) FROM import_rows WHERE batch_id = $1 AND status = 'posted' AND ($2::uuid IS NULL OR data->>'branch_id' = $2::text)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                let held: Decimal = sqlx::query_scalar("SELECT COALESCE(sum(amount), 0) FROM expenses WHERE import_batch_id = $1 AND status <> 'void' AND ($2::uuid IS NULL OR branch_id = $2)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                ("amount", src, held)
+            }
+            "sales" => {
+                let src: Decimal = sqlx::query_scalar("SELECT COALESCE(sum(round((data->>'unit_price')::numeric * (data->>'quantity')::numeric, 2)), 0) FROM import_rows WHERE batch_id = $1 AND status = 'posted' AND ($2::uuid IS NULL OR data->>'branch_id' = $2::text)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                let held: Decimal = sqlx::query_scalar("SELECT COALESCE(sum(total), 0) FROM sales WHERE import_batch_id = $1 AND ($2::uuid IS NULL OR branch_id = $2)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                ("amount", src, held)
+            }
+            "credit" => {
+                let src: Decimal = sqlx::query_scalar("SELECT COALESCE(sum((data->>'original_amount')::numeric - COALESCE((data->>'amount_paid')::numeric, 0)), 0) FROM import_rows WHERE batch_id = $1 AND status = 'posted' AND ($2::uuid IS NULL OR data->>'branch_id' = $2::text)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                // As imported (later repayments in S'Shop reduce the live balance; they are not differences).
+                let held: Decimal = sqlx::query_scalar("SELECT COALESCE(sum(cs.original_amount - COALESCE(p.paid, 0)), 0) FROM credit_sales cs
+                         LEFT JOIN (SELECT credit_sale_id, sum(amount) AS paid FROM payments WHERE method = 'legacy' GROUP BY credit_sale_id) p ON p.credit_sale_id = cs.id
+                         WHERE cs.import_batch_id = $1 AND ($2::uuid IS NULL OR cs.branch_id = $2)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                ("balance", src, held)
+            }
+            "loyalty" => {
+                let src: Decimal = sqlx::query_scalar("SELECT COALESCE(sum((data->>'balance')::numeric), 0) FROM import_rows WHERE batch_id = $1 AND status = 'posted'")
+                    .bind(id).fetch_one(&mut *conn).await?;
+                let held: Decimal = sqlx::query_scalar("SELECT COALESCE(sum(points), 0)::numeric FROM loyalty_ledger WHERE import_batch_id = $1").bind(id).fetch_one(&mut *conn).await?;
+                ("points", src, held)
+            }
+            "orders" => {
+                let src: Decimal = sqlx::query_scalar("SELECT COALESCE(sum(round((data->>'unit_price')::numeric * (data->>'quantity')::numeric, 2)), 0) FROM import_rows WHERE batch_id = $1 AND status = 'posted' AND ($2::uuid IS NULL OR data->>'branch_id' = $2::text)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                let held: Decimal = sqlx::query_scalar("SELECT COALESCE(sum(total), 0) FROM orders WHERE import_batch_id = $1 AND ($2::uuid IS NULL OR branch_id = $2)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                ("amount", src, held)
+            }
+            "transfers" => {
+                let src: Decimal = sqlx::query_scalar("SELECT COALESCE(sum((data->>'dispatched')::numeric), 0) FROM import_rows WHERE batch_id = $1 AND status = 'posted' AND ($2::uuid IS NULL OR data->>'from_id' = $2::text OR data->>'to_id' = $2::text)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                let held: Decimal = sqlx::query_scalar("SELECT COALESCE(sum(ti.quantity), 0)::numeric FROM transfer_items ti JOIN transfers t ON t.id = ti.transfer_id WHERE t.import_batch_id = $1 AND ($2::uuid IS NULL OR t.from_branch_id = $2 OR t.to_branch_id = $2)")
+                    .bind(id).bind(br).fetch_one(&mut *conn).await?;
+                ("units", src, held)
+            }
+            _ => continue,
+        };
+        if held != src {
+            differences += 1;
+        }
+        lines.push(json!({
+            "batch_id": id, "dataset": dataset, "label": ob::label(&dataset), "file_name": file, "posted_at": at,
+            "rows_posted": posted, "rows_left_out": total - posted, "measure": measure, "source": src, "imported": held, "difference": held - src,
+        }));
+    }
+    let unfinished: Vec<Value> = sqlx::query_scalar(
+        "SELECT json_build_object('id', id, 'dataset', dataset, 'file_name', file_name, 'status', status, 'created_at', created_at)
+         FROM import_batches WHERE tenant_id = $1 AND status IN ('validated', 'pending_approval', 'failed') ORDER BY created_at",
+    )
+    .bind(tenant)
+    .fetch_all(&mut *conn)
+    .await?;
+    let left_out: i64 = lines.iter().map(|l| l["rows_left_out"].as_i64().unwrap_or(0)).sum();
+    let completed: Option<chrono::DateTime<Utc>> = sqlx::query_scalar("SELECT onboarding_completed_at FROM tenants WHERE id = $1").bind(tenant).fetch_one(&mut *conn).await?;
+    Ok(json!({
+        "lines": lines, "unfinished": unfinished, "differences": differences, "rows_left_out": left_out,
+        "reconciled": differences == 0 && unfinished.is_empty(), "completed_at": completed,
+    }))
+}
+
+async fn reconciliation(State(state): State<AppState>, ctx: Ctx, Query(q): Query<RecQuery>) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    Ok(Json(reconcile_data(&mut *state.db.acquire().await?, ctx.tenant_id, &q).await?))
+}
+
+/// The Migration Reconciliation Report as Excel.
+async fn reconciliation_export(State(state): State<AppState>, ctx: Ctx, Query(q): Query<RecQuery>) -> AppResult<impl IntoResponse> {
+    can(&ctx)?;
+    let data = reconcile_data(&mut *state.db.acquire().await?, ctx.tenant_id, &q).await?;
+    let x = |e: rust_xlsxwriter::XlsxError| AppError::Other(anyhow::anyhow!(e));
+    let mut wb = rust_xlsxwriter::Workbook::new();
+    let ws = wb.add_worksheet().set_name("Reconciliation").map_err(x)?;
+    let bold = rust_xlsxwriter::Format::new().set_bold().set_background_color("F9E3CF");
+    let red = rust_xlsxwriter::Format::new().set_font_color("B42318").set_bold();
+    let heads = ["Dataset", "File", "Posted", "Rows imported", "Rows left out", "Measure", "Workbook", "In S'Shop", "Difference"];
+    for (i, h) in heads.iter().enumerate() {
+        ws.write_string_with_format(0, i as u16, *h, &bold).map_err(x)?;
+        ws.set_column_width(i as u16, if i == 1 { 34 } else { 15 }).map_err(x)?;
+    }
+    for (r, l) in data["lines"].as_array().into_iter().flatten().enumerate() {
+        let r = r as u32 + 1;
+        let num = |k: &str| l[k].as_str().and_then(|v| v.parse::<f64>().ok()).or_else(|| l[k].as_f64()).unwrap_or(0.0);
+        ws.write_string(r, 0, l["label"].as_str().unwrap_or_default()).map_err(x)?;
+        ws.write_string(r, 1, l["file_name"].as_str().unwrap_or_default()).map_err(x)?;
+        ws.write_string(r, 2, l["posted_at"].as_str().unwrap_or_default().get(..10).unwrap_or_default()).map_err(x)?;
+        ws.write_number(r, 3, l["rows_posted"].as_f64().unwrap_or(0.0)).map_err(x)?;
+        ws.write_number(r, 4, l["rows_left_out"].as_f64().unwrap_or(0.0)).map_err(x)?;
+        ws.write_string(r, 5, l["measure"].as_str().unwrap_or_default()).map_err(x)?;
+        ws.write_number(r, 6, num("source")).map_err(x)?;
+        ws.write_number(r, 7, num("imported")).map_err(x)?;
+        let diff = num("difference");
+        if diff != 0.0 {
+            ws.write_number_with_format(r, 8, diff, &red).map_err(x)?;
+        } else {
+            ws.write_number(r, 8, diff).map_err(x)?;
+        }
+    }
+    let n = data["lines"].as_array().map_or(0, |a| a.len()) as u32 + 2;
+    ws.write_string_with_format(n, 0, if data["reconciled"].as_bool() == Some(true) { "Reconciled" } else { "Not reconciled" }, &bold).map_err(x)?;
+    ws.write_string(n + 1, 0, format!("Imports not finished: {}", data["unfinished"].as_array().map_or(0, |a| a.len()))).map_err(x)?;
+    let bytes = wb.save_to_buffer().map_err(x)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+            (header::CONTENT_DISPOSITION, "attachment; filename=\"SShop_Migration_Reconciliation.xlsx\"".to_string()),
+        ],
+        bytes,
+    ))
+}
+
+/// Marks onboarding complete — refused while anything differs or an import is unfinished.
+async fn complete_onboarding(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    can(&ctx)?;
+    ctx.require_full()?;
+    let mut tx = state.db.begin().await?;
+    let data = reconcile_data(&mut tx, ctx.tenant_id, &RecQuery::default()).await?;
+    if data["reconciled"].as_bool() != Some(true) {
+        return Err(refused(
+            "Not reconciled yet",
+            format!(
+                "{} difference(s) and {} unfinished import(s) remain — resolve them (Reconciliation) before completing onboarding",
+                data["differences"], data["unfinished"].as_array().map_or(0, |a| a.len())
+            ),
+        ));
+    }
+    sqlx::query("UPDATE tenants SET onboarding_completed_at = now() WHERE id = $1").bind(ctx.tenant_id).execute(&mut *tx).await?;
+    audit::record(&mut tx, &ctx, Entry::new("onboarding", "completed", "tenant", ctx.tenant_id).after(json!({ "batches": data["lines"].as_array().map_or(0, |a| a.len()) }))).await?;
+    tx.commit().await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1115,13 +1546,19 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Va
     let mut matched = 0;
     let mut quantity: i64 = 0;
     let mut amount = Decimal::ZERO;
-    if dataset == "sales" {
-        let (n, total) = post_sales(conn, ctx, &cfg, id, uploader, &rows).await?;
+    let grouped = matches!(dataset.as_str(), "sales" | "orders" | "transfers");
+    if grouped {
+        let (n, total, units) = match dataset.as_str() {
+            "sales" => post_sales(conn, ctx, &cfg, id, uploader, &rows).await.map(|(n, v)| (n, v, 0))?,
+            "orders" => post_orders(conn, ctx, &cfg, id, uploader, &rows).await?,
+            _ => post_transfers(conn, ctx, id, uploader, &rows).await?,
+        };
         posted = rows.len() as i32;
         created = n;
         amount = total;
+        quantity = units;
     }
-    for (row_no, data) in rows.iter().filter(|_| dataset != "sales") {
+    for (row_no, data) in rows.iter().filter(|_| !grouped) {
         let d = data.as_object().cloned().unwrap_or_default();
         let target = match dataset.as_str() {
             "products" => {
@@ -1402,6 +1839,151 @@ async fn post_sales(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantSe
         value += total;
     }
     Ok((order.len() as i32, value))
+}
+
+/// Rows grouped by a reference, in file order.
+fn group(rows: &[(i32, Value)], key: &str) -> AppResult<Vec<(String, Vec<(i32, Map<String, Value>)>)>> {
+    let mut out: Vec<(String, Vec<(i32, Map<String, Value>)>)> = Vec::new();
+    for (row_no, v) in rows {
+        let d = v.as_object().cloned().unwrap_or_default();
+        let rf = s_req(&d, key)?;
+        match out.iter_mut().find(|(k, _)| *k == rf) {
+            Some((_, lines)) => lines.push((*row_no, d)),
+            None => out.push((rf, vec![(*row_no, d)])),
+        }
+    }
+    Ok(out)
+}
+
+async fn mark_posted(conn: &mut PgConnection, batch: Uuid, lines: &[(i32, Map<String, Value>)], target: Uuid) -> AppResult<()> {
+    for (row_no, _) in lines {
+        sqlx::query("UPDATE import_rows SET status = 'posted', target_id = $3 WHERE batch_id = $1 AND row_no = $2").bind(batch).bind(row_no).bind(target).execute(&mut *conn).await?;
+    }
+    Ok(())
+}
+
+/// Orders: history (closed: no sale, no stock held) or outstanding (into Orders with the original date; confirmed
+/// stages hold stock like the live flow). No messages are sent. Returns (orders, value, units held).
+async fn post_orders(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantSettings, batch: Uuid, uploader: Option<Uuid>, rows: &[(i32, Value)]) -> AppResult<(i32, Decimal, i64)> {
+    let groups = group(rows, "order")?;
+    let mut value = Decimal::ZERO;
+    let mut held = 0i64;
+    for (rf, lines) in &groups {
+        let head = &lines[0].1;
+        let branch = uuid_of(head, "branch_id")?;
+        let reserve = head.get("reserve").and_then(|v| v.as_bool()).unwrap_or(false);
+        let closed = head.get("closed").and_then(|v| v.as_bool()).unwrap_or(false);
+        let at = noon(ctx, s(head, "date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()).ok_or_else(|| bad("Order Date"))?);
+        let total: Decimal = lines.iter().map(|(_, d)| money(d, "unit_price").unwrap_or_default() * Decimal::from(d.get("quantity").and_then(|v| v.as_i64()).unwrap_or(0))).sum();
+        let notes = format!("{}{}", if closed { "Imported order history" } else { "Imported outstanding order" }, s(head, "notes").map(|n| format!(" — {n}")).unwrap_or_default());
+        let order: Uuid = sqlx::query_scalar(
+            "INSERT INTO orders (tenant_id, branch_id, order_no, customer_id, status, source, delivery_location, notes, total, reserved, created_by, created_at, updated_at, import_batch_id, is_legacy)
+             VALUES ($1,$2,$3,$4,$5,'internal',$6,$7,$8,$9,$10,$11,$11,$12,$13) RETURNING id",
+        )
+        .bind(ctx.tenant_id)
+        .bind(branch)
+        .bind(rf)
+        .bind(uuid_of(head, "customer_id")?)
+        .bind(s_req(head, "status")?)
+        .bind(s(head, "delivery").unwrap_or(""))
+        .bind(notes)
+        .bind(total.round_dp(2))
+        .bind(reserve)
+        .bind(uploader)
+        .bind(at)
+        .bind(batch)
+        .bind(closed)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => rule(format!("Order {rf} already exists")),
+            _ => e.into(),
+        })?;
+        for (_, d) in lines {
+            let product = uuid_of(d, "product_id")?;
+            let qty = d.get("quantity").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+            let price = money(d, "unit_price").unwrap_or_default();
+            sqlx::query("INSERT INTO order_items (order_id, product_id, quantity, unit_price, line_total) VALUES ($1,$2,$3,$4,$5)")
+                .bind(order)
+                .bind(product)
+                .bind(qty)
+                .bind(price)
+                .bind((price * Decimal::from(qty)).round_dp(2))
+                .execute(&mut *conn)
+                .await?;
+            if reserve {
+                crate::inventory::reserve(conn, ctx.tenant_id, branch, product, qty, cfg.stock.allow_negative).await?;
+                held += qty as i64;
+            }
+        }
+        mark_posted(conn, batch, lines, order).await?;
+        value += total;
+    }
+    Ok((groups.len() as i32, value, held))
+}
+
+/// Transfers: received / cancelled history (no stock moves: opening stock already reflects it), in transit (sent
+/// before the cutover; receiving it in S'Shop adds it at the destination) or pending (a draft to dispatch).
+/// Returns (transfers, 0, units).
+async fn post_transfers(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, uploader: Option<Uuid>, rows: &[(i32, Value)]) -> AppResult<(i32, Decimal, i64)> {
+    let groups = group(rows, "transfer")?;
+    let mut units = 0i64;
+    for (rf, lines) in &groups {
+        let head = &lines[0].1;
+        let status = s_req(head, "status")?;
+        let date = s(head, "date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()).ok_or_else(|| bad("Transfer Date"))?;
+        let at = noon(ctx, date);
+        let received_at = s(head, "received_date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()).map(|d| noon(ctx, d));
+        let sent = matches!(status.as_str(), "received" | "dispatched");
+        let notes = format!(
+            "{}{}",
+            match status.as_str() {
+                "dispatched" => "Imported in transit (sent before S'Shop)",
+                "draft" => "Imported pending transfer",
+                _ => "Imported transfer history",
+            },
+            s(head, "notes").map(|n| format!(" — {n}")).unwrap_or_default()
+        );
+        let transfer: Uuid = sqlx::query_scalar(
+            "INSERT INTO transfers (tenant_id, transfer_no, from_branch_id, to_branch_id, status, transfer_date, notes, created_by,
+                    dispatched_by, dispatched_at, received_by, received_at, created_at, import_batch_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id",
+        )
+        .bind(ctx.tenant_id)
+        .bind(rf)
+        .bind(uuid_of(head, "from_id")?)
+        .bind(uuid_of(head, "to_id")?)
+        .bind(&status)
+        .bind(date)
+        .bind(notes)
+        .bind(uploader)
+        .bind(if sent { uploader } else { None })
+        .bind(if sent { Some(at) } else { None })
+        .bind(if status == "received" { uploader } else { None })
+        .bind(if status == "received" { received_at } else { None })
+        .bind(at)
+        .bind(batch)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => rule(format!("Transfer {rf} already exists")),
+            _ => e.into(),
+        })?;
+        for (_, d) in lines {
+            let qty = d.get("dispatched").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+            let got = if status == "received" { d.get("received").and_then(|v| v.as_i64()).map(|g| g as i32).unwrap_or(qty) } else { qty };
+            sqlx::query("INSERT INTO transfer_items (transfer_id, product_id, quantity, short_qty) VALUES ($1,$2,$3,$4)")
+                .bind(transfer)
+                .bind(uuid_of(d, "product_id")?)
+                .bind(qty)
+                .bind((qty - got).max(0))
+                .execute(&mut *conn)
+                .await?;
+            units += qty as i64;
+        }
+        mark_posted(conn, batch, lines, transfer).await?;
+    }
+    Ok((groups.len() as i32, Decimal::ZERO, units))
 }
 
 /// A historical credit sale (or an Opening Credit Balance without item history): the sale, its credit with the

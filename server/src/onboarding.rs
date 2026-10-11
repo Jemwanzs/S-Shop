@@ -59,6 +59,8 @@ pub const DATASETS: &[(&str, &str)] = &[
     ("sales", "Sales history"),
     ("credit", "Credit sales & balances"),
     ("loyalty", "Loyalty opening points"),
+    ("orders", "Orders"),
+    ("transfers", "Stock transfers"),
 ];
 
 pub fn label(dataset: &str) -> Option<&'static str> {
@@ -75,6 +77,8 @@ pub fn columns(dataset: &str) -> &'static [Col] {
         "sales" => &SALES,
         "credit" => &CREDIT,
         "loyalty" => &LOYALTY,
+        "orders" => &ORDERS,
+        "transfers" => &TRANSFERS,
         _ => &[],
     }
 }
@@ -163,6 +167,32 @@ static LOYALTY: [Col; 7] = [
     Col { aliases: &["redeemed", "points redeemed", "total redeemed"], ..col("redeemed", "Points Redeemed", Need::Optional, Kind::Int, "Lifetime points redeemed before S'Shop.", "150") },
     Col { aliases: &["date", "as of", "effective"], ..col("effective", "Effective Date", Need::Required, Kind::Date, "The date of the balance — normally the migration cutover.", "2026-10-01") },
     Col { aliases: &["expiry", "expires", "expires on"], ..col("expiry", "Expiry Date", Need::Optional, Kind::Date, "When these points expire, if they do.", "") },
+    Col { aliases: &["remarks", "comment"], ..col("notes", "Notes", Need::Optional, Kind::Text, "", "") },
+];
+
+static ORDERS: [Col; 10] = [
+    Col { aliases: &["order", "order no", "order number", "reference"], ..col("order", "Order Reference", Need::Required, Kind::Code, "Your original order number. Lines with the same reference are one order. Kept as the order number.", "ORD-0311") },
+    Col { aliases: &["date", "order date", "ordered on"], ..col("date", "Order Date", Need::Required, Kind::Date, "The original order date.", "2026-09-20") },
+    Col { aliases: &["customer", "mobile", "phone", "customer reference", "customer mobile"], ..col("customer", "Customer Mobile", Need::Required, Kind::Code, "An existing customer's mobile (import customers first).", "0712345678") },
+    Col { aliases: &["branch", "branch code", "store"], ..col("branch", "Branch Code", Need::Required, Kind::Code, "The branch that fulfils the order.", "MAIN") },
+    Col { aliases: &["product code", "code", "sku", "barcode"], ..col("product", "Product Code", Need::Required, Kind::Code, "The product's code (or product barcode).", "BP100") },
+    Col { aliases: &["qty"], ..col("quantity", "Quantity", Need::Required, Kind::Int, "Units ordered (more than 0).", "1") },
+    Col { aliases: &["price", "unit price"], ..col("unit_price", "Unit Price", Need::Required, Kind::Money, "Price of one unit on the order.", "3500") },
+    Col { choices: &["New", "Confirmed", "Preparing", "Dispatched", "On delivery", "Delivered", "Completed", "Cancelled", "Rejected", "Returned"], aliases: &["status"], ..col("status", "Order Status", Need::Required, Kind::Text, "The status today. Orders still in progress go into Orders (confirmed ones hold stock); delivered / completed / cancelled ones are history and create no sale — import their sales in Sales history.", "Confirmed") },
+    Col { aliases: &["delivery", "delivery details", "address", "location"], ..col("delivery", "Delivery Location", Need::Optional, Kind::Text, "", "Kilimani") },
+    Col { aliases: &["remarks", "comment"], ..col("notes", "Notes", Need::Optional, Kind::Text, "", "") },
+];
+
+static TRANSFERS: [Col; 10] = [
+    Col { aliases: &["transfer", "transfer no", "transfer number", "reference"], ..col("transfer", "Transfer Reference", Need::Required, Kind::Code, "Your original transfer number. Lines with the same reference are one transfer.", "TRF-0042") },
+    Col { aliases: &["from", "from branch", "origin", "origin branch"], ..col("from_branch", "Origin Branch Code", Need::Required, Kind::Code, "The branch the stock left.", "MAIN") },
+    Col { aliases: &["to", "to branch", "destination", "destination branch"], ..col("to_branch", "Destination Branch Code", Need::Required, Kind::Code, "The branch receiving it.", "WL") },
+    Col { aliases: &["product code", "code", "sku", "barcode"], ..col("product", "Product Code", Need::Required, Kind::Code, "The product's code (or product barcode).", "BP100") },
+    Col { aliases: &["qty", "quantity", "quantity sent", "dispatched"], ..col("dispatched", "Quantity Dispatched", Need::Required, Kind::Int, "Units sent (more than 0).", "5") },
+    Col { aliases: &["received", "quantity received"], ..col("received", "Quantity Received", Need::Conditional, Kind::Int, "Received transfers: units that arrived (the rest is recorded as short). Leave blank for the full quantity.", "5") },
+    Col { aliases: &["date", "transfer date", "sent on"], ..col("date", "Transfer Date", Need::Required, Kind::Date, "When it was sent.", "2026-09-10") },
+    Col { aliases: &["receipt date", "received on", "date received"], ..col("received_date", "Receipt Date", Need::Conditional, Kind::Date, "Received transfers: when it arrived.", "2026-09-11") },
+    Col { choices: &["Received", "In transit", "Pending", "Cancelled"], aliases: &["status"], ..col("status", "Transfer Status", Need::Required, Kind::Text, "Received / Cancelled = history (no stock moves: opening stock already reflects it). In transit = sent before the cutover, not yet arrived: receive it in S'Shop (it is in neither branch's opening stock). Pending = not sent: dispatch it in S'Shop.", "Received") },
     Col { aliases: &["remarks", "comment"], ..col("notes", "Notes", Need::Optional, Kind::Text, "", "") },
 ];
 

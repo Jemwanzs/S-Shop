@@ -3,13 +3,13 @@
 **Settings → Business → Onboarding** brings a business's records into S'Shop from Excel:
 - **Phase 1 (live):** Products, Customers, Opening stock balances, Expenses.
 - **Phase 2 (live):** Sales history, Credit sales and opening balances, Loyalty opening points.
-- **Phase 3 (next):** orders, transfers and the reconciliation report.
+- **Phase 3 (live):** Orders, Stock transfers, the Migration Reconciliation Report and completion.
 
 | Part | Where |
 |---|---|
 | Field definitions, templates, reading workbooks | `server/src/onboarding.rs` (`columns`, `template`, `read`) |
 | Upload, validation, approval, posting, history, error report | `server/src/routes/onboarding.rs` |
-| Schema | `migrations/0029_onboarding.sql` — `import_batches`, `import_rows`, `import_batch_id` on products / customers / expenses / stock movements, `tenants.migration_cutover` |
+| Schema | `migrations/0029_onboarding.sql` — `import_batches`, `import_rows`, `import_batch_id` on products / customers / expenses / stock movements, `tenants.migration_cutover`; `0030` — on sales, credit, loyalty; `0031` — on orders and transfers, `orders.is_legacy`, `tenants.onboarding_completed_at` |
 | Screen | `web/src/pages/settings/Onboarding.tsx` |
 | Permission | `settings.onboarding`; posting needs a full sign-in; the **Data import (onboarding)** workflow adds approval |
 
@@ -67,10 +67,31 @@ S'Shop records everything after it.
 
 All three import complete or not at all (money and points are never partially imported).
 
-## Phase 3 (roadmap 101, next)
+## Phase 3 (roadmap 101)
 
-- Orders and transfers: closed ones as history, outstanding ones into the live modules.
-- The migration reconciliation report.
+| Dataset | Rules |
+|---|---|
+| **Orders** | Rows with the same *Order Reference* are one order; its lines must agree on date, customer, branch, status and delivery location. **Closed** (at or past the stage that makes a sale — *Delivered* by default — or Cancelled / Rejected / Returned): history before the cutover, marked `is_legacy`, never moved again and never turned into a sale (import its revenue in Sales history). **Outstanding**: into Orders with the original date and no messages; from *Confirmed* on (when *Reserve stock* is on) the stock is held like the live flow, and the line that takes the running total past what is available is refused (unless negative stock is allowed). Stages switched off in Settings → Orders are refused. |
+| **Stock transfers** | Rows with the same *Transfer Reference* are one transfer; origin and destination must differ. **Received** (before the cutover, receipt on or after the transfer date, received ≤ dispatched; the shortfall kept) and **Cancelled**: history, stock never moves again (opening stock already reflects it). **In transit**: imported as dispatched — receiving it in S'Shop books it in at the destination only; it must not be in either branch's opening stock; individually tracked items refused. **Pending**: a draft dispatched in S'Shop later. |
+
+Both import complete or not at all.
+
+### Migration reconciliation
+
+For each imported workbook, what it said (its imported rows) against what S'Shop holds for that batch now:
+
+| Dataset | Measure |
+|---|---|
+| Products, Customers | records that still exist |
+| Opening stock | units |
+| Expenses, Sales history, Orders | amount |
+| Credit | balance as imported (later repayments are not differences) |
+| Loyalty | points |
+| Transfers | units dispatched |
+
+Filters: dataset, batch, branch, dates; **Export** gives the same as Excel. Imports left unfinished (ready to post,
+awaiting approval) are listed. **Complete onboarding** (full sign-in, audited) is refused while any difference or
+unfinished import remains; the date is shown on the centre afterwards.
 
 ## Tests
 
@@ -80,5 +101,8 @@ All three import complete or not at all (money and points are never partially im
   - customer matching;
   - opening stock completeness and never adding on top of recorded stock;
   - day-first dates, approval by a second administrator, expense references imported once;
-  - totals and permissions.
+  - totals and permissions;
+  - orders: closed history frozen, outstanding holding stock, short stock, statuses, mismatched lines, re-imports;
+  - transfers: history, in transit received in S'Shop at the destination only, invalid branches and dates;
+  - reconciliation without differences, filters, Excel export, completion refused while an import is unfinished.
 - **Unit**: templates read back, header aliases, value conversion.

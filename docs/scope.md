@@ -519,9 +519,12 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   trigger automatic reminders), **Loyalty opening points** (ledger opening entries, earned − redeemed = balance, once per
   customer). Customers' spend, visits and tier update with the original dates. Gap avoided: the purchase helper would
   have stamped *last purchase* as today.
-- ⏳ **101. Onboarding phase 3** — Orders and Stock transfers (closed as history; outstanding into the live modules with
-  reservations / in-transit reconciled against opening stock), migration dashboard filters and the Migration
-  Reconciliation Report (source totals vs imported, unresolved differences block completion).
+- ✅ **101. Onboarding phase 3** — **Orders** (closed ones as frozen history: no sale, no stock; outstanding ones into
+  Orders with their original date, confirmed stages holding stock, refused line by line when stock is short) and
+  **Stock transfers** (received / cancelled as history without moving stock again, *in transit* as dispatched to receive
+  in S'Shop, *pending* as drafts). **Migration reconciliation** (filters: dataset, batch, branch, dates; Excel export) and
+  **Complete onboarding**, refused while any difference or unfinished import remains. Gaps closed: an imported delivered
+  order could have been moved to *Completed* and created a duplicate sale; history orders no longer sit in *Active*.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

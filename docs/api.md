@@ -317,12 +317,15 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 |---|---|---|
 | GET | `/api/onboarding` | datasets with their columns, cutover, recent imports, totals (`settings.onboarding`) |
 | PUT | `/api/onboarding/cutover` (`date`) | migration cutover, full sign-in, audited |
-| GET | `/api/onboarding/{dataset}/template` | `.xlsx` template (`products`, `customers`, `opening_stock`, `expenses`, `sales`, `credit`, `loyalty`) |
+| GET | `/api/onboarding/{dataset}/template` | `.xlsx` template (`products`, `customers`, `opening_stock`, `expenses`, `sales`, `credit`, `loyalty`, `orders`, `transfers`) |
 | POST | `/api/onboarding/{dataset}/upload` (multipart `file`, `mode` create/update, optional `mapping` JSON) | reads, validates and stores a batch; returns the preview |
 | GET | `/api/onboarding/batches/{id}?status=&offset=` | batch and up to 200 rows |
 | POST | `/api/onboarding/batches/{id}/remap` (`mapping`) · `/revalidate` · `/cancel` | before submission |
 | GET | `/api/onboarding/batches/{id}/errors` | `.xlsx` of the rows to fix |
 | POST | `/api/onboarding/batches/{id}/post` (`skip_invalid`) | posts (atomic, re-validated) or sends for approval (`data.import` workflow) |
+| GET | `/api/onboarding/reconciliation?dataset=&batch_id=&branch_id=&from=&to=` | per posted batch: workbook total, S'Shop total, difference; unfinished imports; `reconciled` |
+| GET | `/api/onboarding/reconciliation/export` (same filters) | the Migration Reconciliation Report as `.xlsx` |
+| POST | `/api/onboarding/complete` | marks onboarding complete (full sign-in, audited); 422 while differences or unfinished imports remain |
 
 ## M-Pesa per business & STK Push sales ([module 32](modules/32-mpesa-stk.md))
 

@@ -3,7 +3,7 @@
  * Phase 1: products, customers, opening stock balances and expenses; the other datasets follow. */
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Download, FileSpreadsheet, Info, RefreshCw, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, Download, FileSpreadsheet, Info, RefreshCw, Scale, Trash2, Upload } from "lucide-react";
 import { api, session } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useSession } from "@/lib/session";
@@ -29,11 +29,20 @@ interface BatchRow {
   invalid_rows: number; posted_rows: number; created_at: string; posted_at: string | null; uploaded_by: string | null; decided_by: string | null; error: string | null;
 }
 interface Overview {
-  cutover: string | null; datasets: Dataset[]; batches: BatchRow[]; branches: number;
+  cutover: string | null; completed_at: string | null; datasets: Dataset[]; batches: BatchRow[]; branches: number;
   totals: {
     products: number; customers: number; opening_quantity: number; opening_value: string | number; expenses_count: number; expenses_amount: string | number;
     sales_count: number; sales_value: string | number; credit_outstanding: string | number; loyalty_points: number;
+    orders_history: number; orders_outstanding: number; transfers: number; transfers_in_transit: number;
   };
+}
+interface RecLine {
+  batch_id: string; dataset: string; label: string; file_name: string; posted_at: string; rows_posted: number; rows_left_out: number;
+  measure: string; source: string | number; imported: string | number; difference: string | number;
+}
+interface Reconciliation {
+  lines: RecLine[]; unfinished: { id: string; dataset: string; file_name: string; status: string; created_at: string }[];
+  differences: number; rows_left_out: number; reconciled: boolean; completed_at: string | null;
 }
 interface Msg { level: "error" | "warning"; field: string; message: string }
 interface Row { row_no: number; status: "valid" | "warning" | "invalid" | "posted" | "skipped"; data: Record<string, unknown>; source: Record<string, string>; messages: Msg[] }
@@ -44,10 +53,9 @@ const STATUS: Record<string, [Tone, string]> = {
   rejected: ["danger", "Rejected"], cancelled: ["neutral", "Discarded"], failed: ["danger", "Failed"],
 };
 const ROW_TONE: Record<string, Tone> = { valid: "success", warning: "warning", invalid: "danger", posted: "success", skipped: "neutral" };
-const LATER = ["Orders & outstanding orders", "Stock transfers", "Migration reconciliation report"];
 const ORDER = [
   "Confirm branches (codes) and settings", "Products", "Customers", "Sales history and expenses", "Credit sales & opening balances",
-  "Loyalty opening points", "Opening stock at the cutover date", "Reconcile, then trade in S'Shop",
+  "Loyalty opening points", "Opening stock at the cutover date", "Orders and stock transfers", "Reconcile, then trade in S'Shop",
 ];
 
 async function fetchFile(path: string, name: string) {
@@ -68,7 +76,10 @@ export function OnboardingSettings() {
   const cut = cutover ?? o.cutover ?? "";
 
   return (
-    <SettingsPage title="Onboarding" description="Bring your records into S'Shop from Excel — products, customers, opening stock, sales history, credit balances, loyalty points and expenses. Download a template, fill it in, upload it, check the preview and import it.">
+    <SettingsPage title="Onboarding" description="Bring your records into S'Shop from Excel — products, customers, opening stock, sales history, credit balances, loyalty points, expenses, orders and transfers. Download a template, fill it in, upload it, check the preview and import it.">
+      {o.completed_at && (
+        <p className="surface flex items-center gap-2 p-3 text-sm"><CheckCircle2 className="h-4 w-4 text-success" /> {t("Onboarding completed")} · {ago(o.completed_at)}</p>
+      )}
       <Card title="Migration cutover">
         <div className="space-y-2 py-2 text-sm">
           <p className="text-xs text-muted-foreground">{t("The day S'Shop takes over: records before it are history, opening stock balances are as of it, and S'Shop records everything after it.")}</p>
@@ -87,6 +98,8 @@ export function OnboardingSettings() {
         <Tile label="Historical sales" value={`${count(o.totals.sales_count)} · ${money(o.totals.sales_value)}`} />
         <Tile label="Outstanding credit" value={money(o.totals.credit_outstanding)} />
         <Tile label="Loyalty points imported" value={count(o.totals.loyalty_points)} />
+        <Tile label="Orders imported" value={`${count(o.totals.orders_history + o.totals.orders_outstanding)} · ${count(o.totals.orders_outstanding)} ${t("open")}`} />
+        <Tile label="Transfers imported" value={`${count(o.totals.transfers)} · ${count(o.totals.transfers_in_transit)} ${t("in transit")}`} />
       </div>
       <Card title="Recommended order">
         <ol className="grid gap-1 py-2 text-sm sm:grid-cols-2">
@@ -115,9 +128,7 @@ export function OnboardingSettings() {
           );
         })}
       </div>
-      <Card title="Coming next">
-        <p className="py-2 text-xs text-muted-foreground">{t("Next onboarding phase:")} {LATER.map((l) => t(l)).join(" · ")}</p>
-      </Card>
+      <ReconciliationCard datasets={o.datasets} onChange={refresh} />
       <Card title="Import history">
         <ul className="divide-y text-sm">
           {o.batches.map((b) => (
@@ -135,6 +146,102 @@ export function OnboardingSettings() {
       </Card>
       {open && <BatchDialog id={open} datasets={o.datasets} onClose={() => { setOpen(null); refresh(); }} />}
     </SettingsPage>
+  );
+}
+
+const MEASURE: Record<string, string> = { records: "Records", units: "Units", amount: "Amount", balance: "Balance", points: "Points" };
+
+/** Migration reconciliation: what each imported workbook said against what S'Shop holds for it, and completion. */
+function ReconciliationCard({ datasets, onChange }: { datasets: Dataset[]; onChange: () => void }) {
+  const [f, setF] = useState({ dataset: "", branch_id: "", from: "", to: "" });
+  const [confirm, setConfirm] = useState(false);
+  const query = { dataset: f.dataset || undefined, branch_id: f.branch_id || undefined, from: f.from || undefined, to: f.to || undefined };
+  const q = useQuery({ queryKey: ["onboarding-reconciliation", f], queryFn: () => api<Reconciliation>("/onboarding/reconciliation", { query }) });
+  const branches = useQuery({ queryKey: ["branches"], queryFn: () => api<{ id: string; name: string; is_active: boolean }[]>("/branches") });
+  const qs = new URLSearchParams(Object.entries(query).filter((e): e is [string, string] => !!e[1])).toString();
+  const r = q.data;
+  const filtered = !!(f.dataset || f.branch_id || f.from || f.to);
+  const isMoney = (m: string) => m === "amount" || m === "balance";
+  const show = (m: string, v: string | number) => (isMoney(m) ? money(v) : count(Number(v)));
+  return (
+    <Card title="Migration reconciliation">
+      <div className="space-y-3 py-2 text-sm">
+        <p className="text-xs text-muted-foreground">{t("Each imported workbook's totals against what S'Shop holds for it now. Every difference must be zero and every import finished before onboarding is complete.")}</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Select value={f.dataset} onChange={(v) => setF({ ...f, dataset: v })} label={t("Dataset")}>
+            <option value="">{t("All datasets")}</option>
+            {datasets.map((d) => <option key={d.key} value={d.key}>{t(d.label)}</option>)}
+          </Select>
+          <Select value={f.branch_id} onChange={(v) => setF({ ...f, branch_id: v })} label={t("Branch")}>
+            <option value="">{t("All branches")}</option>
+            {(branches.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </Select>
+          <Input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} aria-label={t("From")} />
+          <Input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} aria-label={t("To")} />
+        </div>
+        {!r ? <Loading /> : (
+          <>
+            <div className="-mx-1 overflow-x-auto">
+              <table className="w-full min-w-[34rem] text-xs">
+                <thead className="text-muted-foreground">
+                  <tr className="text-start">
+                    <th className="p-1 text-start">{t("Dataset")}</th><th className="p-1 text-start">{t("File")}</th><th className="p-1 text-end">{t("Rows")}</th>
+                    <th className="p-1 text-end">{t("Workbook")}</th><th className="p-1 text-end">{t("In S'Shop")}</th><th className="p-1 text-end">{t("Difference")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {r.lines.map((l) => {
+                    const off = Number(l.difference) !== 0;
+                    return (
+                      <tr key={l.batch_id}>
+                        <td className="p-1">{t(l.label)}<span className="block text-muted-foreground">{t(MEASURE[l.measure] ?? l.measure)}</span></td>
+                        <td className="max-w-40 truncate p-1">{l.file_name}</td>
+                        <td className="num p-1 text-end">{count(l.rows_posted)}{l.rows_left_out > 0 && <span className="block text-warning">{count(l.rows_left_out)} {t("left out")}</span>}</td>
+                        <td className="num p-1 text-end">{show(l.measure, l.source)}</td>
+                        <td className="num p-1 text-end">{show(l.measure, l.imported)}</td>
+                        <td className={cn("num p-1 text-end font-semibold", off ? "text-destructive" : "text-success")}>{show(l.measure, l.difference)}</td>
+                      </tr>
+                    );
+                  })}
+                  {!r.lines.length && <tr><td colSpan={6} className="p-2 text-muted-foreground">{t("No imports yet.")}</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            {r.unfinished.length > 0 && (
+              <div className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs">
+                <p className="font-medium">{t("Imports not finished")} ({count(r.unfinished.length)})</p>
+                <p className="text-muted-foreground">{r.unfinished.map((u) => `${t(datasets.find((d) => d.key === u.dataset)?.label ?? u.dataset)} — ${u.file_name} (${t(STATUS[u.status]?.[1] ?? u.status)})`).join(" · ")}</p>
+                <p className="text-muted-foreground">{t("Import them, or discard them from Import history.")}</p>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill tone={r.reconciled ? "success" : "warning"}>{r.reconciled ? t("Reconciled") : `${count(r.differences)} ${t("difference(s)")}`}</Pill>
+              <Button size="sm" variant="outline" onClick={() => fetchFile(`/onboarding/reconciliation/export${qs ? `?${qs}` : ""}`, "SShop_Migration_Reconciliation.xlsx").catch((e) => toast.error(e))}>
+                <Download /> {t("Export")}
+              </Button>
+              {!r.completed_at && (
+                <Button size="sm" disabled={filtered || !r.reconciled} title={filtered ? t("Clear the filters to complete onboarding") : undefined} onClick={() => setConfirm(true)}>
+                  <Scale /> {t("Complete onboarding")}
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+      {confirm && (
+        <ResponsiveDialog open onOpenChange={(v) => !v && setConfirm(false)} title={t("Complete onboarding")}>
+          <div className="space-y-3 text-sm">
+            <p>{t("Every import reconciles. From now on S'Shop is the record: sell, order, transfer and collect credit here.")}</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setConfirm(false)}>{t("Cancel")}</Button>
+              <ActionButton online onAction={async () => { await api("/onboarding/complete", { method: "POST" }); toast.success("Onboarding completed"); setConfirm(false); q.refetch(); onChange(); }}>
+                {t("Complete onboarding")}
+              </ActionButton>
+            </div>
+          </div>
+        </ResponsiveDialog>
+      )}
+    </Card>
   );
 }
 

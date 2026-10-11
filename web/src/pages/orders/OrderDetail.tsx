@@ -194,7 +194,7 @@ export default function OrderDetail() {
           <Section title="Fulfilment">
             <KV label="Branch">{o.branch_name}</KV>
             <KV label="Source">{t(o.source === "portal" ? "Ordering link" : o.source === "website" ? "Website" : "Staff")}</KV>
-            <KV label="Stock">{o.sale_id ? "Sold" : o.reserved ? "Reserved" : "Not reserved"}</KV>
+            <KV label="Stock">{o.is_legacy ? t("Imported history") : o.sale_id ? "Sold" : o.reserved ? "Reserved" : "Not reserved"}</KV>
             <KV label="Becomes a sale at">{label(data.sale_on_status)}</KV>
             {o.sale_id && <KV label="Receipt"><Link to={`/sales/${o.sale_id}`} className="num text-primary">{o.receipt_no}</Link></KV>}
           </Section>

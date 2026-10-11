@@ -354,6 +354,8 @@ export interface OrderRow {
   total: Money;
   item_count: number;
   reserved: boolean;
+  /** Imported order history: shown, never moved again. */
+  is_legacy?: boolean;
   sale_id: Id | null;
   receipt_no: string | null;
   track_token: Id;

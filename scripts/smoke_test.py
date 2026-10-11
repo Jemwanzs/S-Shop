@@ -2640,7 +2640,7 @@ call("PUT", "/settings", st)
 
 step("Roadmap 99: onboarding — Excel templates, validation, approval and posting")
 ov = call("GET", "/onboarding")
-check("onboarding centre: its datasets, cutover, totals", [d["key"] for d in ov["datasets"]] == ["products", "customers", "opening_stock", "expenses", "sales", "credit", "loyalty"] and "totals" in ov, [d["key"] for d in ov["datasets"]])
+check("onboarding centre: its datasets, cutover, totals", [d["key"] for d in ov["datasets"]] == ["products", "customers", "opening_stock", "expenses", "sales", "credit", "loyalty", "orders", "transfers"] and "totals" in ov, [d["key"] for d in ov["datasets"]])
 req = urllib.request.Request(BASE + "/api/onboarding/products/template", headers={"Authorization": "Bearer " + TOKEN})
 tpl = urllib.request.urlopen(req).read()
 check("templates download as Excel workbooks", tpl[:2] == b"PK" and len(tpl) > 3000, len(tpl))
@@ -2779,6 +2779,85 @@ check("opening points added once (+400 available, history kept as earned and red
 ly2 = upload_xlsx("loyalty", make_xlsx(lh, [[known, 50, "", "", today_s]]))
 check("opening points are never allocated twice", ly2["batch"]["invalid_rows"] == 1 and "already imported" in ly2["rows"][0]["messages"][0]["message"])
 call("POST", f"/onboarding/batches/{ly2['batch']['id']}/cancel", {})
+# ── Roadmap 101: orders, transfers, reconciliation, completion ──
+wl_code = f"WL{suffix}"
+oh = ["Order Reference", "Order Date", "Customer Mobile", "Branch Code", "Product Code", "Quantity", "Unit Price", "Order Status", "Delivery Location", "Notes"]
+orows = [["O" + suffix + "1", "2026-03-10", known, main_code, f"OBJ{suffix}", 2, 650, "Completed", "Kilimani", ""],     # history
+         ["O" + suffix + "2", "2026-03-20", known, main_code, f"OBJ{suffix}", 2, 650, "Confirmed", "Kilimani", ""],     # open, holds stock
+         ["O" + suffix + "3", "2026-03-21", known, main_code, f"OBJ{suffix}", 1, 650, "New", "", ""],                   # open, nothing held
+         ["O" + suffix + "4", "2026-03-21", known, main_code, f"OBJ{suffix}", 1, 650, "Lost", "", ""],                  # unknown status
+         ["O" + suffix + "5", "2026-03-22", known, main_code, f"OBJ{suffix}", 50, 650, "Preparing", "", ""],            # more than the stock
+         ["O" + suffix + "6", today_s, known, main_code, f"OBJ{suffix}", 1, 650, "Delivered", "", ""],                  # closed on the cutover
+         ["O" + suffix + "7", "2026-03-23", known, main_code, f"OBJ{suffix}", 1, 650, "New", "", ""],
+         ["O" + suffix + "7", "2026-03-24", known, main_code, f"OBJ{suffix}", 1, 650, "New", "", ""]]                  # same order, other date
+ob_o = upload_xlsx("orders", make_xlsx(oh, orows))
+obad = {r_["row_no"]: " ".join(m["message"] for m in r_["messages"]) for r_ in ob_o["rows"] if r_["status"] == "invalid"}
+check("orders: unknown status, stock not available, closed on the cutover and mismatched lines refused",
+      "Order Status" in obad.get(5, "") and "only" in obad.get(6, "") and "cutover" in obad.get(7, "") and "same date" in obad.get(9, "") and len(obad) == 4, obad)
+call("POST", f"/onboarding/batches/{ob_o['batch']['id']}/post", {"skip_invalid": True}, expect=422)
+call("POST", f"/onboarding/batches/{ob_o['batch']['id']}/cancel", {})
+jar_main = call("GET", f"/stock?q=Imported Jar {suffix}&branch_id={BRANCH}")["items"][0]
+ob_o = upload_xlsx("orders", make_xlsx(oh, orows[:3]))
+od = call("POST", f"/onboarding/batches/{ob_o['batch']['id']}/post", {})
+check("orders posted: 3 orders, 2 units held for the confirmed one", od["summary"]["created"] == 3 and od["summary"]["quantity"] == 2, od["summary"])
+olist = call("GET", f"/orders?q=O{suffix}&status=all&limit=50")["items"]
+o1 = call("GET", f"/orders/{next(x['id'] for x in olist if x['order_no'] == 'O' + suffix + '1')}")
+o2 = call("GET", f"/orders/{next(x['id'] for x in olist if x['order_no'] == 'O' + suffix + '2')}")
+check("closed order is history: no sale, nothing held, never moves again", o1["order"]["is_legacy"] and o1["order"]["sale_id"] is None and not o1["order"]["reserved"] and o1["next_statuses"] == [], o1["order"])
+call("POST", f"/orders/{o1['order']['id']}/status", {"status": "cancelled"}, expect=422)
+check("open order keeps its date and holds its stock; it carries on in S'Shop", str(o2["order"]["created_at"])[:10] == "2026-03-20" and o2["order"]["reserved"] and "preparing" in o2["next_statuses"], o2["order"])
+jar_after = call("GET", f"/stock?q=Imported Jar {suffix}&branch_id={BRANCH}")["items"][0]
+check("the open order's units are reserved, on hand unchanged", jar_after["on_hand"] == jar_main["on_hand"] and jar_after.get("reserved", 0) == jar_main.get("reserved", 0) + 2, (jar_main, jar_after))
+again = upload_xlsx("orders", make_xlsx(oh, [orows[0]]))
+check("an order already in S'Shop is refused", again["batch"]["invalid_rows"] == 1 and "already in S'Shop" in again["rows"][0]["messages"][0]["message"])
+call("POST", f"/onboarding/batches/{again['batch']['id']}/cancel", {})
+
+th = ["Transfer Reference", "Origin Branch Code", "Destination Branch Code", "Product Code", "Quantity Dispatched", "Quantity Received", "Transfer Date", "Receipt Date", "Transfer Status", "Notes"]
+trows = [["T" + suffix + "1", main_code, wl_code, f"OBJ{suffix}", 5, 4, "2026-03-01", "2026-03-02", "Received", ""],
+         ["T" + suffix + "2", main_code, wl_code, f"OBJ{suffix}", 3, "", "2026-03-30", "", "In transit", ""],
+         ["T" + suffix + "3", main_code, wl_code, f"OBJ{suffix}", 1, "", "2026-03-30", "", "Pending", ""],
+         ["T" + suffix + "4", main_code, main_code, f"OBJ{suffix}", 1, "", "2026-03-30", "", "Pending", ""],      # same branch
+         ["T" + suffix + "5", main_code, wl_code, f"OBJ{suffix}", 2, 2, "2026-03-05", "2026-03-04", "Received", ""],  # received before sent
+         ["T" + suffix + "6", main_code, wl_code, f"OBJ{suffix}", 2, 2, "2026-03-05", "", "In transit", ""]]      # in transit yet received
+tb = upload_xlsx("transfers", make_xlsx(th, trows))
+tbad = {r_["row_no"]: " ".join(m["message"] for m in r_["messages"]) for r_ in tb["rows"] if r_["status"] == "invalid"}
+check("transfers: same branch, receipt before dispatch and received-while-in-transit refused",
+      "must differ" in tbad.get(5, "") and "before the Transfer Date" in tbad.get(6, "") and "leave Quantity Received empty" in tbad.get(7, "") and len(tbad) == 3, tbad)
+call("POST", f"/onboarding/batches/{tb['batch']['id']}/cancel", {})
+wl_jar = lambda: next((x["on_hand"] for x in call("GET", f"/stock?q=Imported Jar {suffix}&branch_id={b2}", branch=b2)["items"]), 0)
+wl_before = wl_jar()
+tb = upload_xlsx("transfers", make_xlsx(th, trows[:3]))
+td = call("POST", f"/onboarding/batches/{tb['batch']['id']}/post", {})
+check("transfers posted: 3 transfers, 9 units", td["summary"]["created"] == 3 and td["summary"]["quantity"] == 9, td["summary"])
+tl = call("GET", "/transfers?limit=200")["items"]
+tmap = {x["transfer_no"]: x for x in tl if x["transfer_no"].startswith("T" + suffix)}
+check("received as history, in transit as dispatched, pending as a draft", tmap["T" + suffix + "1"]["status"] == "received" and tmap["T" + suffix + "2"]["status"] == "dispatched" and tmap["T" + suffix + "3"]["status"] == "draft", {k: v["status"] for k, v in tmap.items()})
+t1 = call("GET", f"/transfers/{tmap['T' + suffix + '1']['id']}")
+check("received history keeps the short quantity", any(i_["short"] == 1 for i_ in t1["items"]) if "short" in t1["items"][0] else any(i_.get("short_qty") == 1 for i_ in t1["items"]), t1["items"])
+check("importing transfers never moves stock", call("GET", f"/stock?q=Imported Jar {suffix}&branch_id={BRANCH}")["items"][0]["on_hand"] == jar_main["on_hand"] and wl_jar() == wl_before)
+call("POST", f"/transfers/{tmap['T' + suffix + '2']['id']}/receive", branch=b2)
+check("receiving the in-transit transfer in S'Shop books it in at the destination only",
+      wl_jar() == wl_before + 3 and call("GET", f"/stock?q=Imported Jar {suffix}&branch_id={BRANCH}")["items"][0]["on_hand"] == jar_main["on_hand"])
+
+rec = call("GET", "/onboarding/reconciliation")
+rl = {(l_["dataset"]): l_ for l_ in rec["lines"] if l_["batch_id"] in (ob_o["batch"]["id"], tb["batch"]["id"])}
+check("reconciliation: orders 3,250 and transfers 9 units, no difference", float(rl["orders"]["source"]) == 3250 and float(rl["orders"]["difference"]) == 0
+      and float(rl["transfers"]["source"]) == 9 and float(rl["transfers"]["difference"]) == 0, rl)
+check("every imported batch reconciles", rec["differences"] == 0, [l_ for l_ in rec["lines"] if float(l_["difference"]) != 0])
+only = call("GET", "/onboarding/reconciliation?dataset=orders")
+check("reconciliation filters by dataset", only["lines"] and all(l_["dataset"] == "orders" for l_ in only["lines"]))
+req = urllib.request.Request(BASE + "/api/onboarding/reconciliation/export", headers={"Authorization": "Bearer " + TOKEN, "X-Branch-Id": BRANCH})
+check("reconciliation report downloads as Excel", urllib.request.urlopen(req).read()[:2] == b"PK")
+waiting = upload_xlsx("orders", make_xlsx(oh, [["O" + suffix + "9", "2026-03-21", known, main_code, f"OBJ{suffix}", 1, 650, "New", "", ""]]))
+check("an unfinished import is listed", any(u["id"] == waiting["batch"]["id"] for u in call("GET", "/onboarding/reconciliation")["unfinished"]))
+call("POST", "/onboarding/complete", {}, expect=422)
+check("onboarding cannot be completed while an import is unfinished", True)
+call("POST", f"/onboarding/batches/{waiting['batch']['id']}/cancel", {})
+leftover = [u for u in call("GET", "/onboarding/reconciliation")["unfinished"]]
+for u in leftover:
+    call("POST", f"/onboarding/batches/{u['id']}/cancel", {})
+call("POST", "/onboarding/complete", {})
+check("reconciled: onboarding completed", call("GET", "/onboarding")["completed_at"] is not None)
 spr = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
 s_mail = f"importclerk{ob}@sshop.test"
 call("POST", "/users", {"name": "Import Clerk", "email": s_mail, "pin": "4321", "role_id": spr, "all_branches": True, "branch_ids": []})

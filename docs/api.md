@@ -317,7 +317,7 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 |---|---|---|
 | GET | `/api/onboarding` | datasets with their columns, cutover, recent imports, totals (`settings.onboarding`) |
 | PUT | `/api/onboarding/cutover` (`date`) | migration cutover, full sign-in, audited |
-| GET | `/api/onboarding/{dataset}/template` | `.xlsx` template (`products`, `customers`, `opening_stock`, `expenses`) |
+| GET | `/api/onboarding/{dataset}/template` | `.xlsx` template (`products`, `customers`, `opening_stock`, `expenses`, `sales`, `credit`, `loyalty`) |
 | POST | `/api/onboarding/{dataset}/upload` (multipart `file`, `mode` create/update, optional `mapping` JSON) | reads, validates and stores a batch; returns the preview |
 | GET | `/api/onboarding/batches/{id}?status=&offset=` | batch and up to 200 rows |
 | POST | `/api/onboarding/batches/{id}/remap` (`mapping`) · `/revalidate` · `/cancel` | before submission |

@@ -29,6 +29,23 @@ pub fn referral_bonus(s: &TenantSettings, points: i64) -> i64 {
     points * s.loyalty.referral_bonus_percent / 100
 }
 
+/// A purchase from before S'Shop (onboarding imports, roadmap 100): totals and tier as for any purchase, and the
+/// last purchase only moves forward to the original date (never to today).
+pub async fn record_past_purchase(conn: &mut PgConnection, s: &TenantSettings, customer_id: Uuid, spend: Decimal, at: chrono::DateTime<chrono::Utc>) -> AppResult<()> {
+    let total: Decimal = sqlx::query_scalar(
+        "UPDATE customers SET total_spend = GREATEST(total_spend + $2, 0), purchase_count = purchase_count + 1,
+                last_purchase_at = GREATEST(COALESCE(last_purchase_at, $3), $3), updated_at = now()
+         WHERE id = $1 RETURNING total_spend",
+    )
+    .bind(customer_id)
+    .bind(spend)
+    .bind(at)
+    .fetch_one(&mut *conn)
+    .await?;
+    sqlx::query("UPDATE customers SET tier = $2 WHERE id = $1").bind(customer_id).bind(s.tier_for(total)).execute(&mut *conn).await?;
+    Ok(())
+}
+
 /// Record purchase totals and recompute the customer's tier.
 pub async fn record_purchase(conn: &mut PgConnection, s: &TenantSettings, customer_id: Uuid, spend_delta: Decimal, count_delta: i32) -> AppResult<()> {
     let total: Decimal = sqlx::query_scalar(

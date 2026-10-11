@@ -512,9 +512,13 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   barcode rules, update mode, catalogue branches without stock), **Customers** (matched by mobile, never duplicated),
   **Opening stock** (stock-ledger opening receipts at the as-of date, item barcodes, never on top of recorded stock),
   **Expenses** (original dates, references once). Invalid stock or money rows never skipped.
-- ⏳ **100. Onboarding phase 2** — Sales history (historical mode: original dates and references, no stock movements,
-  no loyalty awarded again, in reports for their dates), Credit sales and opening credit balances (aging from original
-  due dates, partial payments, no invented history), Loyalty opening points (migration entries, no double allocation).
+- ✅ **100. Onboarding phase 2** — **Sales history** (one historical sale per receipt reference: original receipt number
+  and date, lines, discounts, payment and salesperson; no stock movements, no loyalty points; in reports for their
+  dates; refused after the cutover, for credit, or when lines disagree), **Credit sales & opening balances** (original
+  due dates for aging, amounts paid before S'Shop, opening balances without invented items; imported overdue debts never
+  trigger automatic reminders), **Loyalty opening points** (ledger opening entries, earned − redeemed = balance, once per
+  customer). Customers' spend, visits and tier update with the original dates. Gap avoided: the purchase helper would
+  have stamped *last purchase* as today.
 - ⏳ **101. Onboarding phase 3** — Orders and Stock transfers (closed as history; outstanding into the live modules with
   reservations / in-transit reconciled against opening stock), migration dashboard filters and the Migration
   Reconciliation Report (source totals vs imported, unresolved differences block completion).

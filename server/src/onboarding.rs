@@ -56,6 +56,9 @@ pub const DATASETS: &[(&str, &str)] = &[
     ("customers", "Customers"),
     ("opening_stock", "Opening stock balances"),
     ("expenses", "Expenses"),
+    ("sales", "Sales history"),
+    ("credit", "Credit sales & balances"),
+    ("loyalty", "Loyalty opening points"),
 ];
 
 pub fn label(dataset: &str) -> Option<&'static str> {
@@ -69,6 +72,9 @@ pub fn columns(dataset: &str) -> &'static [Col] {
         "customers" => &CUSTOMERS,
         "opening_stock" => &OPENING_STOCK,
         "expenses" => &EXPENSES,
+        "sales" => &SALES,
+        "credit" => &CREDIT,
+        "loyalty" => &LOYALTY,
         _ => &[],
     }
 }
@@ -119,6 +125,45 @@ static EXPENSES: [Col; 8] = [
     Col { aliases: &["amount (ksh)", "total", "value"], ..col("amount", "Amount", Need::Required, Kind::Money, "More than 0.", "45000") },
     Col { aliases: &["payment", "paid by", "mode of payment", "payment mode"], ..col("payment_method", "Payment Method", Need::Optional, Kind::Text, "One of your payment methods (Settings → Sales & payments); default Cash.", "Cash") },
     Col { aliases: &["supplier", "paid to", "vendor"], ..col("payee", "Supplier / Payee", Need::Optional, Kind::Text, "", "Landlord") },
+];
+
+static SALES: [Col; 12] = [
+    Col { aliases: &["receipt", "receipt no", "receipt number", "invoice", "invoice no", "reference", "sale reference"], ..col("receipt", "Receipt Reference", Need::Required, Kind::Code, "Your original receipt number. Lines with the same reference are one sale (same date, branch, payment and customer). Kept as the sale's receipt number.", "INV-2025-0412") },
+    Col { aliases: &["date", "sale date", "transaction date"], ..col("date", "Sale Date", Need::Required, Kind::Date, "The original date (before the migration cutover) — reports show the sale on this date.", "2025-11-14") },
+    Col { aliases: &["branch", "branch code", "store"], ..col("branch", "Branch Code", Need::Required, Kind::Code, "The branch's code (Settings → Branches).", "MAIN") },
+    Col { aliases: &["product code", "code", "sku", "item code", "barcode"], ..col("product", "Product Code", Need::Required, Kind::Code, "The product's code (or product barcode) — import products first.", "BP100") },
+    Col { aliases: &["qty", "quantity sold"], ..col("quantity", "Quantity", Need::Required, Kind::Int, "Units sold on this line (more than 0).", "2") },
+    Col { aliases: &["unit price", "price", "selling price"], ..col("unit_price", "Unit Selling Price", Need::Required, Kind::Money, "The price actually charged for one unit (after discount).", "3300") },
+    Col { aliases: &["discount amount", "line discount"], ..col("discount", "Discount", Need::Optional, Kind::Money, "Total discount on this line (an amount), if any.", "400") },
+    Col { aliases: &["payment", "paid by", "mode of payment", "payment mode"], ..col("payment_method", "Payment Method", Need::Required, Kind::Text, "One of your payment methods (Settings → Sales & payments). Credit sales go in the Credit sales template instead.", "Cash") },
+    Col { aliases: &["mpesa code", "transaction code", "payment ref"], ..col("payment_reference", "Payment Reference", Need::Optional, Kind::Code, "e.g. the M-Pesa code. Recorded only — no payment is requested.", "QFT1ABC2DE") },
+    Col { aliases: &["customer", "customer mobile", "mobile", "phone"], ..col("customer", "Customer Mobile", Need::Optional, Kind::Code, "An existing customer's mobile (import customers first).", "0712345678") },
+    Col { aliases: &["salesperson", "sold by", "cashier", "sale owner"], ..col("salesperson", "Salesperson Email", Need::Optional, Kind::Text, "Sign-in email of the team member credited with the sale.", "peter@example.com") },
+    Col { aliases: &["remarks", "comment"], ..col("notes", "Notes", Need::Optional, Kind::Text, "", "") },
+];
+
+static CREDIT: [Col; 11] = [
+    Col { aliases: &["reference", "credit ref", "invoice", "invoice no", "receipt", "receipt reference"], ..col("reference", "Credit Reference", Need::Required, Kind::Code, "Your original invoice / receipt number for the credit sale (unique). Kept as its receipt number.", "CR-0091") },
+    Col { aliases: &["customer", "mobile", "phone", "customer reference"], ..col("customer", "Customer Mobile", Need::Required, Kind::Code, "An existing customer's mobile (import customers first).", "0712345678") },
+    Col { aliases: &["branch", "branch code", "store"], ..col("branch", "Branch Code", Need::Required, Kind::Code, "The branch's code.", "MAIN") },
+    Col { aliases: &["sale date", "date", "original date"], ..col("sale_date", "Original Sale Date", Need::Required, Kind::Date, "When the credit sale was made (before the migration cutover).", "2026-08-02") },
+    Col { aliases: &["due", "due on"], ..col("due_date", "Due Date", Need::Required, Kind::Date, "The original due date (aging is counted from it).", "2026-09-01") },
+    Col { aliases: &["amount", "original amount", "credit amount", "total"], ..col("original_amount", "Original Amount", Need::Required, Kind::Money, "The full credit sale amount.", "12000") },
+    Col { aliases: &["paid", "amount paid so far", "payments"], ..col("amount_paid", "Amount Paid", Need::Optional, Kind::Money, "Paid before S'Shop (0 if nothing). The outstanding balance is Original − Paid.", "5000") },
+    Col { aliases: &["product code", "code", "sku"], ..col("product", "Product Code", Need::Optional, Kind::Code, "The product sold, if known. Leave blank to import an Opening Credit Balance (no item history).", "") },
+    Col { aliases: &["qty"], ..col("quantity", "Quantity", Need::Optional, Kind::Int, "Units of that product (default 1).", "") },
+    Col { aliases: &["salesperson", "sold by", "sale owner"], ..col("salesperson", "Salesperson Email", Need::Optional, Kind::Text, "Sign-in email of the team member credited with the sale.", "") },
+    Col { aliases: &["remarks", "comment"], ..col("notes", "Notes", Need::Optional, Kind::Text, "", "") },
+];
+
+static LOYALTY: [Col; 7] = [
+    Col { aliases: &["customer", "mobile", "phone", "customer reference", "customer mobile"], ..col("customer", "Customer Mobile", Need::Required, Kind::Code, "An existing customer's mobile (import customers first).", "0712345678") },
+    Col { aliases: &["balance", "points", "current points", "current points balance", "points available"], ..col("balance", "Points Balance", Need::Required, Kind::Int, "Points the customer can use on the effective date (0 or more).", "350") },
+    Col { aliases: &["earned", "points earned", "total earned"], ..col("earned", "Points Earned", Need::Optional, Kind::Int, "Lifetime points earned before S'Shop (give with Points Redeemed; Earned − Redeemed must equal the balance).", "500") },
+    Col { aliases: &["redeemed", "points redeemed", "total redeemed"], ..col("redeemed", "Points Redeemed", Need::Optional, Kind::Int, "Lifetime points redeemed before S'Shop.", "150") },
+    Col { aliases: &["date", "as of", "effective"], ..col("effective", "Effective Date", Need::Required, Kind::Date, "The date of the balance — normally the migration cutover.", "2026-10-01") },
+    Col { aliases: &["expiry", "expires", "expires on"], ..col("expiry", "Expiry Date", Need::Optional, Kind::Date, "When these points expire, if they do.", "") },
+    Col { aliases: &["remarks", "comment"], ..col("notes", "Notes", Need::Optional, Kind::Text, "", "") },
 ];
 
 fn norm(s: &str) -> String {

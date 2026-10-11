@@ -1,8 +1,9 @@
 # 33 — Business onboarding & data migration (roadmap 99–101)
 
-**Settings → Business → Onboarding** brings a business's records into S'Shop from Excel. Phase 1 (live): **Products,
-Customers, Opening stock balances, Expenses**. Phases 2–3 follow (sales history, credit balances, loyalty, orders,
-transfers, reconciliation report).
+**Settings → Business → Onboarding** brings a business's records into S'Shop from Excel:
+- **Phase 1 (live):** Products, Customers, Opening stock balances, Expenses.
+- **Phase 2 (live):** Sales history, Credit sales and opening balances, Loyalty opening points.
+- **Phase 3 (next):** orders, transfers and the reconciliation report.
 
 | Part | Where |
 |---|---|
@@ -56,11 +57,18 @@ transfers, reconciliation report).
 **Migration cutover**: the day S'Shop takes over. Records before it are history, opening balances are as of it, and
 S'Shop records everything after it.
 
-## Phases 2–3 (roadmap 100–101)
+## Phase 2 (roadmap 100)
 
-- Sales history: historical mode with no stock movements and no loyalty awarded again, reusing `is_legacy`.
-- Credit sales and **opening credit balances**.
-- Loyalty opening points.
+| Dataset | Rules |
+|---|---|
+| **Sales history** | Rows with the same *Receipt Reference* are one sale. Its lines must agree on date, branch, payment, customer and salesperson. Recorded as a historical sale (`is_legacy`) with the original receipt number and date (midday local time, so the business day never shifts), lines with their discounts, the payment (method from Settings, reference kept — nothing is requested) and the salesperson as sale owner. **No stock movement and no loyalty points.** The customer's spend, visits and tier update, and the last purchase moves forward only to the original date. Refused: on or after the migration cutover (record those in S'Shop), future dates, receipt numbers already in S'Shop, unknown products, branches, customers or salespeople, and *Credit* as the payment method (credit sales use their own template, so receivables are never counted twice). |
+| **Credit sales & balances** | One row per credit: a historical sale plus its credit record. The original sale date, the **original due date** (aging), the amount paid before S'Shop (recorded once as *Paid before S'Shop*), and the status (outstanding / partially paid / paid). Without a product it is an **Opening Credit Balance** — no invented item history. Refused: due before the sale date, paid above the original, dates on or after the cutover, references already used. **Debts already overdue when imported never trigger automatic overdue alerts or customer WhatsApp reminders**; later ones remind as usual. |
+| **Loyalty opening points** | Recorded as opening entries in the loyalty ledger (earned and redeemed before S'Shop when given — they must equal the balance), with the customer's totals updated together. Once per customer, never awarded again by imported sales. Optional expiry date. |
+
+All three import complete or not at all (money and points are never partially imported).
+
+## Phase 3 (roadmap 101, next)
+
 - Orders and transfers: closed ones as history, outstanding ones into the live modules.
 - The migration reconciliation report.
 

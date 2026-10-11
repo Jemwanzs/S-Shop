@@ -73,8 +73,11 @@ async fn run_once(state: &AppState) -> anyhow::Result<()> {
             "SELECT cs.id, cs.branch_id, TRIM(c.first_name || ' ' || c.other_names), c.mobile, s.receipt_no,
                     cs.original_amount - cs.amount_paid - cs.adjustments, cs.due_date
              FROM credit_sales cs JOIN customers c ON c.id = cs.customer_id JOIN sales s ON s.id = cs.sale_id
+                  LEFT JOIN import_batches ib ON ib.id = cs.import_batch_id
              WHERE cs.tenant_id = $1 AND cs.status IN ('outstanding','partially_paid') AND cs.due_date < $2
-               AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.tenant_id = $1 AND n.dedupe_key = 'credit_overdue:' || cs.id)",
+               AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.tenant_id = $1 AND n.dedupe_key = 'credit_overdue:' || cs.id)
+               -- Roadmap 100: debts imported already overdue never trigger automatic alerts or customer reminders.
+               AND (ib.id IS NULL OR cs.due_date >= (ib.posted_at AT TIME ZONE 'UTC')::date)",
         )
         .bind(tenant_id)
         .bind(today)

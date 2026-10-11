@@ -30,7 +30,10 @@ interface BatchRow {
 }
 interface Overview {
   cutover: string | null; datasets: Dataset[]; batches: BatchRow[]; branches: number;
-  totals: { products: number; customers: number; opening_quantity: number; opening_value: string | number; expenses_count: number; expenses_amount: string | number };
+  totals: {
+    products: number; customers: number; opening_quantity: number; opening_value: string | number; expenses_count: number; expenses_amount: string | number;
+    sales_count: number; sales_value: string | number; credit_outstanding: string | number; loyalty_points: number;
+  };
 }
 interface Msg { level: "error" | "warning"; field: string; message: string }
 interface Row { row_no: number; status: "valid" | "warning" | "invalid" | "posted" | "skipped"; data: Record<string, unknown>; source: Record<string, string>; messages: Msg[] }
@@ -41,9 +44,10 @@ const STATUS: Record<string, [Tone, string]> = {
   rejected: ["danger", "Rejected"], cancelled: ["neutral", "Discarded"], failed: ["danger", "Failed"],
 };
 const ROW_TONE: Record<string, Tone> = { valid: "success", warning: "warning", invalid: "danger", posted: "success", skipped: "neutral" };
-const LATER = ["Sales history", "Credit sales & balances", "Orders", "Stock transfers", "Loyalty & rewards"];
+const LATER = ["Orders & outstanding orders", "Stock transfers", "Migration reconciliation report"];
 const ORDER = [
-  "Confirm branches (codes) and settings", "Products", "Customers", "Expenses (history)", "Opening stock at the cutover date", "Reconcile, then trade in S'Shop",
+  "Confirm branches (codes) and settings", "Products", "Customers", "Sales history and expenses", "Credit sales & opening balances",
+  "Loyalty opening points", "Opening stock at the cutover date", "Reconcile, then trade in S'Shop",
 ];
 
 async function fetchFile(path: string, name: string) {
@@ -64,7 +68,7 @@ export function OnboardingSettings() {
   const cut = cutover ?? o.cutover ?? "";
 
   return (
-    <SettingsPage title="Onboarding" description="Bring your products, customers, opening stock and expenses into S'Shop from Excel. Download a template, fill it in, upload it, check the preview and post it.">
+    <SettingsPage title="Onboarding" description="Bring your records into S'Shop from Excel — products, customers, opening stock, sales history, credit balances, loyalty points and expenses. Download a template, fill it in, upload it, check the preview and import it.">
       <Card title="Migration cutover">
         <div className="space-y-2 py-2 text-sm">
           <p className="text-xs text-muted-foreground">{t("The day S'Shop takes over: records before it are history, opening stock balances are as of it, and S'Shop records everything after it.")}</p>
@@ -80,6 +84,9 @@ export function OnboardingSettings() {
         <Tile label="Customers imported" value={count(o.totals.customers)} />
         <Tile label="Opening stock" value={`${count(o.totals.opening_quantity)} · ${money(o.totals.opening_value)}`} />
         <Tile label="Historical expenses" value={money(o.totals.expenses_amount)} />
+        <Tile label="Historical sales" value={`${count(o.totals.sales_count)} · ${money(o.totals.sales_value)}`} />
+        <Tile label="Outstanding credit" value={money(o.totals.credit_outstanding)} />
+        <Tile label="Loyalty points imported" value={count(o.totals.loyalty_points)} />
       </div>
       <Card title="Recommended order">
         <ol className="grid gap-1 py-2 text-sm sm:grid-cols-2">
@@ -109,7 +116,7 @@ export function OnboardingSettings() {
         })}
       </div>
       <Card title="Coming next">
-        <p className="py-2 text-xs text-muted-foreground">{t("Next onboarding phases (historical records that never deduct stock again or duplicate revenue):")} {LATER.map((l) => t(l)).join(" · ")}</p>
+        <p className="py-2 text-xs text-muted-foreground">{t("Next onboarding phase:")} {LATER.map((l) => t(l)).join(" · ")}</p>
       </Card>
       <Card title="Import history">
         <ul className="divide-y text-sm">

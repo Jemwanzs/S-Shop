@@ -2640,7 +2640,7 @@ call("PUT", "/settings", st)
 
 step("Roadmap 99: onboarding — Excel templates, validation, approval and posting")
 ov = call("GET", "/onboarding")
-check("onboarding centre: four datasets, cutover, totals", [d["key"] for d in ov["datasets"]] == ["products", "customers", "opening_stock", "expenses"] and "totals" in ov, [d["key"] for d in ov["datasets"]])
+check("onboarding centre: its datasets, cutover, totals", [d["key"] for d in ov["datasets"]] == ["products", "customers", "opening_stock", "expenses", "sales", "credit", "loyalty"] and "totals" in ov, [d["key"] for d in ov["datasets"]])
 req = urllib.request.Request(BASE + "/api/onboarding/products/template", headers={"Authorization": "Bearer " + TOKEN})
 tpl = urllib.request.urlopen(req).read()
 check("templates download as Excel workbooks", tpl[:2] == b"PK" and len(tpl) > 3000, len(tpl))
@@ -2715,6 +2715,70 @@ check("an expense reference imported before is refused", dup["batch"]["invalid_r
 call("POST", f"/onboarding/batches/{dup['batch']['id']}/cancel", {})
 tot = call("GET", "/onboarding")["totals"]
 check("onboarding totals: products, customers, opening stock and expenses", tot["products"] >= 2 and tot["customers"] >= 1 and tot["opening_quantity"] >= 12 and float(tot["expenses_amount"]) >= 45000, tot)
+# ── Roadmap 100: sales history, credit balances, loyalty opening points ──
+call("PUT", "/onboarding/cutover", {"date": today_s})
+known_id = next(c["id"] for c in call("GET", f"/customers?q={known}")["items"])
+jar_before = call("GET", f"/stock?q=Imported Jar {suffix}")["items"][0]["on_hand"]
+sh = [["H" + suffix + "1", "2026-03-04", main_code, f"OBJ{suffix}", 2, 600, 100, "Cash", "", known, "", ""],
+      ["H" + suffix + "1", "2026-03-04", main_code, f"OBJ{suffix}", 1, 650, 0, "Cash", "", known, "", ""],
+      ["H" + suffix + "2", "2026-03-05", main_code, f"OBJ{suffix}", 1, 650, 0, "M-Pesa", "QXX1", "", "", ""],
+      ["H" + suffix + "3", today_s, main_code, f"OBJ{suffix}", 1, 650, 0, "Cash", "", "", "", ""],              # on the cutover
+      ["H" + suffix + "4", "2026-03-06", main_code, f"OBJ{suffix}", 1, 650, 0, "Credit", "", known, "", ""],    # credit belongs elsewhere
+      ["H" + suffix + "5", "2026-03-07", main_code, f"OBJ{suffix}", 1, 650, 0, "Cash", "", "", "", ""],
+      ["H" + suffix + "5", "2026-03-08", main_code, f"OBJ{suffix}", 1, 650, 0, "Cash", "", "", "", ""]]         # same receipt, other date
+heads = ["Receipt Reference", "Sale Date", "Branch Code", "Product Code", "Quantity", "Unit Selling Price", "Discount", "Payment Method", "Payment Reference", "Customer Mobile", "Salesperson Email", "Notes"]
+hs = upload_xlsx("sales", make_xlsx(heads, sh))
+bad = {r_["row_no"]: " ".join(m["message"] for m in r_["messages"]) for r_ in hs["rows"] if r_["status"] == "invalid"}
+check("sales history: after the cutover, credit and mismatched receipt lines refused", "cutover" in bad.get(5, "") and "Credit sales template" in bad.get(6, "") and "must match its first line" in bad.get(8, ""), bad)
+call("POST", f"/onboarding/batches/{hs['batch']['id']}/post", {"skip_invalid": True}, expect=422)
+check("sales history never imports with invalid rows (money must be complete)", True)
+call("POST", f"/onboarding/batches/{hs['batch']['id']}/cancel", {})
+hs = upload_xlsx("sales", make_xlsx(heads, sh[:3]))
+check("valid history: 3 lines, 2 receipts", hs["batch"]["invalid_rows"] == 0 and hs["batch"]["total_rows"] == 3, hs["batch"])
+hd = call("POST", f"/onboarding/batches/{hs['batch']['id']}/post", {})
+check("posted as 2 historical sales worth 1,950 + 650", hd["summary"]["created"] == 2 and float(hd["summary"]["amount"]) == 2500, hd)
+h1 = next(x for x in call("GET", "/sales?period=all&limit=200")["items"] if x["receipt_no"] == "H" + suffix + "1")
+h1d = call("GET", f"/sales/{h1['id']}")
+check("original receipt number and date kept; marked historical", h1d["sale"]["business_date"] == "2026-03-04" and h1d["sale"]["is_legacy"] and float(h1d["sale"]["total"]) == 1850, h1d["sale"])
+check("its lines and payment recorded (discount kept)", len(h1d["items"]) == 2 and float(h1d["sale"]["discount_total"]) == 100 and any(p_["method"] == "cash" and float(p_["amount"]) == 1850 for p_ in h1d["payments"]), h1d["payments"])
+check("no stock deducted and no points awarded", call("GET", f"/stock?q=Imported Jar {suffix}")["items"][0]["on_hand"] == jar_before and h1d["sale"]["points_earned"] == 0)
+kc = call("GET", f"/customers/{known_id}")
+kcust = kc.get("customer", kc)
+check("customer totals include the history; last purchase is the sale date, not today", float(kcust["total_spend"]) >= 1850 and str(kcust["last_purchase_at"])[:10] == "2026-03-04", (kcust["total_spend"], kcust["last_purchase_at"]))
+again = upload_xlsx("sales", make_xlsx(heads, [sh[2]]))
+check("a receipt already imported is refused", again["batch"]["invalid_rows"] == 1 and "already a receipt" in again["rows"][0]["messages"][0]["message"])
+call("POST", f"/onboarding/batches/{again['batch']['id']}/cancel", {})
+
+ch = ["Credit Reference", "Customer Mobile", "Branch Code", "Original Sale Date", "Due Date", "Original Amount", "Amount Paid", "Product Code", "Quantity"]
+cr = upload_xlsx("credit", make_xlsx(ch, [["CR" + suffix + "1", known, main_code, "2026-02-01", "2026-03-01", 12000, 5000, f"OBJ{suffix}", 2],
+                                          ["CR" + suffix + "2", known, main_code, "2026-01-10", "2026-02-10", 3000, 0, "", ""],
+                                          ["CR" + suffix + "3", known, main_code, "2026-02-01", "2026-01-01", 100, 0, "", ""],      # due before sale
+                                          ["CR" + suffix + "4", known, main_code, "2026-02-01", "2026-03-01", 100, 150, "", ""]]))  # paid > original
+cbad = {r_["row_no"]: " ".join(m["message"] for m in r_["messages"]) for r_ in cr["rows"]}
+check("credit: due date before the sale and over-payment refused; no product = opening balance", "before the Original Sale Date" in cbad[4] and "between 0 and the Original Amount" in cbad[5] and "Opening Credit Balance" in cbad[3], cbad)
+call("POST", f"/onboarding/batches/{cr['batch']['id']}/cancel", {})
+cr = upload_xlsx("credit", make_xlsx(ch, [["CR" + suffix + "1", known, main_code, "2026-02-01", "2026-03-01", 12000, 5000, f"OBJ{suffix}", 2],
+                                          ["CR" + suffix + "2", known, main_code, "2026-01-10", "2026-02-10", 3000, 0, "", ""]]))
+cd_ = call("POST", f"/onboarding/batches/{cr['batch']['id']}/post", {})
+c1 = call("GET", f"/credit?q=CR{suffix}1")["items"][0]
+c2 = call("GET", f"/credit?q=CR{suffix}2")["items"][0]
+check("credit imported with balances and original due dates (both past due: shown overdue, aging from the due date)", float(c1["balance"]) == 7000 and float(c1["amount_paid"]) == 5000
+      and c1["due_date"] == "2026-03-01" and float(c2["balance"]) == 3000 and c1["status"] == "overdue" and c2["status"] == "overdue", (c1, c2))
+check("credit never moves stock", call("GET", f"/stock?q=Imported Jar {suffix}")["items"][0]["on_hand"] == jar_before)
+check("onboarding totals: historical sales and outstanding credit", float(call("GET", "/onboarding")["totals"]["credit_outstanding"]) >= 10000)
+
+lh = ["Customer Mobile", "Points Balance", "Points Earned", "Points Redeemed", "Effective Date"]
+ly = upload_xlsx("loyalty", make_xlsx(lh, [[known, 300, 500, 100, today_s]]))
+check("loyalty: earned − redeemed must equal the balance", ly["batch"]["invalid_rows"] == 1 and "must equal" in ly["rows"][0]["messages"][0]["message"], ly["rows"][0]["messages"])
+call("POST", f"/onboarding/batches/{ly['batch']['id']}/cancel", {})
+pts_before = int((kc.get("customer", kc))["points_available"])
+ly = upload_xlsx("loyalty", make_xlsx(lh, [[known, 400, 500, 100, today_s]]))
+call("POST", f"/onboarding/batches/{ly['batch']['id']}/post", {})
+kc2 = call("GET", f"/customers/{known_id}")
+check("opening points added once (+400 available, history kept as earned and redeemed)", int((kc2.get("customer", kc2))["points_available"]) == pts_before + 400)
+ly2 = upload_xlsx("loyalty", make_xlsx(lh, [[known, 50, "", "", today_s]]))
+check("opening points are never allocated twice", ly2["batch"]["invalid_rows"] == 1 and "already imported" in ly2["rows"][0]["messages"][0]["message"])
+call("POST", f"/onboarding/batches/{ly2['batch']['id']}/cancel", {})
 spr = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
 s_mail = f"importclerk{ob}@sshop.test"
 call("POST", "/users", {"name": "Import Clerk", "email": s_mail, "pin": "4321", "role_id": spr, "all_branches": True, "branch_ids": []})

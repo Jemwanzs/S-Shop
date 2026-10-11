@@ -81,7 +81,12 @@ async fn overview(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Val
             'opening_quantity', (SELECT COALESCE(sum(quantity), 0) FROM stock_movements WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
             'opening_value', (SELECT COALESCE(sum(quantity * COALESCE(unit_cost, 0)), 0) FROM stock_movements WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
             'expenses_count', (SELECT count(*) FROM expenses WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
-            'expenses_amount', (SELECT COALESCE(sum(amount), 0) FROM expenses WHERE tenant_id = $1 AND import_batch_id IS NOT NULL))",
+            'expenses_amount', (SELECT COALESCE(sum(amount), 0) FROM expenses WHERE tenant_id = $1 AND import_batch_id IS NOT NULL),
+            'sales_count', (SELECT count(*) FROM sales WHERE tenant_id = $1 AND import_batch_id IS NOT NULL AND payment_method <> 'credit'),
+            'sales_value', (SELECT COALESCE(sum(total), 0) FROM sales WHERE tenant_id = $1 AND import_batch_id IS NOT NULL AND payment_method <> 'credit'),
+            'credit_outstanding', (SELECT COALESCE(sum(original_amount - amount_paid - adjustments), 0) FROM credit_sales
+                                   WHERE tenant_id = $1 AND import_batch_id IS NOT NULL AND status IN ('outstanding','partially_paid')),
+            'loyalty_points', (SELECT COALESCE(sum(points), 0) FROM loyalty_ledger WHERE tenant_id = $1 AND import_batch_id IS NOT NULL))",
     )
     .bind(ctx.tenant_id)
     .fetch_one(&state.db)
@@ -160,6 +165,15 @@ struct Refs {
     payment_methods: HashMap<String, String>,
     /// expense references already imported
     expense_refs: HashSet<String>,
+    /// upper(receipt_no) of every sale (historical references must not collide)
+    receipts: HashSet<String>,
+    /// mobile → customer id
+    customer_ids: HashMap<String, Uuid>,
+    /// lower(email) → user id (salespeople)
+    users: HashMap<String, Uuid>,
+    /// customers whose loyalty opening points were already imported
+    loyalty_imported: HashSet<Uuid>,
+    loyalty_on: bool,
     barcodes_on: bool,
     cutover: Option<NaiveDate>,
     today: NaiveDate,
@@ -178,7 +192,14 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
         .bind(t)
         .fetch_all(&mut *conn)
         .await?;
-    let customers: Vec<String> = sqlx::query_scalar("SELECT mobile FROM customers WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let customer_rows: Vec<(String, Uuid)> = sqlx::query_as("SELECT mobile, id FROM customers WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let customers: Vec<String> = customer_rows.iter().map(|c| c.0.clone()).collect();
+    let receipts: Vec<String> = sqlx::query_scalar("SELECT upper(receipt_no) FROM sales WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let users: Vec<(String, Uuid)> = sqlx::query_as("SELECT lower(email), id FROM users WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let loyalty_imported: Vec<Uuid> = sqlx::query_scalar("SELECT DISTINCT customer_id FROM loyalty_ledger WHERE tenant_id = $1 AND import_batch_id IS NOT NULL")
+        .bind(t)
+        .fetch_all(&mut *conn)
+        .await?;
     let stocked: Vec<(Uuid, Uuid)> = sqlx::query_as("SELECT DISTINCT product_id, branch_id FROM stock_movements WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
     let expense_refs: Vec<String> = sqlx::query_scalar(
         "SELECT r.data->>'reference' FROM import_rows r JOIN import_batches b ON b.id = r.batch_id
@@ -206,6 +227,11 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
         stocked: stocked.into_iter().collect(),
         payment_methods,
         expense_refs: expense_refs.into_iter().map(|r| r.to_uppercase()).collect(),
+        receipts: receipts.into_iter().collect(),
+        customer_ids: customer_rows.into_iter().collect(),
+        users: users.into_iter().collect(),
+        loyalty_imported: loyalty_imported.into_iter().collect(),
+        loyalty_on: s.loyalty.enabled,
         barcodes_on: s.stock.barcode_requirement != settings::BarcodeRequirement::Disabled,
         cutover,
         today: Utc::now().with_timezone(&ctx.tz).date_naive(),
@@ -260,6 +286,8 @@ fn money(d: &Map<String, Value>, k: &str) -> Option<Decimal> {
 /// Validates every row; returns the per-row (normalised data, check). `seen` catches duplicates within the file.
 fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &Refs) -> Vec<(Map<String, Value>, Check)> {
     let mut seen: HashMap<String, u32> = HashMap::new();
+    // Sales history: every line of a receipt must agree on these (first line wins).
+    let mut receipts: HashMap<String, (u32, Vec<Option<String>>)> = HashMap::new();
     let mut out = Vec::with_capacity(rows.len());
     for (row_no, data) in rows {
         let mut d = data.clone();
@@ -499,6 +527,178 @@ fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &R
                 }
                 if s(&d, "reference").is_none() {
                     c.warn("reference", "No reference: re-importing the same expense would not be detected");
+                }
+            }
+            "sales" | "credit" => {
+                let credit = dataset == "credit";
+                let ref_key = if credit { "reference" } else { "receipt" };
+                let date_key = if credit { "sale_date" } else { "date" };
+                let reference = s(&d, ref_key).map(str::to_uppercase);
+                if let Some(rf) = &reference {
+                    d.insert(ref_key.into(), json!(rf));
+                    if r.receipts.contains(rf) {
+                        c.err(ref_key, format!("{rf} is already a receipt in S'Shop — it was imported or recorded before"));
+                    }
+                    if credit {
+                        dup(format!("credit:{rf}"), ref_key, &format!("Credit {rf}"), &mut c);
+                    }
+                }
+                let date = s(&d, date_key).and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok());
+                if let Some(date) = date {
+                    if date > r.today {
+                        c.err(date_key, "The date cannot be in the future");
+                    } else if let Some(cut) = r.cutover {
+                        if date >= cut {
+                            c.err(date_key, format!("On or after the migration cutover ({cut}) — record it in S'Shop instead of importing it"));
+                        }
+                    } else {
+                        c.warn(date_key, "Set the migration cutover (above) so history and S'Shop's own records stay apart");
+                    }
+                }
+                let branch = s(&d, "branch").map(|code| (code.to_string(), r.branches.get(&code.to_lowercase()).copied()));
+                match &branch {
+                    Some((_, Some(id))) => {
+                        d.insert("branch_id".into(), json!(id));
+                    }
+                    Some((code, None)) => c.err("branch", format!("Branch code {code} does not exist (Settings → Branches)")),
+                    None => {}
+                }
+                let customer = s(&d, "customer").map(|m| (m.to_string(), crate::util::normalize_mobile(m).ok()));
+                match &customer {
+                    Some((m, None)) => c.err("customer", format!("{m} is not a valid mobile number")),
+                    Some((_, Some(n))) => match r.customer_ids.get(n) {
+                        Some(id) => {
+                            d.insert("customer_id".into(), json!(id));
+                        }
+                        None => c.err("customer", format!("No customer with mobile {n} — import customers first")),
+                    },
+                    None => {}
+                }
+                match s(&d, "salesperson").map(|e| (e.to_string(), r.users.get(&e.to_lowercase()))) {
+                    Some((_, Some(id))) => {
+                        d.insert("owner_id".into(), json!(id));
+                    }
+                    Some((e, None)) => c.err("salesperson", format!("{e} is not a team member's sign-in email")),
+                    None => {}
+                }
+                let product = s(&d, "product").map(str::to_string);
+                if let Some(code) = &product {
+                    let p = r.products.get(&code.to_uppercase()).cloned().or_else(|| r.product_barcodes.get(code).and_then(|id| r.products.values().find(|p| p.0 == *id).cloned()));
+                    match p {
+                        Some(p) => {
+                            d.insert("product_id".into(), json!(p.0));
+                        }
+                        None => c.err("product", format!("No product with code or barcode {code} — import products first")),
+                    }
+                }
+                let qty = d.get("quantity").and_then(|v| v.as_i64());
+                if qty.is_some_and(|q| q <= 0) {
+                    c.err("quantity", "Quantity must be more than 0");
+                }
+                if credit {
+                    let original = money(&d, "original_amount");
+                    let paid = money(&d, "amount_paid").unwrap_or(Decimal::ZERO);
+                    if original.is_some_and(|o| o <= Decimal::ZERO) {
+                        c.err("original_amount", "Original Amount must be more than 0");
+                    }
+                    if paid < Decimal::ZERO || original.is_some_and(|o| paid > o) {
+                        c.err("amount_paid", "Amount Paid must be between 0 and the Original Amount");
+                    } else if original == Some(paid) {
+                        c.warn("amount_paid", "Fully paid — imported as settled credit history");
+                    }
+                    let due = s(&d, "due_date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok());
+                    if let (Some(due), Some(date)) = (due, date) {
+                        if due < date {
+                            c.err("due_date", "The Due Date is before the Original Sale Date");
+                        }
+                    }
+                    if product.is_none() {
+                        if qty.is_some() {
+                            c.err("quantity", "Quantity needs a Product Code");
+                        }
+                        c.warn("product", "No product: imported as an Opening Credit Balance");
+                    }
+                    if customer.is_none() {
+                        c.err("customer", "Customer Mobile is required");
+                    }
+                } else {
+                    if money(&d, "unit_price").is_some_and(|v| v < Decimal::ZERO) {
+                        c.err("unit_price", "Unit Selling Price cannot be negative");
+                    }
+                    if money(&d, "discount").is_some_and(|v| v < Decimal::ZERO) {
+                        c.err("discount", "Discount cannot be negative");
+                    }
+                    let pm = s(&d, "payment_method").map(str::to_lowercase);
+                    match pm.as_deref().map(|m| (m, r.payment_methods.get(m))) {
+                        Some((m, _)) if m == "credit" || m == "credit sale" => c.err("payment_method", "Credit sales go in the Credit sales template (so receivables are never counted twice)"),
+                        Some((_, Some(key))) => {
+                            d.insert("method_key".into(), json!(key));
+                        }
+                        Some((m, None)) => c.err("payment_method", format!("Payment method “{m}” is not one of your payment methods")),
+                        None => {}
+                    }
+                    // One receipt = one sale: its lines must agree.
+                    if let Some(rf) = &reference {
+                        let sig: Vec<Option<String>> = ["date", "branch", "payment_method", "payment_reference", "customer", "salesperson"]
+                            .iter()
+                            .map(|k| s(&d, k).map(|v| v.to_lowercase()))
+                            .collect();
+                        match receipts.get(rf) {
+                            Some((first, sig0)) if *sig0 != sig => {
+                                c.err(ref_key, format!("Receipt {rf}: date, branch, payment and customer must match its first line (row {first})"));
+                            }
+                            Some(_) => {}
+                            None => {
+                                receipts.insert(rf.clone(), (*row_no, sig));
+                            }
+                        }
+                    }
+                }
+            }
+            "loyalty" => {
+                match s(&d, "customer").map(|m| (m.to_string(), crate::util::normalize_mobile(m).ok())) {
+                    Some((m, None)) => c.err("customer", format!("{m} is not a valid mobile number")),
+                    Some((_, Some(n))) => {
+                        dup(format!("loyalty:{n}"), "customer", &format!("Customer {n}"), &mut c);
+                        match r.customer_ids.get(&n) {
+                            Some(id) => {
+                                d.insert("customer_id".into(), json!(id));
+                                if r.loyalty_imported.contains(id) {
+                                    c.err("customer", format!("{n}'s opening points were already imported — points are never allocated twice"));
+                                }
+                            }
+                            None => c.err("customer", format!("No customer with mobile {n} — import customers first")),
+                        }
+                    }
+                    None => {}
+                }
+                let n = |k: &str| d.get(k).and_then(|v| v.as_i64());
+                let (balance, earned, redeemed) = (n("balance"), n("earned"), n("redeemed"));
+                if [balance, earned, redeemed].iter().any(|v| v.is_some_and(|v| v < 0)) {
+                    c.err("balance", "Points cannot be negative");
+                }
+                match (earned, redeemed) {
+                    (Some(e), Some(rd)) if balance.is_some_and(|b| e - rd != b) => {
+                        c.err("balance", format!("Points Earned − Points Redeemed ({}) must equal the Points Balance ({})", e - rd, balance.unwrap_or(0)));
+                    }
+                    (Some(_), None) | (None, Some(_)) => c.err("earned", "Give Points Earned and Points Redeemed together (or neither)"),
+                    _ => {}
+                }
+                let eff = s(&d, "effective").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok());
+                if eff.is_some_and(|e| e > r.today) {
+                    c.err("effective", "The Effective Date cannot be in the future");
+                } else if let (Some(e), Some(cut)) = (eff, r.cutover) {
+                    if e != cut {
+                        c.warn("effective", format!("Effective Date differs from the migration cutover ({cut})"));
+                    }
+                }
+                if let (Some(x), Some(e)) = (s(&d, "expiry").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()), eff) {
+                    if x <= e {
+                        c.err("expiry", "The Expiry Date must be after the Effective Date");
+                    }
+                }
+                if !r.loyalty_on {
+                    c.warn("balance", "Loyalty is switched off (Settings → Loyalty) — points are kept for when it is on");
                 }
             }
             _ => {}
@@ -915,7 +1115,13 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Va
     let mut matched = 0;
     let mut quantity: i64 = 0;
     let mut amount = Decimal::ZERO;
-    for (row_no, data) in &rows {
+    if dataset == "sales" {
+        let (n, total) = post_sales(conn, ctx, &cfg, id, uploader, &rows).await?;
+        posted = rows.len() as i32;
+        created = n;
+        amount = total;
+    }
+    for (row_no, data) in rows.iter().filter(|_| dataset != "sales") {
         let d = data.as_object().cloned().unwrap_or_default();
         let target = match dataset.as_str() {
             "products" => {
@@ -1009,6 +1215,66 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Va
                 created += 1;
                 Some(eid)
             }
+            "credit" => {
+                let (cs, value) = post_credit(conn, ctx, &cfg, id, uploader, &d).await?;
+                amount += value;
+                created += 1;
+                Some(cs)
+            }
+            "loyalty" => {
+                let customer = uuid_of(&d, "customer_id")?;
+                let at = noon(ctx, s(&d, "effective").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()).ok_or_else(|| bad("Effective Date"))?);
+                let expiry = s(&d, "expiry").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok());
+                let int = |k: &str| d.get(k).and_then(|v| v.as_i64());
+                let balance = int("balance").unwrap_or(0);
+                let (earned, redeemed) = match (int("earned"), int("redeemed")) {
+                    (Some(e), Some(rd)) => (e, rd),
+                    _ => (balance, 0),
+                };
+                let note = s(&d, "notes").map(|n| format!(" — {n}")).unwrap_or_default();
+                if earned > 0 {
+                    sqlx::query(
+                        "INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, expires_at, notes, user_id, created_at, import_batch_id)
+                         VALUES ($1,$2,'adjust',$3,$4,$5,$6,$7,$8)",
+                    )
+                    .bind(ctx.tenant_id)
+                    .bind(customer)
+                    .bind(earned)
+                    .bind(expiry)
+                    .bind(format!("Opening points (earned before S'Shop){note}"))
+                    .bind(uploader)
+                    .bind(at)
+                    .bind(id)
+                    .execute(&mut *conn)
+                    .await?;
+                }
+                if redeemed > 0 {
+                    sqlx::query(
+                        "INSERT INTO loyalty_ledger (tenant_id, customer_id, kind, points, notes, user_id, created_at, import_batch_id)
+                         VALUES ($1,$2,'redeem',$3,'Opening points (redeemed before S''Shop)',$4,$5,$6)",
+                    )
+                    .bind(ctx.tenant_id)
+                    .bind(customer)
+                    .bind(-redeemed)
+                    .bind(uploader)
+                    .bind(at)
+                    .bind(id)
+                    .execute(&mut *conn)
+                    .await?;
+                }
+                sqlx::query(
+                    "UPDATE customers SET own_points = own_points + $2, points_redeemed = points_redeemed + $3,
+                            points_available = points_available + $2 - $3, updated_at = now() WHERE id = $1",
+                )
+                .bind(customer)
+                .bind(earned)
+                .bind(redeemed)
+                .execute(&mut *conn)
+                .await?;
+                quantity += balance;
+                created += 1;
+                Some(customer)
+            }
             _ => return Err(bad("Unknown dataset")),
         };
         sqlx::query("UPDATE import_rows SET status = 'posted', target_id = $3 WHERE batch_id = $1 AND row_no = $2")
@@ -1029,6 +1295,204 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<Va
         .await?;
     audit::record(conn, ctx, Entry::new("onboarding", "posted", "import_batch", id).after(json!({ "dataset": dataset, "mode": mode, "summary": summary }))).await?;
     Ok(summary)
+}
+
+/// A historical date as a moment: midday in the business's time zone, so the business day never shifts.
+fn noon(ctx: &Ctx, d: NaiveDate) -> chrono::DateTime<Utc> {
+    use chrono::TimeZone;
+    ctx.tz.from_local_datetime(&d.and_hms_opt(12, 0, 0).expect("noon")).single().map(|t| t.with_timezone(&Utc)).unwrap_or_else(|| d.and_hms_opt(9, 0, 0).expect("9am").and_utc())
+}
+
+/// Historical sales, one per receipt reference: original date and receipt number, lines, payment and the customer's
+/// totals — never stock movements or loyalty points (`is_legacy`). Returns (sales created, value).
+async fn post_sales(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantSettings, batch: Uuid, uploader: Option<Uuid>, rows: &[(i32, Value)]) -> AppResult<(i32, Decimal)> {
+    let mut order: Vec<String> = Vec::new();
+    let mut by_receipt: HashMap<String, Vec<(i32, Map<String, Value>)>> = HashMap::new();
+    for (row_no, v) in rows {
+        let d = v.as_object().cloned().unwrap_or_default();
+        let rf = s_req(&d, "receipt")?;
+        if !by_receipt.contains_key(&rf) {
+            order.push(rf.clone());
+        }
+        by_receipt.entry(rf).or_default().push((*row_no, d));
+    }
+    let mut value = Decimal::ZERO;
+    for rf in &order {
+        let lines = &by_receipt[rf];
+        let head = &lines[0].1;
+        let at = noon(ctx, s(head, "date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()).ok_or_else(|| bad("Sale Date"))?);
+        let branch = uuid_of(head, "branch_id")?;
+        let customer = s(head, "customer_id").and_then(|x| Uuid::parse_str(x).ok());
+        let owner = s(head, "owner_id").and_then(|x| Uuid::parse_str(x).ok());
+        let method = s_req(head, "method_key")?;
+        let mut gross = Decimal::ZERO;
+        let mut discount = Decimal::ZERO;
+        let mut total = Decimal::ZERO;
+        let mut items = Vec::new();
+        for (_, d) in lines {
+            let qty = d.get("quantity").and_then(|v| v.as_i64()).unwrap_or(0).max(1);
+            let unit = money(d, "unit_price").unwrap_or_default();
+            let disc = money(d, "discount").unwrap_or_default();
+            let line = (unit * Decimal::from(qty)).round_dp(2);
+            let marked = ((line + disc) / Decimal::from(qty)).round_dp(2);
+            gross += line + disc;
+            discount += disc;
+            total += line;
+            items.push((uuid_of(d, "product_id")?, qty as i32, marked, unit, line));
+        }
+        let notes = match s(head, "notes") {
+            Some(n) => format!("Imported sales history — {n}"),
+            None => "Imported sales history".to_string(),
+        };
+        let sale: Uuid = sqlx::query_scalar(
+            "INSERT INTO sales (tenant_id, branch_id, receipt_no, customer_id, user_id, owner_id, status, gross_total, discount_total, total,
+                    amount_paid, payment_method, points_earned, is_legacy, notes, created_at, import_batch_id)
+             VALUES ($1,$2,$3,$4,$5,$6,'completed',$7,$8,$9,$9,$10,0,true,$11,$12,$13) RETURNING id",
+        )
+        .bind(ctx.tenant_id)
+        .bind(branch)
+        .bind(rf)
+        .bind(customer)
+        .bind(uploader)
+        .bind(owner)
+        .bind(gross)
+        .bind(discount)
+        .bind(total)
+        .bind(&method)
+        .bind(notes)
+        .bind(at)
+        .bind(batch)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => rule(format!("Receipt {rf} already exists")),
+            _ => e.into(),
+        })?;
+        for (product, qty, marked, unit, line) in items {
+            sqlx::query("INSERT INTO sale_items (tenant_id, sale_id, product_id, quantity, marked_price, unit_price, line_total) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+                .bind(ctx.tenant_id)
+                .bind(sale)
+                .bind(product)
+                .bind(qty)
+                .bind(marked)
+                .bind(unit)
+                .bind(line)
+                .execute(&mut *conn)
+                .await?;
+        }
+        if total > Decimal::ZERO {
+            sqlx::query("INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, user_id, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
+                .bind(ctx.tenant_id)
+                .bind(branch)
+                .bind(sale)
+                .bind(&method)
+                .bind(total)
+                .bind(s(head, "payment_reference").unwrap_or(""))
+                .bind(uploader)
+                .bind(at)
+                .execute(&mut *conn)
+                .await?;
+        }
+        if let Some(c) = customer {
+            crate::loyalty::record_past_purchase(conn, cfg, c, total, at).await?;
+        }
+        for (row_no, _) in lines {
+            sqlx::query("UPDATE import_rows SET status = 'posted', target_id = $3 WHERE batch_id = $1 AND row_no = $2").bind(batch).bind(row_no).bind(sale).execute(&mut *conn).await?;
+        }
+        value += total;
+    }
+    Ok((order.len() as i32, value))
+}
+
+/// A historical credit sale (or an Opening Credit Balance without item history): the sale, its credit with the
+/// original due date and what was paid before S'Shop. Never stock or loyalty. Returns (credit id, original amount).
+async fn post_credit(conn: &mut PgConnection, ctx: &Ctx, cfg: &settings::TenantSettings, batch: Uuid, uploader: Option<Uuid>, d: &Map<String, Value>) -> AppResult<(Uuid, Decimal)> {
+    let rf = s_req(d, "reference")?;
+    let branch = uuid_of(d, "branch_id")?;
+    let customer = uuid_of(d, "customer_id")?;
+    let owner = s(d, "owner_id").and_then(|x| Uuid::parse_str(x).ok());
+    let at = noon(ctx, s(d, "sale_date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()).ok_or_else(|| bad("Original Sale Date"))?);
+    let due = s(d, "due_date").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()).ok_or_else(|| bad("Due Date"))?;
+    let original = money(d, "original_amount").ok_or_else(|| bad("Original Amount"))?;
+    let paid = money(d, "amount_paid").unwrap_or(Decimal::ZERO);
+    let product = s(d, "product_id").and_then(|x| Uuid::parse_str(x).ok());
+    let opening = product.is_none();
+    let notes = format!(
+        "{}{}",
+        if opening { "Opening credit balance (imported)" } else { "Imported credit sale" },
+        s(d, "notes").map(|n| format!(" — {n}")).unwrap_or_default()
+    );
+    let sale: Uuid = sqlx::query_scalar(
+        "INSERT INTO sales (tenant_id, branch_id, receipt_no, customer_id, user_id, owner_id, status, gross_total, discount_total, total,
+                amount_paid, payment_method, points_earned, is_legacy, notes, created_at, import_batch_id)
+         VALUES ($1,$2,$3,$4,$5,$6,'completed',$7,0,$7,$8,'credit',0,true,$9,$10,$11) RETURNING id",
+    )
+    .bind(ctx.tenant_id)
+    .bind(branch)
+    .bind(&rf)
+    .bind(customer)
+    .bind(uploader)
+    .bind(owner)
+    .bind(original)
+    .bind(paid)
+    .bind(&notes)
+    .bind(at)
+    .bind(batch)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => rule(format!("Receipt {rf} already exists")),
+        _ => e.into(),
+    })?;
+    if let Some(p) = product {
+        let qty = d.get("quantity").and_then(|v| v.as_i64()).unwrap_or(1).max(1);
+        let unit = (original / Decimal::from(qty)).round_dp(2);
+        sqlx::query("INSERT INTO sale_items (tenant_id, sale_id, product_id, quantity, marked_price, unit_price, line_total) VALUES ($1,$2,$3,$4,$5,$5,$6)")
+            .bind(ctx.tenant_id)
+            .bind(sale)
+            .bind(p)
+            .bind(qty as i32)
+            .bind(unit)
+            .bind(original)
+            .execute(&mut *conn)
+            .await?;
+    }
+    let status = if paid >= original { "paid" } else if paid > Decimal::ZERO { "partially_paid" } else { "outstanding" };
+    let credit: Uuid = sqlx::query_scalar(
+        "INSERT INTO credit_sales (tenant_id, branch_id, sale_id, customer_id, user_id, original_amount, amount_paid, due_date, status, created_at, import_batch_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",
+    )
+    .bind(ctx.tenant_id)
+    .bind(branch)
+    .bind(sale)
+    .bind(customer)
+    .bind(owner.or(uploader))
+    .bind(original)
+    .bind(paid)
+    .bind(due)
+    .bind(status)
+    .bind(at)
+    .bind(batch)
+    .fetch_one(&mut *conn)
+    .await?;
+    if paid > Decimal::ZERO {
+        // What was paid before S'Shop: recorded once, as paid before the cutover (not a new payment).
+        sqlx::query(
+            "INSERT INTO payments (tenant_id, branch_id, sale_id, credit_sale_id, method, amount, reference, user_id, created_at)
+             VALUES ($1,$2,$3,$4,'legacy',$5,'Paid before S''Shop (imported)',$6,$7)",
+        )
+        .bind(ctx.tenant_id)
+        .bind(branch)
+        .bind(sale)
+        .bind(credit)
+        .bind(paid)
+        .bind(uploader)
+        .bind(at)
+        .execute(&mut *conn)
+        .await?;
+    }
+    crate::loyalty::record_past_purchase(conn, cfg, customer, original, at).await?;
+    Ok((credit, original))
 }
 
 fn s_req(d: &Map<String, Value>, k: &str) -> AppResult<String> {

@@ -26,7 +26,21 @@ the amount Safaricom reported, never if it was a test prompt, and a waiting sale
 | Consumer key, consumer secret, passkey | From the Daraja app. Encrypted when saved (AES-256-GCM) and never shown again; empty on edit keeps them |
 | Branches | All, or chosen branches (a branch-specific account wins over an all-branches one) |
 
-1. **Test connection** checks the consumer key and secret: Safaricom issues an access token.
+**Sandbox and Production are kept apart.**
+- **Sandbox**: requests always use Safaricom's test shortcode **174379** as a Paybill (`CustomerPayBillOnline`, PartyB
+  174379), with the Sandbox app's key, secret and passkey. The business's own Till and Store numbers are never put into
+  a Sandbox request: Daraja's Sandbox refuses them with *Invalid TransactionType*.
+- **Production**: a Buy Goods Till sends the Store / Head Office number as `BusinessShortCode` and the Till number as
+  `PartyB` (`CustomerBuyGoodsOnline`); a Paybill sends its number for both (`CustomerPayBillOnline`). Safaricom must
+  have enabled M-Pesa Express (STK Push) for that Till or Paybill — not every Till has it.
+
+Each account shows three checks, apart: **OAuth** (credentials), **STK request accepted** (verification) and **Test
+payment confirmed** (the latest test prompt was paid). Daraja's refusals are explained in plain words (transaction type,
+passkey, credentials, shortcode, phone, callback). The server logs the environment, transaction type, shortcode, till,
+amount and Safaricom's error — never credentials, the generated password or access tokens.
+
+1. **Test connection** checks the consumer key and secret: Safaricom issues an access token. That proves the
+   credentials only, not STK Push.
 2. **Send test prompt** sends a KSh 1 prompt to a phone. Safaricom accepting it proves the shortcode, passkey and
    till together, and the account becomes **verified**. Nobody has to pay; cancel it on the phone.
 3. **STK Push** can then be switched on. It switches off by itself (verification cleared) whenever the type,

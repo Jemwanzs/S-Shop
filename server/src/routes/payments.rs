@@ -312,6 +312,11 @@ struct AccountOut {
     last_tested_at: Option<DateTime<Utc>>,
     last_error: Option<String>,
     last_error_at: Option<DateTime<Utc>>,
+    /// Roadmap 96: the checks, each on its own — credentials (OAuth), STK request accepted (`verified_at`), and the
+    /// latest test prompt's outcome (`success` = a test payment confirmed by Safaricom).
+    oauth_ok_at: Option<DateTime<Utc>>,
+    last_test_status: Option<String>,
+    last_test_at: Option<DateTime<Utc>>,
     all_branches: bool,
     branch_ids: Vec<Uuid>,
     updated_at: DateTime<Utc>,
@@ -321,7 +326,10 @@ struct AccountOut {
 const ACCOUNT_OUT: &str = "id, name, kind, shortcode, till_number, account_reference, environment,
     CASE WHEN length(consumer_key) > 4 THEN '••••' || right(consumer_key, 4) ELSE '' END AS consumer_key_hint,
     consumer_secret_enc <> '' AS has_secret, passkey_enc <> '' AS has_passkey, is_active, stk_enabled, verified_at,
-    last_tested_at, last_error, last_error_at, all_branches, branch_ids, updated_at";
+    last_tested_at, last_error, last_error_at, oauth_ok_at,
+    (SELECT r.status FROM mpesa_requests r WHERE r.account_id = mpesa_accounts.id AND r.purpose = 'test' ORDER BY r.created_at DESC LIMIT 1) AS last_test_status,
+    (SELECT r.created_at FROM mpesa_requests r WHERE r.account_id = mpesa_accounts.id AND r.purpose = 'test' ORDER BY r.created_at DESC LIMIT 1) AS last_test_at,
+    all_branches, branch_ids, updated_at";
 
 fn can_view(ctx: &Ctx) -> AppResult<()> {
     ctx.require_any(&["settings.integrations", "settings.sales"])
@@ -496,6 +504,7 @@ async fn update_account(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
                 consumer_key = $9, consumer_secret_enc = COALESCE($10, consumer_secret_enc), passkey_enc = COALESCE($11, passkey_enc),
                 is_active = $12, all_branches = $13, branch_ids = $14,
                 stk_enabled = CASE WHEN $15 THEN false ELSE stk_enabled END, verified_at = CASE WHEN $15 THEN NULL ELSE verified_at END,
+                oauth_ok_at = CASE WHEN $15 THEN NULL ELSE oauth_ok_at END,
                 updated_at = now()
          WHERE id = $1 AND tenant_id = $2",
     )
@@ -558,12 +567,16 @@ async fn test_connection(State(state): State<AppState>, ctx: Ctx, Path(id): Path
     let creds = mpesa::account_creds(&state, ctx.tenant_id, id).await?;
     let result = mpesa::check_credentials(&state, &creds).await;
     let error = result.as_ref().err().map(|e| e.to_string());
-    sqlx::query("UPDATE mpesa_accounts SET last_tested_at = now(), last_error = $2, last_error_at = CASE WHEN $2 IS NULL THEN last_error_at ELSE now() END WHERE id = $1")
-        .bind(id)
-        .bind(&error)
-        .execute(&state.db)
-        .await?;
-    Ok(Json(json!({ "ok": error.is_none(), "message": error.unwrap_or_else(|| "Safaricom accepted the consumer key and secret".into()) })))
+    sqlx::query(
+        "UPDATE mpesa_accounts SET last_tested_at = now(), last_error = $2, last_error_at = CASE WHEN $2 IS NULL THEN last_error_at ELSE now() END,
+                oauth_ok_at = CASE WHEN $2 IS NULL THEN now() ELSE NULL END WHERE id = $1",
+    )
+    .bind(id)
+    .bind(&error)
+    .execute(&state.db)
+    .await?;
+    // OAuth proves the credentials only — STK Push is proven by an accepted test prompt.
+    Ok(Json(json!({ "ok": error.is_none(), "message": error.unwrap_or_else(|| "OAuth works: Safaricom issued an access token. Send a test prompt to check STK Push.".into()) })))
 }
 
 #[derive(Deserialize)]
@@ -593,10 +606,10 @@ async fn test_prompt(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uui
             .bind(id)
             .execute(&mut *tx)
             .await?;
-            sqlx::query("UPDATE mpesa_accounts SET verified_at = now(), last_tested_at = now(), last_error = NULL WHERE id = $1").bind(id).execute(&mut *tx).await?;
+            sqlx::query("UPDATE mpesa_accounts SET verified_at = now(), last_tested_at = now(), last_error = NULL, oauth_ok_at = now() WHERE id = $1").bind(id).execute(&mut *tx).await?;
             audit::record(&mut tx, &ctx, Entry::new("settings", "mpesa_account_verified", "mpesa_account", id)).await?;
             tx.commit().await?;
-            Ok(Json(json!({ "ok": true, "message": "Safaricom accepted the test prompt — the account is verified. The prompt can be cancelled on the phone." })))
+            Ok(Json(json!({ "ok": true, "message": "STK request accepted by Safaricom — the account is verified. Paying the KSh 1 prompt confirms a payment end to end (or cancel it on the phone)." })))
         }
         Err(e) => {
             sqlx::query("UPDATE mpesa_accounts SET last_tested_at = now(), last_error = $2, last_error_at = now() WHERE id = $1")

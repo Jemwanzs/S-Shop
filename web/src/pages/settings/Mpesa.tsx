@@ -39,11 +39,15 @@ interface Account {
   last_tested_at: string | null;
   last_error: string | null;
   last_error_at: string | null;
+  /** Roadmap 96: the checks, apart — credentials, STK request accepted (verified_at), latest test payment. */
+  oauth_ok_at: string | null;
+  last_test_status: "pending" | "success" | "failed" | "cancelled" | "timeout" | null;
+  last_test_at: string | null;
   all_branches: boolean;
   branch_ids: string[];
 }
 interface Accounts { items: Account[]; stk: { available: boolean; platform_config: boolean } }
-type Draft = Omit<Account, "id" | "consumer_key_hint" | "has_secret" | "has_passkey" | "stk_enabled" | "verified_at" | "last_tested_at" | "last_error" | "last_error_at"> & {
+type Draft = Omit<Account, "id" | "consumer_key_hint" | "has_secret" | "has_passkey" | "stk_enabled" | "verified_at" | "last_tested_at" | "last_error" | "last_error_at" | "oauth_ok_at" | "last_test_status" | "last_test_at"> & {
   consumer_key: string; consumer_secret: string; passkey: string;
 };
 const blank: Draft = {
@@ -106,7 +110,9 @@ export function MpesaAccounts() {
                   {manage && <Button size="icon" variant="ghost" aria-label={t("Remove")} onClick={() => setRemove(a)}><Trash2 /></Button>}
                 </span>
               </div>
+              <Checks a={a} />
               <p className="num text-xs text-muted-foreground">
+                {a.environment === "sandbox" && <>{t("Sandbox requests use Safaricom's test shortcode 174379")} · </>}
                 {a.kind === "till" ? <>{t("Till")} {a.till_number} · {t("Store")} {a.shortcode}</> : <>{t("Paybill")} {a.shortcode}{a.account_reference && <> · {t("Account")} {a.account_reference}</>}</>}
                 {" · "}{a.all_branches ? t("All branches") : branches.filter((b) => a.branch_ids.includes(b.id)).map((b) => b.name).join(", ")}
                 {" · "}{t("Key")} {a.consumer_key_hint || "—"}
@@ -180,6 +186,11 @@ function AccountEditor({ value, onChange, branches, busy, onSave }: {
             ? <Field label="Till number" hint="The number customers pay"><Input inputMode="numeric" className="num" value={d.till_number} onChange={(e) => set({ till_number: e.target.value.replace(/\D/g, "") })} /></Field>
             : <Field label="Account reference" optional hint="Shown to customers (up to 12 characters)"><Input value={d.account_reference} maxLength={12} onChange={(e) => set({ account_reference: e.target.value })} /></Field>}
         </div>
+        {d.environment === "sandbox" && (
+          <p className="rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground">
+            {t("Sandbox requests always use Safaricom's test shortcode 174379 (Paybill) with your Sandbox app's key, secret and passkey. Your Till and Store numbers are used only in Production, once Safaricom has enabled M-Pesa Express (STK Push) for them.")}
+          </p>
+        )}
         <Field group label="Environment">
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
             {([["sandbox", "Sandbox (testing)"], ["production", "Production"]] as const).map(([k, l]) => (
@@ -312,5 +323,25 @@ export function PlatformMpesaCard() {
         {!p.configured && !p.problem && <p className="text-xs text-muted-foreground">{t("Set MPESA_ENVIRONMENT, MPESA_CONSUMER_KEY, MPESA_CONSUMER_SECRET, MPESA_STK_PASSKEY, MPESA_SHORTCODE and MPESA_CALLBACK_URL on Railway.")}</p>}
       </div>
     </Card>
+  );
+}
+
+/** Three separate checks: OAuth proves the credentials, an accepted prompt proves STK Push, a paid test confirms a payment. */
+function Checks({ a }: { a: Account }) {
+  const paid = a.last_test_status === "success";
+  const items: [string, boolean | null, string][] = [
+    ["OAuth", a.oauth_ok_at ? true : a.last_error && !a.verified_at ? false : null, a.oauth_ok_at ? ago(a.oauth_ok_at) : ""],
+    ["STK request accepted", a.verified_at ? true : a.last_error ? false : null, a.verified_at ? ago(a.verified_at) : ""],
+    ["Test payment confirmed", paid ? true : a.last_test_status && a.last_test_status !== "pending" ? false : null,
+      a.last_test_status === "pending" ? t("waiting") : a.last_test_at && a.last_test_status ? ago(a.last_test_at) : ""],
+  ];
+  return (
+    <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs" aria-label={t("Checks")}>
+      {items.map(([label, ok, when]) => (
+        <li key={label} className={cn("flex items-center gap-1", ok === true ? "text-success" : ok === false ? "text-destructive" : "text-muted-foreground")}>
+          <span aria-hidden>{ok === true ? "✓" : ok === false ? "✕" : "○"}</span> {t(label)}{when && <span className="opacity-70">· {when}</span>}
+        </li>
+      ))}
+    </ul>
   );
 }

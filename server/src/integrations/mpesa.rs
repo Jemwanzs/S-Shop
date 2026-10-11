@@ -21,6 +21,8 @@ use crate::state::AppState;
 /// platform owner's own business only, from the `MPESA_*` environment variables.
 pub struct Creds {
     pub account_id: Option<Uuid>,
+    /// `sandbox` | `production` (logged with refusals; never a secret).
+    pub environment: String,
     pub base_url: String,
     pub consumer_key: String,
     pub consumer_secret: String,
@@ -51,19 +53,33 @@ struct AccountRow {
 
 const ACCOUNT_COLS: &str = "id, kind, shortcode, till_number, account_reference, environment, consumer_key, consumer_secret_enc, passkey_enc, callback_token_enc";
 
+/// Daraja's Sandbox accepts STK Push only for its test shortcode, as a Paybill (roadmap 96).
+pub const SANDBOX_SHORTCODE: &str = "174379";
+
 fn creds_of(state: &AppState, a: AccountRow) -> AppResult<Creds> {
     let key = &state.cfg.data_key.0;
     let token = crate::secrets::decrypt(key, &a.callback_token_enc)?;
+    let production = a.environment == "production";
     let till = a.kind == "till";
+    // Sandbox requests always use Safaricom's test shortcode as a Paybill; the business's own Till / Store / Paybill
+    // numbers are used only in production (never substituted into a sandbox request).
+    let (shortcode, transaction_type, party_b) = if !production {
+        (SANDBOX_SHORTCODE.to_string(), "CustomerPayBillOnline", SANDBOX_SHORTCODE.to_string())
+    } else if till {
+        (a.shortcode.clone(), "CustomerBuyGoodsOnline", if a.till_number.is_empty() { a.shortcode.clone() } else { a.till_number })
+    } else {
+        (a.shortcode.clone(), "CustomerPayBillOnline", a.shortcode.clone())
+    };
     Ok(Creds {
         account_id: Some(a.id),
-        base_url: if a.environment == "production" { state.cfg.daraja_production_url.clone() } else { state.cfg.daraja_sandbox_url.clone() },
+        environment: a.environment.clone(),
+        base_url: if production { state.cfg.daraja_production_url.clone() } else { state.cfg.daraja_sandbox_url.clone() },
         consumer_secret: crate::secrets::decrypt(key, &a.consumer_secret_enc)?,
         passkey: crate::secrets::decrypt(key, &a.passkey_enc)?,
         consumer_key: a.consumer_key,
-        transaction_type: if till { "CustomerBuyGoodsOnline" } else { "CustomerPayBillOnline" }.into(),
-        party_b: if till && !a.till_number.is_empty() { a.till_number } else { a.shortcode.clone() },
-        shortcode: a.shortcode,
+        transaction_type: transaction_type.into(),
+        party_b,
+        shortcode,
         callback_url: format!("{}/api/webhooks/mpesa/a/{}/{}", state.cfg.public_url, a.id, token),
         account_reference: a.account_reference,
     })
@@ -96,6 +112,7 @@ async fn env_creds(state: &AppState, tenant: Uuid) -> AppResult<Option<Creds>> {
     }
     Ok(Some(Creds {
         account_id: None,
+        environment: c.environment.clone(),
         base_url: c.base_url.clone(),
         consumer_key: c.consumer_key.clone(),
         consumer_secret: c.consumer_secret.clone(),
@@ -234,13 +251,43 @@ pub async fn stk_push(state: &AppState, c: &Creds, phone: &str, amount: Decimal,
             .as_str()
             .or(body["ResponseDescription"].as_str())
             .unwrap_or("M-Pesa could not start the payment");
-        return Err(AppError::Upstream(msg.to_string()));
+        // Sanitised: what was asked and what Safaricom said — never credentials, the password or the access token.
+        tracing::warn!(
+            environment = %c.environment, transaction_type = %c.transaction_type, shortcode = %c.shortcode, party_b = %c.party_b,
+            amount = whole, error_code = %body["errorCode"].as_str().unwrap_or(""), error = %msg, "daraja refused an STK request"
+        );
+        return Err(AppError::Upstream(explain(msg, c)));
     }
     Ok(StkAccepted {
         merchant_request_id: body["MerchantRequestID"].as_str().unwrap_or_default().to_string(),
         checkout_request_id: body["CheckoutRequestID"].as_str().unwrap_or_default().to_string(),
         customer_message: body["CustomerMessage"].as_str().unwrap_or("Check your phone to complete payment").to_string(),
     })
+}
+
+/// Safaricom's refusal with what to do about it (the original wording is kept first).
+pub fn explain(msg: &str, c: &Creds) -> String {
+    let m = msg.to_lowercase();
+    let hint = if m.contains("transactiontype") {
+        if c.environment == "sandbox" {
+            format!("Sandbox only accepts Safaricom's test shortcode {SANDBOX_SHORTCODE} as a Paybill (CustomerPayBillOnline).")
+        } else {
+            "The transaction type does not match this shortcode: a Buy Goods Till needs its Store / Head Office number as the shortcode and the Till number as the till, and Safaricom must have enabled M-Pesa Express (STK Push) for it; a Paybill uses CustomerPayBillOnline.".to_string()
+        }
+    } else if m.contains("password") || m.contains("passkey") {
+        "The passkey does not match the shortcode — use the Lipa na M-Pesa Online passkey issued for this shortcode.".to_string()
+    } else if m.contains("access token") || m.contains("authentication") {
+        "The consumer key or secret is not accepted — check them against the Daraja app.".to_string()
+    } else if m.contains("businessshortcode") || m.contains("partyb") {
+        "Safaricom does not accept this shortcode or till for STK Push in this environment.".to_string()
+    } else if m.contains("phonenumber") || m.contains("partya") {
+        "Check the phone number (07…, 01… or 254…).".to_string()
+    } else if m.contains("callback") {
+        "Safaricom refused the callback URL — it must be public HTTPS.".to_string()
+    } else {
+        return msg.to_string();
+    };
+    format!("{msg} — {hint}")
 }
 
 /// Returns Some((result_code, result_desc)) once Daraja knows the outcome; None while still processing.
@@ -320,6 +367,23 @@ mod tests {
         assert_eq!(cb.result_code, 0);
         assert_eq!(cb.receipt.as_deref(), Some("NLJ7RT61SV"));
         assert_eq!(cb.amount, Some(Decimal::ONE));
+    }
+
+    fn creds(env: &str) -> Creds {
+        Creds {
+            account_id: None, environment: env.into(), base_url: String::new(), consumer_key: String::new(), consumer_secret: String::new(),
+            shortcode: "7928587".into(), passkey: String::new(), transaction_type: "CustomerBuyGoodsOnline".into(), party_b: "4489262".into(),
+            callback_url: String::new(), account_reference: String::new(),
+        }
+    }
+
+    #[test]
+    fn refusals_are_explained() {
+        let s = explain("Bad Request - Invalid TransactionType", &creds("sandbox"));
+        assert!(s.starts_with("Bad Request - Invalid TransactionType") && s.contains("174379"), "{s}");
+        assert!(explain("Bad Request - Invalid TransactionType", &creds("production")).contains("Store / Head Office"));
+        assert!(explain("Bad Request - Invalid Password", &creds("sandbox")).contains("passkey"));
+        assert_eq!(explain("Something new", &creds("sandbox")), "Something new");
     }
 
     #[test]

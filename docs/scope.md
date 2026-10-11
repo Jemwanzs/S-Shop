@@ -474,6 +474,14 @@ Health check 2026-10-11 (owner request: *health check of the S'Shop app; detect 
   navigation to user-supplied paths) and Tailwind 3 → 4 (advisories in build-time tooling only, never shipped). Both
   are breaking upgrades, planned with a full UI regression pass.
 
+Added 2026-10-11 — **Daraja InvalidTransactionType** (owner request: *Fix Daraja InvalidTransactionType Error*).
+- ✅ **96. Sandbox and Production kept apart** — Sandbox requests always use Safaricom's test shortcode 174379 as a
+  Paybill (the business's real Till and Store numbers are kept for Production, where a Buy Goods Till sends Store →
+  `BusinessShortCode` and Till → `PartyB`); each account shows OAuth, *STK request accepted* and *Test payment
+  confirmed* separately (OAuth no longer reads as proof of STK); Daraja refusals explained (transaction type, passkey,
+  credentials, shortcode, phone, callback); refusals logged with environment, transaction type and shortcodes, never
+  secrets. Root cause: a Sandbox account carried the business's real Buy Goods numbers, which Daraja's Sandbox refuses.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

@@ -2408,7 +2408,7 @@ if PS_PORT:
     tc = call("POST", f"/mpesa/accounts/{acc_id}/test", {})
     check("test connection: Safaricom accepts the key and secret", tc["ok"], tc)
     tp = call("POST", f"/mpesa/accounts/{acc_id}/test-prompt", {"phone": "0712345678"})
-    check("wrong passkey: the test prompt is refused and the error kept", not tp["ok"] and "Password" in tp["message"]
+    check("wrong passkey: refused, explained, and the error kept", not tp["ok"] and "Password" in tp["message"] and "passkey does not match" in tp["message"]
           and "Password" in (call("GET", "/mpesa/accounts")["items"][0]["last_error"] or ""), tp)
     r = call("PUT", f"/mpesa/accounts/{acc_id}/stk", {"enabled": True}, expect=422)
     check("STK Push stays off until verified", r["error"]["title"] == "Verify the account first", r)
@@ -2420,8 +2420,18 @@ if PS_PORT:
     me_now = call("GET", "/auth/me")
     check("STK Push on: the till offers it", me_now["integrations"]["mpesa_stk"] and me_now["integrations"]["mpesa_stk_branches"] is None)
     till_req = [v["req"] for v in STK.values()][-1]
-    check("Buy Goods: Store number + Till number, callback per account", till_req["TransactionType"] == "CustomerBuyGoodsOnline"
-          and till_req["BusinessShortCode"] == "174379" and till_req["PartyB"] == "5123456" and f"/mpesa/a/{acc_id}/" in till_req["CallBackURL"], till_req)
+    check("sandbox: Safaricom's test shortcode as a Paybill, never the business's own till; callback per account",
+          till_req["TransactionType"] == "CustomerPayBillOnline" and till_req["BusinessShortCode"] == "174379" and till_req["PartyB"] == "174379"
+          and f"/mpesa/a/{acc_id}/" in till_req["CallBackURL"], till_req)
+    accs = call("GET", "/mpesa/accounts")["items"]
+    check("checks shown apart: OAuth, request accepted, test payment", accs[0]["oauth_ok_at"] and accs[0]["verified_at"] and accs[0]["last_test_status"] == "pending", accs[0])
+    # Production: the business's own Store number + Till number, as Buy Goods (a separate account, never auto-enabled).
+    prod_acc = call("POST", "/mpesa/accounts", {**base_acc, "name": "Live Till", "shortcode": "7928587", "till_number": "4489262",
+                                                 "environment": "production", "passkey": DARAJA["passkey"]})["id"]
+    call("POST", f"/mpesa/accounts/{prod_acc}/test-prompt", {"phone": "0712345678"})
+    live_req = [v["req"] for v in STK.values()][-1]
+    check("production Buy Goods: Store number as shortcode, Till number as PartyB", live_req["TransactionType"] == "CustomerBuyGoodsOnline"
+          and live_req["BusinessShortCode"] == "7928587" and live_req["PartyB"] == "4489262", live_req)
     # A forged callback (wrong token) changes nothing.
     bad_cb = urllib.request.Request(BASE + f"/api/webhooks/mpesa/a/{acc_id}/not-the-token", data=b"{}", method="POST", headers={"Content-Type": "application/json"})
     try:

@@ -40,7 +40,7 @@ export function OwnerPicker({ open, onOpenChange, branchId, value, onPick, exclu
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange} title={title} description="Active salespeople at this branch">
       <div className="space-y-2">
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search people")} autoFocus />
+        <Input data-dirty-ignore value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search people")} autoFocus />
         {isLoading ? <Loading /> : (
           <ul className="max-h-[50vh] divide-y overflow-y-auto">
             {list.map((o) => (

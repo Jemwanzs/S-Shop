@@ -196,6 +196,8 @@ export function BarcodeScanner({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-[hsl(var(--overlay)/0.6)] backdrop-blur-[2px] data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
           aria-describedby={undefined}
           onOpenAutoFocus={(e) => !desktop && e.preventDefault()}
           className={cn(

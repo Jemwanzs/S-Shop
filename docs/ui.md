@@ -63,6 +63,16 @@ options get a search box (`searchable` forces it on or off); disabled options an
 the sheet and the field for screen readers.
 
 ## Feedback & resilience
+- **Dialogs & sheets close only on purpose** (roadmap 104), centrally in `components/ui/dialog.tsx`,
+  `components/ui/drawer.tsx` and `components/ResponsiveDialog.tsx`:
+  - clicking or tapping outside never closes a dialog, sheet, picker sheet, alert, the scanner or search;
+  - every one has a visible × (sheets too); Escape closes when nothing would be lost;
+  - `ResponsiveDialog` notices typed input (inputs, text areas, native selects, files — not search boxes, which carry
+    `data-dirty-ignore`); while there is unsaved input, ×, Escape and the phone sheet's swipe-down first ask
+    **Discard changes?** (*Keep editing* / *Discard*), and the inactivity warning counts it as unsaved work.
+    `dirty` overrides the check, `confirmDiscard={false}` turns it off;
+  - closing from the screen itself (after a successful save, or a screen's own Cancel) is unchanged.
+  - Popovers, dropdown menus and tooltips are not dialogs: they still close when you click elsewhere (nothing is lost).
 - **Loading** — one loader everywhere: `SShopLoader` (`components/SShopLoader.tsx`), the official S'Shop mark, still,
   inside a rotating brand-gradient ring (`--brand-from` → `--brand-to`, light and dark). Sizes: `sm` buttons and
   compact spots (immediate, no text), `md` cards, tables, dialogs, `lg` full page. md / lg fade in after 150 ms so quick

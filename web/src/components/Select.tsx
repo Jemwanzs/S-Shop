@@ -125,7 +125,7 @@ function OptionList({ options, value, onChoose, search, touch }: { options: Opt[
   }, [search, touch]);
 
   return (
-    <CommandPrimitive ref={root} value={active} onValueChange={setActive} loop tabIndex={-1} className="flex flex-col outline-none">
+    <CommandPrimitive ref={root} data-dirty-ignore value={active} onValueChange={setActive} loop tabIndex={-1} className="flex flex-col outline-none">
       {search && (
         <div className="flex items-center gap-2 border-b px-3">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />

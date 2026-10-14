@@ -281,7 +281,7 @@ function Editor({ value, maxProducts, onClose, onSaved }: { value: EditValue; ma
           {c.products.mode === "auto" && <p className="text-xs text-muted-foreground">{t("Ranked by units actually sold (returns deducted). No sales in the period: all-time sales; no sales at all: the banner shows the greeting only.")}</p>}
           {c.products.mode === "manual" && (
             <div className="space-y-2">
-              <Input placeholder={t("Search products")} value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Input data-dirty-ignore placeholder={t("Search products")} value={search} onChange={(e) => setSearch(e.target.value)} />
               <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border p-2">
                 {products.map((p) => {
                   const on = c.products.product_ids.includes(p.id);

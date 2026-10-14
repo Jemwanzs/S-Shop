@@ -216,7 +216,7 @@ export default function CustomerDetail() {
         </div>
       </ResponsiveDialog>
       <ResponsiveDialog open={referring} onOpenChange={setReferring} title={`${c.first_name} referred…`} description="The referrer earns a share of the new customer's points.">
-        <Input placeholder="Search the referred customer" value={referred} onChange={(e) => setReferred(e.target.value)} autoFocus />
+        <Input data-dirty-ignore placeholder="Search the referred customer" value={referred} onChange={(e) => setReferred(e.target.value)} autoFocus />
         <ul className="mt-2 divide-y rounded-lg border empty:hidden">
           {candidates.data?.items.filter((x) => x.id !== c.id).map((x) => (
             <li key={x.id}><button className="flex w-full justify-between px-3 py-2.5 text-start text-sm hover:bg-accent" onClick={() => refer.mutate(x.id)}><span>{x.first_name} {x.other_names}</span><span className="num text-muted-foreground">{phone(x.mobile)}</span></button></li>

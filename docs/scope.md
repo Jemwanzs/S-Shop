@@ -533,6 +533,10 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   failed summary with an import reference, the Excel import report, reopening after a refresh, no double submission,
   and interrupted imports marked failed instead of hanging. Gap closed: the rows-to-fix report was empty after a
   partial import (left-out rows are now included).
+- ✅ **104. Dialogs close only on purpose** — outside clicks / taps never close any dialog or sheet; every one has a ×;
+  typed but unsaved input is protected (× / Escape / swipe-down ask *Discard changes?*), Escape closes freely when
+  nothing would be lost; saves and existing flows unchanged. Applied centrally in the shared dialog, sheet and
+  responsive dialog components. Gap closed: phone sheets had no × and a swipe could silently discard a form.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

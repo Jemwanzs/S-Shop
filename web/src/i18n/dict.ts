@@ -2921,4 +2921,7 @@ export const DICT: Record<string, [string, string, string]> = {
   "Left out (invalid)": ["Zimeachwa (zenye makosa)", "Exclues (invalides)", "مستبعدة (غير صالحة)"],
   "Import summary": ["Muhtasari wa uletaji", "Résumé de l'import", "ملخص الاستيراد"],
   "View progress": ["Tazama maendeleo", "Voir la progression", "عرض التقدم"],
+  "Discard changes?": ["Futa mabadiliko?", "Abandonner les modifications ?", "تجاهل التغييرات؟"],
+  "What you entered here has not been saved. Close and lose it?": ["Ulichoingiza hapa hakijahifadhiwa. Funga na ukipoteze?", "Ce que vous avez saisi ici n'a pas été enregistré. Fermer et le perdre ?", "ما أدخلته هنا لم يُحفظ. هل تغلق وتفقده؟"],
+  "Keep editing": ["Endelea kuhariri", "Continuer la modification", "متابعة التعديل"],
 };

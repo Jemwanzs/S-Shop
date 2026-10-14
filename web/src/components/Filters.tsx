@@ -100,7 +100,7 @@ export function SearchInput({ value, onChange, placeholder = "Search…", classN
   trailing?: ReactNode;
 }) {
   return (
-    <div className={cn("relative", className)}>
+    <div className={cn("relative", className)} data-dirty-ignore>
       <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="bg-card ps-9 pe-20" autoFocus={autoFocus}
         onKeyDown={onEnter ? (e) => { if (e.key === "Enter" && value.trim()) { e.preventDefault(); onEnter(value.trim()); } } : undefined} />

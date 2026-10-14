@@ -222,6 +222,31 @@ def import_now(batch_id, body=None, token=None):
         time.sleep(0.1)
     raise AssertionError(f"import {batch_id} still running: {seen[-3:]}")
 
+
+def has_price_value(obj, *prices):
+    """True when any value in the JSON equals one of the prices (number or numeric text) — exact values only, so
+    digits that happen to appear inside an id or a slug are not mistaken for a leaked price."""
+    want = {float(x) for x in prices}
+    if isinstance(obj, dict):
+        return any(has_price_value(v, *prices) for v in obj.values())
+    if isinstance(obj, list):
+        return any(has_price_value(v, *prices) for v in obj)
+    if isinstance(obj, bool) or obj is None:
+        return False
+    if isinstance(obj, (int, float)):
+        return float(obj) in want
+    if isinstance(obj, str):
+        try:
+            return float(obj.replace(",", "")) in want
+        except ValueError:
+            return False
+    return False
+
+def mentions_word(obj, word):
+    """`word` appears as a whole value or word (not as a run of characters inside an id, token or slug)."""
+    return re.search(rf"(?<![0-9A-Za-z]){re.escape(str(word))}(?![0-9A-Za-z])", json.dumps(obj)) is not None
+
+
 def upload_xlsx(dataset, data, mode="create", expect=200, token=None, name="import.xlsx"):
     """Multipart upload of a workbook to the onboarding centre."""
     boundary = "----sshop" + uuid.uuid4().hex
@@ -1686,9 +1711,9 @@ nostock = call("POST", "/products", {"name": f"Empty Shelf {suffix}", "marked_pr
 check("in-stock filter uses real stock", nostock not in ids("&stock=in") and bag in ids("&stock=in"))
 # Hidden prices never leak — list, suggestions, detail, site data
 call("PUT", "/website/prices", {"show_prices": False}, **T2)
-raw_all = json.dumps([call("GET", f"/site/products?slug={dk_slug}", **PUB), call("GET", f"/site/products?slug={dk_slug}&q=leath&suggest=true", **PUB),
-                      call("GET", f"/site/products/{pbag['slug']}?slug={dk_slug}", **PUB), call("GET", f"/site?slug={dk_slug}", **PUB)])
-check("hidden prices never leak anywhere", "4321" not in raw_all and "777" not in raw_all)
+site_all = [call("GET", f"/site/products?slug={dk_slug}", **PUB), call("GET", f"/site/products?slug={dk_slug}&q=leath&suggest=true", **PUB),
+            call("GET", f"/site/products/{pbag['slug']}?slug={dk_slug}", **PUB), call("GET", f"/site?slug={dk_slug}", **PUB)]
+check("hidden prices never leak anywhere", not has_price_value(site_all, 4321, 777))
 hid = next(p for p in call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"] if p["id"] == bag)
 check("hidden price: no price, business's chosen action", hid["price"] is None and hid["action"] in ("enquire", "contact", "whatsapp", "add_to_cart"), hid)
 # Per-product overrides (draft → publish)
@@ -1708,7 +1733,7 @@ items = {p["id"]: p for p in call("GET", f"/site/products?slug={dk_slug}", **PUB
 check("per-product: price shown on one product while hidden website-wide", float(items[hat]["price"]) == 777 and items[hat]["name"] == "Summer Straw Hat")
 check("per-product: hidden price can still be ordered when allowed", items[bag]["price"] is None and items[bag]["action"] == "add_to_cart", items[bag])
 check("was price shown only with a visible, lower price", float(items[hat]["compare_at"]) == 999 and items[bag]["compare_at"] is None
-      and "5000" not in json.dumps(items[bag]), (items[hat].get("compare_at"), items[bag].get("compare_at")))
+      and not has_price_value(items[bag], 5000), (items[hat].get("compare_at"), items[bag].get("compare_at")))
 feat = call("GET", f"/site/products?slug={dk_slug}&section=featured", **PUB)["items"]
 check("featured section", [p["id"] for p in feat] == [hat])
 # Ordering through the website → existing orders engine
@@ -1896,9 +1921,9 @@ pc = {p["id"]: p for p in call("GET", f"/portal/{dk_slug}/catalogue", **PUB)["pr
 check("ordering link: the same product shows no price", bag in pc and "price" not in pc[bag] and float(pc[hat]["price"]) == 777, pc.get(bag))
 check("ordering link product page: no price", "price" not in call("GET", f"/portal/{dk_slug}/products/{bag}", **PUB)["product"])
 tr = call("GET", f"/portal/track/{wo['track_token']}", **PUB)
-check("tracking an order with a hidden-price product shows no prices", "4321" not in json.dumps(tr) and tr["business"]["show_prices"] is False)
+check("tracking an order with a hidden-price product shows no prices", not has_price_value(tr, 4321) and tr["business"]["show_prices"] is False)
 mo = call("GET", f"/portal/{dk_slug}/orders", **WC)["orders"]
-check("order history: no prices for that order", "4321" not in json.dumps(mo), mo[:1])
+check("order history: no prices for that order", not has_price_value(mo, 4321), mo[:1])
 po = call("POST", f"/portal/{dk_slug}/orders", {"items": [{"product_id": bag, "quantity": 1}], "delivery_location": "Shop"}, **WC)
 check("ordering link confirmation: no total", "total" not in po, po)
 
@@ -2367,7 +2392,7 @@ call("PUT", "/auth/quick-pin", {"current_pin": "4321", "quick_pin": "1234"}, **Q
 call("PUT", "/auth/quick-pin", {"current_pin": "4321", "quick_pin": "25801"[:3]}, **QF, expect=400)
 check("needs the full PIN; weak, short or non-digit Quick PINs refused", True)
 dev = call("PUT", "/auth/quick-pin", {"current_pin": "4321", "quick_pin": "2580", "device_name": "Till phone"}, **QF)
-check("Quick PIN saved; this device trusted with a secret shown once", len(dev["device_token"]) >= 40 and "2580" not in json.dumps(dev))
+check("Quick PIN saved; this device trusted with a secret shown once", len(dev["device_token"]) >= 40 and not has_price_value(dev, 2580) and not mentions_word(dev, 2580))
 r = call("POST", "/auth/quick-login", {"device_token": dev["device_token"], "pin": "2581"}, token="none", branch="none", expect=400)
 check("wrong Quick PIN refused", r["error"]["message"] == "Wrong Quick PIN", r)
 ql = call("POST", "/auth/quick-login", {"device_token": dev["device_token"], "pin": "2580"}, token="none", branch="none")
@@ -2382,7 +2407,7 @@ for m_, p_, b_ in [("POST", "/auth/change-pin", {"current_pin": "4321", "new_pin
 r = call("POST", "/auth/quick-login", {"device_token": "not-a-device", "pin": "2580"}, token="none", branch="none", expect=422)
 check("an untrusted device always needs the full sign-in", r["error"]["title"] == "Full sign-in needed")
 audit_q = call("GET", "/audit?period=today&limit=300&module=auth")["items"]
-check("Quick PIN events audited, never the PIN", any(a["action"] == "quick_pin_enabled" for a in audit_q) and "2580" not in json.dumps(audit_q))
+check("Quick PIN events audited, never the PIN", any(a["action"] == "quick_pin_enabled" for a in audit_q) and not mentions_word(audit_q, 2580))
 # Administrators reset (never see) it; a full PIN reset ends trusted devices too
 call("POST", f"/users/{qp_user}/quick-pin/reset", {}, **QQ, expect=422)
 call("POST", f"/users/{qp_user}/quick-pin/reset", {})
@@ -3139,7 +3164,7 @@ check("Maybe later: not offered again", call("GET", "/auth/me", **IV)["user"]["q
 r = call("POST", f"/users/{iv['id']}/invite", {"send_email": True}, expect=422)
 check("an account already set up is not invited again", "already set up" in r["error"]["message"], r)
 iv_audit = call("GET", "/audit?period=today&limit=300&module=users")["items"]
-check("invitations audited, never a link or PIN", any(a["action"] == "invite_link_created" for a in iv_audit) and tok(second_link) not in json.dumps(iv_audit) and "8642" not in json.dumps(iv_audit))
+check("invitations audited, never a link or PIN", any(a["action"] == "invite_link_created" for a in iv_audit) and tok(second_link) not in json.dumps(iv_audit) and not mentions_word(iv_audit, 8642))
 # Step-up: a Quick PIN session asked for a full sign-in continues after the full PIN is confirmed.
 su_mail = f"stepup{suffix.lower()}@sshop.test"
 call("POST", "/users", {"name": f"Step Up {suffix}", "email": su_mail, "pin": "4321", "role_id": iv_roles["Tenant Administrator"], "all_branches": True, "branch_ids": []})

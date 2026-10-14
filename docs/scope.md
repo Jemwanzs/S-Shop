@@ -552,7 +552,7 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 - ✅ **109. POS display** — compact / image cards / list rows, images, tablet & desktop columns, price visibility;
   product-list thumbnails and prices.
 - ✅ **110. Top-selling products** — quantity / value / number of sales, today / week (Monday) / month, Gold ★★★★★,
-  Silver ★★★, Bronze ★★, predictable ordering with search, categories and favourites.
+  Silver ★★★, Bronze ★★, predictable ordering with search and categories (S'Shop has no favourites / manual order to preserve).
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

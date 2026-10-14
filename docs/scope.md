@@ -546,7 +546,7 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 - ✅ **106. Loyalty earning & redemption controls** — earning base (net payable default / gross), points never earned
   on value paid with points (explicit), rounding, redemption window (manual + scheduled), minimum points, rate, hard
   50 % maximum per sale enforced by the server, optional supervisor approval, audited settings.
-- ⏳ **107. Split payments & partial payment → credit** — several payment lines (cash, M-PESA/STK, others, points) on
+- ✅ **107. Split payments & partial payment → credit** — several payment lines (cash, M-PESA/STK, others, points) on
   one sale, remainder on credit linked to the sale, stock deducted once, receipts / history / statuses / reports.
 - ⏳ **108. Landing page after sign-in** — business default and personal choice, after picking the branch.
 - ⏳ **109. POS display** — compact / image cards / list rows, images, tablet & desktop columns, price visibility;

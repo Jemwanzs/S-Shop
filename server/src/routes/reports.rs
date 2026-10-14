@@ -79,13 +79,21 @@ pub const REPORTS: &[Report] = &[
         description: "Every sale in the period with totals, discounts and payment method",
         columns: &[c("created_at", "Date", "datetime"), c("business_date", "Business day", "date"), c("receipt_no", "Receipt", "text"), c("branch", "Branch", "text"),
             c("customer", "Customer", "text"), c("salesperson", "Sale owner", "text"), c("recorded_by", "Recorded by", "text"), c("items", "Items", "int"),
-            c("gross", "Marked total", "money"), c("discount", "Discount", "money"), c("total", "Total", "money"),
-            c("payment_method", "Payment", "text"), c("status", "Status", "text")],
+            c("gross", "Marked total", "money"), c("discount", "Discount", "money"), c("points_value", "Paid with points", "money"),
+            c("total", "Payable", "money"), c("paid", "Paid", "money"), c("credit_balance", "Credit balance", "money"),
+            c("payment_method", "Payment", "text"), c("payment_status", "Payment status", "text"), c("status", "Status", "text")],
         sql: "SELECT s.created_at, s.business_date, s.receipt_no, b.name AS branch, NULLIF(TRIM(c.first_name || ' ' || c.other_names),'') AS customer,
                      ow.name AS salesperson, u.name AS recorded_by, (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = s.id) AS items,
-                     s.gross_total AS gross, s.discount_total AS discount, s.total, s.payment_method, s.status
+                     s.gross_total AS gross, s.discount_total AS discount, s.redeemed_value AS points_value, s.total,
+                     CASE WHEN cs.id IS NULL THEN s.total ELSE cs.amount_paid END AS paid,
+                     CASE WHEN cs.id IS NULL THEN 0 ELSE GREATEST(cs.original_amount - cs.amount_paid - cs.adjustments, 0) END AS credit_balance,
+                     s.payment_method,
+                     CASE WHEN s.status = 'cancelled' THEN 'cancelled' WHEN s.status = 'returned' THEN 'refunded'
+                          WHEN cs.id IS NULL OR cs.status = 'paid' THEN 'paid' WHEN cs.status IN ('cancelled', 'recalled', 'written_off') THEN cs.status
+                          WHEN cs.amount_paid > 0 THEN 'partially_paid' ELSE 'credit_outstanding' END AS payment_status,
+                     s.status
               FROM sales s JOIN branches b ON b.id = s.branch_id LEFT JOIN customers c ON c.id = s.customer_id
-              LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users ow ON ow.id = s.owner_id, params
+              LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users ow ON ow.id = s.owner_id LEFT JOIN credit_sales cs ON cs.sale_id = s.id, params
               WHERE s.tenant_id = params.tid AND s.branch_id = ANY(params.br) AND s.business_date BETWEEN params.fd AND params.td
                 AND (params.uid IS NULL OR s.owner_id = params.uid) AND (params.cust IS NULL OR s.customer_id = params.cust)
                 AND (params.pid IS NULL OR EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.product_id = params.pid))
@@ -340,6 +348,24 @@ pub const REPORTS: &[Report] = &[
               WHERE e.tenant_id = params.tid AND e.branch_id = ANY(params.br) AND e.expense_date BETWEEN params.fd AND params.td
                 AND e.status <> 'void' AND (params.uid IS NULL OR e.user_id = params.uid)
               ORDER BY e.expense_date DESC",
+    },
+    Report {
+        // Roadmap 107: money actually received, by method — at the sale (incl. each part of a split and deposits),
+        // later credit repayments (never sales revenue) and refunds. Value paid with points is in the loyalty reports.
+        key: "payments_collected", title: "Payments Collected", group: "Finance", permission: "sales.view",
+        description: "Money received by payment method: at the sale, credit repayments and refunds",
+        columns: &[c("method", "Payment method", "text"), c("at_sale", "Collected at sale", "money"), c("repayments", "Credit repayments", "money"),
+            c("refunds", "Refunds", "money"), c("net", "Net collected", "money"), c("payments", "Payments", "int")],
+        sql: "SELECT p.method,
+                     COALESCE(SUM(p.amount) FILTER (WHERE p.amount > 0 AND p.sale_id IS NOT NULL), 0) AS at_sale,
+                     COALESCE(SUM(p.amount) FILTER (WHERE p.amount > 0 AND p.sale_id IS NULL AND p.credit_sale_id IS NOT NULL), 0) AS repayments,
+                     COALESCE(-SUM(p.amount) FILTER (WHERE p.amount < 0), 0) AS refunds,
+                     COALESCE(SUM(p.amount), 0) AS net, COUNT(*) AS payments
+              FROM payments p, params
+              WHERE p.tenant_id = params.tid AND p.branch_id = ANY(params.br) AND p.business_date BETWEEN params.fd AND params.td
+                AND p.method NOT IN ('exchange', 'legacy')
+                AND (params.uid IS NULL OR p.user_id = params.uid)
+              GROUP BY p.method ORDER BY net DESC",
     },
     Report {
         key: "profitability", title: "Profitability Report", group: "Finance", permission: "sales.view_financials",

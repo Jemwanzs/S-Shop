@@ -2959,6 +2959,78 @@ ok106 = call("POST", "/sales", {**body106, "client_ref": str(uuid.uuid4()), "sup
 check("approved by a supervisor: redeemed", int(ok106["redeemed_points"]) == 5, ok106["redeemed_points"])
 call("PUT", "/settings", orig106)
 
+step("Roadmap 107: split payments (cash + M-Pesa + points) and partial payment left on credit")
+cfg107 = call("GET", "/settings")["settings"]
+orig107 = json.loads(json.dumps(cfg107))
+cfg107["loyalty"].update({"enabled": True, "threshold": 1000, "points_per": 1, "min_spend": 0, "point_value": 1000, "redemption_enabled": True,
+                          "min_redemption_points": 1, "redemption_window_open": True, "redemption_opens_at": None, "redemption_closes_at": None,
+                          "max_redemption_percent": 50, "earn_base": "net", "earn_on_redeemed": False, "rounding": "down", "redemption_needs_approval": False})
+cfg107["sales"]["mpesa_manual_confirmation"] = True
+call("PUT", "/settings", cfg107)
+tv107 = call("POST", "/products", {"name": f"Split TV {suffix}", "marked_price": 100000, "cost_price": 70000})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": tv107, "quantity": 10, "cost_price": 70000})
+on_hand107 = lambda: call("GET", f"/stock?q=Split TV {suffix}")["items"][0]["on_hand"]
+m107 = "07" + str(int(time.time() * 11))[-8:]
+# Give the customer points to redeem: a first sale earns 100.
+first107 = call("POST", "/sales", {"customer": {"mobile": m107, "first_name": "Achieng"}, "items": [{"product_id": tv107, "quantity": 1, "unit_price": 100000}],
+                                   "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})["sale"]
+c107 = first107["customer"]["id"]
+code107 = "QS" + uuid.uuid4().hex[:8].upper()
+split = lambda parts, extra=None, expect=200, **kw: call("POST", "/sales", {"customer_id": c107, "items": [{"product_id": tv107, "quantity": 1, "unit_price": 100000}],
+                                                             "payment": {"method": "split"}, "payments": parts, "client_ref": str(uuid.uuid4()), **(extra or {})}, expect=expect, **kw)
+r = split([{"method": "cash", "amount": 70000}, {"method": "mpesa", "amount": 40000, "reference": code107}], expect=422)
+check("split: more than the payable is refused", "more than" in r["error"]["message"], r)
+r = split([{"method": "cash", "amount": 20000}], expect=422)
+check("split: an unpaid remainder needs to be allocated or put on credit", "still to be paid" in r["error"]["message"], r)
+r = split([{"method": "cash", "amount": 50000}, {"method": "cash", "amount": 50000}], expect=422)
+check("split: each method once per sale", "once" in r["error"]["message"], r)
+before107 = on_hand107()
+s107 = split([{"method": "cash", "amount": 20000}, {"method": "mpesa", "amount": 40000, "reference": code107}], {"redeem_points": 40})
+sd107 = s107["sale"]
+check("brief example: 40,000 points + 20,000 cash + 40,000 M-Pesa = 100,000; paid in full",
+      float(sd107["redeemed_value"]) == 40000 and float(sd107["total"]) == 60000 and sd107["payment_method"] == "split" and sd107["payment_status"] == "paid", sd107)
+check("each part recorded separately", sorted((p_["method"], float(p_["amount"])) for p_ in s107["payments"]) == [("cash", 20000.0), ("mpesa", 40000.0)], s107["payments"])
+check("points earned only on the 60,000 not paid with points", sd107["points_earned"] == 60, sd107["points_earned"])
+check("stock leaves once for the sale", on_hand107() == before107 - 1)
+rcp107 = call("GET", f"/sales/{sd107['id']}/receipts")
+snap107 = json.dumps(rcp107)
+check("receipt lists both payments and the points", "Split payment" in snap107 and "M-Pesa" in snap107 and "Cash" in snap107, snap107[:300])
+r = split([{"method": "mpesa", "amount": 100000, "reference": code107}], expect=422)
+check("an M-Pesa code already used is refused", "already used" in r["error"].get("title", "") + r["error"]["message"], r)
+# Partial payment, the rest on credit
+before107 = on_hand107()
+r = call("POST", "/sales", {"items": [{"product_id": tv107, "quantity": 1, "unit_price": 100000}], "payment": {"method": "split"},
+                            "payments": [{"method": "cash", "amount": 30000}], "on_credit": True, "client_ref": str(uuid.uuid4())}, expect=422)
+check("leaving a balance on credit needs a customer", "customer" in r["error"]["message"], r)
+code107b = "QT" + uuid.uuid4().hex[:8].upper()
+pc107 = split([{"method": "cash", "amount": 30000}, {"method": "mpesa", "amount": 20000, "reference": code107b}], {"on_credit": True, "due_date": (datetime.date.today() + datetime.timedelta(days=14)).isoformat()})
+ps107 = pc107["sale"]
+check("30,000 cash + 20,000 M-Pesa + 50,000 on credit: recorded as credit, partially paid",
+      ps107["payment_method"] == "credit" and ps107["payment_status"] == "partially_paid" and float(ps107["amount_paid"]) == 50000, ps107)
+check("the credit is linked to the sale with its 50,000 balance and both payments", pc107["credit"] and float(pc107["credit"]["balance"]) == 50000, pc107.get("credit"))
+check("stock leaves once", on_hand107() == before107 - 1)
+cr107 = pc107["credit"]["id"]
+call("POST", f"/credit/{cr107}/payments", {"amount": 50000, "method": "cash"})
+check("repaying the credit moves no stock", on_hand107() == before107 - 1)
+check("repaid in full: the sale shows paid", call("GET", f"/sales/{ps107['id']}")["sale"]["payment_status"] == "paid")
+pcoll = call("GET", "/reports/payments_collected?period=today")["rows"]
+cash_row = next((x for x in pcoll if x["method"] == "cash"), {})
+check("Payments Collected separates credit repayments from money taken at the sale", float(cash_row.get("repayments", 0)) >= 50000 and float(cash_row.get("at_sale", 0)) >= 50000, cash_row)
+srep = call("GET", "/reports/sales?period=today")["rows"]
+row107 = next(x for x in srep if x["receipt_no"] == sd107["receipt_no"])
+check("Sales report: points value, paid and payment status", float(row107["points_value"]) == 40000 and row107["payment_status"] == "paid", row107)
+# Offline: split payments need a connection
+r = call("POST", "/sales", {"items": [{"product_id": tv107, "quantity": 1, "unit_price": 100000}], "payment": {"method": "split"},
+                            "payments": [{"method": "cash", "amount": 100000}], "client_ref": str(uuid.uuid4()),
+                            "offline_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, expect=422)
+check("split payments are refused offline", r["error"].get("title") == "Needs a connection" and "split payments" in r["error"]["message"], r)
+# Return: refunded the way most of it was paid (M-Pesa 40,000 over cash 20,000)
+it107 = s107["items"][0]["id"]
+call("POST", f"/sales/{sd107['id']}/return", {"items": [{"sale_item_id": it107, "quantity": 1}], "reason": "Faulty", "restock": True})
+refund107 = [p_ for p_ in call("GET", f"/sales/{sd107['id']}")["payments"] if float(p_["amount"]) < 0]
+check("a returned split sale is refunded by its main method by default", refund107 and refund107[0]["method"] == "mpesa", refund107)
+call("PUT", "/settings", orig107)
+
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
 iv_mail = f"invitee{suffix.lower()}@sshop.test"

@@ -488,6 +488,8 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
                         exchange: None,
                         owner_id: None,
                         redemption_approved: false,
+                        split: Vec::new(),
+                        on_credit: false,
                     },
                     true,
                 )

@@ -104,7 +104,7 @@ export default function SalesList() {
           { key: "branch", header: "Branch", cell: (r) => r.branch_name, hideBelow: "xl" },
           { key: "user", header: "Sale owner", cell: (r) => <span>{r.user_name ?? "—"}{r.recorded_by_name && r.recorded_by_name !== r.user_name && <span className="block text-xs text-muted-foreground">{t("recorded by")} {r.recorded_by_name}</span>}</span>, hideBelow: "lg" },
           { key: "items", header: "Items", align: "right", cell: (r) => <span className="num">{count(r.item_count)}</span>, hideBelow: "xl" },
-          { key: "method", header: "Payment", cell: (r) => methodLabel(r.payment_method) },
+          { key: "method", header: "Payment", cell: (r) => <span className="inline-flex flex-wrap items-center gap-1">{methodLabel(r.payment_method)}{r.payment_status && !["paid", "cancelled", "refunded"].includes(r.payment_status) && <StatusBadge status={r.payment_status} />}</span> },
           { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
           { key: "total", header: "Total", align: "right", cell: (r) => <span className="num font-semibold">{money(r.total)}</span> },
         ]}

@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
-import { Field } from "@/components/Form";
+import { Field, ToggleRow } from "@/components/Form";
 import { Chip } from "@/components/Filters";
 import { PointsPill } from "@/components/Badges";
 import { exceedsMax, lineTotal, marked, salePoints, totals, type CartLine } from "./cart";
@@ -89,6 +89,12 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   const s = profile!.settings;
   const methods = s.sales.payment_methods.filter((m) => m.enabled && (m.key !== "credit" || s.sales.credit_enabled));
   const [method, setMethod] = useState(methods[0]?.key ?? "cash");
+  // Roadmap 107: split payment — an amount per method (each once), the rest optionally left on credit.
+  const splitMethods = methods.filter((m) => m.key !== "credit");
+  const canSplit = splitMethods.length >= 2;
+  const creditAllowed = methods.some((m) => m.key === "credit");
+  const [splitAmt, setSplitAmt] = useState<Record<string, string>>({});
+  const [splitCredit, setSplitCredit] = useState(false);
 
   // Customer
   const [mobile, setMobile] = useState("");
@@ -136,12 +142,20 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   const redeemPts = Math.max(0, parseInt(redeem) || 0);
   const t = useMemo(() => totals(lines, s, redeemPts), [lines, s, redeemPts]);
   const isCredit = method === "credit";
+  const isSplit = method === "split";
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const splitParts = isSplit ? splitMethods.map((m) => ({ method: m.key, amount: round2(toNum(splitAmt[m.key])) })).filter((p) => p.amount > 0) : [];
+  const allocated = round2(splitParts.reduce((a, p) => a + p.amount, 0));
+  const remaining = round2(t.payable - allocated);
+  const splitOnCredit = isSplit && splitCredit && creditAllowed && remaining > 0;
+  const splitPart = (k: string) => splitParts.find((p) => p.method === k)?.amount ?? 0;
   const depositAmount = isCredit ? toNum(deposit) : 0;
   const takingDeposit = depositAmount > 0;
   // What is collected now, and how: the full payable, or the deposit on a credit sale.
-  const payMethod = isCredit ? depositMethod : method;
-  const payAmount = isCredit ? depositAmount : t.payable;
-  const collecting = !isCredit || takingDeposit;
+  // What is collected through the M-Pesa / cash boxes: in a split, the M-Pesa part (or else the cash part).
+  const payMethod = isSplit ? (splitPart("mpesa") > 0 ? "mpesa" : splitPart("cash") > 0 ? "cash" : "") : isCredit ? depositMethod : method;
+  const payAmount = isSplit ? splitPart(payMethod) : isCredit ? depositAmount : t.payable;
+  const collecting = isSplit ? !!payMethod : !isCredit || takingDeposit;
   // A full M-Pesa sale by STK Push: sent with the cart, completed by the server once paid.
   const stkMode = method === "mpesa" && stkReady && (mpesaMode === "stk" || !manualMpesa);
   const stkWaiting = stkSale?.status === "awaiting";
@@ -233,6 +247,15 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
             mpesa_request_id: method === "mpesa" && stk?.status === "success" ? stk.id : undefined,
             phone: payPhone.replace(/\D/g, ""),
           },
+          payments: isSplit
+            ? splitParts.map((p) => ({
+                method: p.method,
+                amount: p.amount,
+                reference: p.method === "mpesa" && !stk ? reference : "",
+                mpesa_request_id: p.method === "mpesa" && stk?.status === "success" ? stk.id : undefined,
+              }))
+            : undefined,
+          on_credit: splitOnCredit || undefined,
           deposit: takingDeposit
             ? {
                 amount: depositAmount,
@@ -242,7 +265,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
               }
             : undefined,
           redeem_points: canRedeem ? redeemPts : 0,
-          due_date: isCredit ? dueDate : undefined,
+          due_date: isCredit || splitOnCredit ? dueDate : undefined,
           supervisor: showSupervisor && supEmail ? { email: supEmail, pin: supPin } : undefined,
           client_ref: clientRef,
           owner_id: ownerId,
@@ -288,7 +311,10 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   const change = toNum(tendered) - payAmount;
   const blockers: string[] = [];
   if (!lines.length) blockers.push("Add items");
-  if (method === "credit" && !customer && !(isNew && firstName.trim())) blockers.push("Credit needs a customer");
+  if ((method === "credit" || splitOnCredit) && !customer && !(isNew && firstName.trim())) blockers.push("Credit needs a customer");
+  if (isSplit && !splitParts.length) blockers.push("Enter how much is paid by each method");
+  if (isSplit && remaining < 0) blockers.push("The payments add up to more than the total");
+  if (isSplit && remaining > 0 && !splitOnCredit) blockers.push(creditAllowed ? "Allocate the rest, or leave it on credit" : "Allocate the rest of the payment");
   if (isNew && digits.length >= 9 && !firstName.trim()) blockers.push("Enter the customer's first name");
   if (takingDeposit && depositAmount >= t.payable) blockers.push("A deposit must be less than the total");
   if (collecting && payMethod === "mpesa" && stk?.status === "pending") blockers.push("Waiting for the M-Pesa payment");
@@ -305,7 +331,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
     <div className="space-y-5">
       {/* Customer */}
       <section className="space-y-2">
-        <p className="label-caps">{tr("Customer")} {method === "credit" ? "" : "· optional"}</p>
+        <p className="label-caps">{tr("Customer")} {method === "credit" || splitOnCredit ? "" : "· optional"}</p>
         <div className="relative">
           <UserRound className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input inputMode="tel" placeholder="Mobile number, e.g. 0712 345 678" value={mobile} onChange={(e) => setMobile(e.target.value)} className="num ps-9 pe-9" />
@@ -338,7 +364,33 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
           {methods.map((m) => (
             <Chip key={m.key} active={method === m.key} onClick={() => setMethod(m.key)} className="h-10">{m.label}</Chip>
           ))}
+          {canSplit && <Chip active={isSplit} onClick={() => setMethod("split")} className="h-10">{tr("Split payment")}</Chip>}
         </div>
+        {isSplit && (
+          <div className="space-y-2 rounded-xl border p-3">
+            {splitMethods.map((m) => (
+              <div key={m.key} className="flex items-center gap-2">
+                <span className="w-28 shrink-0 truncate text-sm">{m.label}</span>
+                <Input inputMode="decimal" className="num" placeholder="0" value={splitAmt[m.key] ?? ""} aria-label={m.label}
+                  disabled={m.key === "mpesa" && (stk?.status === "pending" || stk?.status === "success")}
+                  onChange={(e) => setSplitAmt({ ...splitAmt, [m.key]: e.target.value.replace(/[^\d.]/g, "") })} />
+                <button type="button" className="shrink-0 text-xs text-primary underline disabled:opacity-40" disabled={remaining <= 0 || (m.key === "mpesa" && !!stk)}
+                  onClick={() => setSplitAmt({ ...splitAmt, [m.key]: String(round2(toNum(splitAmt[m.key]) + remaining)) })}>{tr("Rest")}</button>
+              </div>
+            ))}
+            <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/50 p-2 text-center text-xs">
+              <div><p className="text-muted-foreground">{tr("Total payable")}</p><p className="num text-sm font-semibold">{money(t.payable)}</p></div>
+              <div><p className="text-muted-foreground">{tr("Allocated")}</p><p className="num text-sm font-semibold">{money(allocated)}</p></div>
+              <div><p className="text-muted-foreground">{tr("Remaining")}</p><p className={cn("num text-sm font-semibold", remaining < 0 ? "text-destructive" : remaining > 0 ? "text-warning" : "text-success")}>{money(remaining)}</p></div>
+            </div>
+            {creditAllowed && (
+              <ToggleRow label="Leave the rest on credit" hint="Needs a customer; the balance is tracked in Credit Sales until paid" checked={splitCredit} onChange={setSplitCredit} />
+            )}
+            {splitOnCredit && (
+              <Field label="Due date"><Input type="date" min={todayIso()} value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+            )}
+          </div>
+        )}
         {isCredit && (
           <div className="space-y-3 rounded-xl border p-3">
             <Field label="Due date" hint="Credit is recorded against the customer and tracked until paid">

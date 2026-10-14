@@ -256,6 +256,8 @@ export interface SaleRow {
   total: Money;
   discount_total: Money;
   payment_method: string;
+  /** Roadmap 107: paid · partially_paid · credit_outstanding · refunded · cancelled … */
+  payment_status?: string;
   points_earned: number;
   item_count: number;
   order_no: string | null;
@@ -285,6 +287,7 @@ export interface SaleDetail {
     redeemed_value: Money;
     amount_paid: Money;
     payment_method: string;
+    payment_status?: string;
     points_earned: number;
     notes: string;
     is_legacy: boolean;

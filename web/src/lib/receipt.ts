@@ -84,7 +84,16 @@ export function receiptRows(s: ReceiptSnapshot): Row[] {
     if (n(tt.redeemed_value) > 0) kv(`Points redeemed (${tt.redeemed_points})`, `−${amt(tt.redeemed_value)}`);
     kv("TOTAL", `${s.currency} ${amt(tt.total)}`, { strong: true, big: true });
     kv("Payment", tt.method);
-    for (const p of s.payments ?? []) if (p.reference) kv(`${p.method} ref`, p.reference);
+    // Roadmap 107: a split sale (or credit with money taken at the sale) lists every payment with its amount.
+    const paid = (s.payments ?? []).filter((p) => n(p.amount) > 0);
+    if (paid.length > 1 || (paid.length === 1 && tt.balance && n(tt.balance) > 0)) {
+      for (const p of paid) {
+        kv(`  ${p.method}`, amt(p.amount));
+        if (p.reference) kv(`  ${p.method} ref`, p.reference);
+      }
+    } else {
+      for (const p of s.payments ?? []) if (p.reference) kv(`${p.method} ref`, p.reference);
+    }
     if (n(tt.paid) > 0 && n(tt.paid) !== n(tt.total)) kv("Amount paid", amt(tt.paid));
     else if (n(tt.paid) > 0) kv("Amount paid", amt(tt.paid));
     if (tt.balance && n(tt.balance) > 0) kv("Balance", amt(tt.balance), { strong: true });

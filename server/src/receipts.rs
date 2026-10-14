@@ -22,6 +22,7 @@ fn label(s: &TenantSettings, method: &str) -> String {
     match method {
         "exchange" => "Exchange credit".into(),
         "credit" => "Credit".into(),
+        "split" => "Split payment".into(),
         "customer_credit" => "Customer credit".into(),
         _ => s.sales.payment_methods.iter().find(|m| m.key == method).map(|m| m.label.clone()).unwrap_or_else(|| {
             let mut c = method.replace('_', " ");

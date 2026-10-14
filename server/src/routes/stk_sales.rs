@@ -48,7 +48,7 @@ async fn start(State(state): State<AppState>, ctx: Ctx, Json(b): Json<StartBody>
     if branch != ctx.branch_id {
         ctx.require("sales.change_branch")?;
     }
-    if sale.payment.method != "mpesa" || sale.deposit.is_some() || sale.offline_at.is_some() || sale.due_date.is_some() {
+    if sale.payment.method != "mpesa" || sale.deposit.is_some() || sale.offline_at.is_some() || sale.due_date.is_some() || !sale.payments.is_empty() || sale.on_credit {
         return Err(bad("STK Push sales are paid in full by M-Pesa"));
     }
     let client_ref = sale.client_ref.ok_or_else(|| bad("Missing cart reference"))?;

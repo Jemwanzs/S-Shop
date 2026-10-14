@@ -135,6 +135,16 @@ pub struct DepositInput {
     pub mpesa_request_id: Option<Uuid>,
 }
 
+/// Roadmap 107: one part of a split payment (`payment.method = "split"`). Each method at most once per sale.
+#[derive(Deserialize, Serialize, Clone)]
+pub struct SplitLine {
+    pub method: String,
+    pub amount: Decimal,
+    #[serde(default)]
+    pub reference: String,
+    pub mpesa_request_id: Option<Uuid>,
+}
+
 #[derive(Deserialize, Serialize, Clone)]
 pub struct CustomerInput {
     pub mobile: String,
@@ -161,6 +171,11 @@ pub struct CreateBody {
     pub redeem_points: i64,
     pub due_date: Option<NaiveDate>,
     pub deposit: Option<DepositInput>,
+    /// Roadmap 107: the parts of a split payment, and whether any remainder stays on credit.
+    #[serde(default)]
+    pub payments: Vec<SplitLine>,
+    #[serde(default)]
+    pub on_credit: bool,
     #[serde(default)]
     pub notes: String,
     /// Never stored: a sale waiting for its STK Push keeps only the verified approver (roadmap 91).
@@ -195,6 +210,9 @@ pub struct SaleInput {
     pub owner_id: Option<Uuid>,
     /// Roadmap 106: a supervisor approved redeeming points (when the business requires it).
     pub redemption_approved: bool,
+    /// Roadmap 107: split payment parts (with `payment.method = "split"`) and leaving the remainder on credit.
+    pub split: Vec<SplitLine>,
+    pub on_credit: bool,
 }
 
 pub struct ExchangeCredit {
@@ -417,7 +435,15 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         return Err(rule("A discount exceeds the allowed maximum — supervisor approval required"));
     }
     let method = input.payment.method.as_str();
-    if !s.payment_enabled(method) {
+    let split = method == "split";
+    if split {
+        if input.split.is_empty() {
+            return Err(rule("Enter how much is paid by each method"));
+        }
+        if input.deposit.is_some() || input.exchange.is_some() {
+            return Err(rule("A split payment cannot also take a deposit or an exchange"));
+        }
+    } else if !s.payment_enabled(method) {
         return Err(rule("This payment method is not enabled"));
     }
     if method == "credit" {
@@ -478,11 +504,61 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         (points, line_points) = loyalty::sale_points(s, &earn);
     }
 
+    // Roadmap 107 — split payment: every part is checked (M-Pesa confirmed as paid, codes unused), the parts never add
+    // up to more than is payable, and a remainder stays on credit only when asked for (with a customer).
+    let mut split_rows: Vec<(String, Decimal, String, Option<Uuid>)> = Vec::new();
+    let mut split_credit = false;
+    if split {
+        let mut sum = Decimal::ZERO;
+        for l in &input.split {
+            let m = l.method.trim();
+            if matches!(m, "credit" | "split" | "exchange" | "customer_credit") || !s.payment_enabled(m) {
+                return Err(rule(format!("“{m}” cannot be part of a split payment")));
+            }
+            if split_rows.iter().any(|r| r.0 == m) {
+                return Err(rule("Use each payment method once per sale"));
+            }
+            let amount = round2(l.amount);
+            if amount <= Decimal::ZERO {
+                return Err(rule("Each part of a split payment needs an amount"));
+            }
+            let (mut r, mut req) = (l.reference.trim().to_uppercase(), None);
+            if m == "mpesa" {
+                (r, req) = confirm_mpesa(conn, ctx, s, l.mpesa_request_id, r, amount, sale_id).await?;
+            }
+            sum += amount;
+            split_rows.push((m.to_string(), amount, r, req));
+        }
+        if sum > total {
+            return Err(rule(format!("The payments add up to {} — more than the {} payable", money_str(sum), money_str(total))));
+        }
+        if sum < total {
+            if !input.on_credit {
+                return Err(rule(format!("{} is still to be paid — allocate it or leave it on credit", money_str(total - sum))));
+            }
+            ctx.require_module("credit")?;
+            if !s.sales.credit_enabled || input.customer_id.is_none() {
+                return Err(rule("Leaving a balance on credit needs a customer"));
+            }
+            split_credit = true;
+        }
+    }
+    let on_credit = method == "credit" || split_credit;
+    // What the sale records as its payment: credit while anything is owed (aging, returns, reports), otherwise the
+    // single method used or "split".
+    let stored_method = match (split, split_credit, split_rows.len()) {
+        (true, true, _) => "credit".to_string(),
+        (true, false, 1) => split_rows[0].0.clone(),
+        (true, false, _) => "split".to_string(),
+        _ => method.to_string(),
+    };
+
     // Payment validation. A credit sale may take a deposit now; the rest stays on credit.
     let mut reference = input.payment.reference.trim().to_uppercase();
     let mut mpesa_request = None;
     let mut deposit = None;
     let amount_paid = match method {
+        "split" => split_rows.iter().map(|r| r.1).sum(),
         "credit" => match &input.deposit {
             Some(d) if d.amount > Decimal::ZERO => {
                 let amount = round2(d.amount);
@@ -530,7 +606,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     .bind(input.redeem_points.max(0))
     .bind(redeemed_value)
     .bind(amount_paid)
-    .bind(method)
+    .bind(&stored_method)
     .bind(points)
     .bind(input.approved_by)
     .bind(input.notes.trim())
@@ -581,7 +657,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), s.stock.allow_negative, Check::Available, m).await?;
     }
 
-    if method == "credit" {
+    if on_credit {
         let customer = input.customer_id.expect("checked above");
         let due = input.due_date.unwrap_or_else(|| ctx.today() + Duration::days(s.sales.credit_default_days));
         let credit_id: Uuid = sqlx::query_scalar(
@@ -598,8 +674,9 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         .bind(amount_paid)
         .fetch_one(&mut *conn)
         .await?;
-        if let Some((dmethod, amount, dref, dreq)) = &deposit {
-            // The deposit belongs to both the sale (receipt) and the credit (payment history).
+        // The deposit / split parts belong to both the sale (receipt) and the credit (payment history).
+        let parts: Vec<(String, Decimal, String, Option<Uuid>)> = deposit.clone().into_iter().chain(split_rows.clone()).collect();
+        for (dmethod, amount, dref, dreq) in &parts {
             sqlx::query(
                 "INSERT INTO payments (tenant_id, branch_id, sale_id, credit_sale_id, method, amount, reference, phone, mpesa_request_id, user_id)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
@@ -634,7 +711,27 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
             }
         }
     }
-    if method != "credit" && due_now > Decimal::ZERO {
+    // A fully paid split sale: one payment row per part.
+    if split && !split_credit {
+        for (m, amount, r, req) in &split_rows {
+            sqlx::query(
+                "INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, phone, mpesa_request_id, user_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+            )
+            .bind(ctx.tenant_id)
+            .bind(input.branch_id)
+            .bind(sale_id)
+            .bind(m)
+            .bind(amount)
+            .bind(r)
+            .bind(input.payment.phone.trim())
+            .bind(req)
+            .bind(ctx.user_id)
+            .execute(&mut *conn)
+            .await?;
+        }
+    }
+    if method != "credit" && !split && due_now > Decimal::ZERO {
         sqlx::query(
             "INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, phone, mpesa_request_id, user_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
@@ -837,9 +934,10 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
             return Err(refused("Offline sale too old", format!("Offline sales must reach the server within {OFFLINE_MAX_AGE_HOURS} hours. Record it again as a new sale.")));
         }
         let live_only = b.payment.method == "credit" || b.payment.method == "mpesa" && b.payment.mpesa_request_id.is_some()
-            || b.redeem_points > 0 || b.deposit.is_some() || b.supervisor.is_some() || b.customer.is_some();
+            || b.redeem_points > 0 || b.deposit.is_some() || b.supervisor.is_some() || b.customer.is_some()
+            || b.payment.method == "split" || !b.payments.is_empty() || b.on_credit;
         if live_only {
-            return Err(refused("Needs a connection", "Credit, M-Pesa push, points, deposits, new customers and supervisor approvals cannot be recorded offline."));
+            return Err(refused("Needs a connection", "Credit, split payments, M-Pesa push, points, deposits, new customers and supervisor approvals cannot be recorded offline."));
         }
     }
     let mut tx = state.db.begin().await?;
@@ -945,6 +1043,8 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
                 exchange: None,
                 owner_id: None,
                 redemption_approved: false,
+                split: Vec::new(),
+                on_credit: false,
             };
             if prepare_lines(&mut *tx, &ctx, &s, &input, false).await?.1 && !ctx.can("sales.discount_override") {
                 return Err(rule("That supervisor can approve the points, not the discount — a discount exceeds the allowed maximum"));
@@ -967,6 +1067,8 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
             exchange: None,
             owner_id: None,
             redemption_approved: false,
+            split: Vec::new(),
+            on_credit: false,
         };
         let (_, excessive) = prepare_lines(&mut *tx, &ctx, &s, &input, false).await?;
         if excessive {
@@ -994,6 +1096,8 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
             exchange: None,
             owner_id,
             redemption_approved,
+            split: b.payments,
+            on_credit: b.on_credit,
         },
         false,
     )
@@ -1067,6 +1171,8 @@ struct SaleRow {
     total: Decimal,
     discount_total: Decimal,
     payment_method: String,
+    /// Roadmap 107: paid · partially_paid · credit_outstanding · refunded · cancelled · …
+    payment_status: String,
     points_earned: i64,
     item_count: i64,
     order_no: Option<String>,
@@ -1101,10 +1207,11 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     let vis = ctx.visibility(&mut *state.db.acquire().await?, "sales", q.branch_id, q.user_id).await?;
     let branches = vis.branches.clone();
     let (from, to) = q.period.resolve(ctx.today(), "today");
-    let rows: Vec<SaleListRow> = sqlx::query_as(
+    let rows: Vec<SaleListRow> = sqlx::query_as(&format!(
         "SELECT s.id, s.receipt_no, s.created_at, s.business_date, s.synced_at, b.name AS branch_name, s.customer_id,
                 NULLIF(TRIM(c.first_name || ' ' || c.other_names), '') AS customer_name, c.mobile AS customer_mobile,
-                ow.name AS user_name, s.owner_id, u.name AS recorded_by_name, s.status, s.total, s.discount_total, s.payment_method, s.points_earned,
+                ow.name AS user_name, s.owner_id, u.name AS recorded_by_name, s.status, s.total, s.discount_total, s.payment_method,
+                {PAYMENT_STATUS} AS payment_status, s.points_earned,
                 (SELECT COALESCE(SUM(quantity),0) FROM sale_items si WHERE si.sale_id = s.id)::bigint AS item_count,
                 o.order_no, s.is_legacy,
                 COUNT(*) OVER() AS total_count,
@@ -1112,13 +1219,13 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
                 COALESCE(SUM(s.discount_total) FILTER (WHERE s.status <> 'cancelled') OVER(), 0) AS sum_discount
          FROM sales s JOIN branches b ON b.id = s.branch_id
          LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users ow ON ow.id = s.owner_id
-         LEFT JOIN orders o ON o.id = s.order_id
+         LEFT JOIN orders o ON o.id = s.order_id LEFT JOIN credit_sales cs ON cs.sale_id = s.id
          WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND s.business_date BETWEEN $3 AND $4
            AND ($5::uuid IS NULL OR s.owner_id = $5) AND ($6::uuid IS NULL OR s.customer_id = $6)
            AND ($7::text IS NULL OR s.status = $7) AND ($8::text IS NULL OR s.payment_method = $8)
            AND ($9::text IS NULL OR s.receipt_no ILIKE $9 OR c.first_name ILIKE $9 OR c.mobile ILIKE $9)
-         ORDER BY s.created_at DESC LIMIT $10 OFFSET $11",
-    )
+         ORDER BY s.created_at DESC LIMIT $10 OFFSET $11"
+    ))
     .bind(ctx.tenant_id)
     .bind(&branches)
     .bind(from)
@@ -1148,10 +1255,19 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     })))
 }
 
+/// Roadmap 107: a sale's payment status from the existing sale and credit statuses (no separate status model):
+/// paid · partially_paid · credit_outstanding · refunded · cancelled · written_off · recalled.
+const PAYMENT_STATUS: &str = "CASE WHEN s.status = 'cancelled' THEN 'cancelled'
+                WHEN s.status = 'returned' THEN 'refunded'
+                WHEN cs.id IS NULL OR cs.status = 'paid' THEN 'paid'
+                WHEN cs.status IN ('cancelled', 'recalled', 'written_off') THEN cs.status
+                WHEN cs.amount_paid > 0 THEN 'partially_paid'
+                ELSE 'credit_outstanding' END";
+
 pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Value> {
-    let sale: Value = sqlx::query_scalar(
+    let sale: Value = sqlx::query_scalar(&format!(
         "SELECT jsonb_build_object(
-            'id', s.id, 'receipt_no', s.receipt_no, 'created_at', s.created_at, 'status', s.status,
+            'id', s.id, 'receipt_no', s.receipt_no, 'created_at', s.created_at, 'status', s.status, 'payment_status', {PAYMENT_STATUS},
             'branch_id', s.branch_id, 'branch_name', b.name, 'branch_location', b.location, 'branch_phone', b.phone,
             'user_name', ow.name, 'owner_id', s.owner_id, 'recorded_by_name', u.name, 'business_date', s.business_date,
             'gross_total', s.gross_total, 'discount_total', s.discount_total, 'total', s.total,
@@ -1165,8 +1281,9 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
          FROM sales s JOIN branches b ON b.id = s.branch_id
          LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users au ON au.id = s.approved_by LEFT JOIN users ow ON ow.id = s.owner_id
          LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN orders o ON o.id = s.order_id
-         WHERE s.id = $1 AND s.tenant_id = $2",
-    )
+         LEFT JOIN credit_sales cs ON cs.sale_id = s.id
+         WHERE s.id = $1 AND s.tenant_id = $2"
+    ))
     .bind(id)
     .bind(ctx.tenant_id)
     .fetch_optional(&state.db)
@@ -1532,7 +1649,21 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
     let customer_credit = if kind == "recall" && b.settle == "credit" { refunded } else { Decimal::ZERO };
     if refunded > Decimal::ZERO && customer_credit == Decimal::ZERO {
         // No method chosen: the refund goes back the way the sale was paid (cash for credit sales) — recorded as such.
-        let method = if b.refund_method.is_empty() { head.payment_method.replace("credit", "cash") } else { b.refund_method.clone() };
+        let method = if !b.refund_method.is_empty() {
+            b.refund_method.clone()
+        } else if head.payment_method == "split" {
+            // Roadmap 107: back the way most of it was paid.
+            sqlx::query_scalar::<_, String>(
+                "SELECT method FROM payments WHERE sale_id = $1 AND amount > 0 AND method NOT IN ('exchange', 'customer_credit')
+                 GROUP BY method ORDER BY SUM(amount) DESC LIMIT 1",
+            )
+            .bind(sale_id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .unwrap_or_else(|| "cash".into())
+        } else {
+            head.payment_method.replace("credit", "cash")
+        };
         sqlx::query("UPDATE sale_returns SET refund_method = $2 WHERE id = $1").bind(return_id).bind(&method).execute(&mut *conn).await?;
         sqlx::query(
             "INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, user_id) VALUES ($1,$2,$3,$4,$5,$6,$7)",
@@ -1907,6 +2038,8 @@ async fn execute_exchange(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings
             // The replacement goods are credited to whoever owned the original sale (no new attribution).
             owner_id: head.owner_id,
             redemption_approved: false,
+            split: Vec::new(),
+            on_credit: false,
         },
         false,
     )

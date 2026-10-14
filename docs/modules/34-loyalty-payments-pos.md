@@ -8,7 +8,7 @@ no parallel engines.
 | Phase | Roadmap | Status |
 |---|---|---|
 | Loyalty earning base & redemption controls | 106 | ✅ live |
-| Split payments, partial payment → credit, receipts & reporting | 107 | ⏳ planned |
+| Split payments, partial payment → credit, receipts & reporting | 107 | ✅ live |
 | Landing page after sign-in | 108 | ⏳ planned |
 | POS display: styles, images, columns, prices; product list images & prices | 109 | ⏳ planned |
 | Top-selling products with Gold / Silver / Bronze ranking | 110 | ⏳ planned |
@@ -42,7 +42,7 @@ no parallel engines.
   approve an excessive discount.
 - Tests: unit (`sale_points`, window, cap) and the smoke section *Roadmap 106*.
 
-## 107 — Split payments & partial payment → credit (planned)
+## 107 — Split payments & partial payment → credit
 
 - Several payment lines on one sale (cash, M-PESA incl. STK Push, card, bank, other enabled methods) plus points
   (within the 106 cap) — *Total payable · Allocated · Remaining*. STK lines count only once Safaricom confirms.
@@ -56,6 +56,21 @@ no parallel engines.
   receivables and repayments (repayments are not revenue).
 - Each payment line is its own `payments` row; duplicate submission is refused (client reference); offline POS keeps
   its restrictions (no points, STK or credit offline).
+
+**As built.** `POST /sales` with `payment.method = "split"`, `payments: [{method, amount, reference, mpesa_request_id}]`
+(each method once, amounts > 0) and optionally `on_credit` + `due_date`. M-Pesa parts are confirmed exactly like a
+single M-Pesa payment (STK request paid and unused, or a manual code that is well-formed and unused — also unique in
+the database). Parts above the payable are refused; a remainder without `on_credit` is refused; with it the sale needs
+a customer and credit enabled. The sale's `payment_method` is `credit` while anything is owed (so aging, recalls and
+reports work unchanged), otherwise the single method or `split`. Points earn only on what was not paid with points
+(106). `payment_status` (sale list, detail, Sales report): paid · partially_paid · credit_outstanding · refunded ·
+cancelled, derived from the sale and credit statuses. Returns refund a split sale by default through the method that
+paid most. Receipts list every payment and its amount when there are several (or a balance). New report **Payments
+Collected** (by method: at the sale, credit repayments, refunds, net — repayments are never sales revenue); the Sales
+report gained *Paid with points*, *Paid*, *Credit balance* and *Payment status*. Split payments are refused offline
+and by the STK-wait sale flow (its M-Pesa part is pushed and confirmed before the sale is sent). Checkout: **Split
+payment** chip → an amount per method with *Rest*, *Total payable · Allocated · Remaining*, *Leave the rest on
+credit* (+ due date). Tests: smoke section *Roadmap 107*, browser check of the split checkout and receipt.
 
 ## 108 — Landing page after sign-in (planned)
 

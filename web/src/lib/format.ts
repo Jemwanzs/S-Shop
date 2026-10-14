@@ -99,5 +99,5 @@ export function todayIso(): string {
 }
 
 export function methodLabel(m: string): string {
-  return ({ mpesa: "M-Pesa", cash: "Cash", credit: "Credit Sale", legacy: "Legacy import" } as Record<string, string>)[m] ?? titleCase(m);
+  return ({ mpesa: "M-Pesa", cash: "Cash", credit: "Credit Sale", split: "Split payment", legacy: "Legacy import" } as Record<string, string>)[m] ?? titleCase(m);
 }

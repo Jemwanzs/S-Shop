@@ -103,7 +103,7 @@ export default function SaleDetail() {
 
         {/* Side panel */}
         <div className="space-y-5 no-print">
-          <div className="flex flex-wrap items-center gap-2"><StatusBadge status={s.status} />{s.is_legacy && <Pill>{t("Imported")}</Pill>}<span className="text-xs text-muted-foreground">{s.branch_name}</span></div>
+          <div className="flex flex-wrap items-center gap-2"><StatusBadge status={s.status} />{s.payment_status && s.payment_status !== "paid" && s.payment_status !== s.status && <StatusBadge status={s.payment_status} />}{s.is_legacy && <Pill>{t("Imported")}</Pill>}<span className="text-xs text-muted-foreground">{s.branch_name}</span></div>
           {data.pending_approval_id && <div className="rounded-xl bg-warning/10 p-4 text-sm text-warning">{t("A return, exchange or cancellation for this sale is awaiting approval. Stock, loyalty points and the receipt change only once it is approved.")}</div>}
           <OwnershipPanel data={data} onChanged={() => { qc.invalidateQueries({ queryKey: ["sale", id] }); qc.invalidateQueries({ queryKey: ["sales"] }); }} />
           {s.order_no && <Section title="Order"><Link to={`/orders/${s.order_id}`} className="num text-primary">{s.order_no}</Link></Section>}

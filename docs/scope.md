@@ -470,6 +470,13 @@ Health check 2026-10-11 (owner request: *health check of the S'Shop app; detect 
   2026-12-01. Railway's automatic migration drops the Dockerfile builder and restart policy and renames the service,
   so it is done by hand with the owner: write `.railway/railway.ts` (Dockerfile build, `/healthz` with 120 s,
   restart on failure × 5), `railway config plan`, then apply.
+  **Prepared 2026-10-15** (dry run only, nothing changed on Railway): `railway config migrate --service sshop` keeps
+  `healthcheck: "/healthz"` + `healthcheckTimeout: 120`, leaves the Dockerfile builder as a comment (fine — Railway
+  detects the root `Dockerfile`) and drops the restart policy (Railway's default is also *on failure*, 10 retries
+  instead of 5; set 5 in the service settings if wanted). Steps with the owner: `railway link` (project S'Shop,
+  production, service sshop) → `railway config migrate --service sshop --apply` (writes `.railway/railway.ts`,
+  clears the service's Config File setting) → `railway config plan` (expect only healthcheck settings) → `railway
+  config apply` → delete `railway.json`, commit, and confirm the next deploy uses the Dockerfile and passes `/healthz`.
 - ✅ **95. Front-end dependency majors** — React Router 6.30 → **7.18** (advisory cleared; every link is absolute, so v7's
   relative-path change does not apply) and Tailwind 3 → **4.3** (configuration in CSS `@theme`). The upgrade tool's
   renames inside non-styling text were reverted (translation keys, the `outline` button variant, the website's

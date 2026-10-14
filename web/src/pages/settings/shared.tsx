@@ -39,8 +39,11 @@ export function useSettings() {
   return useQuery({ queryKey: ["settings"], queryFn: () => api<SettingsResponse>("/settings") });
 }
 
-/** Local editable copy of tenant settings, saved as one document. */
-export function useSettingsDraft() {
+/**
+ * Local editable copy of tenant settings, saved as one document. `onSaved(before, after)` replaces the default
+ * "Settings saved" toast and runs only once the server has confirmed the save (roadmap 112).
+ */
+export function useSettingsDraft(opts?: { onSaved?: (before: Settings, after: Settings) => void }) {
   const qc = useQueryClient();
   const q = useSettings();
   const [draft, setDraft] = useState<Settings | null>(null);
@@ -49,8 +52,9 @@ export function useSettingsDraft() {
   }, [q.data]);
   const save = useMutation({
     mutationFn: (s: Settings) => api<Settings>("/settings", { method: "PUT", body: s }),
-    onSuccess: () => {
-      toast.success("Settings saved");
+    onSuccess: (after) => {
+      if (q.data && opts?.onSaved) opts.onSaved(q.data.settings, after);
+      else toast.success("Settings saved");
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["me"] });
     },

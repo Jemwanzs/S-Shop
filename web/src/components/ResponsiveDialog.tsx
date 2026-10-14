@@ -14,7 +14,8 @@ import { t, tx } from "@/lib/i18n";
  * typed) swiping down ask to close; when something has been typed into it and not saved, they first ask
  * *Discard changes?*. Typed input is noticed automatically; `dirty` overrides that, `confirmDiscard={false}` turns the
  * question off (a dialog whose inputs are not data, e.g. a search). Closing it from the screen (after a save, or a
- * screen's own Cancel) is unchanged.
+ * screen's own Cancel) is unchanged. `required` (roadmap 112): no ×, Escape or swipe — only the dialog's own action
+ * closes it (e.g. *Business Branding Updated* → Log Out).
  */
 export function ResponsiveDialog({
   open,
@@ -26,6 +27,7 @@ export function ResponsiveDialog({
   wide,
   dirty,
   confirmDiscard = true,
+  required,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -37,6 +39,8 @@ export function ResponsiveDialog({
   /** Unsaved changes, when the screen knows better than the typed-input check. */
   dirty?: boolean;
   confirmDiscard?: boolean;
+  /** Only the dialog's own action closes it. */
+  required?: boolean;
 }) {
   const desktop = useIsDesktop();
   const key = useId();
@@ -57,7 +61,7 @@ export function ResponsiveDialog({
     if (unsaved) setAsking(true);
     else onOpenChange(false);
   }, [unsaved, onOpenChange]);
-  const change = (o: boolean) => (o ? onOpenChange(true) : requestClose());
+  const change = (o: boolean) => (o ? onOpenChange(true) : !required && requestClose());
   // Something typed, chosen in a native control or a file picked (bubbles from anything rendered inside).
   const noticeInput = (e: FormEvent) => {
     const el = e.target as HTMLElement;
@@ -89,7 +93,8 @@ export function ResponsiveDialog({
   if (desktop) {
     return (
       <Dialog open={open} onOpenChange={change}>
-        <DialogContent className={cn("max-h-[90vh] gap-0 overflow-hidden p-0", wide ? "max-w-3xl" : "max-w-lg")} onInputCapture={noticeInput} onChangeCapture={noticeInput}>
+        <DialogContent hideClose={required} onEscapeKeyDown={required ? (e) => e.preventDefault() : undefined}
+          className={cn("max-h-[90vh] gap-0 overflow-hidden p-0", wide ? "max-w-3xl" : "max-w-lg")} onInputCapture={noticeInput} onChangeCapture={noticeInput}>
           <DialogHeader className="border-b py-4 pe-12 ps-6 text-start">
             <DialogTitle>{tx(title)}</DialogTitle>
             {description ? <DialogDescription>{tx(description)}</DialogDescription> : <DialogDescription className="sr-only">{tx(title)}</DialogDescription>}
@@ -103,8 +108,8 @@ export function ResponsiveDialog({
   }
   return (
     // Swiping down closes only while nothing unsaved would be lost; otherwise the × asks first.
-    <Drawer open={open} onOpenChange={change} dismissible={!unsaved}>
-      <DrawerContent className="max-h-[94vh]" onClose={requestClose} onEscapeKeyDown={escape} onInputCapture={noticeInput} onChangeCapture={noticeInput}>
+    <Drawer open={open} onOpenChange={change} dismissible={!unsaved && !required}>
+      <DrawerContent className="max-h-[94vh]" hideClose={required} onClose={requestClose} onEscapeKeyDown={required ? (e) => e.preventDefault() : escape} onInputCapture={noticeInput} onChangeCapture={noticeInput}>
         <DrawerHeader className="pe-12 text-start">
           <DrawerTitle>{tx(title)}</DrawerTitle>
           {description ? <DrawerDescription>{tx(description)}</DrawerDescription> : <DrawerDescription className="sr-only">{tx(title)}</DrawerDescription>}

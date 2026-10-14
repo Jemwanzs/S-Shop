@@ -117,6 +117,8 @@ export interface Settings {
   workspace: { hours: Hours; outside_hours: "allow" | "block"; location: { mode: "anywhere" | "branch"; areas: string[] } };
   /** Roadmap 108 */
   experience?: { landing: string };
+  /** Roadmap 112: partial white labelling. */
+  branding?: { enabled: boolean; login: boolean; login_marketing: boolean; sidebar: boolean; dashboard: boolean; pos: boolean; documents: boolean; customer: boolean; website: boolean; favicon: boolean };
 }
 
 export interface Profile {

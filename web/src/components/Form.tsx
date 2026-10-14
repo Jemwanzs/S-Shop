@@ -33,7 +33,7 @@ export function ToggleRow({ label, hint, checked, onChange, disabled }: { label:
         <div className="text-sm font-medium">{tx(label)}</div>
         {hint && <div className="text-xs text-muted-foreground">{tx(hint)}</div>}
       </div>
-      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
+      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} aria-label={typeof label === "string" ? t(label) : undefined} />
     </div>
   );
 }

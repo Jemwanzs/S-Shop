@@ -27,8 +27,10 @@ import {
   Warehouse,
   type LucideIcon,
   FileSpreadsheet,
+  Palette,
 } from "lucide-react";
 import { useSession } from "@/lib/session";
+import { BrandingSettings } from "./Branding";
 import { useMediaQuery } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/Page";
@@ -64,6 +66,7 @@ interface SectionDef {
 
 const SECTIONS: SectionDef[] = [
   { path: "business", label: "Business profile", group: "Business", icon: Store, perm: "settings.business", element: <BusinessSettings /> },
+  { path: "branding", label: "Branding & White Labelling", group: "Business", icon: Palette, perm: "settings.business", element: <BrandingSettings /> },
   { path: "branches", label: "Branches", group: "Business", icon: Building2, perm: "branches.manage", element: <BranchesSettings /> },
   { path: "users", label: "Users", group: "Business", icon: Users, perm: "users.manage", element: <UsersSettings /> },
   { path: "workspace", label: "Workspace & hours", group: "Business", icon: CalendarClock, perm: "settings.workspace", element: <WorkspaceSettings /> },

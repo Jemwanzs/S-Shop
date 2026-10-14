@@ -6,7 +6,7 @@ existing business logo (`tenants.logo`, uploaded in Settings → Business, serve
 
 | Phase | Roadmap | Status |
 |---|---|---|
-| Branding settings, logo management, placement controls, preview, *Business Branding Updated* (Log Out) | 112 | ⏳ planned |
+| Branding settings, logo management, placement controls, preview, *Business Branding Updated* (Log Out) | 112 | ✅ built |
 | Logo applied: login (tenant context), sidebar / header, dashboards, POS header, receipts & documents, customer pages & emails, website sync, favicon / PWA | 113 | ⏳ planned |
 
 ## 112 — Settings → Business → Branding & White Labelling
@@ -28,6 +28,21 @@ existing business logo (`tenants.logo`, uploaded in Settings → Business, serve
   never logs out by itself. On a failed save the actual error shows and no prompt appears.
 - Only administrators with business-settings rights change it; the audit trail records the previous and new logo and
   placements, who, when and the tenant.
+
+### As built (112)
+
+- `settings.branding` (`BrandingSettings`, defaults as above) is saved with the other settings; the section needs
+  `settings.business` and every change is in the audit trail (before / after).
+- `POST /api/settings/logo` accepts PNG, JPEG or WebP **by their bytes** (a file claiming to be an image is refused
+  otherwise), up to 2 MB; the app converts SVG (drawn as an image, so scripts never run) and other formats to a 512 px
+  WebP first. `DELETE /api/settings/logo` removes it. Both are audited (`logo_updated` with the previous and new
+  fingerprint and size, `logo_removed`).
+- `tenants.logo_etag` (migration 0035) fingerprints the logo; `/api/public/{slug}/logo` answers with that ETag,
+  `Cache-Control: public, no-cache` and `nosniff`, and 304 when unchanged — browsers re-check rather than keep a stale
+  logo.
+- The placement switches are disabled (not just dimmed) while branding is off. *Business Branding Updated* appears only
+  after the server confirms a branding change (or a logo change while branding is on); it has no ×, Escape or swipe —
+  only **Log Out** (`ResponsiveDialog required`). A failed save shows the server's error and no prompt.
 
 ## 113 — Applying the logo
 

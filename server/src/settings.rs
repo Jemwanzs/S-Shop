@@ -23,8 +23,46 @@ pub struct TenantSettings {
     pub workspace: WorkspaceSettings,
     /// Roadmap 108: user experience — the page people land on after signing in (and picking their branch).
     pub experience: ExperienceSettings,
+    /// Roadmap 112: partial white labelling — where the business logo replaces S'Shop's.
+    pub branding: BrandingSettings,
     /// Roadmap 71: changed only through Settings → Support access (administrators), never through the settings form.
     pub security: SecuritySettings,
+}
+
+/// Roadmap 112: tenant partial white labelling. Off: S'Shop branding exactly as before. On: the business logo in the
+/// places switched on (the platform owner's administration is always S'Shop).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct BrandingSettings {
+    pub enabled: bool,
+    /// The icon above the sign-in form / Quick PIN pad (where the business is known from trusted context).
+    pub login: bool,
+    /// Also the large marketing logo — only on the business's own sign-in address.
+    pub login_marketing: bool,
+    pub sidebar: bool,
+    pub dashboard: bool,
+    pub pos: bool,
+    pub documents: bool,
+    pub customer: bool,
+    pub website: bool,
+    /// Advanced: browser tab icon and installed-app icon.
+    pub favicon: bool,
+}
+impl Default for BrandingSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            login: true,
+            login_marketing: false,
+            sidebar: true,
+            dashboard: true,
+            pos: true,
+            documents: true,
+            customer: true,
+            website: true,
+            favicon: false,
+        }
+    }
 }
 
 /// Pages a person may land on after signing in (each is still subject to the person's permissions in the app).

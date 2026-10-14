@@ -247,6 +247,36 @@ def mentions_word(obj, word):
     return re.search(rf"(?<![0-9A-Za-z]){re.escape(str(word))}(?![0-9A-Za-z])", json.dumps(obj)) is not None
 
 
+
+def upload_file(path, data, filename, content_type, expect=200, token=None):
+    """Multipart upload of one file (field `file`)."""
+    boundary = "----sshop" + uuid.uuid4().hex
+    body = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\nContent-Type: {content_type}\r\n\r\n'.encode()
+            + data + f"\r\n--{boundary}--\r\n".encode())
+    req = urllib.request.Request(BASE + "/api" + path, data=body, method="POST")
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    req.add_header("Authorization", "Bearer " + (token or TOKEN))
+    req.add_header("X-Branch-Id", BRANCH)
+    req.add_header("X-User-Activity", "1")
+    req.add_header("Idempotency-Key", str(uuid.uuid4()))
+    try:
+        with urllib.request.urlopen(req) as r:
+            status, payload = r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        status, payload = e.code, json.loads(e.read() or b"{}")
+    assert status == expect, f"POST {path} → {status} (expected {expect}): {payload}"
+    return payload
+
+
+def tiny_png(rgb=(255, 102, 0)):
+    """A valid 1×1 PNG (no imaging library needed)."""
+    import struct, zlib
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    raw = b"\x00" + bytes(rgb) + b"\xff"
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
 def upload_xlsx(dataset, data, mode="create", expect=200, token=None, name="import.xlsx"):
     """Multipart upload of a workbook to the onboarding centre."""
     boundary = "----sshop" + uuid.uuid4().hex
@@ -3124,6 +3154,48 @@ call("PUT", "/settings", {**cfg110, "sales": {**cfg110["sales"], "top_selling": 
 off = call("GET", f"/pos/products?branch_id={rb110}&all=true", branch=rb110)
 check("ranking off: the usual order, no stars", all(x.get("rank") is None for x in off))
 call("PUT", "/settings", cfg110)
+
+step("Roadmap 112: branding settings and the business logo")
+cfg112 = call("GET", "/settings")["settings"]
+check("business branding off by default; logo places default as briefed",
+      cfg112["branding"] == {"enabled": False, "login": True, "login_marketing": False, "sidebar": True, "dashboard": True, "pos": True,
+                             "documents": True, "customer": True, "website": True, "favicon": False}, cfg112["branding"])
+r = upload_file("/settings/logo", b"<svg onload=alert(1)>", "logo.png", "image/png", expect=400)
+check("a logo is checked by its bytes: a script-carrying file claiming to be PNG is refused", "PNG, JPEG or WebP" in r["error"]["message"], r)
+up112 = upload_file("/settings/logo", tiny_png(), "logo.png", "image/png")
+slug112 = call("GET", "/settings")["profile"]["slug"]
+lr = urllib.request.urlopen(urllib.request.Request(BASE + f"/api/public/{slug112}/logo"))
+etag112 = lr.headers.get("ETag")
+check("the logo is served as an image with a fingerprint, re-checked rather than cached blindly",
+      lr.headers.get("Content-Type") == "image/png" and etag112 and "no-cache" in lr.headers.get("Cache-Control", "") and lr.headers.get("X-Content-Type-Options") == "nosniff",
+      dict(lr.headers))
+try:
+    urllib.request.urlopen(urllib.request.Request(BASE + f"/api/public/{slug112}/logo", headers={"If-None-Match": etag112}))
+    not_modified = False
+except urllib.error.HTTPError as e:
+    not_modified = e.code == 304
+check("an unchanged logo is not downloaded again (304)", not_modified)
+upload_file("/settings/logo", tiny_png((0, 128, 255)), "logo2.png", "image/png")
+etag_new = urllib.request.urlopen(urllib.request.Request(BASE + f"/api/public/{slug112}/logo")).headers.get("ETag")
+check("a new logo gets a new fingerprint (shown at once, never a stale copy)", etag_new and etag_new != etag112)
+call("PUT", "/settings", {**cfg112, "branding": {**cfg112["branding"], "enabled": True, "favicon": True}})
+check("branding saved", call("GET", "/auth/me")["settings"]["branding"]["enabled"] is True)
+au112 = call("GET", "/audit?period=today&limit=300&module=settings")["items"]
+check("logo changes are audited (previous and new)", any(a["action"] == "logo_updated" for a in au112))
+call("DELETE", "/settings/logo")
+try:
+    urllib.request.urlopen(urllib.request.Request(BASE + f"/api/public/{slug112}/logo"))
+    gone = False
+except urllib.error.HTTPError as e:
+    gone = e.code == 404
+check("removing the logo: S'Shop branding is used (no logo served), audited", gone and any(a["action"] == "logo_removed" for a in call("GET", "/audit?period=today&limit=300&module=settings")["items"]))
+sp112 = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
+s112 = f"brand{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Brand Clerk", "email": s112, "pin": "4321", "role_id": sp112, "all_branches": True, "branch_ids": []})
+S112 = call("POST", "/auth/login", {"email": s112, "pin": "4321"})["token"]
+upload_file("/settings/logo", tiny_png(), "logo.png", "image/png", expect=403, token=S112)
+check("only people who manage the business can change the logo", True)
+call("PUT", "/settings", cfg112)
 
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}

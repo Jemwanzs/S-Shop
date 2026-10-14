@@ -25,7 +25,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/settings", get(get_settings).put(put_settings))
         .route("/settings/profile", put(put_profile))
-        .route("/settings/logo", post(upload_logo))
+        .route("/settings/logo", post(upload_logo).delete(remove_logo))
         .route("/settings/workflows/{action}", put(put_workflow))
         .route("/public/{slug}/logo", get(logo))
         .route("/branches", get(list_branches).post(create_branch))
@@ -98,7 +98,7 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(mut body): J
             ("product", "settings.products"), ("stock", "settings.stock"), ("sales", "settings.sales"), ("orders", "settings.orders"),
             ("customers", "settings.customers"), ("loyalty", "settings.customers"), ("expenses", "settings.expenses"),
             ("reports", "settings.reports"), ("notifications", "settings.integrations"), ("workspace", "settings.workspace"),
-            ("experience", "settings.workspace"),
+            ("experience", "settings.workspace"), ("branding", "settings.business"),
         ] {
             if current.get(section) != incoming.get(section) {
                 ctx.require(perm)?;
@@ -248,41 +248,81 @@ async fn put_profile(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<
     Ok(Json(json!({ "ok": true, "slug": b.slug })))
 }
 
+/// Roadmap 112: the logo is checked by its bytes (PNG, JPEG or WebP — the app converts SVG and other formats to WebP
+/// before sending), never by the type the browser claims; it gets a fresh fingerprint and the change is audited.
 async fn upload_logo(State(state): State<AppState>, ctx: Ctx, mut mp: Multipart) -> AppResult<Json<Value>> {
     ctx.require("settings.business")?;
     let field = mp.next_field().await.map_err(|e| bad(e.to_string()))?.ok_or_else(|| bad("No file uploaded"))?;
-    let mime = field.content_type().unwrap_or("image/png").to_string();
-    if !mime.starts_with("image/") {
-        return Err(bad("Logo must be an image"));
-    }
     let data: Bytes = field.bytes().await.map_err(|e| bad(e.to_string()))?;
+    if data.is_empty() {
+        return Err(bad("No file uploaded"));
+    }
     if data.len() > 2 * 1024 * 1024 {
         return Err(bad("Logo must be under 2 MB"));
     }
-    sqlx::query("UPDATE tenants SET logo = $2, logo_mime = $3 WHERE id = $1")
+    let mime = super::catalog::sniff_image(&data).ok_or_else(|| bad("The logo must be a PNG, JPEG or WebP image"))?;
+    let etag = {
+        use sha2::Digest;
+        hex::encode(&sha2::Sha256::digest(&data)[..12])
+    };
+    let mut tx = state.db.begin().await?;
+    let before: (Option<String>, Option<i32>) =
+        sqlx::query_as("SELECT logo_etag, octet_length(logo) FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&mut *tx).await?;
+    sqlx::query("UPDATE tenants SET logo = $2, logo_mime = $3, logo_etag = $4 WHERE id = $1")
         .bind(ctx.tenant_id)
         .bind(data.to_vec())
-        .bind(&mime)
-        .execute(&state.db)
+        .bind(mime)
+        .bind(&etag)
+        .execute(&mut *tx)
         .await?;
+    audit::record(
+        &mut tx,
+        &ctx,
+        Entry::new("settings", "logo_updated", "tenant", ctx.tenant_id)
+            .before(json!({ "logo": before.0, "bytes": before.1 }))
+            .after(json!({ "logo": etag, "bytes": data.len(), "type": mime })),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(json!({ "ok": true, "etag": etag })))
+}
+
+/// Removes the business logo (S'Shop branding is used wherever it appeared). Audited.
+async fn remove_logo(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    ctx.require("settings.business")?;
+    let mut tx = state.db.begin().await?;
+    let before: Option<String> = sqlx::query_scalar("SELECT logo_etag FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&mut *tx).await?;
+    sqlx::query("UPDATE tenants SET logo = NULL, logo_mime = NULL, logo_etag = NULL WHERE id = $1").bind(ctx.tenant_id).execute(&mut *tx).await?;
+    audit::record(&mut tx, &ctx, Entry::new("settings", "logo_removed", "tenant", ctx.tenant_id).before(json!({ "logo": before }))).await?;
+    tx.commit().await?;
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn logo(State(state): State<AppState>, Path(slug): Path<String>) -> AppResult<impl IntoResponse> {
-    let row: Option<(Option<Vec<u8>>, Option<String>)> = sqlx::query_as("SELECT logo, logo_mime FROM tenants WHERE slug = $1")
+/// The business logo. Browsers keep it and re-check it with its fingerprint (304 when unchanged), so a new logo shows at
+/// once and an unchanged one is never downloaded again. Served strictly as an image.
+async fn logo(State(state): State<AppState>, Path(slug): Path<String>, headers: axum::http::HeaderMap) -> AppResult<axum::response::Response> {
+    let etag: Option<Option<String>> = sqlx::query_scalar("SELECT logo_etag FROM tenants WHERE slug = $1 AND logo IS NOT NULL")
         .bind(&slug)
         .fetch_optional(&state.db)
         .await?;
-    match row {
-        Some((Some(data), mime)) => Ok((
-            [
-                (header::CONTENT_TYPE, mime.unwrap_or_else(|| "image/png".into())),
-                (header::CACHE_CONTROL, "public, max-age=3600".into()),
-            ],
-            data,
-        )),
-        _ => Err(AppError::NotFound("Logo")),
+    let Some(etag) = etag else { return Err(AppError::NotFound("Logo")) };
+    let tag = format!("\"{}\"", etag.unwrap_or_default());
+    let common = [
+        (header::CACHE_CONTROL, "public, no-cache".to_string()),
+        (header::ETAG, tag.clone()),
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+    ];
+    if headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()).is_some_and(|v| v.split(',').any(|x| x.trim() == tag)) {
+        return Ok((axum::http::StatusCode::NOT_MODIFIED, common).into_response());
     }
+    let (data, mime): (Vec<u8>, Option<String>) = sqlx::query_as("SELECT logo, logo_mime FROM tenants WHERE slug = $1 AND logo IS NOT NULL")
+        .bind(&slug)
+        .fetch_one(&state.db)
+        .await?;
+    // Only real images are served (older uploads were not checked by their bytes).
+    let mime = super::catalog::sniff_image(&data).map(str::to_string).or(mime.filter(|m| m == "image/png" || m == "image/jpeg" || m == "image/webp"));
+    let Some(mime) = mime else { return Err(AppError::NotFound("Logo")) };
+    Ok((common, [(header::CONTENT_TYPE, mime)], data).into_response())
 }
 
 #[derive(Deserialize)]

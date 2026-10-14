@@ -524,7 +524,7 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
 // ───────────────────────────── Photos ─────────────────────────────
 
 /// What the bytes really are (the browser's declared type is not trusted).
-fn sniff_image(data: &[u8]) -> Option<&'static str> {
+pub(crate) fn sniff_image(data: &[u8]) -> Option<&'static str> {
     if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
         Some("image/jpeg")
     } else if data.starts_with(&[0x89, b'P', b'N', b'G']) {

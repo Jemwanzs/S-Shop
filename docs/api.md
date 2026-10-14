@@ -61,11 +61,12 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | Method | Path |
 |---|---|
 | GET | `/api/settings` |
-| PUT | `/api/settings` — `workspace: {hours: {days, open, close}, outside_hours: allow\|block}` among the sections |
+| PUT | `/api/settings` — `workspace: {hours: {days, open, close}, outside_hours: allow\|block}` among the sections; `branding: {enabled, login, login_marketing, sidebar, dashboard, pos, documents, customer, website, favicon}` (`settings.business`) |
 | PUT | `/api/settings/profile` |
-| POST | `/api/settings/logo` |
+| POST | `/api/settings/logo` — multipart `file`; PNG, JPEG or WebP by its bytes, ≤ 2 MB; audited `logo_updated` (`settings.business`) |
+| DELETE | `/api/settings/logo` — S'Shop branding is used instead; audited `logo_removed` |
 | PUT | `/api/settings/workflows/{action}` |
-| GET | `/api/public/{slug}/logo` |
+| GET | `/api/public/{slug}/logo` — `ETag` + `Cache-Control: public, no-cache` (304 on `If-None-Match`), `nosniff` |
 | GET | `/api/branches` |
 | POST | `/api/branches` |
 | PUT | `/api/branches/{id}` — `hours`: omit = unchanged, `null` = follow the business, `{days[7], open, close}` = own hours (needs `settings.workspace`); `geofence: {latitude, longitude, radius_m, enabled}` (omit = unchanged; needs `settings.workspace`) |

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import { useBrandLogo } from "@/lib/brand";
 import { ago, compact, count, methodLabel, money, maskPhone, titleCase, toNum } from "@/lib/format";
 import type { Category, Money, UserRow } from "@/lib/types";
 import { PageHeader, Section, ErrorState, Loading, EmptyState } from "@/components/Page";
@@ -80,6 +81,7 @@ export function MyDashboard() {
 
 function QuickHome() {
   const { profile, branch, can } = useSession();
+  const brand = useBrandLogo("dashboard");
   const tiles = [
     { to: "/pos", label: "New sale", icon: ShoppingCart, perm: "sales.create", primary: true },
     { to: "/orders", label: "Orders", icon: ClipboardList, perm: "orders.view" },
@@ -91,7 +93,7 @@ function QuickHome() {
   ].filter((t) => can(t.perm));
   return (
     <>
-      <PageHeader eyebrow={branch?.name} title={`Hello, ${profile?.user.name.split(" ")[0]} 👋`} description="What would you like to do?" />
+      <PageHeader mark={brand} eyebrow={branch?.name} title={`Hello, ${profile?.user.name.split(" ")[0]} 👋`} description="What would you like to do?" />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         {tiles.map((t) => (
           <Link key={t.to} to={t.to} className={`surface flex aspect-4/3 flex-col justify-between p-4 transition hover:shadow-lift ${t.primary ? "border-primary bg-primary text-primary-foreground" : ""}`}>
@@ -106,6 +108,7 @@ function QuickHome() {
 
 function Analytics({ mine = false }: { mine?: boolean }) {
   const { profile, can } = useSession();
+  const brand = useBrandLogo("dashboard");
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [period, setPeriod] = useState<PeriodValue>({ period: "week" });
@@ -135,6 +138,7 @@ function Analytics({ mine = false }: { mine?: boolean }) {
   return (
     <>
       <PageHeader
+        mark={brand}
         eyebrow={mine ? profile?.user.name : "Overview"}
         title={mine ? "My Dashboard" : "Dashboard"}
         description={data ? `${data.from === data.to ? data.from : `${data.from} → ${data.to}`}` : undefined}

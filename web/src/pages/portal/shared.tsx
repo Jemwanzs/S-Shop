@@ -7,7 +7,7 @@ export function PortalHeader({ name, tagline, logo }: { name: string; tagline?: 
   return (
     <header className="border-b px-5 pb-6 pt-8 text-center">
       {logo ? (
-        <img src={logo} alt="" className="mx-auto h-24 w-24 rounded-2xl object-cover shadow-lift" />
+        <img src={logo} alt={name} className="mx-auto h-24 w-24 rounded-2xl bg-card object-contain shadow-lift" />
       ) : (
         <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-primary text-3xl font-bold text-primary-foreground shadow-lift">{name[0]}</div>
       )}

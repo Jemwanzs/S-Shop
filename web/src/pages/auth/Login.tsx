@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { Download, Mail, TimerReset } from "lucide-react";
 import { api, ApiError, errorMessage, SESSION_EXPIRED } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -13,6 +14,7 @@ import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
 import { SShopLoader } from "@/components/SShopLoader";
 import { landingPath } from "@/lib/landing";
+import { expiredBusiness, type LoginBrand } from "@/lib/brand";
 
 /** Roadmap 88: the public Product User Manual (no sign-in), built by scripts/manual/build.mjs. */
 const MANUAL = "SShop_Product_User_Manual.pdf";
@@ -46,6 +48,18 @@ export default function LoginPage() {
       return false;
     }
   });
+  // Roadmap 113: the business is known only from trusted context — its own sign-in address (/login/{business}), this
+  // trusted Quick PIN device, or a session of it that just expired in this tab. Never from what someone types.
+  const own = useParams().business;
+  const trusted = own ?? (mode === "quick" ? device?.slug : undefined) ?? (expired ? expiredBusiness() ?? undefined : undefined);
+  const brand = useQuery({
+    queryKey: ["login-brand", trusted],
+    queryFn: () => api<LoginBrand>(`/public/${encodeURIComponent(trusted!)}/branding`),
+    enabled: !!trusted && !profile,
+    retry: false,
+    staleTime: 5 * 60_000,
+  }).data;
+  const layoutBrand = brand?.logo_url ? { ...brand, marketing: brand.marketing && !!own } : undefined;
   const expiredNote = expired && (
     <p role="status" className="flex items-center gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
       <TimerReset className="h-4 w-4 shrink-0" /> {t("Session expired due to inactivity. Please log in again.")}
@@ -87,7 +101,7 @@ export default function LoginPage() {
 
   if (mode === "quick" && device) {
     return (
-      <AuthLayout title="S'Shop" subtitle={`${t("Welcome back")}, ${device.name.split(" ")[0]}`}>
+      <AuthLayout brand={layoutBrand} title="S'Shop" subtitle={`${t("Welcome back")}, ${device.name.split(" ")[0]}`}>
         <div className="space-y-5">
           {expiredNote}
           <p className="text-center text-sm text-muted-foreground">{t("Enter your Quick PIN")} · <span className="text-foreground">{device.business}</span></p>
@@ -119,7 +133,7 @@ export default function LoginPage() {
   };
 
   return (
-    <AuthLayout title="S'Shop" subtitle="Sign in to continue">
+    <AuthLayout brand={layoutBrand} title="S'Shop" subtitle="Sign in to continue">
       <form onSubmit={submit} className="space-y-4">
         {expiredNote}
         <label className="block">

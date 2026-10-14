@@ -227,6 +227,21 @@ pub const SUPPORT: Support = Support { phones: crate::routes::access::SUPPORT_PH
 
 /// Mobile-friendly, client-safe HTML (tables + inline styles), S'Shop brand colours, light background.
 pub fn layout(preheader: &str, title: &str, body: &str) -> String {
+    layout_for(preheader, title, body, None)
+}
+
+/// Roadmap 113: a customer email headed by the business's logo and name (`brand` = name, absolute logo address);
+/// "Powered by S'Shop" stays at the foot. `None` is the usual S'Shop header.
+pub fn layout_for(preheader: &str, title: &str, body: &str, brand: Option<(&str, &str)>) -> String {
+    let head = match brand {
+        Some((name, logo)) => format!(
+            "<img src=\"{}\" alt=\"{n}\" height=\"40\" style=\"height:40px;max-width:160px;vertical-align:middle;border:0\"><span style=\"font-size:18px;font-weight:700;color:#1c1917;vertical-align:middle\">&nbsp; {n}</span>",
+            esc(logo),
+            n = esc(name)
+        ),
+        None => "<span style=\"font-size:22px;font-weight:800;color:#ea580c;letter-spacing:-.02em\">S'Shop</span><span style=\"font-size:12px;color:#78716c\">&nbsp; by SyncScore</span>".to_string(),
+    };
+    let powered = if brand.is_some() { "<br>Powered by S'Shop" } else { "" };
     let phones = SUPPORT.phones.iter().map(|p| format!("<a href=\"tel:{}\" style=\"color:#9a3412;text-decoration:none;white-space:nowrap\">{}</a>", p.replace(' ', ""), p.replace(' ', "&nbsp;"))).collect::<Vec<_>>().join(" &nbsp;·&nbsp; ");
     format!(
         r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>{title}</title></head>
@@ -234,12 +249,12 @@ pub fn layout(preheader: &str, title: &str, body: &str) -> String {
 <span style="display:none;max-height:0;overflow:hidden;opacity:0">{pre}</span>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#faf5ee"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
-<tr><td style="padding:0 4px 16px"><span style="font-size:22px;font-weight:800;color:#ea580c;letter-spacing:-.02em">S'Shop</span><span style="font-size:12px;color:#78716c">&nbsp; by SyncScore</span></td></tr>
+<tr><td style="padding:0 4px 16px">{head}</td></tr>
 <tr><td style="background:#ffffff;border-radius:16px;padding:28px 24px;border:1px solid #efe6db">
 <h1 style="margin:0 0 14px;font-size:21px;line-height:1.3;color:#1c1917">{title}</h1>
 {body}
 </td></tr>
-<tr><td style="padding:18px 6px;font-size:12px;line-height:1.6;color:#78716c;text-align:center">Need help? Call or WhatsApp S'Shop Support: {phones}<br>S'Shop Team · SyncScore</td></tr>
+<tr><td style="padding:18px 6px;font-size:12px;line-height:1.6;color:#78716c;text-align:center">Need help? Call or WhatsApp S'Shop Support: {phones}<br>S'Shop Team · SyncScore{powered}</td></tr>
 </table></td></tr></table></body></html>"#,
         title = esc(title),
         pre = esc(preheader),

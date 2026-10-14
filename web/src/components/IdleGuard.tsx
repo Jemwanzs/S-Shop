@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { TimerReset } from "lucide-react";
 import { api, session, SESSION_EXPIRED } from "@/lib/api";
 import { LOGOUT_SIGNAL as OUT, useSession } from "@/lib/session";
+import { rememberExpiredBusiness } from "@/lib/brand";
 import { hasUnsaved } from "@/lib/unsaved";
 import { t } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ const write = (k: string, v: number) => {
 
 export function IdleGuard() {
   const { profile, signOut, signOutIdle } = useSession();
+  const slug = profile?.tenant.slug;
   const navigate = useNavigate();
   const token = session.token;
   // The heartbeat returns the current limits: a policy changed while the app is open applies here at once.
@@ -60,12 +62,13 @@ export function IdleGuard() {
     }
     if (reason === "inactivity") {
       try { sessionStorage.setItem(SESSION_EXPIRED, "1"); } catch { /* message not shown */ }
+      rememberExpiredBusiness(slug);
     }
     // Ends the session on the server (which also ends idle sessions on its own) and clears this device's data.
     if (reason === "inactivity") signOutIdle();
     else signOut();
     navigate("/login", { replace: true });
-  }, [token, signOut, signOutIdle, navigate]);
+  }, [token, slug, signOut, signOutIdle, navigate]);
 
   const beat = useCallback(() => {
     lastBeat.current = Date.now();
@@ -103,6 +106,7 @@ export function IdleGuard() {
         ended.current = true;
         if (e.newValue.endsWith(":inactivity")) {
           try { sessionStorage.setItem(SESSION_EXPIRED, "1"); } catch { /* message not shown */ }
+          rememberExpiredBusiness(slug);
         }
         signOut();
         navigate("/login", { replace: true });
@@ -123,7 +127,7 @@ export function IdleGuard() {
       window.removeEventListener("storage", storage);
       window.clearInterval(tick);
     };
-  }, [token, idle, warning, active, finish, signOut, navigate]);
+  }, [token, slug, idle, warning, active, finish, signOut, navigate]);
 
   if (left === null) return null;
   return (

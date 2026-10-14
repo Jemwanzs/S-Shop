@@ -65,6 +65,34 @@ impl Default for BrandingSettings {
     }
 }
 
+impl BrandingSettings {
+    /// Roadmap 113: places that showed the business logo before roadmap 112 (sidebar, receipts, customer pages,
+    /// website) keep it while branding is off; with branding on, their switch decides.
+    pub fn keeps(&self, on: bool) -> bool {
+        !self.enabled || on
+    }
+    /// New places (sign-in, dashboard, POS header, favicon, customer emails) show it only with branding on.
+    pub fn shows(&self, on: bool) -> bool {
+        self.enabled && on
+    }
+}
+
+/// SQL (boolean) for [`BrandingSettings::keeps`]: tenant `alias` has a logo and keeps it in `place` (a constant).
+pub fn logo_kept_sql(alias: &str, place: &'static str) -> String {
+    format!(
+        "({alias}.logo IS NOT NULL AND (COALESCE(({alias}.settings->'branding'->>'enabled')::boolean, false) = false
+          OR COALESCE(({alias}.settings->'branding'->>'{place}')::boolean, true)))"
+    )
+}
+
+/// The business logo's address, versioned by its fingerprint so a new logo is never shown from an old copy.
+pub fn logo_url(slug: &str, etag: Option<&str>) -> String {
+    match etag {
+        Some(v) if !v.is_empty() => format!("/api/public/{slug}/logo?v={v}"),
+        _ => format!("/api/public/{slug}/logo"),
+    }
+}
+
 /// Pages a person may land on after signing in (each is still subject to the person's permissions in the app).
 pub const LANDING_PAGES: &[&str] = &["/", "/my", "/pos", "/sales", "/credit", "/orders", "/products", "/stock", "/transfers", "/customers", "/loyalty", "/expenses", "/reports", "/leaderboards"];
 

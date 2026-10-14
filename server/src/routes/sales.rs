@@ -1364,12 +1364,13 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
     .bind(id)
     .fetch_optional(&state.db)
     .await?;
-    let business: Value = sqlx::query_scalar(
+    let business: Value = sqlx::query_scalar(&format!(
         "SELECT jsonb_build_object('name', name, 'phone', phone, 'address', address, 'currency', currency,
-                'logo_url', CASE WHEN logo IS NOT NULL THEN '/api/public/' || slug || '/logo' END,
+                'logo_url', CASE WHEN {} THEN '/api/public/' || slug || '/logo?v=' || COALESCE(logo_etag, '') END,
                 'receipt_footer', COALESCE(settings->'sales'->>'receipt_footer', ''))
          FROM tenants WHERE id = $1",
-    )
+        crate::settings::logo_kept_sql("tenants", "documents")
+    ))
     .bind(ctx.tenant_id)
     .fetch_one(&state.db)
     .await?;

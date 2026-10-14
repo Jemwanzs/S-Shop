@@ -30,6 +30,7 @@ import { OfflineBar } from "@/components/OfflineBar";
 import { FloatingQuickAction } from "@/components/FloatingQuickAction";
 import { useOpenNow } from "@/components/Hours";
 import mark from "@/assets/sshop-mark.png";
+import { useBrandIcons, useBrandLogo } from "@/lib/brand";
 import { allowed, BOTTOM, NAV } from "./nav";
 import { t } from "@/lib/i18n";
 import { onLocationStatus, locationStatus, startLocation, stopLocation, type LocationStatus } from "@/lib/location";
@@ -228,10 +229,11 @@ function UserMenu({ full }: { full?: boolean }) {
 
 function Brand() {
   const { profile } = useSession();
+  const logo = useBrandLogo("sidebar");
   return (
     <Link to="/" className="flex min-w-0 items-center gap-2.5">
-      {profile?.tenant.logo_url ? (
-        <img src={profile.tenant.logo_url} alt="" className="h-9 w-9 rounded-lg object-cover" />
+      {logo ? (
+        <img src={logo} alt={profile?.tenant.name ?? ""} className="h-9 w-9 shrink-0 rounded-lg object-contain" />
       ) : (
         <img src={mark} alt="S'Shop" className="h-9 w-9" />
       )}
@@ -465,6 +467,7 @@ export function AppShell() {
   const [searchOpen, setSearchOpen] = useState(false);
   const notes = useNotificationCounts();
   useLiveEvents(!!profile, preferences);
+  useBrandIcons();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

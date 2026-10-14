@@ -7,7 +7,7 @@ existing business logo (`tenants.logo`, uploaded in Settings → Business, serve
 | Phase | Roadmap | Status |
 |---|---|---|
 | Branding settings, logo management, placement controls, preview, *Business Branding Updated* (Log Out) | 112 | ✅ built |
-| Logo applied: login (tenant context), sidebar / header, dashboards, POS header, receipts & documents, customer pages & emails, website sync, favicon / PWA | 113 | ⏳ planned |
+| Logo applied: login (tenant context), sidebar / header, dashboards, POS header, receipts & documents, customer pages & emails, website sync, favicon / PWA | 113 | ✅ built |
 
 ## 112 — Settings → Business → Branding & White Labelling
 
@@ -61,3 +61,28 @@ existing business logo (`tenants.logo`, uploaded in Settings → Business, serve
   linger; no layout shift while loading (reserved size); alt text is the business name.
 - **Attribution**: *Powered by S'Shop* stays on the login form footer, the app header / sidebar footer and customer
   pages; receipts are not crowded with repeated branding.
+
+### As built (113)
+
+| Place | Branding off | Branding on |
+|---|---|---|
+| Sidebar / mobile header | business logo if uploaded (as before) | *App sidebar & header* switch |
+| Receipts (sale, adjustment, order) | logo if the receipt option *Show logo* is on (as before) | also needs *Receipts & business documents* |
+| Customer portal, order tracking | business logo (as before) | *Customer orders & notifications* |
+| Public website | business logo unless the website has its own (as before) | *Public website & online store* (the website's own logo always wins) |
+| Sign-in icon / Quick PIN keypad | S'Shop | *Login & authentication*, business known from trusted context |
+| Large sign-in logo | S'Shop | *Large logo on your own sign-in address*, only at `/login/{business}` |
+| Dashboard, My Dashboard, POS header | S'Shop (no mark) | *Dashboard* / *POS* switches — logo beside the page title |
+| Receipt emails to customers | S'Shop header | *Customer orders & notifications* — logo and name in the header, *Powered by S'Shop* in the footer |
+| Browser tab icon, installed app | S'Shop | *favicon* switch, while signed in; `/api/public/{slug}/manifest.webmanifest` |
+
+- Trusted context for sign-in: the business's own address `/login/{business}`, a Quick PIN device trusted after this
+  release (it remembers the business's address), or a session of the business that expired in the same browser tab.
+  Nothing typed by a visitor (an email) ever picks a business logo.
+- The platform owner's own administration keeps S'Shop in every new place (dashboard, POS, favicon).
+- Rules in one place: `BrandingSettings::keeps` / `shows` and `logo_kept_sql` (server), `lib/brand.ts` (app).
+- The app's logo address carries the logo's fingerprint (`?v=`); logos are drawn with `object-contain` (never cropped
+  or stretched) at a reserved size, alt text the business name.
+- Credit statements and invoices are not printed documents in S'Shop yet; when they are, they follow the *documents*
+  switch.
+

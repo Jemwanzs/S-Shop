@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::audit::{self, Entry};
 use crate::auth::{client_meta, Ctx};
 use crate::error::{bad, AppError, AppResult};
-use crate::mailer::{self, button, esc, layout, p, Mail};
+use crate::mailer::{self, button, esc, p, Mail};
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -107,6 +107,18 @@ async fn email(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Js
     }
     let (sale_id, number, kind, snap, token) = visible_receipt(&state, &ctx, id).await?;
     let business = snap["business"]["name"].as_str().unwrap_or("Receipt").to_string();
+    // Roadmap 113: the business's own logo heads the email when it chose so (the logo the receipt was issued with).
+    let branding: crate::settings::BrandingSettings = sqlx::query_scalar::<_, Value>("SELECT settings->'branding' FROM tenants WHERE id = $1")
+        .bind(ctx.tenant_id)
+        .fetch_one(&state.db)
+        .await
+        .ok()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    let brand_logo = snap["business"]["logo"]
+        .as_str()
+        .filter(|_| branding.shows(branding.customer))
+        .map(|h| format!("{}/api/receipt-assets/{h}", state.cfg.public_url));
     let customer = snap["customer"].as_str().map(|n| n.split_whitespace().next().unwrap_or(n).to_string());
     let link = format!("{}/r/{token}", state.cfg.public_url);
     let hello = customer.as_deref().map_or("Hello,".to_string(), |n| format!("Hello {},", esc(n)));
@@ -119,7 +131,12 @@ async fn email(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Js
         kind: "receipt",
         to: vec![to.clone()],
         subject: format!("{business} — receipt {number}"),
-        html: layout(&format!("{}{} {number}", what[..1].to_uppercase(), &what[1..]), &format!("Receipt {number}"), &body),
+        html: mailer::layout_for(
+            &format!("{}{} {number}", what[..1].to_uppercase(), &what[1..]),
+            &format!("Receipt {number}"),
+            &body,
+            brand_logo.as_deref().map(|l| (business.as_str(), l)),
+        ),
         text: format!(
             "{}\n\nThank you for shopping with {business}. Attached is {what} {number}.\nView it online: {link}\n\nWe appreciate your business!",
             customer.as_deref().map_or("Hello,".to_string(), |n| format!("Hello {n},"))

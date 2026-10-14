@@ -54,7 +54,7 @@ export function BusinessSettings() {
     <SettingsPage title="Business profile" description="Shown on receipts, the ordering link and WhatsApp messages." loading={isLoading} dirty={dirty} saving={save.isPending} onSave={() => save.mutate()} onReset={() => data && setF(pickProfile(data.profile))}>
       <Card>
         <div className="flex items-center gap-4 py-3">
-          {data?.profile.logo_url ? <img src={`${data.profile.logo_url}?v=${logoVersion}`} alt="" className="h-20 w-20 rounded-2xl object-cover" /> : <div className="h-20 w-20 rounded-2xl bg-muted" />}
+          {data?.profile.logo_url ? <img src={`${data.profile.logo_url}?v=${logoVersion}`} alt="" className="h-20 w-20 rounded-2xl object-contain" /> : <div className="h-20 w-20 rounded-2xl bg-muted" />}
           <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-primary">
             <ImagePlus className="h-4 w-4" /> {t("Upload logo")}
             <input type="file" accept="image/*" className="hidden" onChange={(e) => uploadLogo(e.target.files?.[0])} />

@@ -7,6 +7,8 @@ export interface QuickDevice {
   email: string;
   name: string;
   business: string;
+  /** Roadmap 113: the business's address name, so the keypad can show its logo (devices trusted earlier lack it). */
+  slug?: string;
 }
 
 const KEY = "sshop.quick";

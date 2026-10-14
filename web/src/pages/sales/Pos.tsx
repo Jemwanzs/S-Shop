@@ -5,6 +5,7 @@ import { CheckCircle2, Clock, CloudOff, PackageSearch, Printer, ScanLine, Shoppi
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import { useBrandLogo } from "@/lib/brand";
 import { useDebounced, useIsDesktop, usePersistentState } from "@/lib/hooks";
 import { count, money, toNum } from "@/lib/format";
 import type { PosProduct, Product, SaleDetail } from "@/lib/types";
@@ -37,6 +38,7 @@ interface Lookup {
 }
 
 export default function Pos() {
+  const brand = useBrandLogo("pos");
   const { profile, branch, can } = useSession();
   const openNow = useOpenNow(branch?.hours, profile?.tenant.timezone);
   const blocked = profile?.settings.workspace.outside_hours === "block" && !can("sales.outside_hours");
@@ -213,6 +215,7 @@ export default function Pos() {
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-6 2xl:grid-cols-[minmax(0,1fr)_460px]">
       <div className="min-w-0">
         <PageHeader
+          mark={brand}
           eyebrow={branch?.name}
           title="Record Sale"
           actions={<Button variant="ink" onClick={() => setScan(true)}><ScanLine /> {translate("Scan")}</Button>}

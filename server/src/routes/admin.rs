@@ -28,6 +28,8 @@ pub fn routes() -> Router<AppState> {
         .route("/settings/logo", post(upload_logo).delete(remove_logo))
         .route("/settings/workflows/{action}", put(put_workflow))
         .route("/public/{slug}/logo", get(logo))
+        .route("/public/{slug}/branding", get(public_branding))
+        .route("/public/{slug}/manifest.webmanifest", get(manifest))
         .route("/branches", get(list_branches).post(create_branch))
         .route("/branches/{id}", put(update_branch))
         .route("/users", get(list_users).post(create_user))
@@ -296,6 +298,47 @@ async fn remove_logo(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<
     audit::record(&mut tx, &ctx, Entry::new("settings", "logo_removed", "tenant", ctx.tenant_id).before(json!({ "logo": before }))).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// Roadmap 113: what the sign-in screens may show for a business known from trusted context (its own sign-in address,
+/// a trusted Quick PIN device, a session that just expired on this device). Only what the business switched on.
+async fn public_branding(State(state): State<AppState>, headers: axum::http::HeaderMap, Path(slug): Path<String>) -> AppResult<Json<Value>> {
+    state.limits.check(&crate::auth::client_meta(&headers).0, "public_branding", 120, std::time::Duration::from_secs(600))?;
+    let row: Option<(String, bool, Option<String>, Value)> =
+        sqlx::query_as("SELECT name, logo IS NOT NULL, logo_etag, settings FROM tenants WHERE slug = $1 AND status = 'active'")
+            .bind(&slug)
+            .fetch_optional(&state.db)
+            .await?;
+    let (name, has_logo, etag, raw) = row.ok_or(AppError::NotFound("Business"))?;
+    let b = serde_json::from_value::<TenantSettings>(raw).unwrap_or_default().branding;
+    let login = has_logo && b.shows(b.login);
+    Ok(Json(json!({
+        "name": name,
+        "logo_url": login.then(|| crate::settings::logo_url(&slug, etag.as_deref())),
+        "marketing": login && b.login_marketing,
+    })))
+}
+
+/// Roadmap 113 (advanced): the installed-app manifest with the business logo, only when the business chose it.
+async fn manifest(State(state): State<AppState>, Path(slug): Path<String>) -> AppResult<axum::response::Response> {
+    let row: Option<(String, bool, Option<String>, Option<String>, Value)> =
+        sqlx::query_as("SELECT name, logo IS NOT NULL, logo_etag, logo_mime, settings FROM tenants WHERE slug = $1 AND status = 'active'")
+            .bind(&slug)
+            .fetch_optional(&state.db)
+            .await?;
+    let Some((name, true, etag, mime, raw)) = row else { return Err(AppError::NotFound("Manifest")) };
+    let b = serde_json::from_value::<TenantSettings>(raw).unwrap_or_default().branding;
+    if !b.shows(b.favicon) {
+        return Err(AppError::NotFound("Manifest"));
+    }
+    let short: String = name.chars().take(12).collect();
+    let icon = crate::settings::logo_url(&slug, etag.as_deref());
+    let body = json!({
+        "name": name, "short_name": short, "start_url": "/", "display": "standalone",
+        "background_color": "#faf5ee", "theme_color": "#faf5ee",
+        "icons": [{ "src": icon, "sizes": "any", "type": mime.unwrap_or_else(|| "image/png".into()), "purpose": "any" }],
+    });
+    Ok(([(header::CONTENT_TYPE, "application/manifest+json"), (header::CACHE_CONTROL, "no-cache")], body.to_string()).into_response())
 }
 
 /// The business logo. Browsers keep it and re-check it with its fingerprint (304 when unchanged), so a new logo shows at

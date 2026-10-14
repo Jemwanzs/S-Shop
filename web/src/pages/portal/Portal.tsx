@@ -261,7 +261,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
       <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <Link to={`/order/${b.slug}`} className="rounded-full p-2 hover:bg-muted" aria-label="Back"><ArrowLeft className="h-5 w-5" /></Link>
-          {b.logo_url && <img src={b.logo_url} alt="" className="h-9 w-9 rounded-lg object-cover" />}
+          {b.logo_url && <img src={b.logo_url} alt={b.name} className="h-9 w-9 rounded-lg object-contain" />}
           <span className="truncate font-semibold">{b.name}</span>
         </div>
         <div className="mx-auto max-w-6xl space-y-2 px-4 pb-3">

@@ -150,11 +150,11 @@ pub async fn resolve(state: &AppState, headers: &HeaderMap, slug: Option<&str>, 
     // A verified custom domain decides the business on its own; only the S'Shop host addresses websites by slug.
     let by_domain = domain_tenant(state, &host).await?;
     let row: Option<SiteDb> = sqlx::query_as(
-        "SELECT t.id, t.slug, t.name, t.currency, t.logo IS NOT NULL AS has_logo, t.status AS tenant_status, w.status, w.billing_suspended,
+        &format!("SELECT t.id, t.slug, t.name, t.currency, {} AS has_logo, t.status AS tenant_status, w.status, w.billing_suspended,
                 w.draft, w.published, w.version, w.published_at, d.domain
          FROM tenants t LEFT JOIN websites w ON w.tenant_id = t.id
          LEFT JOIN website_domains d ON d.tenant_id = t.id AND d.status = 'active' AND d.is_primary
-         WHERE ($1::uuid IS NOT NULL AND t.id = $1) OR ($1::uuid IS NULL AND t.slug = $2)",
+         WHERE ($1::uuid IS NOT NULL AND t.id = $1) OR ($1::uuid IS NULL AND t.slug = $2)", crate::settings::logo_kept_sql("t", "website")),
     )
     .bind(by_domain)
     .bind(slug.unwrap_or_default())

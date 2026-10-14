@@ -99,6 +99,7 @@ export default function App() {
             <Suspense fallback={<Loading size="lg" className="min-h-[60vh]" />}>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/login/:business" element={<LoginPage />} />
                 <Route path="/select-branch" element={<SelectBranchPage />} />
                 <Route path="/request-access" element={<RequestAccessPage />} />
                 <Route path="/forgot" element={<ForgotPage />} />

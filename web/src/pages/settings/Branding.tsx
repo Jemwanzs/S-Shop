@@ -13,17 +13,14 @@ import { useSession } from "@/lib/session";
 import { optimizeImage } from "@/lib/image";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import type { Settings } from "@/lib/types";
+import { DEFAULT_BRANDING, type Branding } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, ToggleRow } from "@/components/Form";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card, SettingsPage, useSettings, useSettingsDraft } from "./shared";
 
-type Branding = NonNullable<Settings["branding"]>;
-const DEFAULT_BRANDING: Branding = {
-  enabled: false, login: true, login_marketing: false, sidebar: true, dashboard: true, pos: true, documents: true, customer: true, website: true, favicon: false,
-};
+
 const PLACES: [keyof Branding, string, string][] = [
   ["login", "Login & authentication", "The icon above the sign-in form and Quick PIN keypad, where your business is known (trusted device, your own sign-in address)"],
   ["login_marketing", "Large logo on your own sign-in address", "Replaces the big S'Shop logo only on your business's sign-in address — the shared sign-in page stays S'Shop"],

@@ -89,7 +89,7 @@ a { color: inherit; }
 .hdr { position: sticky; top: 0; z-index: 40; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, transparent); }
 .hdr .wrap { display: flex; align-items: center; gap: 8px; height: 64px; }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; min-width: 0; margin-right: auto; }
-.brand img { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; }
+.brand img { width: 40px; height: 40px; border-radius: 10px; object-fit: contain; }
 .brand .mark { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 18px; flex-shrink: 0; }
 .brand strong { font-family: var(--heading-font), sans-serif; color: var(--heading); font-size: 1.08rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav { display: none; gap: 2px; }

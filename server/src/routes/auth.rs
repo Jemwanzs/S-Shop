@@ -194,8 +194,8 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         .await?
     };
 
-    let (tname, slug, tagline, currency, has_logo, settings, is_demo, timezone): (String, String, String, String, bool, Value, bool, String) = sqlx::query_as(
-        "SELECT name, slug, tagline, currency, logo IS NOT NULL, settings, is_demo, timezone FROM tenants WHERE id = $1",
+    let (tname, slug, tagline, currency, has_logo, logo_etag, settings, is_demo, timezone): (String, String, String, String, bool, Option<String>, Value, bool, String) = sqlx::query_as(
+        "SELECT name, slug, tagline, currency, logo IS NOT NULL, logo_etag, settings, is_demo, timezone FROM tenants WHERE id = $1",
     )
     .bind(tenant_id)
     .fetch_one(&state.db)
@@ -220,7 +220,7 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         }),
         tenant: serde_json::json!({
             "id": tenant_id, "name": tname, "slug": slug, "tagline": tagline, "currency": currency,
-            "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")), "is_demo": is_demo, "timezone": timezone,
+            "logo_url": has_logo.then(|| crate::settings::logo_url(&slug, logo_etag.as_deref())), "is_demo": is_demo, "timezone": timezone,
         }),
         // Package and billing access (roadmap 41–45): modules = null means every module. The platform owner acting
         // inside a business is not restricted.

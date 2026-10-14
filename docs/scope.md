@@ -575,10 +575,11 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   customer pages & emails, website, favicon / PWA), preview, audited, *Business Branding Updated* with one Log Out.
   Logos are checked by their bytes (PNG / JPEG / WebP; SVG converted to WebP in the browser) and carry a fingerprint
   (ETag, 304) so a new logo shows at once. The placements take effect in 113.
-- ⏳ **113. Business logo applied** — login form icon from trusted tenant context only (large S'Shop marketing logo
+- ✅ **113. Business logo applied** — login form icon from trusted tenant context only (large S'Shop marketing logo
   kept unless the business's own login address opts in), sidebar / header, dashboards, POS header, receipts and
   documents, customer pages and emails, website sync, favicon / PWA; *Powered by S'Shop* kept; platform admin always
-  S'Shop; versioned logo URLs, no cross-tenant caching.
+  S'Shop; versioned logo URLs, no cross-tenant caching. Branding off keeps today's behaviour exactly (the logo stays
+  where it already showed: sidebar, receipts, customer pages, website).
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

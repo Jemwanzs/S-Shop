@@ -102,7 +102,7 @@ export function QuickPinCard() {
       </div>
       {mode && profile && (
         <SetupDialog mode={mode} min={s.min_length} onClose={() => setMode(null)} onDone={(device_id, token) => {
-          rememberQuickDevice({ token, device_id, email: profile.user.email, name: profile.user.name, business: profile.tenant.name });
+          rememberQuickDevice({ token, device_id, email: profile.user.email, name: profile.user.name, business: profile.tenant.name, slug: profile.tenant.slug });
           setMode(null);
           refresh();
         }} />

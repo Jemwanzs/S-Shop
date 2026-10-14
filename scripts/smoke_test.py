@@ -3197,6 +3197,52 @@ upload_file("/settings/logo", tiny_png(), "logo.png", "image/png", expect=403, t
 check("only people who manage the business can change the logo", True)
 call("PUT", "/settings", cfg112)
 
+step("Roadmap 113: the business logo where the business chose it")
+cfg113 = call("GET", "/settings")["settings"]
+upload_file("/settings/logo", tiny_png((10, 120, 60)), "logo.png", "image/png")
+slug113 = call("GET", "/settings")["profile"]["slug"]
+logo113 = call("GET", "/auth/me")["tenant"]["logo_url"] or ""
+check("the app's logo address carries its fingerprint (a new logo never shows from an old copy)", f"/api/public/{slug113}/logo?v=" in logo113, logo113)
+check("branding off: customer pages keep the logo exactly as before", call("GET", f"/portal/{slug113}", token="none")["logo_url"])
+pb113 = call("GET", f"/public/{slug113}/branding", token="none", branch="none")
+check("branding off: the sign-in screens stay S'Shop", pb113["logo_url"] is None and pb113["marketing"] is False, pb113)
+def manifest113():
+    try:
+        with urllib.request.urlopen(BASE + f"/api/public/{slug113}/manifest.webmanifest") as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, None
+check("branding off: no business app icon (S'Shop's stays)", manifest113()[0] == 404)
+call("POST", "/stock/receive", {"product_id": lp106, "quantity": 2, "cost_price": 60000})
+def receipt113():
+    s = call("POST", "/sales", {"items": [{"product_id": lp106, "quantity": 1, "unit_price": 100000}], "payment": {"method": "cash"},
+                                "client_ref": str(uuid.uuid4())})["sale"]
+    return call("GET", f"/sales/{s['id']}/receipts")["items"][0]
+check("branding off: receipts keep the logo as before", receipt113()["snapshot"]["business"]["logo"])
+call("PUT", "/settings", {**cfg113, "branding": {**cfg113["branding"], "enabled": True, "login_marketing": True, "favicon": True,
+                                                   "customer": False, "documents": False}})
+pb113 = call("GET", f"/public/{slug113}/branding", token="none", branch="none")
+check("branding on: the sign-in icon (and the large logo on the business's own address) is the business logo",
+      (pb113["logo_url"] or "").startswith(f"/api/public/{slug113}/logo?v=") and pb113["marketing"] is True, pb113)
+st113, mf113 = manifest113()
+check("favicon switched on: the installed-app manifest uses the business logo and name",
+      st113 == 200 and mf113["icons"][0]["src"].startswith(f"/api/public/{slug113}/logo") and mf113["name"], mf113)
+check("customer pages switched off: S'Shop branding there", call("GET", f"/portal/{slug113}", token="none")["logo_url"] is None)
+check("receipts switched off: new receipts carry no business logo", receipt113()["snapshot"]["business"]["logo"] is None)
+call("PUT", "/settings", {**cfg113, "branding": {**cfg113["branding"], "enabled": True, "login": False, "customer": True, "documents": True}})
+check("sign-in switched off: S'Shop there", call("GET", f"/public/{slug113}/branding", token="none", branch="none")["logo_url"] is None)
+rc113 = receipt113()
+check("receipts switched on: the business logo on new receipts", rc113["snapshot"]["business"]["logo"])
+em113 = f"brand{suffix.lower()}@sshop.test"
+call("POST", f"/receipts/{rc113['id']}/email", {"to": em113, "pdf": base64.b64encode(b"%PDF-1.4\n% receipt\n").decode()})
+m113 = mails_to(em113)
+check("customer emails switched on: the receipt email is headed by the business logo, Powered by S'Shop kept",
+      m113 and "/api/receipt-assets/" in m113[-1].get("html", "") and "Powered by S'Shop" in m113[-1].get("html", ""), m113[-1].get("html", "")[:300] if m113 else None)
+call("GET", f"/public/nosuch{suffix.lower()}/branding", token="none", branch="none", expect=404)
+check("an unknown business address shows S'Shop (nothing revealed)", True)
+call("PUT", "/settings", cfg113)
+call("DELETE", "/settings/logo")
+
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
 iv_mail = f"invitee{suffix.lower()}@sshop.test"

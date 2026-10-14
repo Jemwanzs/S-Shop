@@ -66,6 +66,8 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | POST | `/api/settings/logo` — multipart `file`; PNG, JPEG or WebP by its bytes, ≤ 2 MB; audited `logo_updated` (`settings.business`) |
 | DELETE | `/api/settings/logo` — S'Shop branding is used instead; audited `logo_removed` |
 | PUT | `/api/settings/workflows/{action}` |
+| GET | `/api/public/{slug}/branding` — sign-in branding for a business known from trusted context: `{name, logo_url, marketing}` (`logo_url` only with branding and *Login* on; rate-limited; 404 for unknown or inactive businesses) |
+| GET | `/api/public/{slug}/manifest.webmanifest` — installed-app manifest with the business logo, only with branding and *favicon* on (404 otherwise) |
 | GET | `/api/public/{slug}/logo` — `ETag` + `Cache-Control: public, no-cache` (304 on `If-None-Match`), `nosniff` |
 | GET | `/api/branches` |
 | POST | `/api/branches` |

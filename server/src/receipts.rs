@@ -97,7 +97,7 @@ fn base(h: &Head, s: &TenantSettings, logo: Option<String>) -> Value {
     json!({
         "currency": h.currency,
         "timezone": h.timezone,
-        "business": { "name": h.business, "logo": if r.show_logo { logo } else { None }, "phone": if r.show_contact { Some(h.business_phone.clone()) } else { None } },
+        "business": { "name": h.business, "logo": if r.show_logo && s.branding.keeps(s.branding.documents) { logo } else { None }, "phone": if r.show_contact { Some(h.business_phone.clone()) } else { None } },
         "branch": { "name": if r.show_branch { Some(h.branch.clone()) } else { None }, "phone": if r.show_contact { Some(h.branch_phone.clone()) } else { None } },
         "customer": if r.show_customer { h.customer.clone() } else { None },
         "served_by": if r.show_salesperson { h.owner.clone() } else { None },

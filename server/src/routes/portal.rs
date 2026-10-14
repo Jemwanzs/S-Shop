@@ -156,6 +156,7 @@ async fn business(State(state): State<AppState>, Path(slug): Path<String>) -> Ap
             .bind(t.id)
             .fetch_one(&state.db)
             .await?;
+    let has_logo = has_logo && t.settings.branding.keeps(t.settings.branding.customer);
     Ok(Json(json!({
         "name": t.name,
         "slug": slug,
@@ -531,6 +532,7 @@ async fn track(State(state): State<AppState>, headers: HeaderMap, Path(token): P
     .await?;
     let (id, order_no, status, total, created_at, location, business, slug, has_logo, raw, tenant_id) = row.ok_or(AppError::NotFound("Order"))?;
     let mut st: TenantSettings = serde_json::from_value(raw).unwrap_or_default();
+    let has_logo = has_logo && st.branding.keeps(st.branding.customer);
     let mut conn = state.db.acquire().await?;
     let lines = order_items(&mut conn, id).await?;
     let hidden = hidden_prices(&state, tenant_id).await?;

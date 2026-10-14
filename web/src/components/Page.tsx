@@ -14,7 +14,10 @@ export function PageHeader({
   description,
   actions,
   back,
+  mark,
 }: {
+  /** Roadmap 113: the business logo beside the title (dashboards, POS) where the business chose so. */
+  mark?: string | null;
   eyebrow?: string;
   title: ReactNode;
   description?: ReactNode;
@@ -23,7 +26,9 @@ export function PageHeader({
 }) {
   return (
     <header className="mb-4 flex flex-wrap items-end justify-between gap-3 animate-fade-up lg:mb-6">
-      <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-3">
+        {mark && <img src={mark} alt="" className="h-11 w-11 shrink-0 rounded-xl object-contain lg:h-12 lg:w-12" />}
+        <div className="min-w-0">
         {back && (
           <Link to={back} className="mb-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-4 w-4 rtl:rotate-180" /> {t("Back")}
@@ -32,6 +37,7 @@ export function PageHeader({
         {eyebrow && <p className="label-caps mb-1">{t(eyebrow)}</p>}
         <h1 className="truncate text-xl font-semibold tracking-tight lg:text-2xl">{tx(title)}</h1>
         {description && <p className="mt-1 text-sm text-muted-foreground">{tx(description)}</p>}
+        </div>
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>

@@ -305,7 +305,7 @@ function LoginDetails({ id, onClose, onChanged }: { id: string; onClose: () => v
     <ResponsiveDialog open onOpenChange={(o) => !o && onClose()} title="Login details" description={r?.business_name}>
       {!data || !r ? <Loading /> : (
         <div className="space-y-4">
-          <div className="mx-auto max-w-sm rounded-md border border-dashed bg-card px-4 py-3 font-mono text-[13px] shadow-sm">
+          <div className="mx-auto max-w-sm rounded-md border border-dashed bg-card px-4 py-3 font-mono text-[13px] shadow-xs">
             <p className="text-center text-xs font-semibold uppercase tracking-[0.2em]">S'Shop</p>
             <p className="text-center text-[11px] text-muted-foreground">{t("Account access slip")}</p>
             <div className="my-2 border-t border-dashed" />

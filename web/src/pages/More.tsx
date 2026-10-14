@@ -34,7 +34,7 @@ export default function More() {
             <p className="label-caps mb-1.5 px-1">{t(g.group)}</p>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {items.map((i) => (
-                <Link key={i.to} to={i.to} className="surface flex h-[4.75rem] flex-col items-center justify-center gap-1 p-2 text-center text-xs font-medium leading-tight transition active:scale-95">
+                <Link key={i.to} to={i.to} className="surface flex h-19 flex-col items-center justify-center gap-1 p-2 text-center text-xs font-medium leading-tight transition active:scale-95">
                   <span className="rounded-lg bg-primary/10 p-2 text-primary"><i.icon className="h-5 w-5" /></span>
                   {t(i.label)}
                 </Link>

@@ -76,7 +76,7 @@ export function PhotoPicker({ photos, room, max, existing = 0, disabled }: { pho
               className={cn("relative h-20 w-20 overflow-hidden rounded-xl border sm:h-24 sm:w-24", (extra || p.problem) && "border-2 border-destructive")}
             >
               <img src={p.url} alt="" className={cn("h-full w-full object-cover", (extra || p.problem) && "opacity-50")} onError={() => photos.markUnreadable(p.ref)} />
-              {i === 0 && existing === 0 && !p.problem && <span className="absolute bottom-1 start-1 rounded bg-black/60 px-1.5 text-[10px] text-white">{t("Primary")}</span>}
+              {i === 0 && existing === 0 && !p.problem && <span className="absolute bottom-1 inset-s-1 rounded bg-black/60 px-1.5 text-[10px] text-white">{t("Primary")}</span>}
               {(extra || p.problem) && (
                 <span className="absolute inset-x-0 bottom-0 bg-destructive px-1 py-0.5 text-center text-[10px] font-medium leading-tight text-destructive-foreground">
                   {p.problem ?? t("Over limit")}
@@ -85,7 +85,7 @@ export function PhotoPicker({ photos, room, max, existing = 0, disabled }: { pho
               <button
                 type="button"
                 disabled={disabled}
-                className="absolute end-1 top-1 rounded-full bg-black/65 p-1 text-white hover:bg-black/80"
+                className="absolute inset-e-1 top-1 rounded-full bg-black/65 p-1 text-white hover:bg-black/80"
                 onClick={() => photos.remove(p.ref)}
                 aria-label={t("Remove photo")}
               >

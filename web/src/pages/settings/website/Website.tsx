@@ -206,7 +206,7 @@ function Centre({ ov }: { ov: Overview }) {
           {tabs.map((x) => (
             <button key={x.key} type="button" data-active={tab === x.key ? "true" : undefined} aria-current={tab === x.key ? "page" : undefined}
               onClick={() => setParams(x.key === "overview" ? {} : { tab: x.key }, { replace: true })}
-              className={cn("h-8 shrink-0 whitespace-nowrap rounded-full border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", tab === x.key ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-accent/50")}>
+              className={cn("h-8 shrink-0 whitespace-nowrap rounded-full border px-3 text-sm transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring", tab === x.key ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-accent/50")}>
               {t(x.label)}
             </button>
           ))}
@@ -228,7 +228,7 @@ function Centre({ ov }: { ov: Overview }) {
       {tab === "analytics" && <AnalyticsTab />}
 
       {/* Draft → Preview → Publish */}
-      <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-2.5 backdrop-blur lg:bottom-0 lg:start-sidebar">
+      <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-2.5 backdrop-blur-sm lg:bottom-0 lg:inset-s-sidebar">
         <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-end gap-2 px-1 md:px-3 lg:px-5">
           <span className="me-auto text-sm text-muted-foreground">
             {dirty ? t("Unsaved changes") : ov.has_unpublished ? t("Draft saved — not published yet") : t("Everything is published")}

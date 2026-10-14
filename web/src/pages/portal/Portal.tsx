@@ -59,7 +59,7 @@ export default function Portal() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="absolute end-3 top-3"><ThemeToggle /></div>
+      <div className="absolute inset-e-3 top-3"><ThemeToggle /></div>
       <Routes>
         <Route index element={<Entry b={b} sess={sess} setSess={setSess} />} />
         <Route path="shop" element={sess ? <Shop b={b} sess={sess} /> : <Navigate to={`/order/${slug}`} replace />} />
@@ -116,7 +116,7 @@ function Entry({ b, sess, setSess }: { b: Business; sess: PortalSession | null; 
           <div className="space-y-4 animate-fade-up">
             <h2 className="text-2xl font-semibold">{t("Welcome back,")} {me.data.customer.nickname || me.data.customer.first_name} 👋</h2>
             {me.data.loyalty && (
-              <div className="rounded-2xl bg-gradient-to-br from-primary to-primary/70 p-5 text-primary-foreground shadow-lift">
+              <div className="rounded-2xl bg-linear-to-br from-primary to-primary/70 p-5 text-primary-foreground shadow-lift">
                 <p className="text-sm opacity-90">{t("Loyalty points")}</p>
                 <p className="num mt-1 text-3xl font-bold">{count(me.data.loyalty.points)}</p>
                 {me.data.loyalty.value !== null && <p className="num mt-1 text-sm opacity-90">{t("Value:")} {b.currency} {amount(me.data.loyalty.value)}</p>}
@@ -258,7 +258,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
 
   return (
     <div className="pb-28">
-      <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <Link to={`/order/${b.slug}`} className="rounded-full p-2 hover:bg-muted" aria-label="Back"><ArrowLeft className="h-5 w-5" /></Link>
           {b.logo_url && <img src={b.logo_url} alt="" className="h-9 w-9 rounded-lg object-cover" />}
@@ -295,11 +295,11 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
               const out = p.available <= 0;
               return (
                 <button key={p.id} onClick={() => setOpen(p)} className={cn("surface group overflow-hidden text-start transition hover:shadow-lift", out && "opacity-60")}>
-                  <div className="relative aspect-[3/4] bg-muted/60">
+                  <div className="relative aspect-3/4 bg-muted/60">
                     {p.primary_photo_id
                       ? <img src={`${photoUrl(p.primary_photo_id)}?size=thumb`} alt={p.name} loading="lazy" decoding="async" className="h-full w-full object-contain p-[6%] transition duration-300 group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:scale-100" />
-                      : <span className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/15 to-primary/5 text-4xl font-bold text-primary/50" aria-hidden>{p.name.trim()[0]?.toUpperCase()}</span>}
-                    {inCart > 0 && <span className="num absolute end-2 top-2 rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">{inCart}</span>}
+                      : <span className="absolute inset-0 flex items-center justify-center bg-linear-to-br from-primary/15 to-primary/5 text-4xl font-bold text-primary/50" aria-hidden>{p.name.trim()[0]?.toUpperCase()}</span>}
+                    {inCart > 0 && <span className="num absolute inset-e-2 top-2 rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">{inCart}</span>}
                   </div>
                   <div className="space-y-1 p-3">
                     <p className="line-clamp-2 font-medium leading-snug">{p.name}</p>
@@ -316,9 +316,9 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
       </main>
 
       {units > 0 && (
-        <button onClick={() => setCartOpen(true)} className="fixed bottom-6 end-5 z-30 flex h-16 w-16 items-center justify-center rounded-full bg-foreground text-background shadow-lift animate-pop" aria-label={`Cart, ${units} ${t("items")}`}>
+        <button onClick={() => setCartOpen(true)} className="fixed bottom-6 inset-e-5 z-30 flex h-16 w-16 items-center justify-center rounded-full bg-foreground text-background shadow-lift animate-pop" aria-label={`Cart, ${units} ${t("items")}`}>
           <ShoppingCart className="h-6 w-6" />
-          <span className="num absolute -end-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-primary-foreground">{units}</span>
+          <span className="num absolute -inset-e-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-primary-foreground">{units}</span>
         </button>
       )}
 

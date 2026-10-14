@@ -22,7 +22,7 @@ export default function ReceiptView() {
   return (
     <div className="min-h-screen bg-muted/40 px-3 py-6">
       <div className="mx-auto max-w-md space-y-4">
-        <div className="rounded-2xl bg-white p-3 shadow-sm">
+        <div className="rounded-2xl bg-white p-3 shadow-xs">
           <Receipt snapshot={s} zoom={1.7} />
         </div>
         <div className="grid grid-cols-2 gap-2">

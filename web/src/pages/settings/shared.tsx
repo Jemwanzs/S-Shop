@@ -87,7 +87,7 @@ export function SettingsPage({ title, description, children, dirty, saving, onSa
       </div>
       {children}
       {onSave && dirty && (
-        <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur animate-fade-up lg:bottom-0 lg:start-sidebar">
+        <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur-sm animate-fade-up lg:bottom-0 lg:inset-s-sidebar">
           <div className="mx-auto flex max-w-[1680px] items-center justify-end gap-2 px-1 md:px-3 lg:px-5">
             <span className="me-auto text-sm text-muted-foreground">{t("Unsaved changes")}</span>
             <Button variant="outline" onClick={onReset}>{t("Discard")}</Button>
@@ -118,7 +118,7 @@ export function Fact({ label, children }: { label: ReactNode; children: ReactNod
   return (
     <div className="min-w-0">
       <p className="label-caps truncate">{label}</p>
-      <div className="mt-0.5 break-words text-sm font-medium tabular-nums">{children}</div>
+      <div className="mt-0.5 wrap-break-word text-sm font-medium tabular-nums">{children}</div>
     </div>
   );
 }

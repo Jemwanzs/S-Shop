@@ -57,13 +57,13 @@ export function BarcodeInput({ onCode, placeholder, autoFocus, className, contin
     <div className={cn("space-y-1", className)}>
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <ScanLine className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <ScanLine className="pointer-events-none absolute inset-s-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input ref={input} value={value} autoFocus={autoFocus} className="num ps-9" autoComplete="off" enterKeyHint="go"
             placeholder={t(placeholder ?? (cfg.manual ? "Enter or scan barcode" : "Scan barcode"))} aria-label={t("Enter or scan barcode")}
             onPaste={(e) => { if (!cfg.manual) { e.preventDefault(); toast.error("Typing barcodes is switched off — scan the label"); } }}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void submit(value); } }} />
-          {busy && <SShopLoader size="sm" className="absolute end-3 top-1/2 -translate-y-1/2" />}
+          {busy && <SShopLoader size="sm" className="absolute inset-e-3 top-1/2 -translate-y-1/2" />}
         </div>
         {cfg.camera && <Button type="button" variant="outline" size="icon" onClick={() => setCamera(true)} aria-label={t("Scan with camera")}><Camera /></Button>}
       </div>

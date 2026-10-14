@@ -54,7 +54,7 @@ export function DataList<T>({
       {/* Wide tables scroll sideways inside the card, never the page. */}
       <div className="scroll-thin hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-muted/60 backdrop-blur">
+          <thead className="sticky top-0 z-10 bg-muted/60 backdrop-blur-sm">
             <tr>
               {columns.map((c) => (
                 <th key={c.key} className={cn("label-caps whitespace-nowrap px-4 py-3 font-semibold", align(c.align), c.hideBelow && HIDE[c.hideBelow])}>

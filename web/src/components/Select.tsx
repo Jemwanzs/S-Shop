@@ -71,7 +71,7 @@ export function Select({ value, onChange, children, className, disabled, placeho
       onClick={wide ? undefined : () => setOpen(true)}
       className={cn(
         "flex h-control w-full items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-start text-control transition-colors",
-        "hover:border-foreground/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+        "hover:border-foreground/25 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
         open && "border-primary ring-2 ring-primary/20",
         className,
       )}
@@ -101,7 +101,7 @@ export function Select({ value, onChange, children, className, disabled, placeho
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent align="start" sideOffset={6} className="w-[var(--radix-popover-trigger-width)] min-w-44 overflow-hidden p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent align="start" sideOffset={6} className="w-(--radix-popover-trigger-width) min-w-44 overflow-hidden p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
         <OptionList options={options} value={value} onChoose={choose} search={search} />
       </PopoverContent>
     </Popover>
@@ -125,11 +125,11 @@ function OptionList({ options, value, onChoose, search, touch }: { options: Opt[
   }, [search, touch]);
 
   return (
-    <CommandPrimitive ref={root} data-dirty-ignore value={active} onValueChange={setActive} loop tabIndex={-1} className="flex flex-col outline-none">
+    <CommandPrimitive ref={root} data-dirty-ignore value={active} onValueChange={setActive} loop tabIndex={-1} className="flex flex-col outline-hidden">
       {search && (
         <div className="flex items-center gap-2 border-b px-3">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <CommandPrimitive.Input ref={input} placeholder={t("Search…")} className="h-10 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+          <CommandPrimitive.Input ref={input} placeholder={t("Search…")} className="h-10 w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground" />
         </div>
       )}
       <CommandPrimitive.List ref={list} className={cn("scroll-thin overflow-y-auto overscroll-contain p-1", touch ? "max-h-[60dvh] pb-[max(0.5rem,env(safe-area-inset-bottom))]" : "max-h-72")}>
@@ -142,7 +142,7 @@ function OptionList({ options, value, onChoose, search, touch }: { options: Opt[
             disabled={o.disabled}
             onSelect={() => onChoose(o.value)}
             className={cn(
-              "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2.5 text-sm outline-none",
+              "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2.5 text-sm outline-hidden",
               touch ? "min-h-11" : "min-h-8 py-1.5",
               "data-[selected=true]:bg-accent data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45",
               o.value === value && "font-medium text-primary",

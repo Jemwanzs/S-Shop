@@ -38,7 +38,7 @@ export const Receipt = forwardRef<HTMLDivElement, { snapshot: ReceiptSnapshot; z
             if (r.t === "item") {
               return (
                 <div key={i} className={cn("py-[0.4mm]", r.muted && "text-[#666]")}>
-                  <div className="break-words font-semibold">{r.name}</div>
+                  <div className="wrap-break-word font-semibold">{r.name}</div>
                   <div className="flex justify-between ps-[1mm]" style={{ fontSize: "6.2pt" }}><span>{r.detail}</span><span>{r.total}</span></div>
                 </div>
               );

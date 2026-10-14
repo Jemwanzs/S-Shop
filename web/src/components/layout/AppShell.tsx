@@ -350,7 +350,7 @@ function CountBadge({ n, className }: { n: number; className?: string }) {
 function Sidebar({ approvals, orders }: { approvals: number; orders: number }) {
   const { can } = useSession();
   return (
-    <aside className="sticky top-0 hidden h-screen flex-col border-e bg-card/70 backdrop-blur lg:flex print:!hidden">
+    <aside className="sticky top-0 hidden h-screen flex-col border-e bg-card/70 backdrop-blur-sm lg:flex print:hidden!">
       <div className="space-y-3 p-4">
         <Brand />
         <BranchSwitcher />
@@ -397,7 +397,7 @@ function BottomNav({ orders }: { orders: number }) {
   const items = BOTTOM.filter((i) => allowed(i, can));
   const moreActive = !items.some((i) => (i.to === "/" ? pathname === "/" : pathname.startsWith(i.to)));
   return (
-    <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur lg:hidden no-print">
+    <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur-sm lg:hidden no-print">
       <div className="mx-auto flex max-w-2xl items-stretch justify-around">
         {items.map((i) => {
           const sale = i.to === "/pos";
@@ -411,7 +411,7 @@ function BottomNav({ orders }: { orders: number }) {
               {({ isActive }) => (
                 <>
                   {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
-                  {i.to === "/orders" && <CountBadge n={orders} className="absolute top-1.5 start-1/2 ms-1.5" />}
+                  {i.to === "/orders" && <CountBadge n={orders} className="absolute top-1.5 inset-s-1/2 ms-1.5" />}
                   {sale ? (
                     <span className="-mt-4 flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lift ring-4 ring-background">
                       <i.icon className="h-5 w-5" />
@@ -495,7 +495,7 @@ export function AppShell() {
         <OfflineBar />
         <QuickSaleShortcut />
         <IdleGuard />
-        <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur no-print">
+        <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur-sm no-print">
           <div className="mx-auto flex h-14 max-w-[1680px] items-center gap-2 px-4 md:px-6 lg:h-16 lg:px-8">
             <div className="min-w-0 flex-1 lg:hidden"><Brand /></div>
             <div className="flex shrink-0 items-center gap-1 lg:flex-1">
@@ -512,7 +512,7 @@ export function AppShell() {
             <PoweredBy className="me-1 hidden lg:inline-flex" />
             <Button variant="ghost" size="icon" className="relative" onClick={() => navigate("/notifications")} aria-label="Notifications">
               <Bell />
-              {unread > 0 && <span className="num absolute end-1.5 top-1.5 min-w-4 rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground animate-pop">{unread > 99 ? "99+" : unread}</span>}
+              {unread > 0 && <span className="num absolute inset-e-1.5 top-1.5 min-w-4 rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground animate-pop">{unread > 99 ? "99+" : unread}</span>}
             </Button>
             <ThemeToggle className="hidden sm:inline-flex" />
             <div className="hidden lg:block"><UserMenu /></div>

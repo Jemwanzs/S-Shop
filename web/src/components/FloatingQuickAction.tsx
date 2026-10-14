@@ -152,7 +152,7 @@ export function FloatingQuickAction({
       style={style}
       className={cn(
         "group fixed z-30 flex h-[66px] w-[66px] items-center justify-center rounded-full text-white opacity-90 shadow-lg ring-1 ring-black/10 transition-[top,left,right,transform,opacity] duration-200 hover:opacity-100 lg:h-[72px] lg:w-[72px] lg:opacity-100",
-        "bg-[hsl(var(--fab))] hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-95 print:hidden",
+        "bg-[hsl(var(--fab))] hover:scale-105 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring active:scale-95 print:hidden",
         draggable ? "cursor-grab touch-none active:cursor-grabbing" : "cursor-pointer",
         drag && "scale-110 opacity-90",
         className,
@@ -162,7 +162,7 @@ export function FloatingQuickAction({
       {/* Desktop hover label, on the side away from the edge. */}
       <span
         className={cn(
-          "pointer-events-none absolute hidden whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow transition-opacity lg:block",
+          "pointer-events-none absolute hidden whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-sm transition-opacity lg:block",
           "group-hover:opacity-100",
           place.side === "right" ? "right-full mr-2" : "left-full ml-2",
         )}

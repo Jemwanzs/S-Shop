@@ -94,7 +94,7 @@ function QuickHome() {
       <PageHeader eyebrow={branch?.name} title={`Hello, ${profile?.user.name.split(" ")[0]} 👋`} description="What would you like to do?" />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         {tiles.map((t) => (
-          <Link key={t.to} to={t.to} className={`surface flex aspect-[4/3] flex-col justify-between p-4 transition hover:shadow-lift ${t.primary ? "border-primary bg-primary text-primary-foreground" : ""}`}>
+          <Link key={t.to} to={t.to} className={`surface flex aspect-4/3 flex-col justify-between p-4 transition hover:shadow-lift ${t.primary ? "border-primary bg-primary text-primary-foreground" : ""}`}>
             <t.icon className="h-6 w-6" />
             <span className="font-semibold">{t.label}</span>
           </Link>

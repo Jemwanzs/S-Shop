@@ -58,6 +58,6 @@ export function PinPad({ value, onChange, onSubmit, min = 4, max = 6, disabled, 
 function Key({ className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button type="button" {...props}
-      className={cn("flex h-14 items-center justify-center rounded-2xl border bg-card text-xl font-medium shadow-sm transition active:scale-95 disabled:opacity-40 motion-reduce:transition-none", className)} />
+      className={cn("flex h-14 items-center justify-center rounded-2xl border bg-card text-xl font-medium shadow-xs transition active:scale-95 disabled:opacity-40 motion-reduce:transition-none", className)} />
   );
 }

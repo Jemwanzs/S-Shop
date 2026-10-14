@@ -138,7 +138,7 @@ function Choice({ active, onClick, children }: { active: boolean; onClick: () =>
       onClick={onClick}
       className={cn("relative rounded-xl border p-3 text-start transition-colors", active ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-accent/50")}
     >
-      {active && <Check className="absolute end-2.5 top-2.5 h-4 w-4 text-primary" />}
+      {active && <Check className="absolute inset-e-2.5 top-2.5 h-4 w-4 text-primary" />}
       {children}
     </button>
   );

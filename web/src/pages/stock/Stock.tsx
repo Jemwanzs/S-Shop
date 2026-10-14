@@ -308,7 +308,7 @@ function Barcodes({ productId }: { productId?: string }) {
             <ol className="relative space-y-3 border-s ps-5">
               {history.data.history.map((m) => (
                 <li key={m.id} className="relative text-sm">
-                  <span className={cn("absolute -start-[25px] top-1.5 h-2.5 w-2.5 rounded-full", m.quantity > 0 ? "bg-success" : "bg-destructive")} />
+                  <span className={cn("absolute inset-s-[-25px] top-1.5 h-2.5 w-2.5 rounded-full", m.quantity > 0 ? "bg-success" : "bg-destructive")} />
                   <div className="font-medium">{titleCase(m.kind)} · {m.branch_name}</div>
                   <div className="text-xs text-muted-foreground">{dateTime(m.created_at)} · {m.user_name}{m.notes && ` · ${m.notes}`}</div>
                 </li>

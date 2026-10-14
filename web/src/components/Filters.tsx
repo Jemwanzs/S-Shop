@@ -101,10 +101,10 @@ export function SearchInput({ value, onChange, placeholder = "Search…", classN
 }) {
   return (
     <div className={cn("relative", className)} data-dirty-ignore>
-      <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Search className="pointer-events-none absolute inset-s-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="bg-card ps-9 pe-20" autoFocus={autoFocus}
         onKeyDown={onEnter ? (e) => { if (e.key === "Enter" && value.trim()) { e.preventDefault(); onEnter(value.trim()); } } : undefined} />
-      <div className="absolute end-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1">
+      <div className="absolute inset-e-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1">
         {value && (
           <button type="button" onClick={() => onChange("")} className="rounded-full p-1.5 text-muted-foreground hover:bg-muted" aria-label="Clear">
             <X className="h-4 w-4" />

@@ -162,7 +162,7 @@ export default function StockCount() {
           )}
         </div>
       )}
-      <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-sidebar">
+      <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur-sm lg:bottom-0 lg:inset-s-sidebar">
         <div className="mx-auto flex max-w-[1680px] items-center justify-between gap-3 px-1 md:px-3 lg:px-5">
           <span className="text-sm text-muted-foreground"><span className="num font-semibold text-foreground">{lines}</span> {t("counted")} · <span className="num font-semibold text-foreground">{variances}</span> {t("variances")}</span>
           <ActionButton online busy={submit.isPending} busyLabel="Submitting…" blockedBy={[!lines && "Nothing counted"]} onAction={() => submit.mutateAsync()}>

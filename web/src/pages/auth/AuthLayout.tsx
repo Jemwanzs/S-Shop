@@ -11,8 +11,8 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
     <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
       {/* Fixed light panel in both themes: the S'Shop logo lettering is dark. */}
       <div className="relative hidden overflow-hidden bg-[#fffaf4] text-[#1c1410] lg:flex lg:flex-col lg:justify-between lg:p-12">
-        <div className="bg-brand absolute -end-28 -top-28 h-96 w-96 rounded-full opacity-25 blur-3xl" />
-        <div className="bg-brand absolute -bottom-36 -start-24 h-96 w-96 rounded-full opacity-15 blur-3xl" />
+        <div className="bg-brand absolute -inset-e-28 -top-28 h-96 w-96 rounded-full opacity-25 blur-3xl" />
+        <div className="bg-brand absolute -bottom-36 -inset-s-24 h-96 w-96 rounded-full opacity-15 blur-3xl" />
         <img src={stacked} alt="S'Shop — Everything you love in one place" className="relative h-auto w-52 xl:w-60" />
         <div className="relative max-w-lg space-y-3">
           <h1 className="text-4xl font-semibold leading-tight">

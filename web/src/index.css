@@ -1,6 +1,235 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@plugin 'tailwindcss-animate';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --breakpoint-3xl: 1920px;
+
+  --spacing-control: var(--control-h);
+  --spacing-control-sm: var(--control-h-sm);
+  --spacing-control-lg: var(--control-h-lg);
+  --spacing-nav: var(--nav-h);
+  --spacing-sidebar: var(--sidebar-w);
+
+  --text-control: 0.93rem;
+  --text-control--line-height: 1.25rem;
+
+  /* Tailwind v3 line heights (fixed lengths, as S'Shop was designed with): v4's defaults are ratios, which smaller
+     text inside a text-sm container inherits as a ratio — table headers and badges would shrink. */
+  --text-xs--line-height: 1rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl--line-height: 2.5rem;
+  --text-5xl--line-height: 1;
+  --text-6xl--line-height: 1;
+
+  --font-sans: var(--app-font), Outfit, system-ui, -apple-system, sans-serif;
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+
+  --color-points: hsl(var(--points));
+  --color-points-foreground: hsl(var(--points-foreground));
+
+  --color-gold: hsl(var(--gold));
+  --color-silver: hsl(var(--silver));
+  --color-bronze: hsl(var(--bronze));
+
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --shadow-soft:
+    0 1px 2px hsl(var(--shadow) / 0.06),
+    0 4px 16px -8px hsl(var(--shadow) / 0.12);
+  --shadow-lift: 0 8px 30px -12px hsl(var(--shadow) / 0.28);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-fade-up: fade-up 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-pop: pop 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes pop {
+    0% {
+      transform: scale(0.9);
+    }
+    60% {
+      transform: scale(1.06);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+  /* Tailwind v4 no longer gives buttons a pointer cursor; S'Shop's buttons keep it (as with v3). */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@utility num {
+  /* Numbers & money: tabular, never broken across lines. */
+  @apply whitespace-nowrap;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+@utility label-caps {
+  /* Small section label: "OVERVIEW", "TOP CUSTOMERS" … */
+  @apply text-[0.72rem] font-semibold uppercase tracking-widest text-muted-foreground;
+}
+
+@utility card-body {
+  /* Card padding scale: compact on phones, roomier on large screens. */
+  @apply p-3.5 md:p-4 xl:p-5;
+}
+
+@utility page-stack {
+  /* Vertical rhythm between page sections. */
+  @apply space-y-4 lg:space-y-6;
+}
+
+@utility surface {
+  @apply rounded-xl border bg-card text-card-foreground shadow-soft;
+}
+
+@utility bg-brand {
+  background-image: linear-gradient(
+    135deg,
+    hsl(var(--brand-from)),
+    hsl(var(--brand-to))
+  );
+}
+
+@utility text-brand {
+  @apply bg-clip-text text-transparent;
+  background-image: linear-gradient(
+    135deg,
+    hsl(var(--brand-from)),
+    hsl(var(--brand-to))
+  );
+}
+
+@utility tap {
+  @apply min-h-11 min-w-11;
+}
+
+@utility pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility bottom-above-nav {
+  /* Fixed bars that sit just above the mobile bottom navigation (and the phone's safe area). */
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+}
+
+@utility scroll-thin {
+  /* Subtle scrollbars for internal scroll areas (tables, drawers). */
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+  &::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
+  }
+}
 
 /* S'Shop design tokens — warm cream surfaces, orange primary, Outfit everywhere (tabular figures for numbers).
    The S'Shop magenta→orange gradient is reserved for brand moments (logo areas, hero cards). */
@@ -137,85 +366,24 @@
   }
 }
 
-@layer components {
-  /* Numbers & money: tabular, never broken across lines. */
-  .num {
-    @apply whitespace-nowrap;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
-  }
-  /* Small section label: "OVERVIEW", "TOP CUSTOMERS" … */
-  .label-caps {
-    @apply text-[0.72rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground;
-  }
-  /* Card padding scale: compact on phones, roomier on large screens. */
-  .card-body {
-    @apply p-3.5 md:p-4 xl:p-5;
-  }
-  /* Vertical rhythm between page sections. */
-  .page-stack {
-    @apply space-y-4 lg:space-y-6;
-  }
-  .surface {
-    @apply rounded-xl border bg-card text-card-foreground shadow-soft;
-  }
-  .bg-brand {
-    background-image: linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
-  }
-  .text-brand {
-    @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
-  }
-  .tap {
-    @apply min-h-11 min-w-11;
-  }
-  .pb-safe {
-    padding-bottom: max(env(safe-area-inset-bottom), 0px);
-  }
-  .scrollbar-none {
-    scrollbar-width: none;
-  }
-  .scrollbar-none::-webkit-scrollbar {
-    display: none;
-  }
-}
-
-@media print {
-  body {
-    background: white !important;
-  }
-  .no-print {
-    display: none !important;
-  }
-  .print-only {
-    display: block !important;
-  }
-}
-
-/* Toasts: close button on the top-right corner (sonner places it top-left by default). */
-[data-sonner-toast] [data-close-button] {
-  left: auto;
-  right: 0;
-  transform: translate(35%, -35%);
-}
-
 @layer utilities {
-  /* Fixed bars that sit just above the mobile bottom navigation (and the phone's safe area). */
-  .bottom-above-nav {
-    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+  @media print {
+    body {
+      background: white !important;
+    }
+    .no-print {
+      display: none !important;
+    }
+    .print-only {
+      display: block !important;
+    }
   }
-  /* Subtle scrollbars for internal scroll areas (tables, drawers). */
-  .scroll-thin {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--border)) transparent;
-  }
-  .scroll-thin::-webkit-scrollbar {
-    height: 6px;
-    width: 6px;
-  }
-  .scroll-thin::-webkit-scrollbar-thumb {
-    background: hsl(var(--border));
-    border-radius: 999px;
+
+  /* Toasts: close button on the top-right corner (sonner places it top-left by default). */
+  [data-sonner-toast] [data-close-button] {
+    left: auto;
+    right: 0;
+    transform: translate(35%, -35%);
   }
 }
 

@@ -44,11 +44,11 @@ const DrawerContent = React.forwardRef<
     >
       <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
       {!hideClose && (onClose ? (
-        <button type="button" onClick={onClose} className="absolute end-3 top-3 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Close">
+        <button type="button" onClick={onClose} className="absolute inset-e-3 top-3 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" aria-label="Close">
           <X className="h-4 w-4" />
         </button>
       ) : (
-        <DrawerPrimitive.Close className="absolute end-3 top-3 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Close">
+        <DrawerPrimitive.Close className="absolute inset-e-3 top-3 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" aria-label="Close">
           <X className="h-4 w-4" />
         </DrawerPrimitive.Close>
       ))}

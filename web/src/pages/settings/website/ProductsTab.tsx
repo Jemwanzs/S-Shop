@@ -90,7 +90,7 @@ export function ProductsTab({ c, set, ov }: TabProps) {
       <Block title="Products" hint={`${count} ${t("of")} ${(data?.products ?? []).filter((p) => p.is_active).length} ${t("on the website")}`}>
         <div className="flex flex-wrap gap-2">
           <div className="relative min-w-0 basis-full sm:basis-0 sm:flex-1">
-            <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute inset-s-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search products")} className="ps-8" />
           </div>
           <Choice value={filter} onChange={setFilter} options={[["all", "All"], ["published", "Published"], ["hidden", "Hidden"], ["featured", "Featured"]]} />
@@ -179,7 +179,7 @@ function ProductEditor({ c, p, e, edit, categories }: { c: SiteConfig; p: Catalo
             {e.photos.map((m, i) => (
               <div key={m} className="relative h-16 w-16 overflow-hidden rounded-md border">
                 <img src={mediaUrl(m, true)} alt="" className="h-full w-full object-cover" />
-                <button type="button" className="absolute end-0.5 top-0.5 rounded bg-background/90 p-0.5" aria-label={t("Remove")} onClick={() => edit((x) => { x.photos.splice(i, 1); })}><Trash2 className="h-3 w-3" /></button>
+                <button type="button" className="absolute inset-e-0.5 top-0.5 rounded bg-background/90 p-0.5" aria-label={t("Remove")} onClick={() => edit((x) => { x.photos.splice(i, 1); })}><Trash2 className="h-3 w-3" /></button>
               </div>
             ))}
             {e.photos.length < max && <button type="button" onClick={() => setPicker(true)} className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed" aria-label={t("Add photo")}><ImagePlus className="h-5 w-5 text-muted-foreground" /></button>}

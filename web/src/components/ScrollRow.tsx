@@ -69,7 +69,7 @@ export function ScrollRow({ children, active, className, label, bleed = true }: 
     const el = ref.current;
     if (el) el.scrollBy({ left: dir * Math.max(120, el.clientWidth * 0.7), behavior: "smooth" });
   };
-  const arrow = "absolute top-1/2 z-10 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border bg-card text-foreground shadow-sm hover:bg-accent md:flex";
+  const arrow = "absolute top-1/2 z-10 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border bg-card text-foreground shadow-xs hover:bg-accent md:flex";
   return (
     <div className={cn("relative min-w-0", bleed && "-mx-3.5 md:mx-0", className)}>
       <div ref={ref} role={label ? "group" : undefined} aria-label={label}

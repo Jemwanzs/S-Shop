@@ -77,7 +77,7 @@ export default function RequestAccessPage() {
         <label className="block"><AuthLabel>{t("Town / location")}</AuthLabel><Input value={f.location} onChange={(e) => set("location")(e.target.value)} maxLength={120} /></label>
         <label className="block"><AuthLabel>{t("Anything else? (optional)")}</AuthLabel><Textarea rows={3} value={f.message} onChange={(e) => set("message")(e.target.value)} maxLength={1000} /></label>
         {/* Honeypot for bots: hidden from people and assistive tech. */}
-        <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden value={f.website} onChange={(e) => set("website")(e.target.value)} className="absolute -left-[9999px] h-0 w-0 opacity-0" />
+        <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden value={f.website} onChange={(e) => set("website")(e.target.value)} className="absolute left-[-9999px] h-0 w-0 opacity-0" />
         {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
         <Button type="submit" className="w-full" disabled={busy}>{busy ? <SShopLoader size="sm" /> : t("Submit request")}</Button>
         <Link to="/login" className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5 rtl:rotate-180" /> {t("Back to sign in")}</Link>

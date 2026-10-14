@@ -333,9 +333,9 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
       <section className="space-y-2">
         <p className="label-caps">{tr("Customer")} {method === "credit" || splitOnCredit ? "" : "· optional"}</p>
         <div className="relative">
-          <UserRound className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <UserRound className="absolute inset-s-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input inputMode="tel" placeholder="Mobile number, e.g. 0712 345 678" value={mobile} onChange={(e) => setMobile(e.target.value)} className="num ps-9 pe-9" />
-          {mobile && <button className="absolute end-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground" onClick={() => { setMobile(""); setFirstName(""); setNickname(""); setRedeem(""); }} aria-label="Clear customer"><X className="h-4 w-4" /></button>}
+          {mobile && <button className="absolute inset-e-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground" onClick={() => { setMobile(""); setFirstName(""); setNickname(""); setRedeem(""); }} aria-label="Clear customer"><X className="h-4 w-4" /></button>}
         </div>
         {lookup.isFetching && <p className="text-xs text-muted-foreground">Checking customer book…</p>}
         {lookup.error && <p className="text-xs text-destructive">{errorMessage(lookup.error)}</p>}
@@ -412,7 +412,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1" role="radiogroup" aria-label={tr("M-Pesa payment")}>
             {([["manual", "Manual M-PESA"], ["stk", "STK Push"]] as const).map(([k, label]) => (
               <button key={k} type="button" role="radio" aria-checked={mpesaMode === k} disabled={stkWaiting} onClick={() => setMpesaMode(k)}
-                className={cn("h-9 rounded-lg text-sm font-medium transition-colors", mpesaMode === k ? "bg-card shadow-sm" : "text-muted-foreground")}>{tr(label)}</button>
+                className={cn("h-9 rounded-lg text-sm font-medium transition-colors", mpesaMode === k ? "bg-card shadow-xs" : "text-muted-foreground")}>{tr(label)}</button>
             ))}
           </div>
         )}
@@ -420,7 +420,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
           <div className="space-y-3 rounded-xl border p-3">
             <Field label="Customer phone number" hint="07XXXXXXXX, 01XXXXXXXX or 254XXXXXXXXX">
               <div className="relative">
-                <Smartphone className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Smartphone className="absolute inset-s-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input inputMode="tel" placeholder="07XXXXXXXX" value={payPhone} onChange={(e) => setPayPhone(e.target.value)} className="num ps-9" disabled={stkWaiting} />
               </div>
             </Field>
@@ -452,7 +452,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
             <Field label="M-Pesa number" optional hint={stkReady ? "Needed only for Push STK" : undefined}>
               <div className="flex gap-2">
                 <div className="relative flex-1">
-                  <Smartphone className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Smartphone className="absolute inset-s-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input inputMode="tel" placeholder="07XXXXXXXX" value={payPhone} onChange={(e) => setPayPhone(e.target.value)} className="num ps-9" disabled={stk?.status === "pending"} />
                 </div>
                 <ActionButton

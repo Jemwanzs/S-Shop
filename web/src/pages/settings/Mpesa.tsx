@@ -182,7 +182,7 @@ function AccountEditor({ value, onChange, branches, busy, onSave }: {
         <Field group label="Type">
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
             {([["till", "Buy Goods Till"], ["paybill", "Paybill"]] as const).map(([k, l]) => (
-              <button key={k} type="button" onClick={() => set({ kind: k })} className={cn("h-9 rounded-lg text-sm font-medium", d.kind === k ? "bg-card shadow-sm" : "text-muted-foreground")}>{t(l)}</button>
+              <button key={k} type="button" onClick={() => set({ kind: k })} className={cn("h-9 rounded-lg text-sm font-medium", d.kind === k ? "bg-card shadow-xs" : "text-muted-foreground")}>{t(l)}</button>
             ))}
           </div>
         </Field>
@@ -202,7 +202,7 @@ function AccountEditor({ value, onChange, branches, busy, onSave }: {
         <Field group label="Environment">
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
             {([["sandbox", "Sandbox (testing)"], ["production", "Production"]] as const).map(([k, l]) => (
-              <button key={k} type="button" onClick={() => set({ environment: k })} className={cn("h-9 rounded-lg text-sm font-medium", d.environment === k ? "bg-card shadow-sm" : "text-muted-foreground")}>{t(l)}</button>
+              <button key={k} type="button" onClick={() => set({ environment: k })} className={cn("h-9 rounded-lg text-sm font-medium", d.environment === k ? "bg-card shadow-xs" : "text-muted-foreground")}>{t(l)}</button>
             ))}
           </div>
         </Field>

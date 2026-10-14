@@ -147,7 +147,7 @@ export function ItemSheet({
                   <Minus className="h-4 w-4" />
                 </button>
                 <input
-                  className="num w-full min-w-0 bg-transparent text-center text-base font-semibold outline-none disabled:opacity-60"
+                  className="num w-full min-w-0 bg-transparent text-center text-base font-semibold outline-hidden disabled:opacity-60"
                   inputMode="numeric"
                   value={qty}
                   disabled={qtyLocked}

@@ -238,7 +238,7 @@ export default function ProductForm() {
               {!f.track_items && (
                 <Field label="Product barcode" optional hint="Manufacturer barcode shared by all units">
                   <div className="flex flex-wrap gap-2">
-                    <Input className="num min-w-[12rem] flex-1" value={f.barcode} readOnly={!barcodeCfg.manual}
+                    <Input className="num min-w-48 flex-1" value={f.barcode} readOnly={!barcodeCfg.manual}
                       placeholder={barcodeCfg.manual ? t("Type, paste or scan") : t("Scan or generate")}
                       onChange={(e) => set("barcode", e.target.value)} />
                     {barcodeCfg.camera && <Button type="button" variant="outline" onClick={() => setScan(true)}><ScanLine /> {t("Scan")}</Button>}
@@ -293,7 +293,7 @@ export default function ProductForm() {
           </Section>
         </div>
 
-        <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur lg:bottom-0 lg:start-sidebar">
+        <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-3 backdrop-blur-sm lg:bottom-0 lg:inset-s-sidebar">
           <div className="mx-auto flex max-w-[1680px] justify-end gap-2 px-1 md:px-3 lg:px-5">
             <Button type="button" variant="outline" onClick={() => navigate(-1)}>{t("Cancel")}</Button>
             <ActionButton type="submit" className="min-w-32" online busy={save.isPending}

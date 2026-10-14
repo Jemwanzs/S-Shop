@@ -233,7 +233,7 @@ export default function Pos() {
         )}
         {/* The Sale Owner stays with the cart until the sale completes (roadmap 62). */}
         <SaleOwnerBar owner={cart.owner ?? null} onChange={(o) => setCart((c) => ({ ...c, owner: o }))} />
-        <div className="sticky top-14 z-20 -mx-3.5 space-y-2 bg-background/90 px-3.5 pb-3 pt-1 backdrop-blur md:-mx-6 md:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
+        <div className="sticky top-14 z-20 -mx-3.5 space-y-2 bg-background/90 px-3.5 pb-3 pt-1 backdrop-blur-sm md:-mx-6 md:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
           <SearchInput value={q} onChange={setQ} placeholder="Search name, nickname, code or barcode" autoFocus={desktop}
             onEnter={s.stock.barcode_requirement === "disabled" ? undefined : async (code) => {
               // Roadmap 98: Enter with a barcode (handheld scanner or typed) adds it like a camera scan; anything else
@@ -270,14 +270,14 @@ export default function Pos() {
         <button onClick={() => setCartOpen(true)} className="fixed inset-x-4 bottom-above-nav mb-3 z-30 flex items-center gap-3 rounded-2xl bg-foreground px-4 py-3.5 text-background shadow-lift animate-fade-up md:inset-x-6 lg:hidden">
           <span className="relative">
             <ShoppingCart className="h-5 w-5" />
-            <span className="num absolute -end-2.5 -top-2.5 rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">{t.units}</span>
+            <span className="num absolute -inset-e-2.5 -top-2.5 rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">{t.units}</span>
           </span>
           <span className="flex-1 text-start font-medium">{translate("View cart & checkout")}</span>
           <span className="num font-semibold">{money(t.net)}</span>
         </button>
       )}
       {desktop && cart.lines.length > 0 && (
-        <button onClick={() => setCartOpen(true)} className="fixed bottom-6 end-6 z-30 flex items-center gap-2 rounded-full bg-foreground px-5 py-3 text-background shadow-lift lg:hidden">
+        <button onClick={() => setCartOpen(true)} className="fixed bottom-6 inset-e-6 z-30 flex items-center gap-2 rounded-full bg-foreground px-5 py-3 text-background shadow-lift lg:hidden">
           <ShoppingCart className="h-5 w-5" /> <span className="num">{t.units} · {money(t.net)}</span>
         </button>
       )}

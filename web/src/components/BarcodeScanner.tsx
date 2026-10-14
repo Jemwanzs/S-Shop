@@ -201,14 +201,14 @@ export function BarcodeScanner({
           aria-describedby={undefined}
           onOpenAutoFocus={(e) => !desktop && e.preventDefault()}
           className={cn(
-            "fixed z-50 flex flex-col overflow-hidden bg-black text-white outline-none",
+            "fixed z-50 flex flex-col overflow-hidden bg-black text-white outline-hidden",
             // Phones: the camera takes the whole screen. Larger screens: a compact centred scanner.
             "inset-0 md:inset-auto md:left-1/2 md:top-1/2 md:w-[min(30rem,92vw)] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-2xl md:border md:border-white/10",
           )}
         >
           {/* Top bar */}
-          <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 bg-gradient-to-b from-black/70 to-transparent px-3 pb-6 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <DialogPrimitive.Close className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 backdrop-blur" aria-label={t("Close")}>
+          <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 bg-linear-to-b from-black/70 to-transparent px-3 pb-6 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <DialogPrimitive.Close className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 backdrop-blur-sm" aria-label={t("Close")}>
               <X className="h-5 w-5" />
             </DialogPrimitive.Close>
             <div className="min-w-0 flex-1 text-center">
@@ -216,21 +216,21 @@ export function BarcodeScanner({
               {hint && <p className="truncate text-xs text-white/70">{t(hint)}</p>}
             </div>
             {camera.torch ? (
-              <button onClick={toggleTorch} className={cn("flex h-10 w-10 items-center justify-center rounded-full backdrop-blur", torchOn ? "bg-white text-black" : "bg-white/10")} aria-label={t("Torch")}>
+              <button onClick={toggleTorch} className={cn("flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-sm", torchOn ? "bg-white text-black" : "bg-white/10")} aria-label={t("Torch")}>
                 {torchOn ? <Flashlight className="h-5 w-5" /> : <FlashlightOff className="h-5 w-5" />}
               </button>
             ) : (
               <span className="h-10 w-10" />
             )}
             {camera.canSwitch && (
-              <button onClick={switchCamera} className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 backdrop-blur" aria-label={t("Switch camera")}>
+              <button onClick={switchCamera} className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 backdrop-blur-sm" aria-label={t("Switch camera")}>
                 <SwitchCamera className="h-5 w-5" />
               </button>
             )}
           </div>
 
           {/* Camera */}
-          <div className="relative min-h-0 flex-1 md:aspect-[4/3] md:flex-none">
+          <div className="relative min-h-0 flex-1 md:aspect-4/3 md:flex-none">
             <video ref={setVideo} className="absolute inset-0 h-full w-full object-cover" playsInline muted />
             {camera.state === "live" && (
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
@@ -242,7 +242,7 @@ export function BarcodeScanner({
                 >
                   {frameState === "scanning" && <span className="absolute inset-x-4 top-1/2 h-0.5 -translate-y-1/2 animate-pulse rounded bg-[hsl(var(--primary))] shadow-[0_0_12px_hsl(var(--primary))]" />}
                 </div>
-                <p className="mt-4 rounded-full bg-black/55 px-3 py-1 text-xs font-medium backdrop-blur">
+                <p className="mt-4 rounded-full bg-black/55 px-3 py-1 text-xs font-medium backdrop-blur-sm">
                   {busy ? <span className="inline-flex items-center gap-1.5"><SShopLoader size="sm" />{t("Checking…")}</span>
                     : frameState === "ok" ? <span className="inline-flex items-center gap-1.5 text-emerald-300"><Check className="h-3.5 w-3.5" />{t("Barcode detected")}</span>
                     : frameState === "error" ? t("Scanning paused")
@@ -296,7 +296,7 @@ export function BarcodeScanner({
             )}
             <form onSubmit={submitManual} className="flex gap-2">
               <div className="relative flex-1">
-                <Keyboard className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+                <Keyboard className="pointer-events-none absolute inset-s-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
                 <Input
                   value={manual}
                   onChange={(e) => setManual(e.target.value)}

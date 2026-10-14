@@ -204,7 +204,7 @@ function ReconciliationCard({ datasets, onChange }: { datasets: Dataset[]; onCha
         {!r ? <Loading /> : (
           <>
             <div className="-mx-1 overflow-x-auto">
-              <table className="w-full min-w-[34rem] text-xs">
+              <table className="w-full min-w-136 text-xs">
                 <thead className="text-muted-foreground">
                   <tr className="text-start">
                     <th className="p-1 text-start">{t("Dataset")}</th><th className="p-1 text-start">{t("File")}</th><th className="p-1 text-end">{t("Rows")}</th>
@@ -408,7 +408,7 @@ function BatchDialog({ id, datasets, onClose, onProgress }: { id: string; datase
                     <td className="num px-2 py-1.5">{r.row_no}</td>
                     {v.columns.map((c) => {
                       const bad = r.messages.some((m) => m.field === c.key && m.level === "error");
-                      return <td key={c.key} className={cn("max-w-[12rem] truncate whitespace-nowrap px-2 py-1.5", bad && "font-semibold text-destructive")}>{val(r, c)}</td>;
+                      return <td key={c.key} className={cn("max-w-48 truncate whitespace-nowrap px-2 py-1.5", bad && "font-semibold text-destructive")}>{val(r, c)}</td>;
                     })}
                     <td className="min-w-[16rem] px-2 py-1.5">
                       <Pill tone={ROW_TONE[r.status] ?? "neutral"}>{r.status}</Pill>

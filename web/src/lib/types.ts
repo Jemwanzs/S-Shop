@@ -46,7 +46,7 @@ export interface Tier {
 }
 
 export interface Settings {
-  product: { max_photos: number; auto_code_prefix: string };
+  product: { max_photos: number; auto_code_prefix: string; /** Roadmap 109 */ list_show_images?: boolean; list_show_prices?: boolean };
   stock: {
     barcode_requirement: "required" | "optional" | "disabled";
     /** Roadmap 98: typed / pasted barcodes allowed; camera scanning offered; stock takes count barcoded products by barcode. */
@@ -70,6 +70,10 @@ export interface Settings {
     receipt_footer: string;
     /** Receipt configuration (roadmap 66). */
     receipt: { show_logo: boolean; show_branch: boolean; show_contact: boolean; show_customer: boolean; show_salesperson: boolean; show_loyalty: boolean; show_payment_ref: boolean; font: "sans" | "thermal" };
+    /** Roadmap 109: Record Sale product display. */
+    pos: { style: "compact" | "image" | "list"; show_images: boolean; tablet_columns: number; desktop_columns: number; show_prices: boolean };
+    /** Roadmap 110: top-selling products first, with Gold / Silver / Bronze stars. */
+    top_selling: { enabled: boolean; metric: "quantity" | "value" | "sales"; period: "today" | "week" | "month" };
   };
   orders: {
     portal_enabled: boolean;
@@ -205,6 +209,9 @@ export interface PosProduct {
   available: number;
   primary_photo_id: Id | null;
   photo_count: number;
+  /** Roadmap 110: sales performance rank at this branch (1 = top) and its score. */
+  rank?: number | null;
+  rank_score?: Money | null;
 }
 
 export interface Customer {

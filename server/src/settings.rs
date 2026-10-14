@@ -78,10 +78,49 @@ impl Default for QuickPinPolicy {
 pub struct ProductSettings {
     pub max_photos: u8,
     pub auto_code_prefix: String,
+    /// Roadmap 109: Inventory → Products shows each product's primary photo as a small thumbnail.
+    pub list_show_images: bool,
+    /// Prices in the product list (independent of the public website's price settings).
+    pub list_show_prices: bool,
 }
 impl Default for ProductSettings {
     fn default() -> Self {
-        Self { max_photos: 5, auto_code_prefix: "PRD".into() }
+        Self { max_photos: 5, auto_code_prefix: "PRD".into(), list_show_images: false, list_show_prices: true }
+    }
+}
+
+/// Roadmap 110: top-selling products first in Record Sale, with Gold / Silver / Bronze stars.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TopSelling {
+    pub enabled: bool,
+    /// "quantity" (units sold, default) | "value" (net sales value) | "sales" (number of completed sales)
+    pub metric: String,
+    /// "today" | "week" (Monday start, default) | "month" — in the business's time zone
+    pub period: String,
+}
+impl Default for TopSelling {
+    fn default() -> Self {
+        Self { enabled: true, metric: "quantity".into(), period: "week".into() }
+    }
+}
+
+/// Roadmap 109: how Record Sale lists products.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PosDisplay {
+    /// "compact" (the original cards) | "image" (picture cards) | "list" (rows with a small picture)
+    pub style: String,
+    pub show_images: bool,
+    /// Columns on tablets and on desktops — never more than the space beside the cart allows.
+    pub tablet_columns: u8,
+    pub desktop_columns: u8,
+    /// Price labels on the product cards (the cart, totals and payment always show amounts).
+    pub show_prices: bool,
+}
+impl Default for PosDisplay {
+    fn default() -> Self {
+        Self { style: "compact".into(), show_images: false, tablet_columns: 2, desktop_columns: 4, show_prices: true }
     }
 }
 
@@ -163,6 +202,10 @@ pub struct SalesSettings {
     pub receipt_footer: String,
     /// Receipt configuration (roadmap 66). The structure is fixed; these choose what it shows.
     pub receipt: ReceiptSettings,
+    /// Roadmap 109: Record Sale product display.
+    pub pos: PosDisplay,
+    /// Roadmap 110: product performance ranking on Record Sale.
+    pub top_selling: TopSelling,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -213,6 +256,8 @@ impl Default for SalesSettings {
             credit_default_days: 30,
             receipt_footer: "Thank you for shopping with us!".into(),
             receipt: ReceiptSettings::default(),
+            pos: PosDisplay::default(),
+            top_selling: TopSelling::default(),
         }
     }
 }

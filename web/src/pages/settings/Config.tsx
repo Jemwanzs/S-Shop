@@ -121,6 +121,12 @@ export function ProductSettings() {
             <Row label="Photos per product" hint="Settings → Product Configuration → Product Photos">{numInput(s.product.max_photos, (n) => d.update((x) => { x.product.max_photos = n; }))}</Row>
             <Row label="Auto product code prefix" hint="e.g. PRD → PRD0001"><Input value={s.product.auto_code_prefix} onChange={(e) => d.update((x) => { x.product.auto_code_prefix = e.target.value.toUpperCase(); })} /></Row>
           </Card>
+          <Card title="Display preferences">
+            <ToggleRow label="Show product photos in the product list" hint="A small thumbnail of the primary photo beside each name"
+              checked={!!s.product.list_show_images} onChange={(v) => d.update((x) => { x.product.list_show_images = v; })} />
+            <ToggleRow label="Show prices in the product list" hint="Independent of the website's price settings; prices are unchanged"
+              checked={s.product.list_show_prices ?? true} onChange={(v) => d.update((x) => { x.product.list_show_prices = v; })} />
+          </Card>
           <FieldsCard kind="product" empty="No product fields yet — add things like Size, Colour, Brand or Expiry date." />
           <div className="grid gap-5 xl:grid-cols-2">
             <NamedList endpoint="/categories" queryKey="categories" title="Categories" />
@@ -131,6 +137,12 @@ export function ProductSettings() {
     </Page>
   );
 }
+
+/** Roadmap 109: POS display with its defaults for businesses that never saved one. */
+const pos = (s: Settings) => s.sales.pos ?? { style: "compact" as const, show_images: false, tablet_columns: 2, desktop_columns: 4, show_prices: true };
+
+/** Roadmap 110: top-selling ranking with its defaults. */
+const top = (s: Settings) => s.sales.top_selling ?? { enabled: true, metric: "quantity" as const, period: "week" as const };
 
 export function SalesSettings() {
   const d = useSettingsDraft();
@@ -146,6 +158,45 @@ export function SalesSettings() {
               </Select>
             </Row>
             <ToggleRow label="Require barcode clearance" hint="Products with a barcode must be scanned before they can be sold" checked={s.sales.require_barcode_clearance} onChange={(v) => d.update((x) => { x.sales.require_barcode_clearance = v; })} />
+          </Card>
+          <Card title="Product performance">
+            <ToggleRow label="Show top-selling products first in Record Sale" hint="Gold ★★★★★, Silver ★★★ and Bronze ★★ mark the top three — sales performance, not reviews. Searching keeps search order"
+              checked={top(s).enabled} onChange={(v) => d.update((x) => { x.sales.top_selling = { ...top(x), enabled: v }; })} />
+            <Row label="Rank by" hint="Completed sales at the branch, net of returns">
+              <Select value={top(s).metric} onChange={(v) => d.update((x) => { x.sales.top_selling = { ...top(x), metric: v as "quantity" }; })} className="w-56">
+                <option value="quantity">{tr("Quantity sold")}</option>
+                <option value="value">{tr("Sales value")}</option>
+                <option value="sales">{tr("Number of completed sales")}</option>
+              </Select>
+            </Row>
+            <Row label="Period" hint="In the business's time zone; weeks start on Monday">
+              <Select value={top(s).period} onChange={(v) => d.update((x) => { x.sales.top_selling = { ...top(x), period: v as "week" }; })} className="w-40">
+                <option value="today">{tr("Today")}</option>
+                <option value="week">{tr("This week")}</option>
+                <option value="month">{tr("This month")}</option>
+              </Select>
+            </Row>
+          </Card>
+          <Card title="POS display">
+            <Row label="Product display" hint="How Record Sale lists products">
+              <Select value={pos(s).style} onChange={(v) => d.update((x) => { x.sales.pos = { ...pos(x), style: v as "compact" }; })} className="w-56">
+                <option value="compact">{tr("Compact cards")}</option>
+                <option value="image">{tr("Image cards")}</option>
+                <option value="list">{tr("List rows")}</option>
+              </Select>
+            </Row>
+            <ToggleRow label="Show product images" hint="The primary product photo (image cards always show it)" checked={pos(s).show_images} onChange={(v) => d.update((x) => { x.sales.pos = { ...pos(x), show_images: v }; })} />
+            <ToggleRow label="Show prices on products" hint="The cart, totals and payment always show amounts" checked={pos(s).show_prices} onChange={(v) => d.update((x) => { x.sales.pos = { ...pos(x), show_prices: v }; })} />
+            <Row label="Tablet columns" hint="Fewer when the screen is too narrow">
+              <Select value={String(pos(s).tablet_columns)} onChange={(v) => d.update((x) => { x.sales.pos = { ...pos(x), tablet_columns: Number(v) }; })} className="w-28">
+                {[1, 2, 3, 4].map((n) => <option key={n} value={String(n)}>{n}</option>)}
+              </Select>
+            </Row>
+            <Row label="Desktop columns" hint="Beside the cart; never more than fit">
+              <Select value={String(pos(s).desktop_columns)} onChange={(v) => d.update((x) => { x.sales.pos = { ...pos(x), desktop_columns: Number(v) }; })} className="w-28">
+                {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={String(n)}>{n}</option>)}
+              </Select>
+            </Row>
           </Card>
           <ReceiptConfig s={s} update={d.update} />
           <Card title="Payment methods">

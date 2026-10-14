@@ -674,7 +674,7 @@ check("unknown currency refused", True)
 call("PUT", "/auth/preferences", {"language": "en", "font": "Poppins", "currency": "USD"})
 me = call("GET", "/auth/me")
 check("preferences saved on the profile", me["user"]["preferences"] == {"language": "en", "font": "Poppins", "currency": "USD", "quick_sale_draggable": False,
-                                                                "notify_new_orders": True, "in_app_alerts": True, "sound_alerts": False}, me["user"]["preferences"])
+                                                                "notify_new_orders": True, "in_app_alerts": True, "sound_alerts": False, "landing": ""}, me["user"]["preferences"])
 call("PUT", "/auth/preferences", {"language": "en", "font": "Poppins", "currency": "USD", "quick_sale_draggable": True})
 check("quick action preference saved (roadmap 48)", call("GET", "/auth/me")["user"]["preferences"]["quick_sale_draggable"] is True)
 fx = call("GET", "/fx")
@@ -3043,6 +3043,62 @@ call("PUT", "/auth/preferences", {**me108, "landing": "/sales"})
 check("personal choice saved (overrides the business default in the app)", call("GET", "/auth/me")["user"]["preferences"]["landing"] == "/sales")
 call("PUT", "/auth/preferences", {**me108, "landing": ""})
 call("PUT", "/settings", cfg108)
+
+step("Roadmap 109: POS display and product list preferences")
+cfg109 = call("GET", "/settings")["settings"]
+check("defaults keep today's counter: compact cards, no images, prices shown, 2 / 4 columns",
+      cfg109["sales"]["pos"] == {"style": "compact", "show_images": False, "tablet_columns": 2, "desktop_columns": 4, "show_prices": True}
+      and cfg109["product"]["list_show_images"] is False and cfg109["product"]["list_show_prices"] is True, (cfg109["sales"]["pos"], cfg109["product"]))
+for bad_, why in [({"style": "carousel"}, "unknown style"), ({"tablet_columns": 5}, "too many tablet columns"), ({"desktop_columns": 0}, "no desktop columns")]:
+    call("PUT", "/settings", {**cfg109, "sales": {**cfg109["sales"], "pos": {**cfg109["sales"]["pos"], **bad_}}}, expect=400)
+    check(f"POS display refused: {why}", True)
+call("PUT", "/settings", {**cfg109, "sales": {**cfg109["sales"], "pos": {"style": "image", "show_images": True, "tablet_columns": 3, "desktop_columns": 5, "show_prices": False}},
+                          "product": {**cfg109["product"], "list_show_images": True, "list_show_prices": False}})
+me109 = call("GET", "/auth/me")["settings"]
+check("saved and served to the app", me109["sales"]["pos"]["style"] == "image" and me109["sales"]["pos"]["show_prices"] is False and me109["product"]["list_show_images"] is True)
+pp109 = call("GET", "/pos/products?all=true")
+check("prices stay in the data for the cart and checkout (hiding is display only)", bool(pp109) and all(float(x["marked_price"]) >= 0 for x in pp109) and any(float(x["marked_price"]) > 0 for x in pp109))
+call("PUT", "/settings", cfg109)
+
+step("Roadmap 110: top-selling products first, by quantity, value or number of sales")
+cfg110 = call("GET", "/settings")["settings"]
+check("ranking on by default: quantity sold, this week", cfg110["sales"]["top_selling"] == {"enabled": True, "metric": "quantity", "period": "week"}, cfg110["sales"]["top_selling"])
+call("PUT", "/settings", {**cfg110, "sales": {**cfg110["sales"], "top_selling": {"enabled": True, "metric": "units", "period": "week"}}}, expect=400)
+check("unknown ranking metric refused", True)
+rb110 = call("POST", "/branches", {"name": f"Ranking {suffix}", "code": f"RK{suffix}"})["id"]
+mk110 = lambda n, price: call("POST", "/products", {"name": f"Rank {n} {suffix}", "marked_price": price, "cost_price": 1})["result"]["id"]
+pa, pb, pc, pd = mk110("A", 100), mk110("B", 100), mk110("C", 10000), mk110("D", 100)
+for pid in (pa, pb, pc, pd):
+    call("POST", "/stock/receive", {"product_id": pid, "branch_id": rb110, "quantity": 50, "cost_price": 1}, branch=rb110)
+sell110 = lambda pid, qty, price: call("POST", "/sales", {"items": [{"product_id": pid, "quantity": qty, "unit_price": price}], "payment": {"method": "cash"},
+                                                            "client_ref": str(uuid.uuid4())}, branch=rb110)
+sa = sell110(pa, 5, 100)                                   # A: 5 units, 1 sale, 500
+for _ in range(3):
+    sell110(pb, 1, 100)                                    # B: 3 units, 3 sales, 300
+sell110(pc, 2, 10000)                                      # C: 2 units, 1 sale, 20,000
+sd = sell110(pd, 10, 100)                                  # D: cancelled below — never counts
+call("POST", f"/sales/{sd['sale']['id']}/cancel", {"reason": "Rung up by mistake"}, branch=rb110)
+def ranks110(metric):
+    call("PUT", "/settings", {**cfg110, "sales": {**cfg110["sales"], "top_selling": {"enabled": True, "metric": metric, "period": "week"}}})
+    rows = call("GET", f"/pos/products?branch_id={rb110}&all=true", branch=rb110)
+    return {x["id"]: x.get("rank") for x in rows if x["id"] in (pa, pb, pc, pd)}, [x["id"] for x in rows]
+r, order = ranks110("quantity")
+check("quantity sold: A (5) gold, B (3) silver, C (2) bronze; the cancelled sale never counts", (r[pa], r[pb], r[pc], r[pd]) == (1, 2, 3, None), r)
+check("ranked products come first", order[:3] == [pa, pb, pc], order[:4])
+r, _ = ranks110("sales")
+check("number of completed sales: B (3 receipts) first", r[pb] == 1 and r[pd] is None, r)
+r, _ = ranks110("value")
+check("sales value: C (20,000) first, then A (500), then B (300)", (r[pc], r[pa], r[pb]) == (1, 2, 3), r)
+it_a = sa["items"][0]["id"]
+call("POST", f"/sales/{sa['sale']['id']}/return", {"items": [{"sale_item_id": it_a, "quantity": 4}], "reason": "Returned", "restock": True}, branch=rb110)
+r, _ = ranks110("quantity")
+check("returns count against a product (A now 1 unit: last)", (r[pb], r[pc], r[pa]) == (1, 2, 3), r)
+srch = call("GET", f"/pos/products?branch_id={rb110}&all=true&q=Rank", branch=rb110)
+check("searching keeps the search order (no ranking applied)", all(x.get("rank") is None for x in srch), [x.get("rank") for x in srch][:5])
+call("PUT", "/settings", {**cfg110, "sales": {**cfg110["sales"], "top_selling": {"enabled": False, "metric": "quantity", "period": "week"}}})
+off = call("GET", f"/pos/products?branch_id={rb110}&all=true", branch=rb110)
+check("ranking off: the usual order, no stars", all(x.get("rank") is None for x in off))
+call("PUT", "/settings", cfg110)
 
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}

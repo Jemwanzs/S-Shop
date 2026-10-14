@@ -16,6 +16,7 @@ import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { StockIndicator } from "@/components/Badges";
 import type { CartLine } from "./cart";
+import { rankExplanation } from "./RankStars";
 
 interface Availability {
   branch_id: string;
@@ -116,7 +117,7 @@ export function ItemSheet({
         open={!!product}
         onOpenChange={(o) => !o && onClose()}
         title={product.name}
-        description={`${product.code}${product.nickname ? ` · “${product.nickname}”` : ""}`}
+        description={`${product.code}${product.nickname ? ` · “${product.nickname}”` : ""}${s.sales.top_selling?.enabled && rankExplanation(product, s.sales.top_selling) ? ` · ★ ${rankExplanation(product, s.sales.top_selling)}` : ""}`}
         footer={
           <Button
             size="lg"

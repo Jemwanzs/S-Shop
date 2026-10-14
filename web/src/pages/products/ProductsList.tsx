@@ -12,6 +12,7 @@ import { PageHeader, EmptyState } from "@/components/Page";
 import { DataList, Pager, CardRow } from "@/components/DataList";
 import { SearchInput, Segments } from "@/components/Filters";
 import { Select } from "@/components/Form";
+import { ProductThumb } from "@/pages/sales/pos/ProductGrid";
 import { Pill, StockIndicator } from "@/components/Badges";
 import { t } from "@/lib/i18n";
 
@@ -36,6 +37,9 @@ export default function ProductsList() {
   });
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => api<Category[]>("/categories") });
   const low = profile?.settings.stock.low_stock_threshold ?? 3;
+  // Roadmap 109: product list display preferences.
+  const showImages = !!profile?.settings.product.list_show_images;
+  const showPrices = profile?.settings.product.list_show_prices ?? true;
 
   return (
     <>
@@ -78,14 +82,17 @@ export default function ProductsList() {
             key: "name",
             header: "Product",
             cell: (r) => (
-              <div>
-                <div className="flex items-center gap-1.5 font-medium">{r.name}{r.photo_count > 0 && <Images className="h-3.5 w-3.5 text-muted-foreground" />}{r.track_items && <ScanBarcode className="h-3.5 w-3.5 text-muted-foreground" />}</div>
-                <div className="text-xs text-muted-foreground">{r.code}{r.nickname && ` · ${r.nickname}`}</div>
+              <div className="flex items-center gap-2.5">
+                {showImages && <ProductThumb id={r.primary_photo_id} className="h-9 w-9" />}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 font-medium">{r.name}{r.photo_count > 0 && !showImages && <Images className="h-3.5 w-3.5 text-muted-foreground" />}{r.track_items && <ScanBarcode className="h-3.5 w-3.5 text-muted-foreground" />}</div>
+                  <div className="text-xs text-muted-foreground">{r.code}{r.nickname && ` · ${r.nickname}`}</div>
+                </div>
               </div>
             ),
           },
           { key: "category", header: "Category", cell: (r) => r.category_name ?? "—", hideBelow: "lg" },
-          { key: "price", header: "Price", align: "right", cell: (r) => <span className="num font-medium">{money(r.marked_price)}</span> },
+          ...(showPrices ? [{ key: "price", header: "Price", align: "right" as const, cell: (r: Product) => <span className="num font-medium">{money(r.marked_price)}</span> }] : []),
           { key: "stock", header: "Here", cell: (r) => <StockIndicator available={r.available} threshold={r.low_stock_threshold ?? low} /> },
           { key: "orders", header: "Online", cell: (r) => (r.available_for_orders ? <Pill tone="success">{t("Yes")}</Pill> : <Pill>No</Pill>), hideBelow: "xl" },
           { key: "status", header: "Status", cell: (r) => (r.is_active ? <Pill tone="success">{t("Active")}</Pill> : <Pill tone="danger">{t("Inactive")}</Pill>) },
@@ -94,7 +101,7 @@ export default function ProductsList() {
           <CardRow
             title={r.name}
             subtitle={`${r.code}${r.category_name ? ` · ${r.category_name}` : ""}`}
-            value={money(r.marked_price)}
+            value={showPrices ? money(r.marked_price) : undefined}
             meta={r.is_active ? <span className={r.available > 0 ? "text-success" : "text-destructive"}>{r.available > 0 ? `${count(r.available)} here` : "Out of stock"}</span> : <span className="text-destructive">{t("Inactive")}</span>}
           />
         )}

@@ -549,9 +549,9 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 - ✅ **107. Split payments & partial payment → credit** — several payment lines (cash, M-PESA/STK, others, points) on
   one sale, remainder on credit linked to the sale, stock deducted once, receipts / history / statuses / reports.
 - ✅ **108. Landing page after sign-in** — business default and personal choice, after picking the branch.
-- ⏳ **109. POS display** — compact / image cards / list rows, images, tablet & desktop columns, price visibility;
+- ✅ **109. POS display** — compact / image cards / list rows, images, tablet & desktop columns, price visibility;
   product-list thumbnails and prices.
-- ⏳ **110. Top-selling products** — quantity / value / number of sales, today / week (Monday) / month, Gold ★★★★★,
+- ✅ **110. Top-selling products** — quantity / value / number of sales, today / week (Monday) / month, Gold ★★★★★,
   Silver ★★★, Bronze ★★, predictable ordering with search, categories and favourites.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):

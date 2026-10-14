@@ -10,8 +10,8 @@ no parallel engines.
 | Loyalty earning base & redemption controls | 106 | ✅ live |
 | Split payments, partial payment → credit, receipts & reporting | 107 | ✅ live |
 | Landing page after sign-in | 108 | ✅ live |
-| POS display: styles, images, columns, prices; product list images & prices | 109 | ⏳ planned |
-| Top-selling products with Gold / Silver / Bronze ranking | 110 | ⏳ planned |
+| POS display: styles, images, columns, prices; product list images & prices | 109 | ✅ live |
+| Top-selling products with Gold / Silver / Bronze ranking | 110 | ✅ live |
 
 ## 106 — Loyalty earning & redemption
 
@@ -85,7 +85,7 @@ Transfers, Customers, Loyalty, Expenses, Reports, Leaderboards). `web/src/lib/la
 after sign-in (Login, Quick PIN) and after picking the branch, using the navigation's own permissions; a page the
 person cannot open → Dashboard. Tests: smoke *Roadmap 108*, browser check of sign-in → branch → New Sale.
 
-## 109 — POS display & product list (planned)
+## 109 — POS display & product list
 
 - **Settings → Sales → POS display**: display style *Compact cards (existing)* · *Image cards* · *List rows*; show
   product images; tablet columns (default 2) and desktop columns (default 4) within what the screen and cart allow;
@@ -94,7 +94,17 @@ person cannot open → Dashboard. Tests: smoke *Roadmap 108*, browser check of s
   product list. Independent of the public website's price settings. Rounded square thumbnails, no stretching, a clean
   fallback.
 
-## 110 — Top-selling products (planned)
+**As built.** `settings.sales.pos` {style, show_images, tablet_columns 1–4 (2), desktop_columns 1–6 (4), show_prices}
+and `settings.product` {list_show_images, list_show_prices}; defaults keep the original counter. `ProductGrid`
+(`web/src/pages/sales/pos/ProductGrid.tsx`) renders the styles; columns = the setting for the screen (phones: 1, or 2
+for image cards) capped by what the measured space allows (210 / 150 / 250 px per compact / image / list card), so
+the cart is never squeezed. Pictures use the primary photo's small copy (`?size=thumb`), `object-contain` in a
+rounded square, a package placeholder otherwise. Hiding prices only hides labels: the data, cart, totals and payment
+are unchanged. No favourites / manual product ordering exist in S'Shop, so there is nothing to preserve there; the
+order stays as today until 110 (ranking). Tests: smoke *Roadmap 109*, browser check of styles, columns, prices and
+product-list thumbnails.
+
+## 110 — Top-selling products
 
 **Settings → Sales → Product performance**: *Show top-selling products first* (default on); metric *Quantity sold*
 (default) · *Sales value* (net of discounts and returns) · *Number of completed sales*; period *Today* · *This week*
@@ -102,3 +112,12 @@ person cannot open → Dashboard. Tests: smoke *Roadmap 108*, browser check of s
 dated in the period). Rank 1 ★★★★★ gold, rank 2 ★★★ silver, rank 3 ★★ bronze — performance, not reviews — with a
 tap / hover explanation. Ordering: search results first; categories limit the list; ranking orders it when on;
 otherwise the existing order; favourites unchanged; saved manual order never rewritten.
+
+**As built.** `settings.sales.top_selling` {enabled (on), metric quantity | value | sales, period today | week | month}.
+`GET /pos/products` ranks in the database (so a top seller is never cut off by the 200-product page): completed sales
+at the current branch with `business_date` from `period_start` (Monday weeks, the 1st for months) to today,
+`quantity − returned_qty` units, net value at the selling price, distinct receipts; cancelled sales excluded; imported
+history counts when dated in the period. Each product carries `rank` / `rank_score`; ranked products come first, then
+the existing order (in stock, name). A search returns no ranking (search order wins); category filters only narrow.
+`RankStars` shows the stars with a hover title; the item sheet explains the rank on a tap. Tests: unit
+(`period_start`), smoke *Roadmap 110* (all three metrics, returns, cancellation, search, off).

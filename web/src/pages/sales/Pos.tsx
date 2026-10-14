@@ -23,6 +23,10 @@ import { ItemSheet } from "./pos/ItemSheet";
 import { CartLines, Checkout } from "./pos/Checkout";
 import { SaleOwnerBar, type Owner } from "./SaleOwner";
 import { ReceiptPanel } from "@/components/ReceiptPanel";
+import { ProductGrid } from "./pos/ProductGrid";
+import { RankStars } from "./pos/RankStars";
+
+const DEFAULT_POS = { style: "compact" as const, show_images: false, tablet_columns: 2, desktop_columns: 4, show_prices: true };
 
 const newRef = () => crypto.randomUUID();
 
@@ -251,33 +255,8 @@ export default function Pos() {
         ) : visible.length === 0 ? (
           <div className="surface"><EmptyState icon={PackageSearch} title={term ? "No matching products" : "No products with stock here"} hint="Receive stock or check another branch." /></div>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 3xl:grid-cols-4">
-            {visible.map((p) => {
-              const left = p.available - inCart(p.id);
-              const out = left <= 0;
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => open(p)}
-                  disabled={out && !p.track_items}
-                  className={cn("surface flex items-center gap-3 p-3 text-start transition hover:border-primary/40 hover:shadow-lift active:scale-[0.99] disabled:opacity-50", inCart(p.id) > 0 && "border-primary/50 bg-primary/5")}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{p.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {p.code}{p.nickname && ` · ${p.nickname}`}{p.track_items && " · per item"}
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-end">
-                    <div className="num font-semibold">{money(p.marked_price)}</div>
-                    <div className={cn("num text-xs", out ? "text-destructive" : left <= s.stock.low_stock_threshold ? "text-warning" : "text-success")}>
-                      {out ? "Out of stock" : `${count(left)} left`}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          <ProductGrid products={visible} display={s.sales.pos ?? DEFAULT_POS} inCart={inCart} onOpen={open} lowThreshold={s.stock.low_stock_threshold}
+            badge={s.sales.top_selling?.enabled ? (p) => <RankStars product={p} settings={s.sales.top_selling} /> : undefined} />
         )}
       </div>
 

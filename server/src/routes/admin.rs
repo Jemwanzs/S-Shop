@@ -166,6 +166,15 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(mut body): J
         ctx.ensure_branch(b)?;
     }
     body.workspace.hours.validate().map_err(bad)?;
+    if !matches!(body.sales.top_selling.metric.as_str(), "quantity" | "value" | "sales") || !matches!(body.sales.top_selling.period.as_str(), "today" | "week" | "month") {
+        return Err(bad("Rank top sellers by quantity, value or number of sales, over today, this week or this month"));
+    }
+    if !matches!(body.sales.pos.style.as_str(), "compact" | "image" | "list") {
+        return Err(bad("Choose compact cards, image cards or list rows"));
+    }
+    if !(1..=4).contains(&body.sales.pos.tablet_columns) || !(1..=6).contains(&body.sales.pos.desktop_columns) {
+        return Err(bad("Tablet columns 1–4, desktop columns 1–6"));
+    }
     if !crate::settings::LANDING_PAGES.contains(&body.experience.landing.as_str()) {
         return Err(bad("Choose a page people can land on after signing in"));
     }

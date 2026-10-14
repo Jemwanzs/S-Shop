@@ -60,6 +60,9 @@ struct PosProduct {
     available: i32,
     primary_photo_id: Option<Uuid>,
     photo_count: i64,
+    /// Roadmap 110: sales performance rank at this branch (1 = top) and its score, when ranking is on.
+    rank: Option<i64>,
+    rank_score: Option<Decimal>,
 }
 
 #[derive(Deserialize)]
@@ -71,25 +74,54 @@ struct PosQuery {
     all: Option<bool>,
 }
 
+/// First business day of a ranking period: today, this week (from Monday) or this month.
+pub fn period_start(today: NaiveDate, period: &str) -> NaiveDate {
+    use chrono::Datelike;
+    match period {
+        "today" => today,
+        "month" => today.with_day(1).unwrap_or(today),
+        _ => today - Duration::days(today.weekday().num_days_from_monday() as i64),
+    }
+}
+
 async fn pos_products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<PosQuery>) -> AppResult<Json<Vec<PosProduct>>> {
     ctx.require("sales.create")?;
     let branch = ctx.branch_or_current(q.branch_id)?;
+    // Roadmap 110: top sellers first — completed sales at this branch in the chosen period (business time zone,
+    // weeks from Monday), net of returns; cancelled sales never count. Searching keeps the search order.
+    let s = settings::load(&mut *state.db.acquire().await?, ctx.tenant_id).await?;
+    let ts = &s.sales.top_selling;
+    let today = ctx.today();
+    let from = period_start(today, &ts.period);
+    let ranking = ts.enabled && q.q.as_deref().is_none_or(|x| x.trim().is_empty());
     let rows = sqlx::query_as(
-        "SELECT p.id, p.code, p.name, p.nickname, c.name AS category_name, p.barcode, p.track_items, p.marked_price, p.max_discount,
+        "WITH sold AS (
+             SELECT si.product_id, SUM(si.quantity - si.returned_qty) AS qty, SUM((si.quantity - si.returned_qty) * si.unit_price) AS value,
+                    COUNT(DISTINCT s.id) FILTER (WHERE si.quantity - si.returned_qty > 0) AS sales
+             FROM sale_items si JOIN sales s ON s.id = si.sale_id
+             WHERE $6 AND s.tenant_id = $1 AND s.branch_id = $2 AND s.status <> 'cancelled' AND s.business_date BETWEEN $7 AND $8
+             GROUP BY si.product_id),
+         scored AS (
+             SELECT product_id, CASE $9 WHEN 'value' THEN value WHEN 'sales' THEN sales::numeric ELSE qty::numeric END AS score FROM sold),
+         ranked AS (
+             SELECT product_id, score, ROW_NUMBER() OVER (ORDER BY score DESC, product_id) AS rank FROM scored WHERE score > 0)
+         SELECT p.id, p.code, p.name, p.nickname, c.name AS category_name, p.barcode, p.track_items, p.marked_price, p.max_discount,
                 p.loyalty_eligible, p.loyalty_threshold, p.loyalty_points_per,
                 COALESCE(sl.on_hand,0) AS on_hand, COALESCE(sl.reserved,0) AS reserved,
                 COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) AS available,
                 (SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order LIMIT 1) AS primary_photo_id,
-                (SELECT COUNT(*) FROM product_photos ph WHERE ph.product_id = p.id) AS photo_count
+                (SELECT COUNT(*) FROM product_photos ph WHERE ph.product_id = p.id) AS photo_count,
+                r.rank, r.score AS rank_score
          FROM products p
          LEFT JOIN categories c ON c.id = p.category_id
          LEFT JOIN stock_levels sl ON sl.product_id = p.id AND sl.branch_id = $2
+         LEFT JOIN ranked r ON r.product_id = p.id
          WHERE p.tenant_id = $1 AND p.is_active
            AND (p.all_branches OR EXISTS (SELECT 1 FROM product_branches pb WHERE pb.product_id = p.id AND pb.branch_id = $2))
            AND ($3::text IS NULL OR p.name ILIKE $3 OR p.nickname ILIKE $3 OR p.code ILIKE $3 OR p.barcode ILIKE $3)
            AND ($4::uuid IS NULL OR p.category_id = $4)
            AND ($5 OR COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) > 0)
-         ORDER BY (COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) > 0) DESC, p.name
+         ORDER BY r.rank NULLS LAST, (COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) > 0) DESC, p.name
          LIMIT 200",
     )
     .bind(ctx.tenant_id)
@@ -97,6 +129,10 @@ async fn pos_products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<P
     .bind(like(&q.q))
     .bind(q.category_id)
     .bind(q.all.unwrap_or(false))
+    .bind(ranking)
+    .bind(from)
+    .bind(today)
+    .bind(&ts.metric)
     .fetch_all(&state.db)
     .await?;
     Ok(Json(rows))
@@ -2303,4 +2339,21 @@ pub async fn apply_owner_change(conn: &mut PgConnection, ctx: &Ctx, change: Uuid
     )
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ranking_periods_start_on_monday_and_the_first() {
+        let wed = NaiveDate::from_ymd_opt(2026, 10, 14).unwrap(); // a Wednesday
+        assert_eq!(period_start(wed, "today"), wed);
+        assert_eq!(period_start(wed, "week"), NaiveDate::from_ymd_opt(2026, 10, 12).unwrap());
+        assert_eq!(period_start(wed, "month"), NaiveDate::from_ymd_opt(2026, 10, 1).unwrap());
+        let mon = NaiveDate::from_ymd_opt(2026, 10, 12).unwrap();
+        assert_eq!(period_start(mon, "week"), mon);
+        let sun = NaiveDate::from_ymd_opt(2026, 10, 18).unwrap();
+        assert_eq!(period_start(sun, "week"), mon);
+    }
 }

@@ -98,6 +98,7 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(mut body): J
             ("product", "settings.products"), ("stock", "settings.stock"), ("sales", "settings.sales"), ("orders", "settings.orders"),
             ("customers", "settings.customers"), ("loyalty", "settings.customers"), ("expenses", "settings.expenses"),
             ("reports", "settings.reports"), ("notifications", "settings.integrations"), ("workspace", "settings.workspace"),
+            ("experience", "settings.workspace"),
         ] {
             if current.get(section) != incoming.get(section) {
                 ctx.require(perm)?;
@@ -165,6 +166,9 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(mut body): J
         ctx.ensure_branch(b)?;
     }
     body.workspace.hours.validate().map_err(bad)?;
+    if !crate::settings::LANDING_PAGES.contains(&body.experience.landing.as_str()) {
+        return Err(bad("Choose a page people can land on after signing in"));
+    }
     if !matches!(body.sales.receipt.font.as_str(), "sans" | "thermal") {
         return Err(bad("Choose the clean sans or thermal-style receipt font"));
     }

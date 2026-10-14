@@ -9,7 +9,7 @@ no parallel engines.
 |---|---|---|
 | Loyalty earning base & redemption controls | 106 | ✅ live |
 | Split payments, partial payment → credit, receipts & reporting | 107 | ✅ live |
-| Landing page after sign-in | 108 | ⏳ planned |
+| Landing page after sign-in | 108 | ✅ live |
 | POS display: styles, images, columns, prices; product list images & prices | 109 | ⏳ planned |
 | Top-selling products with Gold / Silver / Bronze ranking | 110 | ⏳ planned |
 
@@ -72,11 +72,18 @@ and by the STK-wait sale flow (its M-Pesa part is pushed and confirmed before th
 payment** chip → an amount per method with *Rest*, *Total payable · Allocated · Remaining*, *Leave the rest on
 credit* (+ due date). Tests: smoke section *Roadmap 107*, browser check of the split checkout and receipt.
 
-## 108 — Landing page after sign-in (planned)
+## 108 — Landing page after sign-in
 
 **Settings → Business → User experience**: *Default page after sign-in* — Dashboard (default), My Dashboard, Record
 Sale, Sales History, other permitted pages; a business default and an optional personal choice. Sign-in → pick the
 branch (when several) → that page; not permitted → the normal default.
+
+**As built.** `settings.experience.landing` (Settings → Workspace → *User experience*, `settings.workspace`) and the
+personal `preferences.landing` (User preferences → *Page after sign-in*, "" = business default), both validated
+against `settings.rs::LANDING_PAGES` (Dashboard, My Dashboard, New Sale, Sales, Credit Sales, Orders, Products, Stock,
+Transfers, Customers, Loyalty, Expenses, Reports, Leaderboards). `web/src/lib/landing.ts::landingPath` resolves it
+after sign-in (Login, Quick PIN) and after picking the branch, using the navigation's own permissions; a page the
+person cannot open → Dashboard. Tests: smoke *Roadmap 108*, browser check of sign-in → branch → New Sale.
 
 ## 109 — POS display & product list (planned)
 

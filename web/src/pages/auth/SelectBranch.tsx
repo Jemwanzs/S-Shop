@@ -4,6 +4,7 @@ import { useSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/Page";
 import { t } from "@/lib/i18n";
+import { landingPath } from "@/lib/landing";
 
 /** Users assigned to several branches choose their Current Branch after signing in. */
 export default function SelectBranchPage() {
@@ -24,7 +25,7 @@ export default function SelectBranchPage() {
             key={b.id}
             onClick={() => {
               selectBranch(b.id);
-              navigate("/", { replace: true });
+              navigate(landingPath(profile), { replace: true });
             }}
             className={`surface flex items-center gap-3 p-4 text-start transition hover:border-primary/50 hover:shadow-lift animate-fade-up ${branch?.id === b.id ? "border-primary" : ""}`}
           >

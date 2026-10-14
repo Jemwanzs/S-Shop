@@ -3002,4 +3002,10 @@ export const DICT: Record<string, [string, string, string]> = {
   "Allocate the rest, or leave it on credit": ["Gawa kilichobaki, au kiache kwa mkopo", "Répartissez le reste ou laissez-le à crédit", "خصّص الباقي أو اتركه على الحساب"],
   "Allocate the rest of the payment": ["Gawa malipo yaliyobaki", "Répartissez le reste du paiement", "خصّص باقي المبلغ"],
   "Split payments need a connection": ["Malipo mseto yanahitaji mtandao", "Les paiements fractionnés nécessitent une connexion", "الدفع المُجزّأ يتطلب اتصالًا"],
+  "After choosing the branch. Each person can change theirs in User preferences; pages they cannot open fall back to the Dashboard": ["Baada ya kuchagua tawi. Kila mtu anaweza kubadilisha chake kwenye Mapendeleo; kurasa asizoweza kufungua zinarudi kwenye Dashibodi", "Après le choix de l'agence. Chacun peut changer la sienne dans ses préférences ; les pages inaccessibles renvoient au tableau de bord", "بعد اختيار الفرع. يمكن لكل شخص تغيير صفحته في تفضيلاته؛ الصفحات التي لا يمكنه فتحها تعود إلى لوحة التحكم"],
+  "Business default": ["Chaguo-msingi la biashara", "Par défaut de l'entreprise", "الافتراضي للنشاط"],
+  "Default page after sign-in": ["Ukurasa wa kwanza baada ya kuingia", "Page par défaut après connexion", "الصفحة الافتراضية بعد تسجيل الدخول"],
+  "Page after sign-in": ["Ukurasa baada ya kuingia", "Page après connexion", "الصفحة بعد تسجيل الدخول"],
+  "User experience": ["Uzoefu wa mtumiaji", "Expérience utilisateur", "تجربة المستخدم"],
+  "Where you land after signing in (and choosing your branch).": ["Unapofika baada ya kuingia (na kuchagua tawi lako).", "Où vous arrivez après la connexion (et le choix de votre agence).", "حيث تصل بعد تسجيل الدخول (واختيار فرعك)."],
 };

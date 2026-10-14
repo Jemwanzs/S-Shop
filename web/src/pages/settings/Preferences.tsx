@@ -9,14 +9,15 @@ import { LANGUAGES, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ActionButton, REASONS } from "@/components/ActionButton";
-import { ToggleRow } from "@/components/Form";
+import { Select, ToggleRow } from "@/components/Form";
+import { canOpen, LANDING_PAGES } from "@/lib/landing";
 import { Card, SettingsPage } from "./shared";
 import { QuickPinCard } from "./QuickPin";
 
 /** Settings → User preferences: per person, applies on every device they sign in to. */
 export function PreferencesSettings() {
   const qc = useQueryClient();
-  const { preferences, fx, can } = useSession();
+  const { preferences, fx, can, profile } = useSession();
   const [draft, setDraft] = useState<Preferences>(preferences);
   useEffect(() => setDraft(preferences), [preferences]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(preferences);
@@ -45,6 +46,16 @@ export function PreferencesSettings() {
               <span className="block text-xs uppercase text-muted-foreground">{l.code}</span>
             </Choice>
           ))}
+        </div>
+      </Card>
+
+      <Card title="Page after sign-in">
+        <p className="pb-2 text-xs text-muted-foreground">{t("Where you land after signing in (and choosing your branch).")}</p>
+        <div className="py-2">
+          <Select value={draft.landing ?? ""} onChange={(v) => setDraft({ ...draft, landing: v })} label={t("Page after sign-in")} className="w-full sm:w-80">
+            <option value="">{`${t("Business default")} · ${t(LANDING_PAGES.find((p) => p.to === (profile?.settings.experience?.landing ?? "/"))?.label ?? "Dashboard")}`}</option>
+            {LANDING_PAGES.filter((p) => canOpen(profile, p.to)).map((p) => <option key={p.to} value={p.to}>{t(p.label)}</option>)}
+          </Select>
         </div>
       </Card>
 

@@ -25,6 +25,7 @@ import { t as tr } from "@/lib/i18n";
 import { Receipt } from "@/components/Receipt";
 import type { ReceiptSnapshot } from "@/lib/receipt";
 import { redemptionBlocked } from "@/lib/loyalty";
+import { LANDING_PAGES } from "@/lib/landing";
 
 type Draft = ReturnType<typeof useSettingsDraft>;
 
@@ -424,6 +425,13 @@ export function WorkspaceSettings() {
     >
       {(s) => (
         <>
+          <Card title="User experience">
+            <Row label="Default page after sign-in" hint="After choosing the branch. Each person can change theirs in User preferences; pages they cannot open fall back to the Dashboard">
+              <Select value={s.experience?.landing ?? "/"} onChange={(v) => d.update((x) => { x.experience = { landing: v }; })} className="w-56">
+                {LANDING_PAGES.map((p) => <option key={p.to} value={p.to}>{tr(p.label)}</option>)}
+              </Select>
+            </Row>
+          </Card>
           <Card title="Business hours">
             <div className="py-3">
               <HoursEditor value={s.workspace.hours} onChange={(h) => d.update((x) => { x.workspace.hours = h; })} />

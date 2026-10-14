@@ -21,8 +21,25 @@ pub struct TenantSettings {
     pub reports: ReportSettings,
     pub notifications: NotificationSettings,
     pub workspace: WorkspaceSettings,
+    /// Roadmap 108: user experience — the page people land on after signing in (and picking their branch).
+    pub experience: ExperienceSettings,
     /// Roadmap 71: changed only through Settings → Support access (administrators), never through the settings form.
     pub security: SecuritySettings,
+}
+
+/// Pages a person may land on after signing in (each is still subject to the person's permissions in the app).
+pub const LANDING_PAGES: &[&str] = &["/", "/my", "/pos", "/sales", "/credit", "/orders", "/products", "/stock", "/transfers", "/customers", "/loyalty", "/expenses", "/reports", "/leaderboards"];
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct ExperienceSettings {
+    /// Business default landing page ("/" = Dashboard).
+    pub landing: String,
+}
+impl Default for ExperienceSettings {
+    fn default() -> Self {
+        Self { landing: "/".into() }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

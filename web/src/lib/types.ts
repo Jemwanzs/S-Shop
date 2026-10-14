@@ -111,6 +111,8 @@ export interface Settings {
   reports: { hide_financials_without_permission: boolean; medals: MedalSettings };
   notifications: { whatsapp_receipts: boolean; whatsapp_credit_reminders: boolean; whatsapp_loyalty: boolean };
   workspace: { hours: Hours; outside_hours: "allow" | "block"; location: { mode: "anywhere" | "branch"; areas: string[] } };
+  /** Roadmap 108 */
+  experience?: { landing: string };
 }
 
 export interface Profile {

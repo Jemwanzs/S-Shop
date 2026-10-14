@@ -38,6 +38,8 @@ pub struct Preferences {
     pub in_app_alerts: bool,
     /// A short sound with new-order alerts.
     pub sound_alerts: bool,
+    /// Roadmap 108: my page after signing in ("" = the business default).
+    pub landing: String,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -49,6 +51,7 @@ impl Default for Preferences {
             notify_new_orders: true,
             in_app_alerts: true,
             sound_alerts: false,
+            landing: String::new(),
         }
     }
 }
@@ -67,6 +70,9 @@ impl Preferences {
         if !CURRENCIES.contains(&p.currency.as_str()) {
             p.currency = d.currency;
         }
+        if !p.landing.is_empty() && !crate::settings::LANDING_PAGES.contains(&p.landing.as_str()) {
+            p.landing = d.landing;
+        }
         p
     }
 }
@@ -80,6 +86,9 @@ async fn save(State(state): State<AppState>, ctx: Ctx, Json(p): Json<Preferences
     }
     if !CURRENCIES.contains(&p.currency.as_str()) {
         return Err(bad("Unsupported currency"));
+    }
+    if !p.landing.is_empty() && !crate::settings::LANDING_PAGES.contains(&p.landing.as_str()) {
+        return Err(bad("Choose a page to land on after signing in"));
     }
     let mut tx = state.db.begin().await?;
     sqlx::query("UPDATE users SET preferences = $2 WHERE id = $1")

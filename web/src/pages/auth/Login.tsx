@@ -12,6 +12,7 @@ import { forgetQuickDevice, preferredMethod, quickDevice, rememberMethod } from 
 import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
 import { SShopLoader } from "@/components/SShopLoader";
+import { landingPath } from "@/lib/landing";
 
 /** Roadmap 88: the public Product User Manual (no sign-in), built by scripts/manual/build.mjs. */
 const MANUAL = "SShop_Product_User_Manual.pdf";
@@ -57,7 +58,8 @@ export default function LoginPage() {
     try { sessionStorage.removeItem(SESSION_EXPIRED); } catch { /* nothing kept */ }
     signIn(res.token, res.profile);
     const preset = res.profile.branches.some((b) => b.id === res.profile.user.default_branch_id);
-    navigate(res.profile.branches.length > 1 && !preset ? "/select-branch" : "/", { replace: true });
+    // Roadmap 108: pick the branch first when there are several, then the chosen landing page.
+    navigate(res.profile.branches.length > 1 && !preset ? "/select-branch" : landingPath(res.profile), { replace: true });
   };
   const quickLogin = async (pin: string) => {
     if (!device || busy) return;

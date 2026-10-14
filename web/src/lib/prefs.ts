@@ -19,6 +19,8 @@ export interface Preferences {
   in_app_alerts?: boolean;
   /** A short sound with new-order alerts. Default off. */
   sound_alerts?: boolean;
+  /** Roadmap 108: my page after signing in ("" = the business default). */
+  landing?: string;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {

@@ -4,6 +4,7 @@ import { api, ApiError, session } from "./api";
 import type { Branch, Profile } from "./types";
 import { setDisplayCurrency } from "./format";
 import { applyFont, DEFAULT_PREFERENCES, type Fx, type Preferences } from "./prefs";
+import { profileCan } from "./landing";
 import { deviceLanguage, rememberDeviceLanguage, setLanguage } from "./i18n";
 
 interface SessionValue {
@@ -123,18 +124,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   // A permission that belongs to a module outside the business's package is treated as not held, so every screen,
   // menu and button guarded by `can` follows the package (the server refuses those modules as well).
-  const can = useCallback(
-    (perm: string) => {
-      if (!profile) return false;
-      const b = profile.billing;
-      if (b?.modules) {
-        const owner = b.catalogue.find((m) => m.perms.some((p) => perm === p || (p.endsWith(".") && perm.startsWith(p))));
-        if (owner && !b.modules.includes(owner.key)) return false;
-      }
-      return profile.permissions.some((p) => p === "*" || p === perm || (p === "settings.manage" && perm.startsWith("settings.")));
-    },
-    [profile],
-  );
+  const can = useCallback((perm: string) => profileCan(profile, perm), [profile]);
 
   // Preferences: font now; figures convert once exchange rates arrive (refreshed when the app opens).
   const signedIn = !!token && !!profile;

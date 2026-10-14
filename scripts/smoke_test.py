@@ -3031,6 +3031,19 @@ refund107 = [p_ for p_ in call("GET", f"/sales/{sd107['id']}")["payments"] if fl
 check("a returned split sale is refunded by its main method by default", refund107 and refund107[0]["method"] == "mpesa", refund107)
 call("PUT", "/settings", orig107)
 
+step("Roadmap 108: the page people land on after signing in")
+cfg108 = call("GET", "/settings")["settings"]
+call("PUT", "/settings", {**cfg108, "experience": {"landing": "/hack"}}, expect=400)
+check("only known pages can be the landing page", True)
+call("PUT", "/settings", {**cfg108, "experience": {"landing": "/pos"}})
+check("business default saved: Record Sale", call("GET", "/auth/me")["settings"]["experience"]["landing"] == "/pos")
+me108 = call("GET", "/auth/me")["user"]["preferences"]
+call("PUT", "/auth/preferences", {**me108, "landing": "/nowhere"}, expect=400)
+call("PUT", "/auth/preferences", {**me108, "landing": "/sales"})
+check("personal choice saved (overrides the business default in the app)", call("GET", "/auth/me")["user"]["preferences"]["landing"] == "/sales")
+call("PUT", "/auth/preferences", {**me108, "landing": ""})
+call("PUT", "/settings", cfg108)
+
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
 iv_mail = f"invitee{suffix.lower()}@sshop.test"

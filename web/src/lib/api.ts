@@ -76,7 +76,13 @@ interface Options {
   headers?: Record<string, string>;
 }
 
-export async function api<T = unknown>(path: string, opts: Options = {}): Promise<T> {
+/** Roadmap 105: asks the person for their full sign-in when a Quick PIN session is refused (StepUpHost). */
+let stepUp: (() => Promise<boolean>) | null = null;
+export function onStepUp(handler: (() => Promise<boolean>) | null) {
+  stepUp = handler;
+}
+
+export async function api<T = unknown>(path: string, opts: Options & { retried?: boolean } = {}): Promise<T> {
   const headers: Record<string, string> = {};
   const bearer = opts.token === undefined ? token : opts.token;
   if (bearer) headers.Authorization = `Bearer ${bearer}`;
@@ -115,6 +121,10 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   }
   if (!res.ok) {
     const err = (data as { error?: { message?: string; code?: string; title?: string | null } } | null)?.error;
+    // Nothing was done (the check comes first): confirm the full sign-in, then send the same request once more.
+    if (res.status === 422 && err?.title === "Full sign-in needed" && opts.token === undefined && !opts.retried && stepUp && !path.startsWith("/auth/")) {
+      if (await stepUp()) return api<T>(path, { ...opts, retried: true });
+    }
     throw new ApiError(err?.message ?? `Request failed (${res.status})`, res.status, err?.code ?? "error", err?.title ?? undefined);
   }
   return data as T;

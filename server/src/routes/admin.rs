@@ -33,6 +33,7 @@ pub fn routes() -> Router<AppState> {
         .route("/users", get(list_users).post(create_user))
         .route("/users/{id}", put(update_user))
         .route("/users/{id}/reset-pin", post(reset_user_pin))
+        .route("/users/{id}/invite", post(invite_user))
         .route("/users/{id}/access", get(user_access).put(set_user_access))
         .route("/roles", get(list_roles).post(create_role))
         .route("/roles/{id}", put(update_role))
@@ -559,6 +560,10 @@ struct UserRow {
     linked_from: Option<String>,
     /// Roadmap 83: has a Quick Login PIN (never the PIN itself).
     quick_pin: bool,
+    /// Roadmap 105: active | invitation_pending | invitation_sent | activation_pending | invitation_expired | disabled
+    status: String,
+    invite_sent_at: Option<DateTime<Utc>>,
+    invite_expires_at: Option<DateTime<Utc>>,
 }
 
 async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<UserRow>>> {
@@ -567,7 +572,14 @@ async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<V
         "SELECT u.id, u.name, u.email, u.phone, u.role_id, r.name AS role_name, u.is_active, u.all_branches,
                 COALESCE(ARRAY(SELECT branch_id FROM user_branches ub WHERE ub.user_id = u.id), '{}') AS branch_ids,
                 COALESCE(li.last_login_at, u.last_login_at) AS last_login_at, u.created_at, u.extra_permissions, u.default_branch_id,
-                lt.name AS linked_from, u.quick_pin_hash IS NOT NULL AS quick_pin
+                lt.name AS linked_from, u.quick_pin_hash IS NOT NULL AS quick_pin,
+                CASE WHEN NOT u.is_active THEN 'disabled'
+                     WHEN u.invited_at IS NULL OR NOT u.must_change_pin THEN 'active'
+                     WHEN u.invite_expires_at IS NOT NULL AND u.invite_expires_at < now() THEN 'invitation_expired'
+                     WHEN u.invite_opened_at IS NOT NULL THEN 'activation_pending'
+                     WHEN u.invite_email_status = 'sent' THEN 'invitation_sent'
+                     ELSE 'invitation_pending' END AS status,
+                u.invite_sent_at, u.invite_expires_at
          FROM users u JOIN roles r ON r.id = u.role_id LEFT JOIN users li ON li.id = u.login_user_id LEFT JOIN tenants lt ON lt.id = li.tenant_id
          WHERE u.tenant_id = $1 ORDER BY u.is_active DESC, u.name",
     )
@@ -634,35 +646,157 @@ async fn set_branches(conn: &mut sqlx::PgConnection, user_id: Uuid, branch_ids: 
     Ok(())
 }
 
+/// Roadmap 105: the person is invited — nobody chooses a PIN for them. The account waits for set-up (an unusable random
+/// PIN until then) and an invitation email carries a single-use set-up link (72 h). If the email cannot be sent the
+/// account stays safely pending and the invitation can be sent again. (`pin` remains accepted for integrations.)
 async fn create_user(State(state): State<AppState>, ctx: Ctx, Json(b): Json<UserBody>) -> AppResult<Json<Value>> {
     ctx.require_full()?;
     ctx.require("users.manage")?;
-    let pin = b.pin.clone().ok_or_else(|| bad("Set a login PIN"))?;
-    validate_pin(&pin)?;
+    if let Some(pin) = &b.pin {
+        validate_pin(pin)?;
+    }
+    let invited = b.pin.is_none();
     let mut tx = state.db.begin().await?;
     validate_user(&mut tx, &ctx, &b).await?;
+    let pin_hash = match &b.pin {
+        Some(pin) => hash_pin(pin)?,
+        None => {
+            // Unusable until the person sets their own PIN through the link.
+            let mut raw = [0u8; 32];
+            rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut raw);
+            hash_pin(&base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, raw))?
+        }
+    };
     let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO users (tenant_id, name, email, phone, pin_hash, role_id, all_branches)
-         VALUES ($1,$2,lower($3),$4,$5,$6,$7) RETURNING id",
+        "INSERT INTO users (tenant_id, name, email, phone, pin_hash, role_id, all_branches, must_change_pin, invited_at)
+         VALUES ($1,$2,lower($3),$4,$5,$6,$7,$8, CASE WHEN $8 THEN now() END) RETURNING id",
     )
     .bind(ctx.tenant_id)
     .bind(b.name.trim())
     .bind(b.email.trim())
     .bind(b.phone.as_deref().unwrap_or("").trim())
-    .bind(hash_pin(&pin)?)
+    .bind(pin_hash)
     .bind(b.role_id)
     .bind(b.all_branches)
+    .bind(invited)
     .fetch_one(&mut *tx)
-    .await?;
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => bad("A user with this email already exists"),
+        _ => e.into(),
+    })?;
     set_branches(&mut tx, id, &b.branch_ids).await?;
     audit::record(
         &mut tx,
         &ctx,
-        Entry::new("users", "create", "user", id).after(json!({ "name": b.name, "email": b.email, "role_id": b.role_id, "branches": b.branch_ids })),
+        Entry::new("users", "create", "user", id)
+            .after(json!({ "name": b.name, "email": b.email, "role_id": b.role_id, "branches": b.branch_ids, "invited": invited })),
     )
     .await?;
+    let token = if invited { Some(issue_invite(&mut tx, &ctx, id).await?) } else { None };
     tx.commit().await?;
-    Ok(Json(json!({ "id": id })))
+    let email_status = match token {
+        Some(token) => Some(send_invite(&state, &ctx, id, &token).await?),
+        None => None,
+    };
+    Ok(Json(json!({ "id": id, "status": if invited { "invitation" } else { "active" }, "email_status": email_status })))
+}
+
+/// A fresh single-use set-up link (earlier ones stop working).
+async fn issue_invite(conn: &mut sqlx::PgConnection, ctx: &Ctx, user: Uuid) -> AppResult<String> {
+    let (token, expires) = crate::mailer::issue_token(conn, "setup", Some(user), None, Some(ctx.user_id), "").await?;
+    sqlx::query("UPDATE users SET invite_expires_at = $2, invite_opened_at = NULL WHERE id = $1").bind(user).bind(expires).execute(&mut *conn).await?;
+    Ok(token)
+}
+
+/// The invitation email: who invited them, their business, role and sign-in email, and the set-up button.
+async fn send_invite(state: &AppState, ctx: &Ctx, user: Uuid, token: &str) -> AppResult<String> {
+    use crate::mailer::{button, esc, layout, p, receipt, support_text, text_rows, Mail};
+    let (name, email, role, business, tenant): (String, String, String, String, Uuid) = sqlx::query_as(
+        "SELECT u.name, u.email, r.name, t.name, t.id FROM users u JOIN roles r ON r.id = u.role_id JOIN tenants t ON t.id = u.tenant_id WHERE u.id = $1",
+    )
+    .bind(user)
+    .fetch_one(&state.db)
+    .await?;
+    let link = crate::mailer::link(state, "set-pin", token);
+    let sign_in = format!("{}/login", state.cfg.public_url);
+    let first = name.split_whitespace().next().unwrap_or(&name).to_string();
+    let rows = vec![("Business", business.clone()), ("Role", role), ("Sign-in email", email.clone()), ("Sign in at", sign_in.clone())];
+    let mut body = p(&format!("Hello {},", esc(&first)));
+    body.push_str(&p(&format!("<b>{}</b> has added you to <b>{}</b> on S'Shop.", esc(&ctx.name), esc(&business))));
+    body.push_str(&receipt("Your S'Shop account", &rows));
+    body.push_str(&p("<b>To activate your account</b>, create your own PIN / password with the secure button below. The link works once and expires in 72 hours."));
+    body.push_str(&button("Set up my account", &link));
+    body.push_str(&p("After that, sign in with your email and your new PIN. You can turn on a Quick PIN for faster sign-in on your own device later."));
+    body.push_str(&p("<span style=\"color:#78716c;font-size:13px\">Never share your PIN. Nobody at your business or at S'Shop will ever ask for it. If you did not expect this email, you can ignore it.</span>"));
+    let out = crate::mailer::send(
+        state,
+        Mail {
+            kind: "user_invite",
+            to: vec![email.clone()],
+            subject: format!("You've been added to {business} on S'Shop"),
+            html: layout(&format!("Activate your S'Shop account for {business}"), "Welcome to S'Shop!", &body),
+            text: format!(
+                "Hello {first},\n\n{} has added you to {business} on S'Shop.\n\n{}\n\nTo activate your account, create your own PIN / password with this secure link (works once, expires in 72 hours):\n{link}\n\nThen sign in with your email and your new PIN.\n\nNever share your PIN.\n\n{}",
+                ctx.name,
+                text_rows(&rows),
+                support_text()
+            ),
+            tenant_id: Some(tenant),
+            access_request_id: None,
+            user_id: Some(user),
+            created_by: Some(ctx.user_id),
+            retry_of: None,
+        },
+    )
+    .await;
+    sqlx::query("UPDATE users SET invite_sent_at = CASE WHEN $2 = 'sent' THEN now() ELSE invite_sent_at END, invite_email_status = $2 WHERE id = $1")
+        .bind(user)
+        .bind(&out.status)
+        .execute(&state.db)
+        .await?;
+    Ok(out.status)
+}
+
+#[derive(Deserialize)]
+struct InviteBody {
+    /// true: email a new invitation · false: just a new link to copy and share personally.
+    #[serde(default)]
+    send_email: bool,
+}
+
+/// Resend the invitation, or create a new activation link to share (shown only to people who manage users, once).
+/// Only for accounts not yet set up; every new link ends the previous one.
+async fn invite_user(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<InviteBody>) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
+    ctx.require("users.manage")?;
+    state.limits.check(&id.to_string(), "user_invite", 10, std::time::Duration::from_secs(3600))?;
+    let mut tx = state.db.begin().await?;
+    let row: Option<(bool, bool, Option<Uuid>)> = sqlx::query_as("SELECT is_active, must_change_pin, login_user_id FROM users WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let (active, pending, linked) = row.ok_or(AppError::NotFound("User"))?;
+    if linked.is_some() {
+        return Err(rule("This person signs in through their account in another business"));
+    }
+    if !active {
+        return Err(rule("This user is deactivated — activate them first"));
+    }
+    if !pending {
+        return Err(rule("This user has already set up their account — use Reset PIN if they need a new one"));
+    }
+    sqlx::query("UPDATE users SET invited_at = COALESCE(invited_at, now()) WHERE id = $1").bind(id).execute(&mut *tx).await?;
+    let token = issue_invite(&mut tx, &ctx, id).await?;
+    audit::record(&mut tx, &ctx, Entry::new("users", if b.send_email { "invite_sent" } else { "invite_link_created" }, "user", id)).await?;
+    tx.commit().await?;
+    if b.send_email {
+        let status = send_invite(&state, &ctx, id, &token).await?;
+        return Ok(Json(json!({ "email_status": status })));
+    }
+    let expires: Option<DateTime<Utc>> = sqlx::query_scalar("SELECT invite_expires_at FROM users WHERE id = $1").bind(id).fetch_one(&state.db).await?;
+    Ok(Json(json!({ "link": crate::mailer::link(&state, "set-pin", &token), "expires_at": expires })))
 }
 
 async fn update_user(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<UserBody>) -> AppResult<Json<Value>> {

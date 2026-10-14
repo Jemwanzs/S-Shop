@@ -34,6 +34,7 @@ import { allowed, BOTTOM, NAV } from "./nav";
 import { t } from "@/lib/i18n";
 import { onLocationStatus, locationStatus, startLocation, stopLocation, type LocationStatus } from "@/lib/location";
 import { MapPinOff } from "lucide-react";
+import { QuickPinOffer, StepUpHost } from "@/components/StepUp";
 import { SShopLoader } from "@/components/SShopLoader";
 
 export function useTheme() {
@@ -527,6 +528,8 @@ export function AppShell() {
       </div>
       <BottomNav orders={orders} />
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+      <StepUpHost />
+      <QuickPinOffer />
     </div>
   );
 }

@@ -47,3 +47,29 @@ Navigation, buttons and figures follow permissions in the UI, and every API call
   discounts, returns, cancellations).
 - Migration 0007 grants `staff.view_others` to existing roles that could already open dashboards or reports, and
   `sales.print` to every role that sells or views sales, so nobody silently loses access.
+
+## Inviting users (roadmap 105)
+
+**Settings → Users → Add user** asks only for full name, email, mobile number (optional), role and branches —
+**nobody chooses a PIN or Quick PIN for another person**.
+
+- **Create & invite**: the account is created waiting for set-up (its PIN is an unusable random value until then, so
+  nobody can sign in) and S'Shop emails the person a **single-use set-up link valid for 72 hours** (`auth_tokens`
+  kind `setup`, stored hashed). They choose their own PIN on `/set-pin`; the link is then used up, other links stop
+  working and they sign in with email and PIN. A Quick PIN can never be used to activate an account.
+- **User created successfully** shows whether the email went out, with **Send email**, **Share via WhatsApp** and
+  **Done**. The WhatsApp message carries the sign-in address, their email and how to activate — never a PIN or the
+  link — and opening WhatsApp is never reported as delivered.
+- **Statuses** in the list: *Invitation pending* (email not sent), *Invitation sent*, *Activation pending* (link
+  opened), *Invitation expired*, *Active*, *Disabled*. For accounts not yet set up, the ✉ action reopens the
+  invitation: send the email again, **Copy activation link** (a new single-use link shown once to the administrator,
+  replacing earlier ones; rate-limited; audited without the link), Share via WhatsApp, Disable user. An account that
+  is already set up is not invited again (use *Reset PIN*). If the email fails the user stays safely pending.
+- **First sign-in**: after setting up, the person is offered **Enable Quick PIN login?** once (*Set up Quick PIN* /
+  *Maybe later*), only where the business allows Quick PIN.
+- `POST /users` still accepts `pin` for integrations (the account is then active straight away, as before).
+
+**Full sign-in needed** (Quick PIN sessions): instead of a dead end, *Confirm it's you* asks for the full PIN /
+password (the Quick PIN is not accepted), the session becomes a full one (`POST /auth/step-up`; the Quick session
+ends; wrong PINs count towards the normal lockout) and the same request is sent again — what was typed stays on
+screen and nothing is created twice (the check runs before anything is written).

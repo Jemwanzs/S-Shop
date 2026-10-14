@@ -150,6 +150,9 @@ async fn link_info(State(state): State<AppState>, headers: HeaderMap, Json(b): J
     state.limits.check(&client_meta(&headers).0, "auth_link", 60, std::time::Duration::from_secs(900))?;
     let mut conn = state.db.acquire().await?;
     let t = mailer::find_token(&mut conn, &b.token, &["setup", "reset"], false).await?;
+    if t.kind == "setup" {
+        sqlx::query("UPDATE users SET invite_opened_at = COALESCE(invite_opened_at, now()) WHERE id = $1 AND invited_at IS NOT NULL").bind(t.user_id).execute(&mut *conn).await?;
+    }
     let (name, email, business): (String, String, String) =
         sqlx::query_as("SELECT u.name, u.email, t.name FROM users u JOIN tenants t ON t.id = u.tenant_id WHERE u.id = $1")
             .bind(t.user_id)
@@ -181,10 +184,11 @@ async fn set_pin(State(state): State<AppState>, headers: HeaderMap, Json(b): Jso
     }
     sqlx::query(
         "UPDATE users SET pin_hash = $2, must_change_pin = false, pin_expires_at = NULL, pin_changed_at = now(), sessions_valid_after = now(),
-                failed_attempts = 0, locked_until = NULL WHERE id = $1",
+                failed_attempts = 0, locked_until = NULL, quick_pin_offer = quick_pin_offer OR ($3 AND quick_pin_hash IS NULL) WHERE id = $1",
     )
     .bind(user_id)
     .bind(hash_pin(&b.pin)?)
+    .bind(t.kind == "setup")
     .execute(&mut *tx)
     .await?;
     sqlx::query("UPDATE auth_tokens SET used_at = now() WHERE id = $1").bind(t.id).execute(&mut *tx).await?;

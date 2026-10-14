@@ -2901,6 +2901,64 @@ call("POST", "/users", {"name": "Import Clerk", "email": s_mail, "pin": "4321", 
 call("GET", "/onboarding", token=call("POST", "/auth/login", {"email": s_mail, "pin": "4321"})["token"], expect=403)
 check("only people allowed to onboard data see the centre", True)
 
+step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
+iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
+iv_mail = f"invitee{suffix.lower()}@sshop.test"
+iv = call("POST", "/users", {"name": f"Invitee {suffix}", "email": iv_mail, "phone": "0712 345 678", "role_id": iv_roles["Salesperson"], "all_branches": True, "branch_ids": []})
+check("a user is created without any PIN and invited by email", iv["status"] == "invitation" and iv["email_status"] == "sent", iv)
+row = lambda: next(u for u in call("GET", "/users") if u["id"] == iv["id"])
+check("listed as Invitation sent, with when the link expires", row()["status"] == "invitation_sent" and row()["invite_expires_at"], row())
+call("POST", "/users", {"name": "Again", "email": iv_mail.upper(), "role_id": iv_roles["Salesperson"], "all_branches": True, "branch_ids": []}, expect=400)
+check("the same email cannot be invited twice (no duplicate account)", True)
+call("POST", "/auth/login", {"email": iv_mail, "pin": "1234"}, token="none", branch="none", expect=400)
+check("nobody can sign in before the person sets their PIN", True)
+first_link = call("POST", f"/users/{iv['id']}/invite", {"send_email": False})["link"]
+second_link = call("POST", f"/users/{iv['id']}/invite", {"send_email": False})["link"]
+tok = lambda l: l.split("#t=")[1]
+bad_ = urllib.request.Request(BASE + "/api/auth/link", data=json.dumps({"token": tok(first_link)}).encode(), method="POST", headers={"Content-Type": "application/json"})
+try:
+    urllib.request.urlopen(bad_)
+    first_ok = True
+except urllib.error.HTTPError:
+    first_ok = False
+check("a new activation link ends the earlier one (single use, one at a time)", not first_ok)
+info = call("POST", "/auth/link", {"token": tok(second_link)}, token="none", branch="none")
+check("the link opens the set-up page (email masked) and the user shows Activation pending", info["kind"] == "setup" and iv_mail not in json.dumps(info) and row()["status"] == "activation_pending", (info, row()["status"]))
+call("POST", "/auth/set-pin", {"token": tok(second_link), "pin": "8642"}, token="none", branch="none")
+reuse = urllib.request.Request(BASE + "/api/auth/set-pin", data=json.dumps({"token": tok(second_link), "pin": "9999"}).encode(), method="POST", headers={"Content-Type": "application/json"})
+try:
+    urllib.request.urlopen(reuse)
+    reused = True
+except urllib.error.HTTPError:
+    reused = False
+check("the set-up link works once", not reused)
+ivl = call("POST", "/auth/login", {"email": iv_mail, "pin": "8642"}, token="none", branch="none")
+check("signs in with their own PIN; account Active; Quick PIN offered once", row()["status"] == "active" and ivl["profile"]["user"]["quick_pin_offer"] is True and not ivl["profile"]["user"]["must_change_pin"], ivl["profile"]["user"])
+IV = {"token": ivl["token"], "branch": BRANCH}
+call("POST", "/auth/quick-pin/offer/dismiss", {}, **IV)
+check("Maybe later: not offered again", call("GET", "/auth/me", **IV)["user"]["quick_pin_offer"] is False)
+r = call("POST", f"/users/{iv['id']}/invite", {"send_email": True}, expect=422)
+check("an account already set up is not invited again", "already set up" in r["error"]["message"], r)
+iv_audit = call("GET", "/audit?period=today&limit=300&module=users")["items"]
+check("invitations audited, never a link or PIN", any(a["action"] == "invite_link_created" for a in iv_audit) and tok(second_link) not in json.dumps(iv_audit) and "8642" not in json.dumps(iv_audit))
+# Step-up: a Quick PIN session asked for a full sign-in continues after the full PIN is confirmed.
+su_mail = f"stepup{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": f"Step Up {suffix}", "email": su_mail, "pin": "4321", "role_id": iv_roles["Tenant Administrator"], "all_branches": True, "branch_ids": []})
+SF = {"token": call("POST", "/auth/login", {"email": su_mail, "pin": "4321"})["token"], "branch": BRANCH}
+su_dev = call("PUT", "/auth/quick-pin", {"current_pin": "4321", "quick_pin": "2580", "device_name": "Office PC"}, **SF)
+SQ = {"token": call("POST", "/auth/quick-login", {"device_token": su_dev["device_token"], "pin": "2580"}, token="none", branch="none")["token"], "branch": BRANCH}
+body_ = {"name": f"Via Step Up {suffix}", "email": f"viastepup{suffix.lower()}@sshop.test", "role_id": iv_roles["Salesperson"], "all_branches": True, "branch_ids": []}
+r = call("POST", "/users", body_, **SQ, expect=422)
+check("creating a user from a Quick PIN session asks for a full sign-in (nothing created)", r["error"]["title"] == "Full sign-in needed" and not any(u["email"] == body_["email"] for u in call("GET", "/users")), r)
+r = call("POST", "/auth/step-up", {"pin": "2580"}, **SQ, expect=400)
+check("the Quick PIN is not accepted as the full sign-in", True)
+up = call("POST", "/auth/step-up", {"pin": "4321"}, **SQ)
+SU = {"token": up["token"], "branch": BRANCH}
+check("full PIN confirmed: a full session; the Quick one ends", call("GET", "/auth/me", **SU)["quick"] is False)
+call("GET", "/auth/me", **SQ, expect=401)
+made = call("POST", "/users", body_, **SU)
+check("the same request then succeeds once (no duplicate)", made["status"] == "invitation" and sum(1 for u in call("GET", "/users") if u["email"] == body_["email"]) == 1)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

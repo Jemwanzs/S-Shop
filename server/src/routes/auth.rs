@@ -14,8 +14,8 @@ use crate::auth::{client_meta, hash_pin, validate_pin, verify_pin, Ctx};
 use crate::error::{bad, AppError, AppResult};
 use crate::state::AppState;
 
-const MAX_ATTEMPTS: i32 = 5;
-const LOCK_MINUTES: i64 = 15;
+pub(crate) const MAX_ATTEMPTS: i32 = 5;
+pub(crate) const LOCK_MINUTES: i64 = 15;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -213,6 +213,8 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
             "preferences": super::prefs::Preferences::from_stored(preferences),
             // Signed in with a one-time PIN: the app asks for a new PIN before anything else (roadmap 59).
             "must_change_pin": sqlx::query_scalar::<_, bool>("SELECT must_change_pin FROM users WHERE id = $1").bind(user_id).fetch_one(&state.db).await?,
+            // Roadmap 105: offer Quick PIN once after the person set up their account.
+            "quick_pin_offer": sqlx::query_scalar::<_, bool>("SELECT quick_pin_offer FROM users WHERE id = $1").bind(user_id).fetch_one(&state.db).await?,
             // Used as the Current Branch after sign-in when the user works at several branches (roadmap 64).
             "default_branch_id": sqlx::query_scalar::<_, Option<Uuid>>("SELECT default_branch_id FROM users WHERE id = $1").bind(user_id).fetch_one(&state.db).await?,
         }),

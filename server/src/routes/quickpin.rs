@@ -35,6 +35,8 @@ pub fn routes() -> Router<AppState> {
         .route("/auth/quick-pin/devices/{id}", delete(revoke_device))
         .route("/auth/quick-pin/devices/revoke-all", post(revoke_all))
         .route("/auth/quick-login", post(quick_login))
+        .route("/auth/step-up", post(step_up))
+        .route("/auth/quick-pin/offer/dismiss", post(dismiss_offer))
         .route("/users/{id}/quick-pin/reset", post(admin_reset))
         .route("/security/quick-pin", get(tenant_policy).put(set_tenant_policy))
         .route("/platform/security", get(platform_get).put(platform_put))
@@ -132,6 +134,52 @@ async fn identity(state: &AppState, ctx: &Ctx) -> AppResult<Uuid> {
 }
 
 /// The full PIN, re-entered: proves it is the person before a Quick PIN or a device is set up.
+#[derive(Deserialize)]
+struct StepUpBody {
+    pin: String,
+}
+
+/// Roadmap 105: "Full sign-in needed" without leaving the screen — the person re-enters their full PIN / password and
+/// this Quick PIN session becomes a full one (a new session; the quick one ends). Wrong PINs count towards the same
+/// lockout as the sign-in page.
+async fn step_up(State(state): State<AppState>, headers: axum::http::HeaderMap, ctx: Ctx, Json(b): Json<StepUpBody>) -> AppResult<Json<Value>> {
+    let ident = identity(&state, &ctx).await?;
+    let (ip, ua) = client_meta(&headers);
+    state.limits.check(&ident.to_string(), "step_up", 10, std::time::Duration::from_secs(900))?;
+    let (hash, failed, locked): (String, i32, Option<chrono::DateTime<chrono::Utc>>) =
+        sqlx::query_as("SELECT pin_hash, failed_attempts, locked_until FROM users WHERE id = $1").bind(ident).fetch_one(&state.db).await?;
+    if locked.is_some_and(|t| t > chrono::Utc::now()) {
+        return Err(AppError::Forbidden("Too many attempts. Try again later.".into()));
+    }
+    if !verify_pin(&b.pin, &hash) {
+        let attempts = failed + 1;
+        let lock = (attempts >= super::auth::MAX_ATTEMPTS).then(|| chrono::Utc::now() + chrono::Duration::minutes(super::auth::LOCK_MINUTES));
+        let mut tx = state.db.begin().await?;
+        sqlx::query("UPDATE users SET failed_attempts = $2, locked_until = $3 WHERE id = $1")
+            .bind(ident)
+            .bind(if lock.is_some() { 0 } else { attempts })
+            .bind(lock)
+            .execute(&mut *tx)
+            .await?;
+        audit::system(&mut tx, ctx.tenant_id, Some(ctx.user_id), Entry::new("auth", "step_up_failed", "user", ctx.user_id), &ip, &ua).await?;
+        tx.commit().await?;
+        return Err(bad("That PIN is not correct"));
+    }
+    sqlx::query("UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = $1").bind(ident).execute(&state.db).await?;
+    let token = crate::sessions::issue(&state, ctx.user_id, ctx.tenant_id, crate::sessions::Kind::Full).await?;
+    crate::sessions::end(&state, ctx.session_id, ctx.user_id, ctx.tenant_id, "replaced").await?;
+    let mut tx = state.db.begin().await?;
+    audit::system(&mut tx, ctx.tenant_id, Some(ctx.user_id), Entry::new("auth", "step_up", "user", ctx.user_id), &ip, &ua).await?;
+    tx.commit().await?;
+    Ok(Json(json!({ "token": token })))
+}
+
+/// "Maybe later" (or set up) — the first-login Quick PIN offer is not shown again.
+async fn dismiss_offer(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    sqlx::query("UPDATE users SET quick_pin_offer = false WHERE id = $1").bind(ctx.user_id).execute(&state.db).await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
 async fn check_full_pin(state: &AppState, ident: Uuid, pin: &str) -> AppResult<()> {
     state.limits.check(&ident.to_string(), "quick_pin_setup", 10, std::time::Duration::from_secs(600))?;
     let hash: String = sqlx::query_scalar("SELECT pin_hash FROM users WHERE id = $1").bind(ident).fetch_one(&state.db).await?;

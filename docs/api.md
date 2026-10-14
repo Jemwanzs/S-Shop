@@ -70,9 +70,10 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | POST | `/api/branches` |
 | PUT | `/api/branches/{id}` — `hours`: omit = unchanged, `null` = follow the business, `{days[7], open, close}` = own hours (needs `settings.workspace`); `geofence: {latitude, longitude, radius_m, enabled}` (omit = unchanged; needs `settings.workspace`) |
 | GET | `/api/users` |
-| POST | `/api/users` |
+| POST | `/api/users` | name, email, phone, role, branches; no `pin` → invitation email with a single-use set-up link (returns `email_status`) |
 | PUT | `/api/users/{id}` |
 | POST | `/api/users/{id}/reset-pin` |
+| POST | `/api/users/{id}/invite` (`send_email`) | accounts not yet set up: email a new invitation, or return a new single-use activation `link` (earlier links end) |
 | GET | `/api/roles` |
 | POST | `/api/roles` |
 | PUT | `/api/roles/{id}` |
@@ -368,6 +369,8 @@ warning_seconds}`. `/api/platform/security` also carries `idle_default_minutes`,
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/auth/quick-pin` | available / reason, set, minimum length, trusted devices, `quick_session` |
+| POST | `/api/auth/step-up` (`pin`) | Quick PIN session → full session after the full PIN is confirmed (returns `token`) |
+| POST | `/api/auth/quick-pin/offer/dismiss` | the first-login Quick PIN offer is not shown again |
 | PUT / DELETE | `/api/auth/quick-pin` (`current_pin`, `quick_pin`, `device_name`) | full sign-in; returns `device_token` once · switch off (devices revoked) |
 | POST | `/api/auth/quick-pin/devices` (`current_pin`, `device_name`) · DELETE `/{id}` · POST `/revoke-all` | trust this device · remove one · sign out everywhere |
 | POST | `/api/auth/quick-login` (`device_token`, `pin`) | public, rate-limited; 400 wrong PIN, 403 locked, 422 *Full sign-in needed* |

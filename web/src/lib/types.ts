@@ -108,6 +108,8 @@ export interface Profile {
   user: { id: Id; name: string; email: string; role: string; all_branches: boolean; platform_admin: boolean; preferences: Preferences;
     /** Signed in with a one-time PIN: a new PIN is required before anything else (roadmap 59). */
     must_change_pin?: boolean;
+    /** Roadmap 105: offer Quick PIN once after the person set up their account. */
+    quick_pin_offer?: boolean;
     /** Current Branch after sign-in when the user works at several branches. */
     default_branch_id?: Id | null };
   tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null; is_demo: boolean; timezone: string };
@@ -453,6 +455,10 @@ export interface UserRow {
   linked_from?: string | null;
   /** Roadmap 83: has a Quick Login PIN. */
   quick_pin?: boolean;
+  /** Roadmap 105: invitation state (the account is not set up until the person creates their PIN). */
+  status?: "active" | "invitation_pending" | "invitation_sent" | "activation_pending" | "invitation_expired" | "disabled";
+  invite_sent_at?: string | null;
+  invite_expires_at?: string | null;
 }
 
 export interface Role {

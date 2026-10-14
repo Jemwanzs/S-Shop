@@ -537,6 +537,10 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   typed but unsaved input is protected (× / Escape / swipe-down ask *Discard changes?*), Escape closes freely when
   nothing would be lost; saves and existing flows unchanged. Applied centrally in the shared dialog, sheet and
   responsive dialog components. Gap closed: phone sheets had no × and a swipe could silently discard a form.
+- ✅ **105. Users are invited** — no administrator-chosen PIN: a single-use 72-hour set-up link by email, the person
+  sets their own PIN, statuses (invitation pending / sent / activation pending / expired / active / disabled),
+  resend, copy a new activation link, WhatsApp sign-in guidance (no secrets), a once-only Quick PIN offer, and
+  **step-up sign-in** so "Full sign-in needed" asks for the full PIN and continues the same request.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

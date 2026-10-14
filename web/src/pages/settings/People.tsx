@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Grid3x3, KeyRound, Link2, LocateFixed, Pencil, Plus, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Copy, Grid3x3, KeyRound, Link2, LocateFixed, Mail, MessageCircle, Pencil, Plus, ShieldCheck, UserX } from "lucide-react";
 import { Loading } from "@/components/Page";
 import { UserAccessDialog } from "./UserAccess";
 import { currentPosition } from "@/lib/location";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { ago, initials } from "@/lib/format";
+import { ago, dateTime, initials } from "@/lib/format";
+import { waNumber } from "@/lib/receipt";
+import type { Tone } from "@/components/Badges";
 import type { Hours, Role, UserRow } from "@/lib/types";
 import { HoursEditor, hoursLabel } from "@/components/Hours";
 import { Button } from "@/components/ui/button";
@@ -160,9 +162,16 @@ export function UsersSettings() {
     onSuccess: () => { toast.success("Quick PIN switched off on every device"); setQuickFor(null); qc.invalidateQueries({ queryKey: ["users"] }); },
     onError: (e) => toast.error(e),
   });
+  const [invited, setInvited] = useState<{ id: string; email_status: string | null; fresh: boolean } | null>(null);
   const save = useMutation({
-    mutationFn: (u: UserForm) => api(u.id ? `/users/${u.id}` : "/users", { method: u.id ? "PUT" : "POST", body: { ...u, pin: u.id ? undefined : u.pin } }),
-    onSuccess: () => { toast.success("User saved"); setEdit(null); qc.invalidateQueries({ queryKey: ["users"] }); },
+    // Roadmap 105: nobody chooses a PIN for a new user — they are invited to set their own.
+    mutationFn: (u: UserForm) => api<{ id: string; email_status?: string | null }>(u.id ? `/users/${u.id}` : "/users", { method: u.id ? "PUT" : "POST", body: { ...u, pin: undefined } }),
+    onSuccess: (r, u) => {
+      setEdit(null);
+      void qc.invalidateQueries({ queryKey: ["users"] });
+      if (u.id) toast.success("User saved");
+      else setInvited({ id: r.id, email_status: r.email_status ?? null, fresh: true });
+    },
     onError: (e) => toast.error(e),
   });
   const reset = useMutation({
@@ -182,11 +191,12 @@ export function UsersSettings() {
           <div key={u.id} className="flex items-center gap-3 py-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">{initials(u.name)}</span>
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2 font-medium">{u.name} <Pill tone="primary">{u.role_name}</Pill>{u.linked_from && <Pill tone="info">{t("Linked")} · {u.linked_from}</Pill>}{!u.is_active && <Pill tone="danger">{t("Inactive")}</Pill>}</div>
+              <div className="flex flex-wrap items-center gap-2 font-medium">{u.name} <Pill tone="primary">{u.role_name}</Pill>{u.linked_from && <Pill tone="info">{t("Linked")} · {u.linked_from}</Pill>}{u.status && u.status !== "active" ? <Pill tone={USER_STATUS[u.status][0]}>{t(USER_STATUS[u.status][1])}</Pill> : !u.is_active && <Pill tone="danger">{t("Inactive")}</Pill>}</div>
               <div className="truncate text-xs text-muted-foreground">
-                {u.email} · {u.all_branches ? "All branches" : u.branch_ids.map(branchName).join(", ")} · {u.last_login_at ? `active ${ago(u.last_login_at)}` : "never signed in"}
+                {u.email} · {u.all_branches ? "All branches" : u.branch_ids.map(branchName).join(", ")} · {u.status && INVITED.includes(u.status) ? `${t("invited")}${u.invite_sent_at ? ` ${ago(u.invite_sent_at)}` : ""}` : u.last_login_at ? `active ${ago(u.last_login_at)}` : "never signed in"}
               </div>
             </div>
+            {u.status && INVITED.includes(u.status) && !u.linked_from && <Button variant="ghost" size="icon-sm" onClick={() => setInvited({ id: u.id, email_status: null, fresh: false })} aria-label={t("Invitation")} title={t("Invitation")}><Mail /></Button>}
             <Button variant="ghost" size="icon-sm" onClick={() => setAccessFor(u)} aria-label={t("Roles & Access")}><ShieldCheck /></Button>
             {!u.linked_from && <Button variant="ghost" size="icon-sm" onClick={() => { setNewPin(""); setPinConfirm(""); setResetFor(u); }} aria-label="Reset PIN"><KeyRound /></Button>}
             {u.quick_pin && !u.linked_from && <Button variant="ghost" size="icon-sm" onClick={() => setQuickFor(u)} aria-label={t("Reset Quick PIN")} title={t("Reset Quick PIN")}><Grid3x3 /></Button>}
@@ -194,6 +204,11 @@ export function UsersSettings() {
           </div>
         ))}
       </Card>
+      {invited && data && (() => {
+        const u = data.find((x) => x.id === invited.id);
+        return u ? <InviteDialog user={u} business={profile?.tenant.name ?? ""} role={u.role_name} fresh={invited.fresh} emailStatus={invited.email_status}
+          onClose={() => setInvited(null)} onChanged={() => qc.invalidateQueries({ queryKey: ["users"] })} /> : null;
+      })()}
       {accessFor && <UserAccessDialog user={accessFor} branches={branches.data ?? []} onClose={() => setAccessFor(null)} />}
       <ConfirmDialog open={!!quickFor} onOpenChange={(o) => !o && setQuickFor(null)} title={`${t("Reset Quick PIN for")} ${quickFor?.name ?? ""}?`}
         description="Their Quick PIN is deleted and every trusted device needs their full sign-in again. Nobody can see a Quick PIN."
@@ -206,10 +221,9 @@ export function UsersSettings() {
         footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…"
           blockedBy={[
             (!edit?.name || !edit?.email || !edit?.role_id) && REASONS.completeFields,
-            !!edit && !edit.id && edit.pin.length < 4 && "PIN: 4+ characters",
-            !!edit && !edit.id && edit.pin !== pinConfirm && "PINs do not match",
+            !!edit && !edit.all_branches && edit.branch_ids.length === 0 && "Choose at least one branch",
           ]}
-          onAction={() => edit && save.mutateAsync(edit)}>{t("Save user")}</ActionButton>}
+          onAction={() => edit && save.mutateAsync(edit)}>{t(edit?.id ? "Save user" : "Create & invite")}</ActionButton>}
       >
         {edit && (
           <div className="grid gap-4 sm:grid-cols-2">
@@ -218,11 +232,14 @@ export function UsersSettings() {
                 {t("Signs in with their account in")} <b>{data?.find((u) => u.id === edit.id)?.linked_from}</b>. {t("Name, email and PIN are managed there; here you set their role, branches and access.")}
               </p>
             )}
-            <Field label="Name"><Input value={edit.name} disabled={!!data?.find((u) => u.id === edit.id)?.linked_from} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
-            <Field label="Email"><Input type="email" value={edit.email} disabled={!!data?.find((u) => u.id === edit.id)?.linked_from} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
-            <Field label="Phone" optional><Input value={edit.phone} disabled={!!data?.find((u) => u.id === edit.id)?.linked_from} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
-            {!edit.id && <Field label="Login PIN" hint="4–12 characters"><PasswordInput autoComplete="new-password" maxLength={12} value={edit.pin} onChange={(e) => setEdit({ ...edit, pin: e.target.value })} /></Field>}
-            {!edit.id && <Field label="Confirm PIN" hint={pinConfirm && pinConfirm !== edit.pin ? "PINs do not match" : undefined}><PasswordInput autoComplete="new-password" maxLength={12} value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value)} /></Field>}
+            {!edit.id && (
+              <p className="flex gap-2 rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground sm:col-span-2">
+                <Mail className="h-4 w-4 shrink-0" /> {t("No PIN needed: S'Shop emails them a secure link to create their own PIN. They can add a Quick PIN later.")}
+              </p>
+            )}
+            <Field label="Full name"><Input value={edit.name} disabled={!!data?.find((u) => u.id === edit.id)?.linked_from} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
+            <Field label="Email address"><Input type="email" value={edit.email} disabled={!!data?.find((u) => u.id === edit.id)?.linked_from} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
+            <Field label="Mobile number" optional><Input type="tel" inputMode="tel" value={edit.phone} disabled={!!data?.find((u) => u.id === edit.id)?.linked_from} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
             <Field label="Role" className="sm:col-span-2">
               <Select value={edit.role_id} onChange={(v) => setEdit({ ...edit, role_id: v })}>
                 <option value="">{t("Choose…")}</option>
@@ -254,6 +271,108 @@ export function UsersSettings() {
         </div>
       </ResponsiveDialog>
     </SettingsPage>
+  );
+}
+
+const INVITED = ["invitation_pending", "invitation_sent", "activation_pending", "invitation_expired"];
+const USER_STATUS: Record<string, [Tone, string]> = {
+  invitation_pending: ["warning", "Invitation pending"], invitation_sent: ["info", "Invitation sent"], activation_pending: ["info", "Activation pending"],
+  invitation_expired: ["danger", "Invitation expired"], disabled: ["danger", "Disabled"], active: ["success", "Active"],
+};
+
+/**
+ * Roadmap 105: after creating a user (and later from the list) — send the invitation again, share sign-in guidance on
+ * WhatsApp (never a PIN or the link), copy a new single-use activation link to share personally, or disable the user.
+ */
+function InviteDialog({ user, business, role, fresh, emailStatus, onClose, onChanged }: {
+  user: UserRow; business: string; role: string; fresh: boolean; emailStatus: string | null; onClose: () => void; onChanged: () => void;
+}) {
+  const { profile } = useSession();
+  const [mail, setMail] = useState<string | null>(emailStatus);
+  const [busy, setBusy] = useState<"" | "email" | "link" | "off">("");
+  const [link, setLink] = useState<{ link: string; expires_at: string } | null>(null);
+  const [confirmOff, setConfirmOff] = useState(false);
+  const first = user.name.split(" ")[0];
+  const loginUrl = `${window.location.origin}/login`;
+  const wa = [
+    "*Welcome to S'Shop!*", "",
+    `Hello ${first},`,
+    `You have been added to *${business}* on S'Shop as *${role}*.`, "",
+    `*Sign in:* ${loginUrl}`,
+    `*Email:* ${user.email}`, "",
+    "To activate your account, open the secure set-up link we emailed you and create your own PIN. The link expires in 72 hours.",
+    "Never share your PIN with anyone.", "",
+    `— ${profile?.user.name ?? ""}, ${business}`,
+  ].join("\n");
+  const resend = async () => {
+    setBusy("email");
+    try {
+      const r = await api<{ email_status: string }>(`/users/${user.id}/invite`, { body: { send_email: true } });
+      setMail(r.email_status);
+      if (r.email_status === "sent") toast.success("Invitation sent");
+      onChanged();
+    } catch (e) { toast.error(e); } finally { setBusy(""); }
+  };
+  const newLink = async () => {
+    setBusy("link");
+    try {
+      const r = await api<{ link: string; expires_at: string }>(`/users/${user.id}/invite`, { body: { send_email: false } });
+      setLink(r);
+      await navigator.clipboard?.writeText(r.link).then(() => toast.success("Activation link copied")).catch(() => undefined);
+      onChanged();
+    } catch (e) { toast.error(e); } finally { setBusy(""); }
+  };
+  const disable = async () => {
+    setBusy("off");
+    try {
+      await api(`/users/${user.id}`, { method: "PUT", body: { name: user.name, email: user.email, phone: user.phone, role_id: user.role_id, all_branches: user.all_branches, branch_ids: user.branch_ids, is_active: false } });
+      toast.success("User disabled");
+      onChanged();
+      onClose();
+    } catch (e) { toast.error(e); } finally { setBusy(""); setConfirmOff(false); }
+  };
+  const mailNote = mail === "sent" ? `${t("Invitation email sent to")} ${user.email}.`
+    : mail === "failed" ? t("The invitation email could not be sent. The user is saved — send it again, or share the activation link personally.")
+    : mail === "skipped" ? t("Email is not set up for S'Shop yet, so no invitation was emailed. Share the activation link personally.")
+    : null;
+  return (
+    <ResponsiveDialog open onOpenChange={(o) => !o && onClose()} confirmDiscard={false}
+      title={fresh ? "User created successfully" : `${t("Invitation")} · ${user.name}`}
+      description={fresh ? "The user has been added. You can now send their login instructions." : undefined}
+      footer={
+        <div className="flex w-full flex-wrap items-center justify-end gap-2">
+          <Button variant="outline" size="sm" disabled={!!busy} onClick={() => void resend()}><Mail /> {t(fresh && mail === "sent" ? "Send email again" : "Send email")}</Button>
+          <Button variant="success" size="sm" onClick={() => window.open(`https://wa.me/${waNumber(user.phone)}?text=${encodeURIComponent(wa)}`, "_blank", "noopener")}>
+            <MessageCircle /> {t("Share via WhatsApp")}
+          </Button>
+          <Button size="sm" onClick={onClose}>{t("Done")}</Button>
+        </div>
+      }>
+      <div className="space-y-3 py-1 text-sm">
+        {fresh && <p className="flex items-center gap-2 font-medium text-success"><CheckCircle2 className="h-4 w-4" /> {user.name} · {user.email}</p>}
+        {!fresh && user.status && <p className="flex items-center gap-2"><Pill tone={USER_STATUS[user.status][0]}>{t(USER_STATUS[user.status][1])}</Pill>
+          {user.invite_expires_at && <span className="text-xs text-muted-foreground">{t("Link valid until")} {dateTime(user.invite_expires_at)}</span>}</p>}
+        {mailNote && <p className={mail === "sent" ? "text-muted-foreground" : "rounded-lg bg-warning/10 p-2.5 text-warning"}>{mailNote}</p>}
+        <p className="text-xs text-muted-foreground">{t("WhatsApp opens with sign-in guidance for you to send — it never includes a PIN or the activation link.")}{!user.phone && ` ${t("No mobile number saved: choose the chat in WhatsApp.")}`}</p>
+        <div className="rounded-lg border p-3">
+          <p className="font-medium">{t("Activation link")}</p>
+          <p className="text-xs text-muted-foreground">{t("A new single-use link (72 hours) to share personally. It replaces earlier links. Anyone with it can set this account's PIN — share it only with the person.")}</p>
+          {link ? (
+            <div className="mt-2 flex items-center gap-2">
+              <input readOnly value={link.link} className="min-w-0 flex-1 truncate rounded-md border bg-muted/40 px-2 py-1.5 text-xs" data-dirty-ignore onFocus={(e) => e.currentTarget.select()} />
+              <Button size="sm" variant="outline" onClick={() => navigator.clipboard?.writeText(link.link).then(() => toast.success("Activation link copied"))}><Copy /></Button>
+            </div>
+          ) : (
+            <Button className="mt-2" size="sm" variant="outline" disabled={!!busy} onClick={() => void newLink()}><Copy /> {t("Copy activation link")}</Button>
+          )}
+        </div>
+        {!fresh && (
+          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setConfirmOff(true)}><UserX /> {t("Disable user")}</Button>
+        )}
+      </div>
+      <ConfirmDialog open={confirmOff} onOpenChange={setConfirmOff} title={`${t("Disable")} ${user.name}?`} description="They will not be able to set up or use their account until an administrator activates them again."
+        confirmLabel="Disable user" destructive busy={busy === "off"} onConfirm={() => void disable()} />
+    </ResponsiveDialog>
   );
 }
 

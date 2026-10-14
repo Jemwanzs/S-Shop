@@ -487,6 +487,7 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
                         client_ref: None,
                         exchange: None,
                         owner_id: None,
+                        redemption_approved: false,
                     },
                     true,
                 )

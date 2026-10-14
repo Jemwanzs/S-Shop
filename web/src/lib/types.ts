@@ -97,6 +97,15 @@ export interface Settings {
     award_winners: number;
     show_on_portal: boolean;
     show_value_on_portal: boolean;
+    /** Roadmap 106 */
+    earn_base: "net" | "gross";
+    earn_on_redeemed: boolean;
+    rounding: "down" | "nearest";
+    redemption_window_open: boolean;
+    redemption_opens_at: string | null;
+    redemption_closes_at: string | null;
+    max_redemption_percent: number;
+    redemption_needs_approval: boolean;
   };
   expenses: { require_attachment: boolean; require_description: boolean };
   reports: { hide_financials_without_permission: boolean; medals: MedalSettings };

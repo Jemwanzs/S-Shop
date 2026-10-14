@@ -2901,6 +2901,64 @@ call("POST", "/users", {"name": "Import Clerk", "email": s_mail, "pin": "4321", 
 call("GET", "/onboarding", token=call("POST", "/auth/login", {"email": s_mail, "pin": "4321"})["token"], expect=403)
 check("only people allowed to onboard data see the centre", True)
 
+step("Roadmap 106: loyalty earned on the payable amount; redemption window, minimum and the 50% cap")
+cfg106 = call("GET", "/settings")["settings"]
+orig106 = json.loads(json.dumps(cfg106))
+cfg106["loyalty"].update({"enabled": True, "threshold": 1000, "points_per": 1, "min_spend": 0, "point_value": 1, "redemption_enabled": True,
+                          "min_redemption_points": 10, "redemption_window_open": True, "redemption_opens_at": None, "redemption_closes_at": None,
+                          "max_redemption_percent": 50, "earn_base": "net", "earn_on_redeemed": False, "rounding": "down", "redemption_needs_approval": False})
+call("PUT", "/settings", cfg106)
+for bad_, why in [({"max_redemption_percent": 60}, "above 50%"), ({"earn_base": "list"}, "unknown base"),
+                  ({"redemption_opens_at": "2026-12-02T00:00:00Z", "redemption_closes_at": "2026-12-01T00:00:00Z"}, "closes before it opens")]:
+    call("PUT", "/settings", {**cfg106, "loyalty": {**cfg106["loyalty"], **bad_}}, expect=400)
+    check(f"loyalty settings refused: {why}", True)
+lp106 = call("POST", "/products", {"name": f"Loyalty Sofa {suffix}", "marked_price": 100000, "max_discount": 10000, "cost_price": 60000})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": lp106, "quantity": 10, "cost_price": 60000})
+m106 = "07" + str(int(time.time() * 7))[-8:]
+sale106 = lambda extra=None, price=100000, token=None: call("POST", "/sales", {"customer": {"mobile": m106, "first_name": "Wanjiru"},
+    "items": [{"product_id": lp106, "quantity": 1, "unit_price": price}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4()), **(extra or {})}, token=token)
+s1 = sale106(price=95000)["sale"]
+check("brief example: 100,000 − 5,000 discount = 95,000 payable → 95 points", s1["points_earned"] == 95 and float(s1["discount_total"]) == 5000, (s1["points_earned"], s1["discount_total"]))
+call("PUT", "/settings", {**cfg106, "loyalty": {**cfg106["loyalty"], "earn_base": "gross"}})
+s2 = sale106(price=95000)["sale"]
+check("gross base (when chosen): 100 points before the discount", s2["points_earned"] == 100, s2["points_earned"])
+call("PUT", "/settings", {**cfg106, "loyalty": {**cfg106["loyalty"], "point_value": 1000}})
+c106 = s1["customer"]["id"]
+r = call("POST", "/sales", {"customer_id": c106, "items": [{"product_id": lp106, "quantity": 1, "unit_price": 100000}],
+                            "payment": {"method": "cash"}, "redeem_points": 51, "client_ref": str(uuid.uuid4())}, expect=422)
+check("points can never pay more than 50% (51 × 1,000 on 100,000)", "at most 50%" in r["error"]["message"], r)
+s3 = call("POST", "/sales", {"customer_id": c106, "items": [{"product_id": lp106, "quantity": 1, "unit_price": 100000}],
+                             "payment": {"method": "cash"}, "redeem_points": 50, "client_ref": str(uuid.uuid4())})["sale"]
+check("exactly 50% redeemed: 50,000 by points, 50,000 by cash", float(s3["redeemed_value"]) == 50000 and float(s3["total"]) == 50000, (s3["redeemed_value"], s3["total"]))
+check("no points earned on the part paid with points (50 on the 50,000 paid)", s3["points_earned"] == 50, s3["points_earned"])
+call("PUT", "/settings", {**cfg106, "loyalty": {**cfg106["loyalty"], "point_value": 1000, "redemption_window_open": False}})
+redeem106 = lambda pts=5, expect=200: call("POST", "/sales", {"customer_id": c106, "items": [{"product_id": lp106, "quantity": 1, "unit_price": 100000}],
+                                                               "payment": {"method": "cash"}, "redeem_points": pts, "client_ref": str(uuid.uuid4())}, expect=expect)
+r = redeem106(expect=422)
+check("window closed: points cannot be redeemed", "window is closed" in r["error"]["message"], r)
+r = call("POST", f"/customers/{c106}/redeem", {"points": 5, "notes": "gift"}, expect=422)
+check("window closed: no redemption outside a sale either", "window is closed" in r["error"]["message"], r)
+cv106 = call("GET", f"/customers/{c106}")
+check("window closed: points still visible", cv106.get("customer", cv106)["points_available"] > 0, cv106.get("customer", cv106)["points_available"])
+future = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+call("PUT", "/settings", {**cfg106, "loyalty": {**cfg106["loyalty"], "point_value": 1000, "redemption_opens_at": future}})
+r = redeem106(expect=422)
+check("scheduled window not open yet: refused", "not opened yet" in r["error"]["message"], r)
+call("PUT", "/settings", {**cfg106, "loyalty": {**cfg106["loyalty"], "point_value": 1000, "min_redemption_points": 100000}})
+r = redeem106(expect=422)
+check("below the minimum balance: refused", "minimum balance" in r["error"]["message"], r)
+call("PUT", "/settings", {**cfg106, "loyalty": {**cfg106["loyalty"], "point_value": 1000, "redemption_needs_approval": True}})
+sp106 = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
+sp_mail = f"cashier106{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Cashier 106", "email": sp_mail, "pin": "4321", "role_id": sp106, "all_branches": True, "branch_ids": []})
+SP106 = call("POST", "/auth/login", {"email": sp_mail, "pin": "4321"})["token"]
+body106 = {"customer_id": c106, "items": [{"product_id": lp106, "quantity": 1, "unit_price": 100000}], "payment": {"method": "cash"}, "redeem_points": 5}
+r = call("POST", "/sales", {**body106, "client_ref": str(uuid.uuid4())}, token=SP106, expect=422)
+check("approval required: a cashier's redemption asks for a supervisor", "supervisor" in r["error"]["message"], r)
+ok106 = call("POST", "/sales", {**body106, "client_ref": str(uuid.uuid4()), "supervisor": {"email": EMAIL, "pin": PIN}}, token=SP106)["sale"]
+check("approved by a supervisor: redeemed", int(ok106["redeemed_points"]) == 5, ok106["redeemed_points"])
+call("PUT", "/settings", orig106)
+
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
 iv_mail = f"invitee{suffix.lower()}@sshop.test"

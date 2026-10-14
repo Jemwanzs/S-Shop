@@ -114,6 +114,27 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(mut body): J
     if body.loyalty.threshold <= Decimal::ZERO {
         return Err(bad("Loyalty spend threshold must be greater than zero"));
     }
+    // Roadmap 106: earning base, rounding, redemption window and the hard 50 % maximum.
+    if !matches!(body.loyalty.earn_base.as_str(), "net" | "gross") {
+        return Err(bad("Points are earned on the net payable or the gross amount"));
+    }
+    if !matches!(body.loyalty.rounding.as_str(), "down" | "nearest") {
+        return Err(bad("Points round down or to the nearest point"));
+    }
+    if !(1..=crate::settings::MAX_REDEMPTION_PERCENT).contains(&body.loyalty.max_redemption_percent) {
+        return Err(bad(format!("Points can pay between 1% and {}% of a sale", crate::settings::MAX_REDEMPTION_PERCENT)));
+    }
+    if body.loyalty.point_value <= Decimal::ZERO {
+        return Err(bad("The value of a point must be greater than zero"));
+    }
+    if body.loyalty.min_redemption_points < 0 {
+        return Err(bad("The minimum points to redeem cannot be negative"));
+    }
+    if let (Some(open), Some(close)) = (body.loyalty.redemption_opens_at, body.loyalty.redemption_closes_at) {
+        if close <= open {
+            return Err(bad("The redemption window must close after it opens"));
+        }
+    }
     if !(0..=100).contains(&body.loyalty.referral_bonus_percent) {
         return Err(bad("Referral bonus must be between 0 and 100%"));
     }

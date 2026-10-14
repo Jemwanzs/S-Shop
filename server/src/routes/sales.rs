@@ -193,6 +193,8 @@ pub struct SaleInput {
     pub exchange: Option<ExchangeCredit>,
     /// Sale Owner credited with the sale (None = the person recording it, who is always Recorded By).
     pub owner_id: Option<Uuid>,
+    /// Roadmap 106: a supervisor approved redeeming points (when the business requires it).
+    pub redemption_approved: bool,
 }
 
 pub struct ExchangeCredit {
@@ -224,7 +226,9 @@ struct PreparedLine {
     unit_price: Decimal,
     line_total: Decimal,
     unit_cost: Option<Decimal>,
-    points: i64,
+    loyalty_eligible: bool,
+    loyalty_threshold: Option<Decimal>,
+    loyalty_points_per: Option<i32>,
 }
 
 async fn verify_supervisor(conn: &mut PgConnection, ctx: &Ctx, sup: &Supervisor) -> AppResult<Uuid> {
@@ -324,7 +328,6 @@ async fn prepare_lines(
         }
 
         let line_total = round2(l.unit_price * Decimal::from(l.quantity));
-        let points = loyalty::line_points(s, p.loyalty_eligible, p.loyalty_threshold, p.loyalty_points_per, line_total);
         lines.push(PreparedLine {
             product_id: l.product_id,
             stock_item_id,
@@ -334,7 +337,9 @@ async fn prepare_lines(
             unit_price: l.unit_price,
             line_total,
             unit_cost,
-            points,
+            loyalty_eligible: p.loyalty_eligible,
+            loyalty_threshold: p.loyalty_threshold,
+            loyalty_points_per: p.loyalty_points_per,
         });
     }
     Ok((lines, excessive_discount))
@@ -437,9 +442,16 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         if input.customer_id.is_none() {
             return Err(rule("Select the customer redeeming points"));
         }
+        s.loyalty.redemption_open(Utc::now()).map_err(rule)?;
         redeemed_value = round2(Decimal::from(input.redeem_points) * s.loyalty.point_value);
-        if redeemed_value > net {
-            return Err(rule("Redeemed points are worth more than the sale"));
+        // Roadmap 106: never more than the business's share (hard maximum 50 %) of the sale — for every caller.
+        let pct = s.loyalty.redemption_percent();
+        let cap = round2(net * Decimal::from(pct) / Decimal::from(100));
+        if redeemed_value > cap {
+            return Err(rule(format!("Points can pay at most {pct}% of this sale ({cap}) — take the rest by another method")));
+        }
+        if s.loyalty.redemption_needs_approval && !input.redemption_approved && !ctx.can("loyalty.manage") {
+            return Err(rule("Redeeming points needs a supervisor's approval"));
         }
     }
     let total = round2(net - redeemed_value);
@@ -448,16 +460,22 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     let exchange_in = input.exchange.as_ref().map_or(Decimal::ZERO, |x| x.amount.max(Decimal::ZERO));
     let due_now = (total - exchange_in).max(Decimal::ZERO);
 
-    // Loyalty points (awarded after the sale rows exist).
+    // Loyalty points (awarded after the sale rows exist): on the eligible payable amount (roadmap 106) — net of
+    // discounts by default, and without the part paid with points unless the business chose otherwise.
     let mut points: i64 = 0;
+    let mut line_points = vec![0i64; lines.len()];
     if input.customer_id.is_some() && s.loyalty.enabled && net >= s.loyalty.min_spend {
-        let raw: i64 = lines.iter().map(|l| l.points).sum();
-        points = if net > Decimal::ZERO && redeemed_value > Decimal::ZERO {
-            use rust_decimal::prelude::ToPrimitive;
-            (Decimal::from(raw) * total / net).floor().to_i64().unwrap_or(0)
-        } else {
-            raw
-        };
+        let share = if redeemed_value > Decimal::ZERO && !s.loyalty.earn_on_redeemed && net > Decimal::ZERO { total / net } else { Decimal::ONE };
+        let earn: Vec<loyalty::EarnLine> = lines
+            .iter()
+            .map(|l| loyalty::EarnLine {
+                eligible: l.loyalty_eligible,
+                threshold: l.loyalty_threshold,
+                points_per: l.loyalty_points_per,
+                amount: if s.loyalty.earn_base == "gross" { l.marked_price * Decimal::from(l.quantity) } else { l.line_total } * share,
+            })
+            .collect();
+        (points, line_points) = loyalty::sale_points(s, &earn);
     }
 
     // Payment validation. A credit sale may take a deposit now; the rest stays on credit.
@@ -527,10 +545,8 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     }
 
     let kind = if input.order_id.is_some() { "order_completion" } else { "sale" };
-    let raw_points: i64 = lines.iter().map(|l| l.points).sum();
-    for l in &lines {
+    for (l, line_points) in lines.iter().zip(line_points) {
         // Persist the points actually awarded per line so returns reverse exactly.
-        let line_points = if raw_points > 0 { l.points * points / raw_points } else { 0 };
         sqlx::query(
             "INSERT INTO sale_items (tenant_id, sale_id, product_id, stock_item_id, barcode, quantity, marked_price, unit_price,
                                      line_total, unit_cost, points)
@@ -880,23 +896,60 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
     };
 
     let mut approved_by = approved;
-    if approved.is_some() {
+    // Roadmap 106: when redeeming points needs a supervisor, one who may manage loyalty (or approve discounts) approves.
+    let redeem_approval = b.redeem_points > 0 && s.loyalty.redemption_needs_approval;
+    let mut redemption_approved = false;
+    let can_approve_redemption = |perms: &[String]| perms.iter().any(|p| p == "*" || p == "loyalty.manage" || p == "sales.discount_override");
+    if let Some(approver) = approved {
         // Verified when the sale was submitted (a sale that waited for its STK Push).
-    } else if let Some(sup) = &b.supervisor {
-        let approver = verify_supervisor(&mut *tx, &ctx, sup).await?;
-        let allowed = if workflow::needs_approval(&mut *tx, &ctx, "sale.discount", workflow::Gate::branch(branch)).await? {
-            workflow::can_decide(&mut *tx, ctx.tenant_id, "sale.discount", Some(branch), Some(ctx.user_id), workflow::Decider { approver, level: 1, decided_by: &[] }).await?
-        } else {
+        if redeem_approval {
             let perms: Vec<String> = sqlx::query_scalar("SELECT r.permissions FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1")
                 .bind(approver)
                 .fetch_one(&mut *tx)
                 .await?;
+            redemption_approved = can_approve_redemption(&perms);
+        }
+    } else if let Some(sup) = &b.supervisor {
+        let approver = verify_supervisor(&mut *tx, &ctx, sup).await?;
+        let perms: Vec<String> = sqlx::query_scalar("SELECT r.permissions FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1")
+            .bind(approver)
+            .fetch_one(&mut *tx)
+            .await?;
+        let allowed = if workflow::needs_approval(&mut *tx, &ctx, "sale.discount", workflow::Gate::branch(branch)).await? {
+            workflow::can_decide(&mut *tx, ctx.tenant_id, "sale.discount", Some(branch), Some(ctx.user_id), workflow::Decider { approver, level: 1, decided_by: &[] }).await?
+        } else {
             perms.iter().any(|p| p == "*" || p == "sales.discount_override")
         };
-        if !allowed {
-            return Err(rule("That supervisor cannot approve discounts"));
+        redemption_approved = redeem_approval && can_approve_redemption(&perms);
+        if !allowed && !redemption_approved {
+            return Err(rule(if redeem_approval { "That supervisor cannot approve points redemption" } else { "That supervisor cannot approve discounts" }));
         }
-        approved_by = Some(approver);
+        // Discounts stay approved only by someone allowed to approve discounts.
+        if allowed {
+            approved_by = Some(approver);
+        }
+        if redemption_approved && !allowed {
+            approved_by = Some(approver);
+            let input = SaleInput {
+                branch_id: branch,
+                customer_id,
+                lines: b.items.clone(),
+                payment: b.payment.clone(),
+                redeem_points: 0,
+                due_date: None,
+                deposit: None,
+                notes: String::new(),
+                approved_by: None,
+                order_id: None,
+                client_ref: None,
+                exchange: None,
+                owner_id: None,
+                redemption_approved: false,
+            };
+            if prepare_lines(&mut *tx, &ctx, &s, &input, false).await?.1 && !ctx.can("sales.discount_override") {
+                return Err(rule("That supervisor can approve the points, not the discount — a discount exceeds the allowed maximum"));
+            }
+        }
     } else if workflow::needs_approval(&mut *tx, &ctx, "sale.discount", workflow::Gate::branch(branch)).await? {
         // With the workflow on, even override holders need a second person for excessive discounts.
         let input = SaleInput {
@@ -913,6 +966,7 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
             client_ref: None,
             exchange: None,
             owner_id: None,
+            redemption_approved: false,
         };
         let (_, excessive) = prepare_lines(&mut *tx, &ctx, &s, &input, false).await?;
         if excessive {
@@ -939,6 +993,7 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
             client_ref: b.client_ref,
             exchange: None,
             owner_id,
+            redemption_approved,
         },
         false,
     )
@@ -1851,6 +1906,7 @@ async fn execute_exchange(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings
             exchange: Some(ExchangeCredit { amount: credit, reference: return_no.clone() }),
             // The replacement goods are credited to whoever owned the original sale (no new attribution).
             owner_id: head.owner_id,
+            redemption_approved: false,
         },
         false,
     )

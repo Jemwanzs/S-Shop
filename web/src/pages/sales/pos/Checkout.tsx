@@ -15,7 +15,8 @@ import { PasswordInput } from "@/components/PasswordInput";
 import { Field } from "@/components/Form";
 import { Chip } from "@/components/Filters";
 import { PointsPill } from "@/components/Badges";
-import { exceedsMax, lineTotal, linePoints, marked, totals, type CartLine } from "./cart";
+import { exceedsMax, lineTotal, marked, salePoints, totals, type CartLine } from "./cart";
+import { redemptionBlocked } from "@/lib/loyalty";
 import { t as tr } from "@/lib/i18n";
 import { SShopLoader } from "@/components/SShopLoader";
 
@@ -44,11 +45,13 @@ const STK_LABEL: Record<StkSale["status"], string> = {
 export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEdit: (l: CartLine) => void; onRemove: (key: string) => void }) {
   const { profile } = useSession();
   const s = profile!.settings;
+  const net = lines.reduce((a, l) => a + lineTotal(l), 0);
+  const earned = net >= toNum(s.loyalty.min_spend) ? salePoints(lines, s).perLine : new Map<string, number>();
   return (
     <ul className="divide-y">
       {lines.map((l) => {
         const disc = marked(l) - l.unitPrice;
-        const pts = linePoints(l, s);
+        const pts = earned.get(l.key) ?? 0;
         return (
           <li key={l.key} className="flex gap-3 py-3">
             <div className="min-w-0 flex-1">
@@ -143,8 +146,12 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   const stkMode = method === "mpesa" && stkReady && (mpesaMode === "stk" || !manualMpesa);
   const stkWaiting = stkSale?.status === "awaiting";
   const excessive = lines.some(exceedsMax) && !can("sales.discount_override");
-  const showSupervisor = excessive || needSupervisor;
-  const canRedeem = s.loyalty.enabled && s.loyalty.redemption_enabled && can("customers.redeem_points") && !!customer && customer.points_available >= s.loyalty.min_redemption_points;
+  // Roadmap 106: redemption window, minimum, 50 % cap and (optionally) a supervisor — the server enforces each.
+  const redeemBlocked = redemptionBlocked(s.loyalty);
+  const redeemApproval = redeemPts > 0 && s.loyalty.redemption_needs_approval && !can("loyalty.manage");
+  const showSupervisor = excessive || needSupervisor || redeemApproval;
+  const canRedeem = !redeemBlocked && can("customers.redeem_points") && !!customer && customer.points_available >= s.loyalty.min_redemption_points;
+  const showPoints = s.loyalty.enabled && !!customer && customer.points_available > 0 && can("customers.redeem_points");
 
   // Poll STK status until it settles (live SSE events also refresh it).
   const stkStatus = useQuery({
@@ -292,6 +299,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   if (stkMode && payPhone.replace(/\D/g, "").length < 9) blockers.push("Enter the customer's M-Pesa number");
   if (stkWaiting) blockers.push("Waiting for the M-Pesa payment");
   if (redeemPts > 0 && customer && redeemPts > customer.points_available) blockers.push("Not enough points");
+  if (redeemPts > 0 && t.redeemValue > t.cap.value) blockers.push(`Points can pay at most ${t.cap.pct}% of this sale`);
 
   return (
     <div className="space-y-5">
@@ -447,16 +455,23 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
         <section className="space-y-2 rounded-xl border border-points/30 bg-points/5 p-3">
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium">{tr("Redeem points")}</span>
-            <button className="text-xs text-points underline" onClick={() => setRedeem(String(Math.min(customer!.points_available, Math.floor(t.net / Math.max(toNum(s.loyalty.point_value), 0.0001)))))}>{tr("Use max")}</button>
+            <button className="text-xs text-points underline" onClick={() => setRedeem(String(Math.min(customer!.points_available, t.cap.points)))}>{tr("Use max")}</button>
           </div>
-          <Input inputMode="numeric" className="num" placeholder={`Up to ${count(customer!.points_available)} points`} value={redeem} onChange={(e) => setRedeem(e.target.value.replace(/\D/g, ""))} />
-          {redeemPts > 0 && <p className="num text-xs text-muted-foreground">{tr("Worth")} {money(t.redeemValue)}</p>}
+          <Input inputMode="numeric" className="num" placeholder={`Up to ${count(Math.min(customer!.points_available, t.cap.points))} points`} value={redeem} onChange={(e) => setRedeem(e.target.value.replace(/\D/g, ""))} />
+          <p className="num text-xs text-muted-foreground">
+            {redeemPts > 0 && <>{tr("Worth")} {money(t.redeemValue)} · </>}{tr("Points can pay up to")} {t.cap.pct}% ({money(t.cap.value)})
+          </p>
         </section>
+      )}
+      {!canRedeem && showPoints && (
+        <p className="rounded-xl border border-points/30 bg-points/5 p-3 text-xs text-muted-foreground">
+          <span className="num font-medium text-points">{count(customer!.points_available)} {tr("points")}</span> · {tr(redeemBlocked ?? `A minimum balance of ${s.loyalty.min_redemption_points} points is required to redeem`)}
+        </p>
       )}
 
       {showSupervisor && (
         <section className="space-y-2 rounded-xl border border-warning/40 bg-warning/5 p-3">
-          <p className="flex items-center gap-2 text-sm font-medium text-warning"><ShieldCheck className="h-4 w-4" /> {tr("Supervisor approval for discount")}</p>
+          <p className="flex items-center gap-2 text-sm font-medium text-warning"><ShieldCheck className="h-4 w-4" /> {tr(redeemApproval && !excessive ? "Supervisor approval for points redemption" : "Supervisor approval for discount")}</p>
           <div className="grid grid-cols-2 gap-2">
             <Input type="email" placeholder="Supervisor email" value={supEmail} onChange={(e) => setSupEmail(e.target.value)} />
             <PasswordInput placeholder="PIN" autoComplete="off" value={supPin} onChange={(e) => setSupPin(e.target.value)} />

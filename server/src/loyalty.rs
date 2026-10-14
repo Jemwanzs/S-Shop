@@ -12,17 +12,60 @@ use uuid::Uuid;
 use crate::error::{rule, AppResult};
 use crate::settings::TenantSettings;
 
-/// Points a single sale line earns.
-pub fn line_points(s: &TenantSettings, eligible: bool, threshold: Option<Decimal>, points_per: Option<i32>, line_total: Decimal) -> i64 {
-    if !s.loyalty.enabled || !eligible || line_total <= Decimal::ZERO {
-        return 0;
+/// One line's part in a sale's points: whether it earns, its rate (product override or the business's) and the amount
+/// it earns on (net or gross per the earning base, already reduced when redeemed value earns nothing).
+pub struct EarnLine {
+    pub eligible: bool,
+    pub threshold: Option<Decimal>,
+    pub points_per: Option<i32>,
+    pub amount: Decimal,
+}
+
+/// Roadmap 106: a sale's points are worked out on the eligible amount per earning rate (not rounded line by line,
+/// so 95,000 at 1 point per 1,000 is 95 even across several lines), then shared back over the lines (largest
+/// remainder) so returns reverse exactly what each line earned. Returns (total, per line).
+pub fn sale_points(s: &TenantSettings, lines: &[EarnLine]) -> (i64, Vec<i64>) {
+    let mut per_line = vec![0i64; lines.len()];
+    if !s.loyalty.enabled {
+        return (0, per_line);
     }
-    let threshold = threshold.unwrap_or(s.loyalty.threshold);
-    if threshold <= Decimal::ZERO {
-        return 0;
+    // Group by rate.
+    let mut groups: Vec<((Decimal, i64), Vec<usize>)> = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        let threshold = l.threshold.unwrap_or(s.loyalty.threshold);
+        let per = l.points_per.map(i64::from).unwrap_or(s.loyalty.points_per);
+        if !l.eligible || l.amount <= Decimal::ZERO || threshold <= Decimal::ZERO || per <= 0 {
+            continue;
+        }
+        match groups.iter_mut().find(|(k, _)| *k == (threshold, per)) {
+            Some((_, v)) => v.push(i),
+            None => groups.push(((threshold, per), vec![i])),
+        }
     }
-    let per = points_per.map(i64::from).unwrap_or(s.loyalty.points_per);
-    (line_total / threshold).floor().to_i64().unwrap_or(0) * per
+    let mut total = 0i64;
+    for ((threshold, per), idx) in groups {
+        let amount: Decimal = idx.iter().map(|&i| lines[i].amount).sum();
+        let blocks = amount / threshold;
+        // "Nearest" rounds halves up (2.5 → 3), as people expect — not banker's rounding.
+        let blocks = if s.loyalty.rounding == "nearest" { blocks.round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero) } else { blocks.floor() };
+        let points = blocks.to_i64().unwrap_or(0) * per;
+        total += points;
+        // Share the group's points over its lines by amount; leftovers to the largest remainders.
+        let mut given = 0i64;
+        let mut rest: Vec<(Decimal, usize)> = Vec::new();
+        for &i in &idx {
+            let exact = Decimal::from(points) * lines[i].amount / amount;
+            let whole = exact.floor().to_i64().unwrap_or(0);
+            per_line[i] = whole;
+            given += whole;
+            rest.push((exact - Decimal::from(whole), i));
+        }
+        rest.sort_by(|a, b| b.0.cmp(&a.0));
+        for (_, i) in rest.into_iter().take((points - given).max(0) as usize) {
+            per_line[i] += 1;
+        }
+    }
+    (total, per_line)
 }
 
 pub fn referral_bonus(s: &TenantSettings, points: i64) -> i64 {
@@ -227,9 +270,7 @@ pub async fn redeem(
     user_id: Option<Uuid>,
     note: &str,
 ) -> AppResult<Decimal> {
-    if !s.loyalty.enabled || !s.loyalty.redemption_enabled {
-        return Err(rule("Points redemption is turned off"));
-    }
+    s.loyalty.redemption_open(chrono::Utc::now()).map_err(rule)?;
     if points <= 0 {
         return Err(rule("Enter the number of points to redeem"));
     }
@@ -308,13 +349,51 @@ pub async fn expire_due(conn: &mut PgConnection, tenant_id: Uuid, today: NaiveDa
 mod tests {
     use super::*;
 
+    fn line(eligible: bool, threshold: Option<i64>, per: Option<i32>, amount: i64) -> EarnLine {
+        EarnLine { eligible, threshold: threshold.map(|t| Decimal::new(t, 0)), points_per: per, amount: Decimal::new(amount, 0) }
+    }
+
     #[test]
     fn legacy_points_rule() {
         let s = TenantSettings::default(); // 1 point per 500
-        assert_eq!(line_points(&s, true, None, None, Decimal::new(1499, 0)), 2);
+        assert_eq!(sale_points(&s, &[line(true, None, None, 1499)]).0, 2);
         // product override: 2 points per 1000 (legacy "Classic Watch")
-        assert_eq!(line_points(&s, true, Some(Decimal::new(1000, 0)), Some(2), Decimal::new(5000, 0)), 10);
-        assert_eq!(line_points(&s, false, None, None, Decimal::new(5000, 0)), 0);
+        assert_eq!(sale_points(&s, &[line(true, Some(1000), Some(2), 5000)]).0, 10);
+        assert_eq!(sale_points(&s, &[line(false, None, None, 5000)]).0, 0);
+    }
+
+    #[test]
+    fn points_on_the_payable_amount_not_line_by_line() {
+        // Roadmap 106 brief: 100,000 − 5,000 discount = 95,000 payable at 1 point per 1,000 → 95.
+        let mut s = TenantSettings::default();
+        s.loyalty.threshold = Decimal::new(1000, 0);
+        assert_eq!(sale_points(&s, &[line(true, None, None, 95_000)]).0, 95);
+        // Spread over lines that each round down (3 × 999 = 2,997 → 2 points, not 0); shared back without loss.
+        let (total, per_line) = sale_points(&s, &[line(true, None, None, 999), line(true, None, None, 999), line(true, None, None, 999)]);
+        assert_eq!(total, 2);
+        assert_eq!(per_line.iter().sum::<i64>(), 2);
+        // Different rates are kept apart; ineligible lines earn nothing.
+        let (total, per_line) = sale_points(&s, &[line(true, None, None, 2500), line(true, Some(500), Some(3), 1000), line(false, None, None, 9000)]);
+        assert_eq!((total, per_line), (2 + 6, vec![2, 6, 0]));
+        s.loyalty.rounding = "nearest".into();
+        assert_eq!(sale_points(&s, &[line(true, None, None, 2500)]).0, 3);
+    }
+
+    #[test]
+    fn redemption_window_and_cap() {
+        let mut l = TenantSettings::default().loyalty;
+        let now = chrono::Utc::now();
+        assert!(l.redemption_open(now).is_ok());
+        l.redemption_window_open = false;
+        assert!(l.redemption_open(now).is_err());
+        l.redemption_window_open = true;
+        l.redemption_opens_at = Some(now + chrono::Duration::hours(1));
+        assert!(l.redemption_open(now).is_err());
+        l.redemption_opens_at = Some(now - chrono::Duration::hours(1));
+        l.redemption_closes_at = Some(now - chrono::Duration::minutes(1));
+        assert!(l.redemption_open(now).is_err());
+        l.max_redemption_percent = 90;
+        assert_eq!(l.redemption_percent(), 50);
     }
 
     #[test]

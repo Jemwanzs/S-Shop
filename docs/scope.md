@@ -542,6 +542,18 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   resend, copy a new activation link, WhatsApp sign-in guidance (no secrets), a once-only Quick PIN offer, and
   **step-up sign-in** so "Full sign-in needed" asks for the full PIN and continues the same request.
 
+**Loyalty rewards, split payments, credit & configurable POS** ([module 34](modules/34-loyalty-payments-pos.md)):
+- ✅ **106. Loyalty earning & redemption controls** — earning base (net payable default / gross), points never earned
+  on value paid with points (explicit), rounding, redemption window (manual + scheduled), minimum points, rate, hard
+  50 % maximum per sale enforced by the server, optional supervisor approval, audited settings.
+- ⏳ **107. Split payments & partial payment → credit** — several payment lines (cash, M-PESA/STK, others, points) on
+  one sale, remainder on credit linked to the sale, stock deducted once, receipts / history / statuses / reports.
+- ⏳ **108. Landing page after sign-in** — business default and personal choice, after picking the branch.
+- ⏳ **109. POS display** — compact / image cards / list rows, images, tablet & desktop columns, price visibility;
+  product-list thumbnails and prices.
+- ⏳ **110. Top-selling products** — quantity / value / number of sales, today / week (Monday) / month, Gold ★★★★★,
+  Silver ★★★, Bronze ★★, predictable ordering with search, categories and favourites.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

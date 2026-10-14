@@ -49,6 +49,7 @@
 | 31 | Product User Manual (PDF) | [modules/31-product-user-manual.md](modules/31-product-user-manual.md) |
 | 32 | M-Pesa per business & STK Push sales | [modules/32-mpesa-stk.md](modules/32-mpesa-stk.md) |
 | 33 | Business onboarding & data migration | [modules/33-onboarding.md](modules/33-onboarding.md) |
+| 34 | Loyalty rewards, split payments, credit & configurable POS | [modules/34-loyalty-payments-pos.md](modules/34-loyalty-payments-pos.md) |
 
 ## Glossary
 

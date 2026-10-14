@@ -303,7 +303,49 @@ pub struct LoyaltySettings {
     pub award_winners: usize,
     pub show_on_portal: bool,
     pub show_value_on_portal: bool,
+    /// Roadmap 106: points are earned on the net payable amount (after discounts, default) or the gross amount.
+    pub earn_base: String,
+    /// The part of a sale paid with redeemed points earns points too (off by default: never reward a reward).
+    pub earn_on_redeemed: bool,
+    /// Points rounding: "down" (default) or "nearest".
+    pub rounding: String,
+    /// Redemption window, opened / closed by hand, optionally within scheduled dates (business time zone, UTC stored).
+    pub redemption_window_open: bool,
+    pub redemption_opens_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub redemption_closes_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// At most this % of a sale's net value may be paid with points — never above MAX_REDEMPTION_PERCENT.
+    pub max_redemption_percent: i64,
+    /// Redeeming points at the counter needs a supervisor (email + PIN).
+    pub redemption_needs_approval: bool,
 }
+
+/// The hard ceiling on paying a sale with points, whatever the settings say.
+pub const MAX_REDEMPTION_PERCENT: i64 = 50;
+
+impl LoyaltySettings {
+    /// Can points be redeemed right now? `Err` says why not.
+    pub fn redemption_open(&self, now: chrono::DateTime<chrono::Utc>) -> Result<(), String> {
+        if !self.enabled || !self.redemption_enabled {
+            return Err("Points redemption is turned off".into());
+        }
+        if !self.redemption_window_open {
+            return Err("The points redemption window is closed".into());
+        }
+        if self.redemption_opens_at.is_some_and(|t| now < t) {
+            return Err("The points redemption window has not opened yet".into());
+        }
+        if self.redemption_closes_at.is_some_and(|t| now >= t) {
+            return Err("The points redemption window has closed".into());
+        }
+        Ok(())
+    }
+
+    /// The share of a sale points may pay (0–50 %).
+    pub fn redemption_percent(&self) -> i64 {
+        self.max_redemption_percent.clamp(0, MAX_REDEMPTION_PERCENT)
+    }
+}
+
 impl Default for LoyaltySettings {
     fn default() -> Self {
         Self {
@@ -324,6 +366,14 @@ impl Default for LoyaltySettings {
             award_winners: 5,
             show_on_portal: true,
             show_value_on_portal: true,
+            earn_base: "net".into(),
+            earn_on_redeemed: false,
+            rounding: "down".into(),
+            redemption_window_open: true,
+            redemption_opens_at: None,
+            redemption_closes_at: None,
+            max_redemption_percent: MAX_REDEMPTION_PERCENT,
+            redemption_needs_approval: false,
         }
     }
 }

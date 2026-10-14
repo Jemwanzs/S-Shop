@@ -24,6 +24,7 @@ import { t } from "@/lib/i18n";
 import { t as tr } from "@/lib/i18n";
 import { Receipt } from "@/components/Receipt";
 import type { ReceiptSnapshot } from "@/lib/receipt";
+import { redemptionBlocked } from "@/lib/loyalty";
 
 type Draft = ReturnType<typeof useSettingsDraft>;
 
@@ -327,6 +328,15 @@ export function CustomerSettings() {
   );
 }
 
+/** `<input type="datetime-local">` works in the device's local time; settings store UTC. */
+const toLocalInput = (iso: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
+const fromLocalInput = (v: string) => (v ? new Date(v).toISOString() : null);
+
+
 export function LoyaltySettings() {
   const d = useSettingsDraft();
   return (
@@ -338,6 +348,20 @@ export function LoyaltySettings() {
             <Row label="Spend per block" hint="Every X spent earns the points below">{numInput(s.loyalty.threshold, (n) => d.update((x) => { x.loyalty.threshold = n; }), true)}</Row>
             <Row label="Points per block">{numInput(s.loyalty.points_per, (n) => d.update((x) => { x.loyalty.points_per = n; }))}</Row>
             <Row label="Minimum sale to earn">{numInput(s.loyalty.min_spend, (n) => d.update((x) => { x.loyalty.min_spend = n; }), true)}</Row>
+            <Row label="Earn points on" hint="Net payable is what the customer actually pays, after discounts">
+              <Select value={s.loyalty.earn_base} onChange={(v) => d.update((x) => { x.loyalty.earn_base = v as "net" | "gross"; })} className="w-72 max-w-full">
+                <option value="net">{tr("Net payable (after discounts)")}</option>
+                <option value="gross">{tr("Gross selling amount (before discounts)")}</option>
+              </Select>
+            </Row>
+            <Row label="Rounding" hint="Applied to the whole sale, per earning rate">
+              <Select value={s.loyalty.rounding} onChange={(v) => d.update((x) => { x.loyalty.rounding = v as "down" | "nearest"; })} className="w-56">
+                <option value="down">{tr("Round down")}</option>
+                <option value="nearest">{tr("Nearest point")}</option>
+              </Select>
+            </Row>
+            <ToggleRow label="Earn points on the part paid with points" hint="Off: value settled with redeemed points never earns points again"
+              checked={s.loyalty.earn_on_redeemed} onChange={(v) => d.update((x) => { x.loyalty.earn_on_redeemed = v; })} />
             <Row label="Referral bonus (%)" hint="Share of a referred customer's points given to the referrer">{numInput(s.loyalty.referral_bonus_percent, (n) => d.update((x) => { x.loyalty.referral_bonus_percent = n; }))}</Row>
             <Row label="Points expire after (days)" hint="0 = never">{numInput(s.loyalty.expiry_days, (n) => d.update((x) => { x.loyalty.expiry_days = n; }))}</Row>
           </Card>
@@ -345,6 +369,22 @@ export function LoyaltySettings() {
             <ToggleRow label="Allow redemption" checked={s.loyalty.redemption_enabled} onChange={(v) => d.update((x) => { x.loyalty.redemption_enabled = v; })} />
             <Row label="Value of 1 point">{numInput(s.loyalty.point_value, (n) => d.update((x) => { x.loyalty.point_value = n; }), true)}</Row>
             <Row label="Minimum balance to redeem">{numInput(s.loyalty.min_redemption_points, (n) => d.update((x) => { x.loyalty.min_redemption_points = n; }))}</Row>
+            <Row label="Maximum per sale (%)" hint="Share of the sale points may pay — never more than 50%">
+              {numInput(s.loyalty.max_redemption_percent, (n) => d.update((x) => { x.loyalty.max_redemption_percent = Math.min(50, Math.max(1, Math.round(n))); }))}
+            </Row>
+            <ToggleRow label="Redemption window open" hint="Closed: customers see their points but cannot redeem them"
+              checked={s.loyalty.redemption_window_open} onChange={(v) => d.update((x) => { x.loyalty.redemption_window_open = v; })} />
+            <div className="grid gap-3 py-2 sm:grid-cols-2">
+              <Field label="Opens (optional)" hint="Your device's local time">
+                <Input type="datetime-local" value={toLocalInput(s.loyalty.redemption_opens_at)} onChange={(e) => d.update((x) => { x.loyalty.redemption_opens_at = fromLocalInput(e.target.value); })} />
+              </Field>
+              <Field label="Closes (optional)">
+                <Input type="datetime-local" value={toLocalInput(s.loyalty.redemption_closes_at)} onChange={(e) => d.update((x) => { x.loyalty.redemption_closes_at = fromLocalInput(e.target.value); })} />
+              </Field>
+            </div>
+            <ToggleRow label="Redeeming needs a supervisor" hint="At the counter, a supervisor confirms with their email and PIN"
+              checked={s.loyalty.redemption_needs_approval} onChange={(v) => d.update((x) => { x.loyalty.redemption_needs_approval = v; })} />
+            <p className="py-2 text-xs text-muted-foreground"><b>{tr("Right now")}:</b> {tr(redemptionBlocked(s.loyalty) ?? "Customers can redeem points")}</p>
           </Card>
           <Card title="Tiers" action={<Button size="sm" variant="outline" onClick={() => d.update((x) => { x.loyalty.tiers.push({ name: "", min_spend: 0 }); })}><Plus /> {tr("Add tier")}</Button>}>
             {s.loyalty.tiers.map((t, i) => (

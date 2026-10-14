@@ -738,7 +738,12 @@ async fn create_user(State(state): State<AppState>, ctx: Ctx, Json(b): Json<User
 
 /// A fresh single-use set-up link (earlier ones stop working).
 async fn issue_invite(conn: &mut sqlx::PgConnection, ctx: &Ctx, user: Uuid) -> AppResult<String> {
-    let (token, expires) = crate::mailer::issue_token(conn, "setup", Some(user), None, Some(ctx.user_id), "").await?;
+    // Roadmap 111: a 10-minute single-use invitation; it also ends any older unused set-up link for this person.
+    sqlx::query("UPDATE auth_tokens SET revoked_at = now() WHERE user_id = $1 AND kind = 'setup' AND used_at IS NULL AND revoked_at IS NULL")
+        .bind(user)
+        .execute(&mut *conn)
+        .await?;
+    let (token, expires) = crate::mailer::issue_token(conn, "invite", Some(user), None, Some(ctx.user_id), "").await?;
     sqlx::query("UPDATE users SET invite_expires_at = $2, invite_opened_at = NULL WHERE id = $1").bind(user).bind(expires).execute(&mut *conn).await?;
     Ok(token)
 }
@@ -759,7 +764,8 @@ async fn send_invite(state: &AppState, ctx: &Ctx, user: Uuid, token: &str) -> Ap
     let mut body = p(&format!("Hello {},", esc(&first)));
     body.push_str(&p(&format!("<b>{}</b> has added you to <b>{}</b> on S'Shop.", esc(&ctx.name), esc(&business))));
     body.push_str(&receipt("Your S'Shop account", &rows));
-    body.push_str(&p("<b>To activate your account</b>, create your own PIN / password with the secure button below. The link works once and expires in 72 hours."));
+    body.push_str(&p("<b>To activate your account</b>, create your own PIN / password with the secure button below."));
+    body.push_str(&p("<b>This invitation link expires in 10 minutes</b> and works once. If it has expired, ask your administrator to send a new invitation."));
     body.push_str(&button("Set up my account", &link));
     body.push_str(&p("After that, sign in with your email and your new PIN. You can turn on a Quick PIN for faster sign-in on your own device later."));
     body.push_str(&p("<span style=\"color:#78716c;font-size:13px\">Never share your PIN. Nobody at your business or at S'Shop will ever ask for it. If you did not expect this email, you can ignore it.</span>"));
@@ -771,7 +777,7 @@ async fn send_invite(state: &AppState, ctx: &Ctx, user: Uuid, token: &str) -> Ap
             subject: format!("You've been added to {business} on S'Shop"),
             html: layout(&format!("Activate your S'Shop account for {business}"), "Welcome to S'Shop!", &body),
             text: format!(
-                "Hello {first},\n\n{} has added you to {business} on S'Shop.\n\n{}\n\nTo activate your account, create your own PIN / password with this secure link (works once, expires in 72 hours):\n{link}\n\nThen sign in with your email and your new PIN.\n\nNever share your PIN.\n\n{}",
+                "Hello {first},\n\n{} has added you to {business} on S'Shop.\n\n{}\n\nTo activate your account, create your own PIN / password with this secure link:\n{link}\n\nThis invitation link expires in 10 minutes and works once. If it has expired, ask your administrator to send a new invitation.\n\nThen sign in with your email and your new PIN.\n\nNever share your PIN.\n\n{}",
                 ctx.name,
                 text_rows(&rows),
                 support_text()

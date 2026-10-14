@@ -3132,6 +3132,8 @@ iv = call("POST", "/users", {"name": f"Invitee {suffix}", "email": iv_mail, "pho
 check("a user is created without any PIN and invited by email", iv["status"] == "invitation" and iv["email_status"] == "sent", iv)
 row = lambda: next(u for u in call("GET", "/users") if u["id"] == iv["id"])
 check("listed as Invitation sent, with when the link expires", row()["status"] == "invitation_sent" and row()["invite_expires_at"], row())
+exp111 = datetime.datetime.fromisoformat(row()["invite_expires_at"].replace("Z", "+00:00")) - datetime.datetime.now(datetime.timezone.utc)
+check("roadmap 111: the invitation link expires in 10 minutes", datetime.timedelta(minutes=8) < exp111 <= datetime.timedelta(minutes=10, seconds=30), exp111)
 call("POST", "/users", {"name": "Again", "email": iv_mail.upper(), "role_id": iv_roles["Salesperson"], "all_branches": True, "branch_ids": []}, expect=400)
 check("the same email cannot be invited twice (no duplicate account)", True)
 call("POST", "/auth/login", {"email": iv_mail, "pin": "1234"}, token="none", branch="none", expect=400)
@@ -3146,8 +3148,10 @@ try:
 except urllib.error.HTTPError:
     first_ok = False
 check("a new activation link ends the earlier one (single use, one at a time)", not first_ok)
+old111 = call("POST", "/auth/link", {"token": tok(first_link)}, token="none", branch="none", expect=422)
+check("a replaced invitation says it has expired and to ask for a new one", old111["error"]["title"] == "Invitation expired" and "administrator" in old111["error"]["message"], old111)
 info = call("POST", "/auth/link", {"token": tok(second_link)}, token="none", branch="none")
-check("the link opens the set-up page (email masked) and the user shows Activation pending", info["kind"] == "setup" and iv_mail not in json.dumps(info) and row()["status"] == "activation_pending", (info, row()["status"]))
+check("the link opens the set-up page (email masked) and the user shows Activation pending", info["kind"] == "invite" and iv_mail not in json.dumps(info) and row()["status"] == "activation_pending", (info, row()["status"]))
 call("POST", "/auth/set-pin", {"token": tok(second_link), "pin": "8642"}, token="none", branch="none")
 reuse = urllib.request.Request(BASE + "/api/auth/set-pin", data=json.dumps({"token": tok(second_link), "pin": "9999"}).encode(), method="POST", headers={"Content-Type": "application/json"})
 try:
@@ -3156,6 +3160,8 @@ try:
 except urllib.error.HTTPError:
     reused = False
 check("the set-up link works once", not reused)
+used111 = call("POST", "/auth/link", {"token": tok(second_link)}, token="none", branch="none", expect=422)
+check("a used invitation says so", used111["error"]["title"] == "Invitation already used", used111)
 ivl = call("POST", "/auth/login", {"email": iv_mail, "pin": "8642"}, token="none", branch="none")
 check("signs in with their own PIN; account Active; Quick PIN offered once", row()["status"] == "active" and ivl["profile"]["user"]["quick_pin_offer"] is True and not ivl["profile"]["user"]["must_change_pin"], ivl["profile"]["user"])
 IV = {"token": ivl["token"], "branch": BRANCH}

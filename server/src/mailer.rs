@@ -19,6 +19,8 @@ use crate::integrations::email;
 use crate::state::AppState;
 
 pub const SETUP_HOURS: i64 = 72;
+/// Roadmap 111: a user invitation link works for 10 minutes (a new one can always be sent).
+pub const INVITE_MINUTES: i64 = 10;
 pub const RESET_MINUTES: i64 = 30;
 pub const STATUS_MINUTES: i64 = 30;
 /// A one-time PIN (approval or replacement) works for this long, once, and must then be replaced.
@@ -37,6 +39,7 @@ pub async fn issue_token(conn: &mut PgConnection, kind: &str, user_id: Option<Uu
     let token = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, raw);
     let ttl = match kind {
         "setup" => Duration::hours(SETUP_HOURS),
+        "invite" => Duration::minutes(INVITE_MINUTES),
         "reset" => Duration::minutes(RESET_MINUTES),
         _ => Duration::minutes(STATUS_MINUTES),
     };
@@ -83,7 +86,27 @@ pub async fn find_token(conn: &mut PgConnection, token: &str, kinds: &[&str], lo
     .bind(kinds.iter().map(|s| s.to_string()).collect::<Vec<_>>())
     .fetch_optional(&mut *conn)
     .await?;
-    row.ok_or_else(|| crate::error::refused("Link expired", "This link has expired or was already used. Request a new one from the sign-in page."))
+    match row {
+        Some(r) => Ok(r),
+        None => {
+            // Say precisely why, without revealing anything a stranger could use (the token itself is the secret).
+            let seen: Option<(String, bool)> = sqlx::query_as("SELECT kind, used_at IS NOT NULL FROM auth_tokens WHERE token_hash = $1")
+                .bind(hash_token(token))
+                .fetch_optional(&mut *conn)
+                .await?;
+            Err(match seen {
+                Some((k, true)) if k == "invite" => crate::error::refused(
+                    "Invitation already used",
+                    "This invitation was already used to set up the account. Sign in with your email and PIN, or use “Forgot PIN / Password?”.",
+                ),
+                Some((k, false)) if k == "invite" => crate::error::refused(
+                    "Invitation expired",
+                    format!("Invitation links work for {INVITE_MINUTES} minutes and only the newest one is valid. Ask your administrator to send you a new invitation."),
+                ),
+                _ => crate::error::refused("Link expired", "This link has expired or was already used. Request a new one from the sign-in page."),
+            })
+        }
+    }
 }
 
 pub fn link(state: &AppState, page: &str, token: &str) -> String {

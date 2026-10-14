@@ -3044,4 +3044,9 @@ export const DICT: Record<string, [string, string, string]> = {
   "today": ["leo", "aujourd'hui", "اليوم"],
   "this week": ["wiki hii", "cette semaine", "هذا الأسبوع"],
   "this month": ["mwezi huu", "ce mois-ci", "هذا الشهر"],
+  "A new single-use link (10 minutes) to share personally. It replaces earlier links. Anyone with it can set this account's PIN — share it only with the person.": ["Kiungo kipya cha matumizi mara moja (dakika 10) cha kushiriki binafsi. Kinachukua nafasi ya viungo vya awali. Yeyote mwenye kiungo hiki anaweza kuweka PIN ya akaunti hii — kishiriki na mhusika pekee.", "Un nouveau lien à usage unique (10 minutes) à partager personnellement. Il remplace les liens précédents. Quiconque l'a peut définir le PIN de ce compte — partagez-le uniquement avec la personne.", "رابط جديد للاستخدام مرة واحدة (10 دقائق) لمشاركته شخصيًا. يحل محل الروابط السابقة. أي شخص يملكه يمكنه تعيين رمز هذا الحساب — شاركه مع الشخص نفسه فقط."],
+  "This invitation link expires in 10 minutes.": ["Kiungo hiki cha mwaliko kinaisha baada ya dakika 10.", "Ce lien d'invitation expire dans 10 minutes.", "تنتهي صلاحية رابط الدعوة هذا خلال 10 دقائق."],
+  "This invitation link has expired. Ask your administrator to send you a new invitation.": ["Kiungo hiki cha mwaliko kimeisha muda. Mwombe msimamizi wako akutumie mwaliko mpya.", "Ce lien d'invitation a expiré. Demandez à votre administrateur de vous envoyer une nouvelle invitation.", "انتهت صلاحية رابط الدعوة هذا. اطلب من المسؤول إرسال دعوة جديدة."],
+  "Time left": ["Muda uliobaki", "Temps restant", "الوقت المتبقي"],
+  "Invitation already used": ["Mwaliko umeshatumika", "Invitation déjà utilisée", "الدعوة مستخدمة بالفعل"],
 };

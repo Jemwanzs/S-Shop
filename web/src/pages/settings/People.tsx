@@ -300,7 +300,7 @@ function InviteDialog({ user, business, role, fresh, emailStatus, onClose, onCha
     `You have been added to *${business}* on S'Shop as *${role}*.`, "",
     `*Sign in:* ${loginUrl}`,
     `*Email:* ${user.email}`, "",
-    "To activate your account, open the secure set-up link we emailed you and create your own PIN. The link expires in 72 hours.",
+    "To activate your account, open the secure set-up link we emailed you and create your own PIN. The invitation link expires in 10 minutes — if it has expired, ask me to send a new one.",
     "Never share your PIN with anyone.", "",
     `— ${profile?.user.name ?? ""}, ${business}`,
   ].join("\n");
@@ -356,7 +356,7 @@ function InviteDialog({ user, business, role, fresh, emailStatus, onClose, onCha
         <p className="text-xs text-muted-foreground">{t("WhatsApp opens with sign-in guidance for you to send — it never includes a PIN or the activation link.")}{!user.phone && ` ${t("No mobile number saved: choose the chat in WhatsApp.")}`}</p>
         <div className="rounded-lg border p-3">
           <p className="font-medium">{t("Activation link")}</p>
-          <p className="text-xs text-muted-foreground">{t("A new single-use link (72 hours) to share personally. It replaces earlier links. Anyone with it can set this account's PIN — share it only with the person.")}</p>
+          <p className="text-xs text-muted-foreground">{t("A new single-use link (10 minutes) to share personally. It replaces earlier links. Anyone with it can set this account's PIN — share it only with the person.")}</p>
           {link ? (
             <div className="mt-2 flex items-center gap-2">
               <input readOnly value={link.link} className="min-w-0 flex-1 truncate rounded-md border bg-muted/40 px-2 py-1.5 text-xs" data-dirty-ignore onFocus={(e) => e.currentTarget.select()} />

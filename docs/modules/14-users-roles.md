@@ -54,8 +54,11 @@ Navigation, buttons and figures follow permissions in the UI, and every API call
 **nobody chooses a PIN or Quick PIN for another person**.
 
 - **Create & invite**: the account is created waiting for set-up (its PIN is an unusable random value until then, so
-  nobody can sign in) and S'Shop emails the person a **single-use set-up link valid for 72 hours** (`auth_tokens`
-  kind `setup`, stored hashed). They choose their own PIN on `/set-pin`; the link is then used up, other links stop
+  nobody can sign in) and S'Shop emails the person a **single-use invitation link valid for 10 minutes** (roadmap
+  111; `auth_tokens` kind `invite`, stored hashed; new-business welcome links stay `setup`, 72 hours). The email and
+  the set-up page say *This invitation link expires in 10 minutes* (the page counts down); the server enforces it. An
+  expired or replaced link answers **Invitation expired** (ask your administrator for a new invitation); a used one
+  **Invitation already used**. Each new invitation ends every earlier unused invitation or set-up link. They choose their own PIN on `/set-pin`; the link is then used up, other links stop
   working and they sign in with email and PIN. A Quick PIN can never be used to activate an account.
 - **User created successfully** shows whether the email went out, with **Send email**, **Share via WhatsApp** and
   **Done**. The WhatsApp message carries the sign-in address, their email and how to activate — never a PIN or the

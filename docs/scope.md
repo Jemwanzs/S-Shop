@@ -564,6 +564,19 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   product-list thumbnails and prices.
 - ✅ **110. Top-selling products** — quantity / value / number of sales, today / week (Monday) / month, Gold ★★★★★,
   Silver ★★★, Bronze ★★, predictable ordering with search and categories (S'Shop has no favourites / manual order to preserve).
+- ✅ **111. Invitation links valid for 10 minutes** — user invitations get their own single-use link kind (`invite`,
+  10 minutes, enforced by the server); every new invitation ends older invitation / set-up links; the email and the
+  set-up page (with a live countdown) say *This invitation link expires in 10 minutes*; expired or replaced links say
+  **Invitation expired** — ask the administrator, who can send a fresh one (Users → ✉); used links say so.
+
+**Tenant partial white labelling** ([module 35](modules/35-white-labelling.md)):
+- ⏳ **112. Branding & White Labelling settings** — enable switch (off), the existing business logo (upload / replace /
+  remove, light & dark preview), where the logo appears (login, sidebar & header, dashboards, POS, receipts & documents,
+  customer pages & emails, website, favicon / PWA), preview, audited, *Business Branding Updated* with one Log Out.
+- ⏳ **113. Business logo applied** — login form icon from trusted tenant context only (large S'Shop marketing logo
+  kept unless the business's own login address opts in), sidebar / header, dashboards, POS header, receipts and
+  documents, customer pages and emails, website sync, favicon / PWA; *Powered by S'Shop* kept; platform admin always
+  S'Shop; versioned logo URLs, no cross-tenant caching.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

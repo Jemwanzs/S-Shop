@@ -149,8 +149,8 @@ struct TokenBody {
 async fn link_info(State(state): State<AppState>, headers: HeaderMap, Json(b): Json<TokenBody>) -> AppResult<Json<Value>> {
     state.limits.check(&client_meta(&headers).0, "auth_link", 60, std::time::Duration::from_secs(900))?;
     let mut conn = state.db.acquire().await?;
-    let t = mailer::find_token(&mut conn, &b.token, &["setup", "reset"], false).await?;
-    if t.kind == "setup" {
+    let t = mailer::find_token(&mut conn, &b.token, &["setup", "reset", "invite"], false).await?;
+    if t.kind == "setup" || t.kind == "invite" {
         sqlx::query("UPDATE users SET invite_opened_at = COALESCE(invite_opened_at, now()) WHERE id = $1 AND invited_at IS NOT NULL").bind(t.user_id).execute(&mut *conn).await?;
     }
     let (name, email, business): (String, String, String) =
@@ -175,7 +175,7 @@ async fn set_pin(State(state): State<AppState>, headers: HeaderMap, Json(b): Jso
     state.limits.check(&ip, "auth_set_pin", 20, std::time::Duration::from_secs(900))?;
     validate_pin(&b.pin)?;
     let mut tx = state.db.begin().await?;
-    let t = mailer::find_token(&mut tx, &b.token, &["setup", "reset"], true).await?;
+    let t = mailer::find_token(&mut tx, &b.token, &["setup", "reset", "invite"], true).await?;
     let user_id = t.user_id.ok_or(AppError::NotFound("User"))?;
     let (tenant_id, name, email, active): (Uuid, String, String, bool) =
         sqlx::query_as("SELECT tenant_id, name, email, is_active FROM users WHERE id = $1 FOR UPDATE").bind(user_id).fetch_one(&mut *tx).await?;
@@ -188,13 +188,13 @@ async fn set_pin(State(state): State<AppState>, headers: HeaderMap, Json(b): Jso
     )
     .bind(user_id)
     .bind(hash_pin(&b.pin)?)
-    .bind(t.kind == "setup")
+    .bind(t.kind == "setup" || t.kind == "invite")
     .execute(&mut *tx)
     .await?;
     sqlx::query("UPDATE auth_tokens SET used_at = now() WHERE id = $1").bind(t.id).execute(&mut *tx).await?;
     crate::routes::quickpin::revoke_devices(&mut tx, user_id, "PIN reset", None).await?;
     sqlx::query("UPDATE auth_tokens SET revoked_at = now() WHERE user_id = $1 AND used_at IS NULL AND revoked_at IS NULL").bind(user_id).execute(&mut *tx).await?;
-    let action = if t.kind == "setup" { "setup_completed" } else { "reset_completed" };
+    let action = if t.kind == "setup" || t.kind == "invite" { "setup_completed" } else { "reset_completed" };
     audit::system(&mut tx, tenant_id, Some(user_id), Entry::new("auth", action, "user", user_id), &ip, &ua).await?;
     tx.commit().await?;
 

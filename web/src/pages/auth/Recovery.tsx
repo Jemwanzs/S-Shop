@@ -3,7 +3,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Clock, Mail, MessageCircle, Phone, ShieldCheck, XCircle } from "lucide-react";
-import { api, errorMessage } from "@/lib/api";
+import { api, ApiError, errorMessage } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,12 +103,27 @@ export function ForgotPage() {
 
 // ── Set a PIN from a welcome (set-up) or reset link ───────────────────
 
-interface LinkInfo { kind: "setup" | "reset"; name: string; email: string; business: string; expires_at: string }
+interface LinkInfo { kind: "setup" | "reset" | "invite"; name: string; email: string; business: string; expires_at: string }
+
+/** Roadmap 111: minutes:seconds left on an invitation link, ticking every second (the server enforces expiry). */
+function useCountdown(until: string | undefined) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!until) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [until]);
+  if (!until) return null;
+  const left = Math.max(0, Math.floor((Date.parse(until) - now) / 1000));
+  return { left, label: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` };
+}
 
 export function SetPinPage() {
   const [token] = useState(linkToken);
   const [info, setInfo] = useState<LinkInfo | null>(null);
+  const countdown = useCountdown(info?.kind === "invite" ? info.expires_at : undefined);
   const [linkError, setLinkError] = useState("");
+  const [linkTitle, setLinkTitle] = useState("Link expired");
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
@@ -120,7 +136,10 @@ export function SetPinPage() {
       setLinkError("This link is incomplete. Open the link from your email again, or request a new one.");
       return;
     }
-    api<LinkInfo>("/auth/link", { body: { token }, token: null }).then(setInfo).catch((e) => setLinkError(errorMessage(e)));
+    api<LinkInfo>("/auth/link", { body: { token }, token: null }).then(setInfo).catch((e) => {
+      if (e instanceof ApiError && e.title) setLinkTitle(e.title);
+      setLinkError(errorMessage(e));
+    });
   }, [token]);
   const problem = pinProblem(pin, confirm);
   const submit = async (e: React.FormEvent) => {
@@ -150,7 +169,7 @@ export function SetPinPage() {
   }
   if (linkError) {
     return (
-      <AuthLayout title="Link expired">
+      <AuthLayout title={linkTitle}>
         <div className="space-y-4 text-center">
           <XCircle className="mx-auto h-10 w-10 text-destructive" />
           <p className="text-sm">{t(linkError)}</p>
@@ -162,9 +181,16 @@ export function SetPinPage() {
   }
   if (!info) return <AuthLayout title="Checking your link…"><SShopLoader className="mx-auto flex" label="Checking your link…" /></AuthLayout>;
   return (
-    <AuthLayout title={info.kind === "setup" ? "Set up your account" : "Choose a new PIN"} subtitle={info.business}>
+    <AuthLayout title={info.kind === "reset" ? "Choose a new PIN" : "Set up your account"} subtitle={info.business}>
       <form onSubmit={submit} className="space-y-4">
         <p className="text-sm">{t("Hello")} {info.name} — <span className="text-muted-foreground">{info.email}</span></p>
+        {info.kind === "invite" && countdown && (
+          <p className={cn("rounded-lg px-3 py-2 text-xs", countdown.left > 0 ? "bg-muted text-muted-foreground" : "bg-destructive/10 text-destructive")} role="status">
+            {countdown.left > 0
+              ? <>{t("This invitation link expires in 10 minutes.")} {t("Time left")}: <span className="num font-semibold text-foreground">{countdown.label}</span></>
+              : t("This invitation link has expired. Ask your administrator to send you a new invitation.")}
+          </p>
+        )}
         <input type="email" name="username" autoComplete="username" value="" readOnly hidden />
         <label className="block"><AuthLabel>{t("New PIN")}</AuthLabel><PasswordInput withIcon autoComplete="new-password" value={pin} onChange={(e) => setPin(e.target.value)} maxLength={12} autoFocus /></label>
         <label className="block"><AuthLabel>{t("Confirm new PIN")}</AuthLabel><PasswordInput withIcon autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} maxLength={12} /></label>

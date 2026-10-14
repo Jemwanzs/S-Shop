@@ -139,3 +139,15 @@ body (text-sm) · meta (text-xs, muted) · figures (`.num`, semibold). Colours c
 `index.css` (light and dark, `color-scheme` set so native pickers match); avoid hard-coded colours except on photo or
 camera overlays. Forms open as bottom sheets on phones (actions pinned below the scroll area) and centred dialogs on
 larger screens. Wide tables scroll horizontally inside their card; the page itself never scrolls sideways.
+
+## Tailwind 4 (roadmap 95)
+
+- Theme tokens live in `web/src/index.css` (`@theme`); there is no `tailwind.config.ts`. Custom utilities
+  (`surface`, `num`, `label-caps`, `card-body`, …) are `@utility` blocks.
+- Text sizes keep Tailwind 3's **fixed** line heights (set in `@theme`): v4's ratios shrink smaller text placed inside a
+  `text-sm` container (table headers). Buttons keep `cursor: pointer`; the theme's `border-border` rule wins over the
+  v4 compatibility border colour.
+- The public business website (`src/site`) does **not** use Tailwind — it has its own `site.css`; its class names
+  (`btn outline`, `shadow`, `card`) are its own.
+- Upgrade tools rename words that only look like classes — review every rename outside `className`/`cn(` strings.
+

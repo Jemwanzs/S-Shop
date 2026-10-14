@@ -470,9 +470,13 @@ Health check 2026-10-11 (owner request: *health check of the S'Shop app; detect 
   2026-12-01. Railway's automatic migration drops the Dockerfile builder and restart policy and renames the service,
   so it is done by hand with the owner: write `.railway/railway.ts` (Dockerfile build, `/healthz` with 120 s,
   restart on failure × 5), `railway config plan`, then apply.
-- ⏳ **95. Front-end dependency majors** — React Router 6.30 → 7 (open-redirect advisory; not reachable today: no
-  navigation to user-supplied paths) and Tailwind 3 → 4 (advisories in build-time tooling only, never shipped). Both
-  are breaking upgrades, planned with a full UI regression pass.
+- ✅ **95. Front-end dependency majors** — React Router 6.30 → **7.18** (advisory cleared; every link is absolute, so v7's
+  relative-path change does not apply) and Tailwind 3 → **4.3** (configuration in CSS `@theme`). The upgrade tool's
+  renames inside non-styling text were reverted (translation keys, the `outline` button variant, the website's
+  button-style option, the public site which uses its own `site.css`); Tailwind 3's fixed line heights and the
+  buttons' pointer cursor are kept. Regression: 41 screens (desktop, phone, dark) pixel-compared with the Tailwind 3
+  build — identical within run-to-run noise — plus the interaction suites (dialogs, sign-in landing, invitations &
+  step-up, onboarding import).
 
 Added 2026-10-11 — **Daraja InvalidTransactionType** (owner request: *Fix Daraja InvalidTransactionType Error*).
 - ✅ **96. Sandbox and Production kept apart** — Sandbox requests always use Safaricom's test shortcode 174379 as a

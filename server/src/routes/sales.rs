@@ -537,6 +537,10 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         // A line keeps its own date only when it differs from the sale's.
         line_days.push(if l.sale_date.is_some() && own != sale_day { Some(own.unwrap_or_else(|| ctx.today())) } else { None });
     }
+    // Roadmap 121: nothing is dated in a closed period.
+    for day in sale_day.iter().chain(line_days.iter().flatten()) {
+        s.books.check(*day, "a sale")?;
+    }
     let (lines, excessive) = prepare_lines(conn, ctx, s, &input, trusted_prices).await?;
     if excessive && input.approved_by.is_none() && !ctx.can("sales.discount_override") {
         return Err(rule("A discount exceeds the allowed maximum — supervisor approval required"));
@@ -1949,6 +1953,9 @@ async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
     if head.status != "completed" {
         return Err(rule("Only sales without returns can be cancelled — use a return instead"));
     }
+    // Roadmap 121: a sale in a closed period stays as it is (a return dated today is still possible).
+    let day: NaiveDate = sqlx::query_scalar("SELECT business_date FROM sales WHERE id = $1").bind(id).fetch_one(&mut *tx).await?;
+    crate::settings::load(&mut tx, ctx.tenant_id).await?.books.check(day, "a cancellation of this sale")?;
     if workflow::needs_approval(&mut tx, &ctx, "sale.cancel", workflow::Gate::branch(head.branch_id).amount(head.total)).await? {
         let approval = workflow::submit(
             &mut tx,

@@ -25,6 +25,8 @@ pub struct TenantSettings {
     pub experience: ExperienceSettings,
     /// Roadmap 112: partial white labelling — where the business logo replaces S'Shop's.
     pub branding: BrandingSettings,
+    /// Roadmap 121: closing the books.
+    pub books: BooksSettings,
     /// Roadmap 71: changed only through Settings → Support access (administrators), never through the settings form.
     pub security: SecuritySettings,
 }
@@ -61,6 +63,26 @@ impl Default for BrandingSettings {
             customer: true,
             website: true,
             favicon: false,
+        }
+    }
+}
+
+/// Roadmap 121: closing the books — nothing dated on or before `closed_until` may be recorded, changed or cancelled
+/// (backdated sales and their lines, stock received, expenses). Onboarding history keeps its own cut-over.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct BooksSettings {
+    pub closed_until: Option<chrono::NaiveDate>,
+}
+impl BooksSettings {
+    /// Refuses a record dated in the closed period.
+    pub fn check(&self, day: chrono::NaiveDate, what: &str) -> Result<(), crate::error::AppError> {
+        match self.closed_until {
+            Some(closed) if day <= closed => Err(crate::error::refused(
+                "Books closed",
+                format!("The books are closed up to {} — {what} cannot be dated on or before that day.", closed.format("%-d %b %Y")),
+            )),
+            _ => Ok(()),
         }
     }
 }

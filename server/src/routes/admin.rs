@@ -100,7 +100,7 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(mut body): J
             ("product", "settings.products"), ("stock", "settings.stock"), ("sales", "settings.sales"), ("orders", "settings.orders"),
             ("customers", "settings.customers"), ("loyalty", "settings.customers"), ("expenses", "settings.expenses"),
             ("reports", "settings.reports"), ("notifications", "settings.integrations"), ("workspace", "settings.workspace"),
-            ("experience", "settings.workspace"), ("branding", "settings.business"),
+            ("experience", "settings.workspace"), ("branding", "settings.business"), ("books", "settings.business"),
         ] {
             if current.get(section) != incoming.get(section) {
                 ctx.require(perm)?;
@@ -173,6 +173,10 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(mut body): J
     }
     if !matches!(body.sales.pos.style.as_str(), "compact" | "image" | "list") {
         return Err(bad("Choose compact cards, image cards or list rows"));
+    }
+    // Roadmap 121: only days that have ended can be closed — today's trading is never blocked.
+    if body.books.closed_until.is_some_and(|d| d >= ctx.today()) {
+        return Err(bad("The books can be closed up to yesterday at the latest"));
     }
     if !(1..=4).contains(&body.sales.pos.tablet_columns) || !(1..=6).contains(&body.sales.pos.desktop_columns) {
         return Err(bad("Tablet columns 1–4, desktop columns 1–6"));

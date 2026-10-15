@@ -3333,6 +3333,42 @@ for m119, path119 in (("GET", "/no-such-endpoint"), ("POST", "/no-such/action/he
     check(f"{m119} {path119}: a JSON 404, never the app page", r["error"]["code"] == "not_found", r)
 check("the app page still opens for screen addresses", urllib.request.urlopen(BASE + "/sales/history").status == 200)
 
+step("Roadmap 121: closing the books")
+import datetime as _dt
+cfg121 = call("GET", "/settings")["settings"]
+t121 = _dt.date.fromisoformat(call("GET", "/dashboard?period=today")["today"])
+d121 = lambda n: str(t121 - _dt.timedelta(days=n))
+bk121 = call("POST", "/products", {"name": f"Ledger Mug {suffix}", "marked_price": 300})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": bk121, "quantity": 10, "cost_price": 100, "date_received": d121(40)})
+sell121 = lambda day, expect=200: call("POST", "/sales", {"items": [{"product_id": bk121, "quantity": 1, "unit_price": 300}], "payment": {"method": "cash"},
+                                                          "client_ref": str(uuid.uuid4()), "sale_date": day}, expect=expect)
+old121 = sell121(d121(12))["sale"]
+r = call("PUT", "/settings", {**cfg121, "books": {"closed_until": str(t121)}}, expect=400)
+check("only days that have ended can be closed (today's trading never blocked)", "yesterday" in r["error"]["message"], r)
+call("PUT", "/settings", {**cfg121, "books": {"closed_until": d121(10)}})
+check("books closed up to a date, saved", call("GET", "/settings")["settings"]["books"]["closed_until"] == d121(10))
+r = sell121(d121(12), expect=422)
+check("a sale cannot be backdated into the closed period", r["error"]["title"] == "Books closed", r)
+check("a sale after the closing date is still possible", sell121(d121(5))["sale"]["id"])
+check("today's sales are never blocked", call("POST", "/sales", {"items": [{"product_id": bk121, "quantity": 1, "unit_price": 300}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})["sale"]["id"])
+r = call("POST", f"/sales/{old121['id']}/cancel", {"reason": "Closed period check"}, expect=422)
+check("a sale in the closed period cannot be cancelled", r["error"]["title"] == "Books closed", r)
+r = call("POST", "/stock/receive", {"product_id": bk121, "quantity": 1, "cost_price": 100, "date_received": d121(15)}, expect=422)
+check("stock cannot be received into the closed period", r["error"]["title"] == "Books closed", r)
+cat121 = call("GET", "/expense-categories")[0]["id"]
+r = call("POST", "/expenses", {"category_id": cat121, "amount": 100, "description": "Old fuel", "expense_date": d121(20)}, expect=422)
+check("an expense cannot be recorded in the closed period", r["error"]["title"] == "Books closed", r)
+sp121 = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
+e121 = f"books{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Books Clerk", "email": e121, "pin": "4321", "role_id": sp121, "all_branches": True, "branch_ids": []})
+S121 = call("POST", "/auth/login", {"email": e121, "pin": "4321"})["token"]
+call("PUT", "/settings", {**cfg121, "books": {"closed_until": None}}, token=S121, expect=403)
+check("only people who manage the business can open or close the books", True)
+au121 = call("GET", "/audit?period=today&limit=300&module=settings")["items"]
+check("closing the books is in the audit trail", any("books" in json.dumps(a.get("after") or {}) for a in au121))
+call("PUT", "/settings", cfg121)
+check("opening the books again allows the earlier date", sell121(d121(12))["sale"]["id"])
+
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
 iv_mail = f"invitee{suffix.lower()}@sshop.test"

@@ -5,7 +5,7 @@ import type { Branch, Profile } from "./types";
 import { setDisplayCurrency } from "./format";
 import { applyFont, DEFAULT_PREFERENCES, type Fx, type Preferences } from "./prefs";
 import { profileCan } from "./landing";
-import { deviceLanguage, rememberDeviceLanguage, setLanguage } from "./i18n";
+import { deviceLanguage, dictionaryReady, onDictionary, rememberDeviceLanguage, setLanguage } from "./i18n";
 
 interface SessionValue {
   profile: Profile | null;
@@ -147,6 +147,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (signedIn) rememberDeviceLanguage(preferences.language);
   }, [signedIn, preferences.language]);
+  // Roadmap 123: re-render once the translations (downloaded on demand) have arrived.
+  const [dictReady, setDictReady] = useState(dictionaryReady);
+  useEffect(() => onDictionary(() => setDictReady(true)), []);
 
   const value = useMemo<SessionValue>(
     () => ({
@@ -207,7 +210,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   // Re-render every screen when the display currency or language changes (both are applied outside React state).
-  return <Ctx.Provider value={value}><Fragment key={`${displayCode}-${language}`}>{children}</Fragment></Ctx.Provider>;
+  return <Ctx.Provider value={value}><Fragment key={`${displayCode}-${language}-${dictReady}`}>{children}</Fragment></Ctx.Provider>;
 }
 
 export function useSession() {

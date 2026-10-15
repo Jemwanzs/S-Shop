@@ -77,7 +77,7 @@ pub const REPORTS: &[Report] = &[
     Report {
         key: "sales", title: "Sales Report", group: "Sales", permission: "sales.view",
         description: "Every sale in the period with totals, discounts and payment method",
-        columns: &[c("created_at", "Date", "datetime"), c("business_date", "Business day", "date"), c("receipt_no", "Receipt", "text"), c("branch", "Branch", "text"),
+        columns: &[c("business_date", "Sale date", "date"), c("created_at", "Recorded at", "datetime"), c("receipt_no", "Receipt", "text"), c("branch", "Branch", "text"),
             c("customer", "Customer", "text"), c("salesperson", "Sale owner", "text"), c("recorded_by", "Recorded by", "text"), c("items", "Items", "int"),
             c("gross", "Marked total", "money"), c("discount", "Discount", "money"), c("points_value", "Paid with points", "money"),
             c("total", "Payable", "money"), c("paid", "Paid", "money"), c("credit_balance", "Credit balance", "money"),
@@ -158,7 +158,7 @@ pub const REPORTS: &[Report] = &[
     Report {
         key: "stock_movement", title: "Stock Movement", group: "Stock", permission: "stock.view",
         description: "Every ledger movement in the period",
-        columns: &[c("created_at", "Date", "datetime"), c("business_date", "Business day", "date"), c("branch", "Branch", "text"), c("product", "Product", "text"),
+        columns: &[c("business_date", "Date", "date"), c("created_at", "Recorded at", "datetime"), c("branch", "Branch", "text"), c("product", "Product", "text"),
             c("kind", "Movement", "text"), c("quantity", "Qty", "int"), c("barcode", "Barcode", "text"), f("unit_cost", "Unit cost", "money"),
             c("unit_price", "Unit price", "money"), c("notes", "Notes", "text"), c("user", "User", "text")],
         sql: "SELECT m.created_at, m.business_date, b.name AS branch, p.name AS product, m.kind, m.quantity, si.barcode, m.unit_cost, m.unit_price, m.notes, u.name AS user

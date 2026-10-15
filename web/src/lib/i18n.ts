@@ -1,5 +1,32 @@
 import { Children, type ReactNode } from "react";
-import { DICT } from "@/i18n/dict";
+
+/**
+ * Roadmap 123: the dictionary (all three translations, the largest part of the app) is downloaded only when someone
+ * uses Kiswahili, French or Arabic — English needs none of it. Until it arrives, text shows in English; the session
+ * provider re-renders once it is ready (`onDictionary`). The service worker keeps it for offline use.
+ */
+type Dict = Record<string, [string, string, string]>;
+let DICT: Dict | null = null;
+let loading: Promise<void> | null = null;
+const listeners = new Set<() => void>();
+function loadDictionary() {
+  if (DICT || loading) return;
+  loading = import("@/i18n/dict")
+    .then((m) => {
+      DICT = m.DICT;
+      templates = null;
+      listeners.forEach((l) => l());
+    })
+    .catch(() => {
+      loading = null; // offline without a cached copy: English until the next try
+    });
+}
+/** Called when the dictionary has arrived; returns the unsubscribe. */
+export function onDictionary(listener: () => void) {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+}
+export const dictionaryReady = () => DICT !== null;
 
 /** Interface languages. Arabic switches the layout to right-to-left. */
 export const LANGUAGES = [
@@ -15,6 +42,7 @@ let current = "en";
 /** Applied by the session provider from the user's preferences. */
 export function setLanguage(code: string) {
   current = code in COLUMN ? code : "en";
+  if (current !== "en") loadDictionary();
   document.documentElement.lang = current;
   document.documentElement.dir = current === "ar" ? "rtl" : "ltr";
 }
@@ -27,7 +55,7 @@ let templates: { key: string; re: RegExp }[] | null = null;
 function compiledTemplates() {
   if (!templates) {
     const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    templates = Object.keys(DICT)
+    templates = Object.keys(DICT ?? {})
       .filter((k) => k.includes("{}"))
       .sort((a, b) => b.replace(/\{\}/g, "").length - a.replace(/\{\}/g, "").length)
       .map((key) => ({ key, re: new RegExp("^" + key.split("{}").map(esc).join("(.+?)") + "$", "s") }));
@@ -37,7 +65,7 @@ function compiledTemplates() {
 
 /** Translate English UI text; untranslated text falls back to English. */
 export function t(text: string): string {
-  if (current === "en" || !text) return text;
+  if (current === "en" || !text || !DICT) return text;
   const col = COLUMN[current];
   const hit = DICT[text]?.[col];
   if (hit) return hit;
@@ -47,9 +75,10 @@ export function t(text: string): string {
     if (!m) continue;
     let i = 1;
     // Values keep their text, translated when they are known words (statuses, record names…).
-    return DICT[tp.key][col].replace(/\{\}/g, () => {
+    const dict = DICT;
+    return dict[tp.key][col].replace(/\{\}/g, () => {
       const v = m[i++] ?? "";
-      return DICT[v]?.[col] ?? v;
+      return dict[v]?.[col] ?? v;
     });
   }
   return text;

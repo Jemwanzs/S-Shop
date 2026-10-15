@@ -118,6 +118,8 @@ export interface Settings {
   /** Roadmap 108 */
   experience?: { landing: string };
   /** Roadmap 112: partial white labelling. */
+  /** Roadmap 121: closing the books. */
+  books?: { closed_until?: string | null };
   branding?: { enabled: boolean; login: boolean; login_marketing: boolean; sidebar: boolean; dashboard: boolean; pos: boolean; documents: boolean; customer: boolean; website: boolean; favicon: boolean };
 }
 

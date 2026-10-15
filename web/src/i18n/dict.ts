@@ -3113,4 +3113,17 @@ export const DICT: Record<string, [string, string, string]> = {
   // ── Roadmap 118: app updates ──────────────────────────────────────
   "A new version of S'Shop is ready.": ["Toleo jipya la S'Shop liko tayari.", "Une nouvelle version de S'Shop est prête.", "إصدار جديد من S'Shop جاهز."],
   "Refresh": ["Onyesha upya", "Actualiser", "تحديث"],
+  // ── Roadmap 120: report labels ────────────────────────────────────
+  "Recorded at": ["Ilirekodiwa", "Enregistrée le", "وقت التسجيل"],
+  // ── Roadmap 121: closing the books ────────────────────────────────
+  "Closing the books": ["Kufunga vitabu", "Clôture des comptes", "إقفال الدفاتر"],
+  "Lock finished periods so their figures can no longer change.": ["Funga vipindi vilivyokamilika ili takwimu zake zisibadilike tena.", "Verrouillez les périodes terminées pour que leurs chiffres ne changent plus.", "أقفل الفترات المنتهية حتى لا تتغير أرقامها بعد الآن."],
+  "Books closed up to": ["Vitabu vimefungwa hadi", "Comptes clôturés jusqu'au", "الدفاتر مقفلة حتى"],
+  "No period is closed": ["Hakuna kipindi kilichofungwa", "Aucune période n'est clôturée", "لا توجد فترة مقفلة"],
+  "Yesterday at the latest — today's trading is never blocked": ["Jana kabisa — biashara ya leo haizuiwi kamwe", "Hier au plus tard — les ventes du jour ne sont jamais bloquées", "حتى الأمس كحد أقصى — لا تُمنع معاملات اليوم أبدًا"],
+  "Open the books": ["Fungua vitabu", "Rouvrir les comptes", "فتح الدفاتر"],
+  "Sales cannot be backdated into the closed period, and its sales cannot be cancelled (a return dated today still works).": ["Mauzo hayawezi kurudishwa nyuma ndani ya kipindi kilichofungwa, na mauzo yake hayawezi kufutwa (kurudisha bidhaa leo bado kunawezekana).", "Les ventes ne peuvent pas être antidatées dans la période clôturée, ni ses ventes annulées (un retour daté d'aujourd'hui reste possible).", "لا يمكن تسجيل مبيعات بتاريخ داخل الفترة المقفلة ولا إلغاء مبيعاتها (يظل الإرجاع بتاريخ اليوم ممكنًا)."],
+  "Stock cannot be received with a date in the closed period.": ["Stoki haiwezi kupokelewa kwa tarehe iliyo ndani ya kipindi kilichofungwa.", "Le stock ne peut pas être réceptionné à une date de la période clôturée.", "لا يمكن استلام مخزون بتاريخ داخل الفترة المقفلة."],
+  "Expenses cannot be recorded in, or voided from, the closed period.": ["Matumizi hayawezi kurekodiwa au kufutwa katika kipindi kilichofungwa.", "Les dépenses ne peuvent pas être enregistrées ni annulées dans la période clôturée.", "لا يمكن تسجيل المصروفات أو إلغاؤها في الفترة المقفلة."],
+  "Every change to the closing date is in the audit trail.": ["Kila mabadiliko ya tarehe ya kufunga yako kwenye kumbukumbu za ukaguzi.", "Chaque modification de la date de clôture figure dans le journal d'audit.", "كل تغيير في تاريخ الإقفال مسجل في سجل التدقيق."],
 };

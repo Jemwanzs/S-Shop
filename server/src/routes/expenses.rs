@@ -143,6 +143,8 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
     }
     let mut tx = state.db.begin().await?;
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
+    // Roadmap 121: no expense in a closed period.
+    s.books.check(b.expense_date.unwrap_or_else(|| ctx.today()), "an expense")?;
     if s.expenses.require_description && b.description.trim().is_empty() {
         return Err(bad("Describe the expense"));
     }
@@ -260,14 +262,16 @@ async fn void(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Jso
         return Err(bad("A reason is required"));
     }
     let mut tx = state.db.begin().await?;
-    let (branch, status, owner): (Uuid, String, Option<Uuid>) =
-        sqlx::query_as("SELECT branch_id, status, user_id FROM expenses WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+    let (branch, status, owner, day): (Uuid, String, Option<Uuid>, NaiveDate) =
+        sqlx::query_as("SELECT branch_id, status, user_id, expense_date FROM expenses WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
             .bind(id)
             .bind(ctx.tenant_id)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(AppError::NotFound("Expense"))?;
     ctx.ensure_branch(branch)?;
+    // Roadmap 121: an expense in a closed period stays as it is.
+    settings::load(&mut tx, ctx.tenant_id).await?.books.check(day, "voiding this expense")?;
     if owner != Some(ctx.user_id) && !ctx.can("approvals.approve") {
         return Err(AppError::Forbidden("Only the person who recorded it or an approver can void an expense".into()));
     }

@@ -5,13 +5,38 @@ name: CI
 on:
   push:
   pull_request:
+  # Roadmap 122: the dependency audit also runs weekly, so new advisories surface without a code change.
+  schedule:
+    - cron: "0 6 * * 1"
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
+  # Roadmap 122: known-vulnerability scan of the Rust and npm dependencies. Reported on every push and weekly; it
+  # does not gate deploys (an advisory in a third-party package is fixed as its own change), but a red job here
+  # is acted on.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Rust — advisories (RustSec)
+        run: cargo audit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: npm — advisories (production and build tools)
+        working-directory: web
+        run: npm audit --audit-level=high
+
   test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     services:

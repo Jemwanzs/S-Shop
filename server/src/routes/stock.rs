@@ -209,6 +209,8 @@ pub async fn receive_in_tx(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSetting
 }
 
 async fn check_receipt(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &mut ReceiveBody, p: &ProductInfo) -> AppResult<()> {
+    // Roadmap 121: stock is never received into a closed period.
+    s.books.check(b.date_received.unwrap_or_else(|| ctx.today()), "stock received")?;
     if b.quantity <= 0 {
         return Err(bad("Quantity must be at least 1"));
     }

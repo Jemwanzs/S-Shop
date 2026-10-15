@@ -601,6 +601,19 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 **Product health clinic follow-ups** (2026-10-15 report):
 - ✅ **119. Unknown API addresses answer 404** — `/api/*` paths with no route returned the app page (200, HTML),
   so an older app version calling a removed endpoint got a confusing error; now a JSON 404 (`not_found`).
+- ✅ **120. Clearer report dates** — Sales report: *Sale date* (the effective date, first) and *Recorded at* (the real
+  entry time); Stock Movement: *Date* and *Recorded at* — backdated records read correctly.
+- ✅ **121. Closing the books** — Settings → Business → *Closing the books*: a *Books closed up to* date (yesterday at
+  the latest, `settings.business`, audited). Nothing dated on or before it can be recorded, changed or cancelled:
+  backdated sales and their lines, cancelling such a sale (a return dated today still works), stock received with
+  an earlier date, expenses recorded or voided. Today's trading is never blocked. Onboarding history keeps its own
+  cut-over.
+- ✅ **122. Dependency security scanning** — CI runs `cargo audit` (RustSec) and `npm audit --audit-level=high` on every
+  push and weekly (Monday 06:00 UTC); reported as its own job, not gating deploys; scheduled runs never cancel a
+  push's run.
+- ✅ **123. Smaller first download** — the translation dictionary (464 KB source, the largest part of the main script)
+  is downloaded only for Kiswahili, French or Arabic; English needs none of it. Text shows in English until it
+  arrives; the service worker keeps it for offline use.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

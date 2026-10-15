@@ -64,7 +64,7 @@ export function OwnerPicker({ open, onOpenChange, branchId, value, onPick, exclu
 }
 
 /** The compact "Sale Owner: Name ✎" line at the top of New Sale. */
-export function SaleOwnerBar({ owner, onChange }: { owner: Owner | null; onChange: (o: Owner | null) => void }) {
+export function SaleOwnerBar({ owner, onChange, className }: { owner: Owner | null; onChange: (o: Owner | null) => void; className?: string }) {
   const { profile, branch, can } = useSession();
   const [open, setOpen] = useState(false);
   const me = profile!.user;
@@ -82,11 +82,11 @@ export function SaleOwnerBar({ owner, onChange }: { owner: Owner | null; onChang
   return (
     <>
       {canAssign ? (
-        <button type="button" onClick={() => setOpen(true)} className="mb-2 flex w-full items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm hover:bg-accent/40" aria-label={t("Change Sale Owner")}>
+        <button type="button" onClick={() => setOpen(true)} className={cn("mb-2 flex w-full items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm hover:bg-accent/40", className)} aria-label={t("Change Sale Owner")}>
           {content}
         </button>
       ) : (
-        <div className="mb-2 flex w-full items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm">{content}</div>
+        <div className={cn("mb-2 flex w-full items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm", className)}>{content}</div>
       )}
       <OwnerPicker open={open} onOpenChange={setOpen} branchId={branch?.id} value={current.id}
         onPick={(o) => { onChange(o.id === me.id ? null : { id: o.id, name: o.name }); setOpen(false); }} />

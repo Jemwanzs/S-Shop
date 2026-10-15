@@ -3100,4 +3100,14 @@ export const DICT: Record<string, [string, string, string]> = {
   "“100 left” on each product. Off hides the number only — out-of-stock products still say so and cannot be sold": ["“zimebaki 100” kwenye kila bidhaa. Ikizimwa huficha idadi tu — bidhaa zilizoisha bado zinaonyeshwa hivyo na haziwezi kuuzwa", "« 100 restant » sur chaque produit. Désactivé, seul le nombre est masqué — les produits en rupture le restent et ne peuvent pas être vendus", "“متبقٍ 100” على كل منتج. عند الإيقاف يُخفى العدد فقط — تظل المنتجات النافدة معروضة كنافدة ولا يمكن بيعها"],
   "Show products with images first": ["Onyesha bidhaa zenye picha kwanza", "Afficher d'abord les produits avec image", "إظهار المنتجات ذات الصور أولاً"],
   "After top sellers and products in stock; products without images still show, after those with one": ["Baada ya zinazouzwa zaidi na zilizo na stoki; bidhaa zisizo na picha bado zinaonyeshwa, baada ya zenye picha", "Après les meilleures ventes et les produits en stock ; les produits sans image restent visibles, après ceux qui en ont une", "بعد الأكثر مبيعًا والمنتجات المتوفرة؛ تظل المنتجات بلا صور ظاهرة بعد ذات الصور"],
+  // ── Roadmap 115: editable sale dates ──────────────────────────────
+  "Sale Date": ["Tarehe ya Mauzo", "Date de vente", "تاريخ البيع"],
+  "Sale date": ["Tarehe ya mauzo", "Date de vente", "تاريخ البيع"],
+  "Use Sale Date": ["Tumia Tarehe ya Mauzo", "Utiliser la date de vente", "استخدم تاريخ البيع"],
+  "This product only": ["Bidhaa hii tu", "Ce produit seulement", "هذا المنتج فقط"],
+  "sale": ["mauzo", "vente", "البيع"],
+  "Same as the sale": ["Sawa na mauzo", "Identique à la vente", "مثل تاريخ البيع"],
+  "recorded": ["imerekodiwa", "enregistrée", "سُجّل"],
+  "Record sales with an earlier date": ["Rekodi mauzo kwa tarehe ya awali", "Enregistrer des ventes à une date antérieure", "تسجيل مبيعات بتاريخ سابق"],
+  "Only people allowed to record sales with an earlier date can change it": ["Ni walioruhusiwa kurekodi mauzo kwa tarehe ya awali pekee wanaoweza kuibadilisha", "Seules les personnes autorisées à enregistrer des ventes à une date antérieure peuvent la modifier", "لا يمكن تغييره إلا لمن يُسمح لهم بتسجيل مبيعات بتاريخ سابق"],
 };

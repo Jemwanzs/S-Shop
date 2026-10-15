@@ -99,7 +99,7 @@ async fn pos_products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<P
              SELECT si.product_id, SUM(si.quantity - si.returned_qty) AS qty, SUM((si.quantity - si.returned_qty) * si.unit_price) AS value,
                     COUNT(DISTINCT s.id) FILTER (WHERE si.quantity - si.returned_qty > 0) AS sales
              FROM sale_items si JOIN sales s ON s.id = si.sale_id
-             WHERE $6 AND s.tenant_id = $1 AND s.branch_id = $2 AND s.status <> 'cancelled' AND s.business_date BETWEEN $7 AND $8
+             WHERE $6 AND s.tenant_id = $1 AND s.branch_id = $2 AND s.status <> 'cancelled' AND COALESCE(si.sale_date, s.business_date) BETWEEN $7 AND $8
              GROUP BY si.product_id),
          scored AS (
              SELECT product_id, CASE $9 WHEN 'value' THEN value WHEN 'sales' THEN sales::numeric ELSE qty::numeric END AS score FROM sold),
@@ -149,6 +149,9 @@ pub struct LineInput {
     pub quantity: i32,
     pub unit_price: Decimal,
     pub barcode: Option<String>,
+    /// Roadmap 115: this line's own sale date (None = the sale's date).
+    #[serde(default)]
+    pub sale_date: Option<NaiveDate>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
@@ -225,6 +228,9 @@ pub struct CreateBody {
     pub offline_at: Option<DateTime<Utc>>,
     /// Sale Owner (roadmap 62): the employee credited with the sale; default the signed-in user.
     pub owner_id: Option<Uuid>,
+    /// Roadmap 115: the sale's date (None = today); earlier dates need `sales.backdate`, never in the future.
+    #[serde(default)]
+    pub sale_date: Option<NaiveDate>,
 }
 
 /// Offline sales may be at most this old when they reach the server.
@@ -252,6 +258,59 @@ pub struct SaleInput {
     /// Roadmap 107: split payment parts (with `payment.method = "split"`) and leaving the remainder on credit.
     pub split: Vec<SplitLine>,
     pub on_credit: bool,
+    /// Roadmap 115: the sale's effective date (None = today) — lines may carry their own (`LineInput::sale_date`).
+    pub sale_date: Option<NaiveDate>,
+}
+
+/// Roadmap 115: the earliest date a sale may be recorded on.
+const EARLIEST_SALE_DATE: (i32, u32, u32) = (2000, 1, 1);
+
+/// Checks a requested sale / line date and returns it when it is earlier than today (None = today, as before).
+fn backdate(ctx: &Ctx, day: Option<NaiveDate>, what: &str) -> AppResult<Option<NaiveDate>> {
+    let Some(day) = day else { return Ok(None) };
+    // The business day (late trading counts towards the previous day) or the calendar day — both are "today".
+    let today = ctx.today();
+    let calendar = Utc::now().with_timezone(&ctx.tz).date_naive();
+    if day > today.max(calendar) {
+        return Err(rule(format!("{what} cannot be in the future")));
+    }
+    let earliest = NaiveDate::from_ymd_opt(EARLIEST_SALE_DATE.0, EARLIEST_SALE_DATE.1, EARLIEST_SALE_DATE.2).expect("valid date");
+    if day < earliest {
+        return Err(rule(format!("{what} is too far in the past")));
+    }
+    if day >= today {
+        return Ok(None);
+    }
+    if !ctx.can("sales.backdate") {
+        return Err(AppError::Forbidden("You cannot record sales with an earlier date".into()));
+    }
+    Ok(Some(day))
+}
+
+/// Roadmap 115: a backdated line must not leave the branch's stock negative on any day from its date to today
+/// (stock received counts from the day it was received).
+async fn check_stock_history(conn: &mut PgConnection, ctx: &Ctx, branch: Uuid, product: Uuid, from: NaiveDate) -> AppResult<()> {
+    let short: Option<(NaiveDate, i64, String)> = sqlx::query_as(
+        "WITH m AS (SELECT CASE WHEN quantity > 0 THEN LEAST(business_date, occurred_on) ELSE business_date END AS d, quantity
+                    FROM stock_movements WHERE tenant_id = $1 AND branch_id = $2 AND product_id = $3),
+              daily AS (SELECT d, SUM(quantity) AS q FROM m GROUP BY d),
+              run AS (SELECT d, SUM(q) OVER (ORDER BY d) AS balance FROM daily)
+         SELECT r.d, r.balance::bigint, p.name FROM run r, products p
+         WHERE p.id = $3 AND r.d >= $4 AND r.balance < 0 ORDER BY r.d LIMIT 1",
+    )
+    .bind(ctx.tenant_id)
+    .bind(branch)
+    .bind(product)
+    .bind(from)
+    .fetch_optional(&mut *conn)
+    .await?;
+    match short {
+        Some((day, _, name)) => Err(refused(
+            "Not enough stock on that date",
+            format!("{name} did not have enough stock on {} for a sale dated {}.", day.format("%-d %b %Y"), from.format("%-d %b %Y")),
+        )),
+        None => Ok(()),
+    }
 }
 
 pub struct ExchangeCredit {
@@ -469,6 +528,15 @@ async fn confirm_mpesa(
 
 /// Records a complete sale inside the caller's transaction. Returns the sale id.
 pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, input: SaleInput, trusted_prices: bool) -> AppResult<Uuid> {
+    // Roadmap 115: the sale's date and each line's date (validated on the server: never in the future; earlier dates
+    // only with `sales.backdate`). `None` = today, exactly as before.
+    let sale_day = backdate(ctx, input.sale_date, "The sale date")?;
+    let mut line_days = Vec::with_capacity(input.lines.len());
+    for l in &input.lines {
+        let own = backdate(ctx, l.sale_date, "A product's sale date")?;
+        // A line keeps its own date only when it differs from the sale's.
+        line_days.push(if l.sale_date.is_some() && own != sale_day { Some(own.unwrap_or_else(|| ctx.today())) } else { None });
+    }
     let (lines, excessive) = prepare_lines(conn, ctx, s, &input, trusted_prices).await?;
     if excessive && input.approved_by.is_none() && !ctx.can("sales.discount_override") {
         return Err(rule("A discount exceeds the allowed maximum — supervisor approval required"));
@@ -629,8 +697,9 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     let receipt_no = next_doc_no(conn, ctx.tenant_id, "RCP", ctx.tz).await?;
     sqlx::query(
         "INSERT INTO sales (id, tenant_id, branch_id, receipt_no, customer_id, user_id, order_id, gross_total, discount_total, total,
-                            redeemed_points, redeemed_value, amount_paid, payment_method, points_earned, approved_by, notes, client_ref, owner_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",
+                            redeemed_points, redeemed_value, amount_paid, payment_method, points_earned, approved_by, notes, client_ref, owner_id,
+                            effective_date)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
     )
     .bind(sale_id)
     .bind(ctx.tenant_id)
@@ -651,6 +720,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     .bind(input.notes.trim())
     .bind(input.client_ref)
     .bind(input.owner_id.unwrap_or(ctx.user_id))
+    .bind(sale_day)
     .execute(&mut *conn)
     .await?;
 
@@ -660,12 +730,15 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
     }
 
     let kind = if input.order_id.is_some() { "order_completion" } else { "sale" };
-    for (l, line_points) in lines.iter().zip(line_points) {
+    let mut backdated_products: Vec<(Uuid, NaiveDate)> = Vec::new();
+    for ((l, line_points), line_day) in lines.iter().zip(line_points).zip(&line_days) {
+        // The day this line counts on: its own date, else the sale's (None = today).
+        let day = line_day.filter(|d| *d < ctx.today()).or(if line_day.is_some() { None } else { sale_day });
         // Persist the points actually awarded per line so returns reverse exactly.
         sqlx::query(
             "INSERT INTO sale_items (tenant_id, sale_id, product_id, stock_item_id, barcode, quantity, marked_price, unit_price,
-                                     line_total, unit_cost, points)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+                                     line_total, unit_cost, points, sale_date)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
         )
         .bind(ctx.tenant_id)
         .bind(sale_id)
@@ -678,6 +751,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         .bind(l.line_total)
         .bind(l.unit_cost)
         .bind(line_points)
+        .bind(line_day)
         .execute(&mut *conn)
         .await?;
         if let Some(item) = l.stock_item_id {
@@ -692,13 +766,25 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
             .cost(l.unit_cost)
             .price(Some(l.unit_price))
             .reference("sale", sale_id)
-            .notes(&receipt_no);
+            .notes(&receipt_no)
+            .dated(day);
         inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), s.stock.allow_negative, Check::Available, m).await?;
+        if let Some(d) = day {
+            match backdated_products.iter_mut().find(|(p, _)| *p == l.product_id) {
+                Some((_, earliest)) => *earliest = (*earliest).min(d),
+                None => backdated_products.push((l.product_id, d)),
+            }
+        }
+    }
+    if !s.stock.allow_negative {
+        for (product, from) in &backdated_products {
+            check_stock_history(conn, ctx, input.branch_id, *product, *from).await?;
+        }
     }
 
     if on_credit {
         let customer = input.customer_id.expect("checked above");
-        let due = input.due_date.unwrap_or_else(|| ctx.today() + Duration::days(s.sales.credit_default_days));
+        let due = input.due_date.unwrap_or_else(|| sale_day.unwrap_or_else(|| ctx.today()) + Duration::days(s.sales.credit_default_days));
         let credit_id: Uuid = sqlx::query_scalar(
             "INSERT INTO credit_sales (tenant_id, branch_id, sale_id, customer_id, user_id, original_amount, due_date, amount_paid, status)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $8 > 0 THEN 'partially_paid' ELSE 'outstanding' END) RETURNING id",
@@ -788,6 +874,23 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         .await?;
     }
 
+    // Roadmap 115: the credit and every payment follow the sale's date — except M-Pesa payments confirmed by
+    // Safaricom (STK), which keep their real confirmation day.
+    if sale_day.is_some() {
+        sqlx::query("UPDATE credit_sales SET effective_date = $3 WHERE sale_id = $1 AND tenant_id = $2")
+            .bind(sale_id)
+            .bind(ctx.tenant_id)
+            .bind(sale_day)
+            .execute(&mut *conn)
+            .await?;
+        sqlx::query("UPDATE payments SET effective_date = $3 WHERE sale_id = $1 AND tenant_id = $2 AND mpesa_request_id IS NULL")
+            .bind(sale_id)
+            .bind(ctx.tenant_id)
+            .bind(sale_day)
+            .execute(&mut *conn)
+            .await?;
+    }
+
     if let Some(customer) = input.customer_id {
         loyalty::record_purchase(conn, s, customer, total, 1).await?;
         loyalty::award_sale(conn, s, ctx.tenant_id, customer, sale_id, points, Some(ctx.user_id), ctx.today()).await?;
@@ -816,6 +919,8 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         Entry::new("sales", "create", "sale", sale_id).branch(input.branch_id).after(json!({
             "receipt_no": receipt_no, "total": total, "discount": round2(gross - net), "method": method,
             "items": lines.len(), "points": points, "order_id": input.order_id,
+            // Roadmap 115: an earlier effective date (the real entry time is the audit entry's own time).
+            "sale_date": sale_day, "line_dates": line_days.iter().flatten().collect::<Vec<_>>(),
         })),
     )
     .await?;
@@ -1084,6 +1189,7 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
                 redemption_approved: false,
                 split: Vec::new(),
                 on_credit: false,
+                sale_date: None,
             };
             if prepare_lines(&mut *tx, &ctx, &s, &input, false).await?.1 && !ctx.can("sales.discount_override") {
                 return Err(rule("That supervisor can approve the points, not the discount — a discount exceeds the allowed maximum"));
@@ -1108,6 +1214,7 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
             redemption_approved: false,
             split: Vec::new(),
             on_credit: false,
+            sale_date: None,
         };
         let (_, excessive) = prepare_lines(&mut *tx, &ctx, &s, &input, false).await?;
         if excessive {
@@ -1137,6 +1244,7 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
             redemption_approved,
             split: b.payments,
             on_credit: b.on_credit,
+            sale_date: b.sale_date,
         },
         false,
     )
@@ -1149,7 +1257,7 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
             .bind(at)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE stock_movements SET created_at = $3, occurred_on = ($3 AT TIME ZONE $4)::date WHERE ref_type = 'sale' AND ref_id = $1 AND tenant_id = $2")
+        sqlx::query("UPDATE stock_movements SET created_at = $3, occurred_on = COALESCE(effective_date, ($3 AT TIME ZONE $4)::date) WHERE ref_type = 'sale' AND ref_id = $1 AND tenant_id = $2")
             .bind(sale_id)
             .bind(ctx.tenant_id)
             .bind(at)
@@ -1309,6 +1417,7 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
             'id', s.id, 'receipt_no', s.receipt_no, 'created_at', s.created_at, 'status', s.status, 'payment_status', {PAYMENT_STATUS},
             'branch_id', s.branch_id, 'branch_name', b.name, 'branch_location', b.location, 'branch_phone', b.phone,
             'user_name', ow.name, 'owner_id', s.owner_id, 'recorded_by_name', u.name, 'business_date', s.business_date,
+            'backdated', s.effective_date IS NOT NULL,
             'gross_total', s.gross_total, 'discount_total', s.discount_total, 'total', s.total,
             'redeemed_points', s.redeemed_points, 'redeemed_value', s.redeemed_value, 'amount_paid', s.amount_paid,
             'payment_method', s.payment_method, 'points_earned', s.points_earned, 'notes', s.notes, 'is_legacy', s.is_legacy,
@@ -1334,7 +1443,7 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
         "SELECT jsonb_build_object('id', si.id, 'product_id', si.product_id, 'product_name', p.name, 'product_code', p.code,
                 'barcode', si.barcode, 'quantity', si.quantity, 'returned_qty', si.returned_qty, 'marked_price', si.marked_price,
                 'unit_price', si.unit_price, 'discount', (si.marked_price - si.unit_price) * si.quantity,
-                'line_total', si.line_total, 'points', si.points, 'unit_cost', CASE WHEN $2 THEN si.unit_cost END)
+                'line_total', si.line_total, 'points', si.points, 'unit_cost', CASE WHEN $2 THEN si.unit_cost END, 'sale_date', si.sale_date)
          FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = $1 ORDER BY p.name",
     )
     .bind(id)
@@ -2080,6 +2189,7 @@ async fn execute_exchange(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings
             redemption_approved: false,
             split: Vec::new(),
             on_credit: false,
+            sale_date: None,
         },
         false,
     )

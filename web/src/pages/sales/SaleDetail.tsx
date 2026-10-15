@@ -6,6 +6,7 @@ import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { amount, dateTime, money, toNum } from "@/lib/format";
+import { dayLabel } from "./pos/SaleDate";
 import type { Outcome, SaleDetail as Detail } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,7 +88,7 @@ export default function SaleDetail() {
     <>
       <PageHeader
         back="/sales"
-        eyebrow={dateTime(s.created_at)}
+        eyebrow={s.backdated ? `${t("Sale date")} ${dayLabel(s.business_date)} · ${t("recorded")} ${dateTime(s.created_at)}` : dateTime(s.created_at)}
         title={<span className="num">{s.receipt_no}</span>}
         actions={
           <div className="flex flex-wrap gap-2 no-print">

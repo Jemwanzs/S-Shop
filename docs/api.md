@@ -287,6 +287,7 @@ branch it is required (422 when missing, imprecise or outside the radius) and it
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/sales` (+ `owner_id`) | another owner needs `sales.assign_owner`; eligibility re-checked |
+| POST | `/api/sales` (+ `sale_date`, `items[].sale_date`) | roadmap 115: earlier dates need `sales.backdate`; never in the future; 422 *Not enough stock on that date* when a backdated line would make past stock negative |
 | POST | `/api/sales` (`payment.method = "split"`, `payments[]`, `on_credit`, `due_date`) | roadmap 107: several payment parts, remainder on credit (customer required); `payment_status` on sales |
 | GET | `/api/reports/payments_collected` | money received by method: at the sale, credit repayments, refunds, net |
 | GET | `/api/sales/owners?branch_id=` | eligible Sale Owners |

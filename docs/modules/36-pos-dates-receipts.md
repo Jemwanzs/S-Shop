@@ -8,7 +8,7 @@ settings, permissions, audit trail, stock engine (`record_sale`) and receipt pip
 | Phase | Roadmap | Status |
 |---|---|---|
 | POS Display: show available stock count; products with images first | 114 | ✅ built |
-| Editable sale date (whole sale and per product), backdating rules | 115 | ⏳ planned |
+| Editable sale date (whole sale and per product), backdating rules | 115 | ✅ built |
 | Receipt logo transparency, same look in preview / PDF / image / print | 116 | ✅ built |
 | New Sale category strip: cream background, overflow arrows, smart scrolling | 117 | ✅ built |
 
@@ -53,6 +53,17 @@ Settings → Sales & Payments → POS Display (`sales.pos_display`):
 - Audit: backdated sales are recorded with the effective date, line dates and the real entry time. Financial-period
   locks: S'Shop has none yet; when added they apply here.
 - Dialogs keep entered data (no closing by tapping outside — roadmap 104).
+- As built: migration 0036 adds `sales.effective_date`, `sale_items.sale_date`, and `effective_date` on stock movements,
+  payments and credits; their business-date trigger uses the effective date when set (`created_at` untouched). The
+  server accepts `sale_date` on the sale and on each item (`record_sale` → `backdate()`): future dates refused (the
+  business day and the calendar day both count as today), earlier dates need `sales.backdate` (seeded to roles that
+  approve discount overrides; Tenant Administrator has every right), nothing before 2000-01-01. Backdated lines run a
+  stock-history check (running balance per day from the line's date; stock received counts from its date received)
+  unless the business allows negative stock. Payments with a Safaricom-confirmed STK request keep their real day.
+  Product-level figures (dashboard lines, reports, leaderboards, top sellers) use `COALESCE(sale_items.sale_date,
+  sales.business_date)`. Receipts: *Date* is the sale date and *Recorded* the entry time when backdated; lines with
+  their own date show it. The sales list already marks *Counts for {date}*; the sale page says *Sale date … · recorded
+  …*. Offline sync never moves a line that has its own date.
 
 ## 116 — Receipt logo transparency & export consistency
 

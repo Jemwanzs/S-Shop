@@ -58,6 +58,8 @@ pub struct Movement<'a> {
     pub supplier_id: Option<Uuid>,
     pub notes: &'a str,
     pub occurred_on: Option<NaiveDate>,
+    /// Roadmap 115: an earlier effective day (a backdated sale line) — the movement's business date.
+    pub effective_date: Option<NaiveDate>,
 }
 
 impl<'a> Movement<'a> {
@@ -75,7 +77,16 @@ impl<'a> Movement<'a> {
             supplier_id: None,
             notes: "",
             occurred_on: None,
+            effective_date: None,
         }
+    }
+    /// Roadmap 115: dated on an earlier day (both its business date and the day it happened).
+    pub fn dated(mut self, day: Option<NaiveDate>) -> Self {
+        if day.is_some() {
+            self.effective_date = day;
+            self.occurred_on = day;
+        }
+        self
     }
     pub fn item(mut self, id: Option<Uuid>) -> Self {
         self.stock_item_id = id;
@@ -139,8 +150,8 @@ pub async fn apply(
 
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO stock_movements (tenant_id, branch_id, product_id, stock_item_id, kind, quantity, unit_cost,
-                                      unit_price, ref_type, ref_id, supplier_id, notes, user_id, occurred_on)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, COALESCE($14, CURRENT_DATE))
+                                      unit_price, ref_type, ref_id, supplier_id, notes, user_id, occurred_on, effective_date)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, COALESCE($14, CURRENT_DATE), $15)
          RETURNING id",
     )
     .bind(tenant_id)
@@ -157,6 +168,7 @@ pub async fn apply(
     .bind(m.notes)
     .bind(user_id)
     .bind(m.occurred_on)
+    .bind(m.effective_date)
     .fetch_one(&mut *conn)
     .await?;
 

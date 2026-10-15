@@ -36,16 +36,17 @@ pub struct Filters {
 
 /// Net sale lines (after returns) matching the filters.
 /// Binds: $1 tenant, $2 branches, $3 first business day, $4 last business day (dates, inclusive), $5 product,
-/// $6 category, $7 user. Sales are counted on their business date, not the calendar day of the timestamp.
+/// $6 category, $7 user. Sales are counted on their business date, not the calendar day of the timestamp — and each
+/// line on its own date when it was recorded with one (roadmap 115).
 pub const LINES: &str = "lines AS (
-    SELECT s.id AS sale_id, s.branch_id, s.owner_id AS user_id, s.customer_id, s.created_at, s.business_date, s.payment_method, si.product_id,
+    SELECT s.id AS sale_id, s.branch_id, s.owner_id AS user_id, s.customer_id, s.created_at, COALESCE(si.sale_date, s.business_date) AS business_date, s.payment_method, si.product_id,
            (si.quantity - si.returned_qty) AS qty,
            (si.quantity - si.returned_qty) * si.unit_price AS revenue,
            CASE WHEN si.unit_cost IS NOT NULL THEN (si.quantity - si.returned_qty) * (si.unit_price - si.unit_cost) END AS profit,
            CASE WHEN si.unit_cost IS NOT NULL THEN (si.quantity - si.returned_qty) * si.unit_price END AS costed_revenue,
            (si.quantity - si.returned_qty) * (si.marked_price - si.unit_price) AS discount
     FROM sales s JOIN sale_items si ON si.sale_id = s.id JOIN products p ON p.id = si.product_id
-    WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND s.business_date BETWEEN $3 AND $4 AND s.status <> 'cancelled'
+    WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND COALESCE(si.sale_date, s.business_date) BETWEEN $3 AND $4 AND s.status <> 'cancelled'
       AND ($5::uuid IS NULL OR si.product_id = $5) AND ($6::uuid IS NULL OR p.category_id = $6) AND ($7::uuid IS NULL OR s.owner_id = $7))";
 
 struct Scope {

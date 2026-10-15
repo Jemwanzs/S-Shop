@@ -3263,6 +3263,53 @@ check("stock count off is saved for the app (the number is hidden; stock rules u
       call("GET", "/auth/me")["settings"]["sales"]["pos"]["show_stock"] is False)
 call("PUT", "/settings", cfg114)
 
+step("Roadmap 115: editable sale date and product-level dates")
+import datetime as _dt
+today115 = _dt.date.fromisoformat(call("GET", "/dashboard?period=today")["today"])
+d5, d2, d30 = (today115 - _dt.timedelta(days=n) for n in (5, 2, 30))
+bd115 = call("POST", "/products", {"name": f"Backdate Lamp {suffix}", "marked_price": 500})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": bd115, "quantity": 5, "cost_price": 300})
+sale115 = lambda body, **kw: call("POST", "/sales", {"items": [{"product_id": bd115, "quantity": 1, "unit_price": 500}],
+                                                     "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4()), **body}, **kw)
+r = sale115({"sale_date": str(today115 + _dt.timedelta(days=1))}, expect=422)
+check("a future sale date is refused", "future" in r["error"]["message"], r)
+r = sale115({"items": [{"product_id": bd115, "quantity": 1, "unit_price": 500, "sale_date": str(today115 + _dt.timedelta(days=3))}]}, expect=422)
+check("a future product date is refused", "future" in r["error"]["message"], r)
+r = sale115({"sale_date": str(d5)}, expect=422)
+check("a backdated sale never makes past stock negative (stock received today)", r["error"]["title"] == "Not enough stock on that date", r)
+call("POST", "/stock/receive", {"product_id": bd115, "quantity": 5, "cost_price": 300, "date_received": str(d30)})
+s115 = sale115({"sale_date": str(d5)})["sale"]
+det115 = call("GET", f"/sales/{s115['id']}")
+check("backdated sale: effective date saved, real entry time kept",
+      det115["sale"]["business_date"] == str(d5) and det115["sale"]["backdated"] is True and det115["sale"]["created_at"][:10] >= str(today115 - _dt.timedelta(days=1)), det115["sale"])
+mv115 = [m for m in call("GET", f"/stock/movements?from={d5}&to={d5}&product_id={bd115}&limit=50")["items"] if m["ref_id"] == s115["id"]]
+check("its stock movement is dated the sale date, recorded once", len(mv115) == 1 and mv115[0]["occurred_on"] == str(d5), mv115)
+rc115 = call("GET", f"/sales/{s115['id']}/receipts")["items"][0]["snapshot"]
+check("the receipt shows the sale date (and keeps when it was recorded)", rc115["sale_date"] == str(d5) and rc115["at"], rc115.get("sale_date"))
+au115 = [a for a in call("GET", "/audit?period=today&limit=300&module=sales")["items"] if a["entity_id"] == s115["id"]]
+check("backdating is in the audit trail", au115 and (au115[0].get("after") or {}).get("sale_date") == str(d5), au115[:1])
+# One cart, three dates: the sale on d5, one line on d2, one line today.
+mix = call("POST", "/sales", {"sale_date": str(d5), "client_ref": str(uuid.uuid4()), "payment": {"method": "cash"},
+                              "items": [{"product_id": bd115, "quantity": 1, "unit_price": 500},
+                                        {"product_id": bd115, "quantity": 1, "unit_price": 450, "sale_date": str(d2)},
+                                        {"product_id": bd115, "quantity": 1, "unit_price": 400, "sale_date": str(today115)}]})["sale"]
+items115 = {float(i["unit_price"]): i.get("sale_date") for i in call("GET", f"/sales/{mix['id']}")["items"]}
+check("each product keeps its own date in one sale", items115 == {500.0: None, 450.0: str(d2), 400.0: str(today115)}, items115)
+lb2 = call("GET", f"/leaderboards/products?from={d2}&to={d2}&metric=revenue&limit=100")["items"]
+check("product reports count a line on its own date", any(x["id"] == bd115 and float(x["revenue"]) == 450 for x in lb2), [x for x in lb2 if x["id"] == bd115])
+pay115 = call("GET", f"/sales?from={d5}&to={d5}&limit=200")["items"]
+check("the sale (receipt and payment) stays on the main sale date", any(x["id"] == mix["id"] for x in pay115))
+mvd2 = [m for m in call("GET", f"/stock/movements?from={d2}&to={d2}&product_id={bd115}&limit=50")["items"] if m["ref_id"] == mix["id"]]
+check("stock moves on each line's date", len(mvd2) == 1, mvd2)
+sp115 = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
+e115 = f"dates{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Date Clerk", "email": e115, "pin": "4321", "role_id": sp115, "all_branches": True, "branch_ids": []})
+S115 = call("POST", "/auth/login", {"email": e115, "pin": "4321"})["token"]
+sale115({"sale_date": str(d2)}, token=S115, expect=403)
+check("only people allowed to backdate may choose an earlier date", True)
+check("a sale on today's date needs no special right", sale115({"sale_date": str(today115)}, token=S115)["sale"]["id"])
+check("catalogue: the backdating permission exists", any(p_[0] == "sales.backdate" for g in call("GET", "/permissions") for p_ in g["permissions"]))
+
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
 iv_mail = f"invitee{suffix.lower()}@sshop.test"

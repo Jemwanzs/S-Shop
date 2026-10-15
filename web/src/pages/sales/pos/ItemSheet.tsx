@@ -17,6 +17,7 @@ import { PhotoGallery } from "@/components/PhotoGallery";
 import { StockIndicator } from "@/components/Badges";
 import type { CartLine } from "./cart";
 import { rankExplanation } from "./RankStars";
+import { SaleDateInput, dayLabel } from "./SaleDate";
 
 interface Availability {
   branch_id: string;
@@ -33,6 +34,8 @@ export function ItemSheet({
   onSave,
   takenBarcodes,
   initialBarcode,
+  saleDate,
+  today,
 }: {
   product: PosProduct | null;
   editing?: CartLine | null;
@@ -40,6 +43,9 @@ export function ItemSheet({
   onSave: (line: Omit<CartLine, "key"> & { key?: string }) => void;
   takenBarcodes: string[];
   initialBarcode?: string;
+  /** Roadmap 115: the sale's date (yyyy-mm-dd) and today; a line may have its own date. */
+  saleDate: string;
+  today: string;
 }) {
   const { profile, can } = useSession();
   const verify = (code: string) =>
@@ -53,6 +59,7 @@ export function ItemSheet({
   const [scan, setScan] = useState(false);
   const [photos, setPhotos] = useState(false);
   const [showOther, setShowOther] = useState(false);
+  const [lineDate, setLineDate] = useState(saleDate);
 
   useEffect(() => {
     if (!product) return;
@@ -62,7 +69,8 @@ export function ItemSheet({
     setDiscount(markedPrice - p > 0 ? String(markedPrice - p) : "");
     setBarcode(editing?.barcode);
     setShowOther(false);
-  }, [product, editing, markedPrice]);
+    setLineDate(editing?.saleDate ?? saleDate);
+  }, [product, editing, markedPrice, saleDate]);
 
   // A barcode scanned on the till before opening this item is checked like any other scan.
   useEffect(() => {
@@ -123,7 +131,7 @@ export function ItemSheet({
             size="lg"
             className="w-full"
             disabled={!valid}
-            onClick={() => onSave({ key: editing?.key, product, quantity: qty, unitPrice: unit, barcode })}
+            onClick={() => onSave({ key: editing?.key, product, quantity: qty, unitPrice: unit, barcode, saleDate: lineDate !== saleDate ? lineDate : undefined })}
           >
             {editing ? "Update item" : "Add to cart"} · <span className="num">{money(unit * qty)}</span>
           </Button>
@@ -162,6 +170,17 @@ export function ItemSheet({
               <div className="num flex h-11 items-center rounded-lg bg-muted px-3 font-semibold text-muted-foreground">{money(markedPrice)}</div>
             </Field>
           </div>
+
+          {(can("sales.backdate") || !!editing?.saleDate) && (
+            <Field label="Sale Date" hint={lineDate === saleDate ? "Same as the sale" : `${t("This product only")} · ${t("sale")}: ${dayLabel(saleDate)}`}>
+              <div className={cn("flex h-11 items-center gap-2 rounded-lg border px-3", lineDate !== saleDate && "border-warning/60 bg-warning/5")}>
+                <SaleDateInput className="flex-1" value={lineDate} today={today} onChange={setLineDate} disabled={!can("sales.backdate")} />
+                {lineDate !== saleDate && (
+                  <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0" onClick={() => setLineDate(saleDate)}>{t("Use Sale Date")}</Button>
+                )}
+              </div>
+            </Field>
+          )}
 
           <Field label="Selling price">
             <Input

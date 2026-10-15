@@ -447,7 +447,7 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
                         .fetch_one(&mut *tx)
                         .await?;
                     if !tracked {
-                        lines.push(super::sales::LineInput { product_id: *pid, quantity: *qty, unit_price: *price, barcode: None });
+                        lines.push(super::sales::LineInput { product_id: *pid, quantity: *qty, unit_price: *price, barcode: None, sale_date: None });
                         continue;
                     }
                     let mut codes: Vec<String> = b
@@ -463,7 +463,7 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
                         return Err(rule(format!("Scan {qty} barcode(s) for {name} — {} scanned", codes.len())));
                     }
                     for code in codes {
-                        lines.push(super::sales::LineInput { product_id: *pid, quantity: 1, unit_price: *price, barcode: Some(code) });
+                        lines.push(super::sales::LineInput { product_id: *pid, quantity: 1, unit_price: *price, barcode: Some(code), sale_date: None });
                     }
                 }
                 // Orders are fulfilled at the order's branch on behalf of the user progressing it.
@@ -490,6 +490,7 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
                         redemption_approved: false,
                         split: Vec::new(),
                         on_credit: false,
+                        sale_date: None,
                     },
                     true,
                 )

@@ -54,6 +54,8 @@ struct Head {
     receipt_no: String,
     created_at: DateTime<Utc>,
     business_date: NaiveDate,
+    /// Roadmap 115: set when the sale was recorded with an earlier date.
+    effective_date: Option<NaiveDate>,
     status: String,
     gross_total: Decimal,
     discount_total: Decimal,
@@ -77,7 +79,7 @@ struct Head {
 
 async fn head(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<Head> {
     sqlx::query_as(
-        "SELECT s.tenant_id, s.receipt_no, s.created_at, s.business_date, s.status, s.gross_total, s.discount_total, s.total,
+        "SELECT s.tenant_id, s.receipt_no, s.created_at, s.business_date, s.effective_date, s.status, s.gross_total, s.discount_total, s.total,
                 s.redeemed_points, s.redeemed_value, s.amount_paid, s.payment_method, s.points_earned, s.notes,
                 t.name AS business, t.phone AS business_phone, t.currency, t.timezone, b.name AS branch, b.phone AS branch_phone,
                 NULLIF(TRIM(c.first_name || ' ' || COALESCE(c.other_names, '')), '') AS customer, ow.name AS owner, t.settings
@@ -108,8 +110,8 @@ fn base(h: &Head, s: &TenantSettings, logo: Option<String>) -> Value {
 }
 
 async fn items(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<Vec<Value>> {
-    let rows: Vec<(Uuid, String, i32, i32, Decimal, Decimal, Decimal)> = sqlx::query_as(
-        "SELECT si.id, p.name, si.quantity, si.returned_qty, si.unit_price, si.line_total, si.marked_price
+    let rows: Vec<(Uuid, String, i32, i32, Decimal, Decimal, Decimal, Option<NaiveDate>)> = sqlx::query_as(
+        "SELECT si.id, p.name, si.quantity, si.returned_qty, si.unit_price, si.line_total, si.marked_price, si.sale_date
          FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = $1 ORDER BY p.name, si.id",
     )
     .bind(sale_id)
@@ -117,7 +119,7 @@ async fn items(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<Vec<Value>> 
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(id, name, qty, returned, price, total, marked)| json!({ "id": id, "name": name, "qty": qty, "returned": returned, "price": price, "total": total, "marked": marked }))
+        .map(|(id, name, qty, returned, price, total, marked, date)| json!({ "id": id, "name": name, "qty": qty, "returned": returned, "price": price, "total": total, "marked": marked, "date": date }))
         .collect())
 }
 
@@ -141,8 +143,10 @@ async fn original_snapshot(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<
     v["receipt_no"] = json!(h.receipt_no);
     v["at"] = json!(h.created_at);
     v["business_date"] = json!(h.business_date);
+    // Roadmap 115: a backdated sale shows its sale date (and when it was recorded); lines with their own date say so.
+    v["sale_date"] = json!(h.effective_date);
     v["status"] = json!(h.status);
-    v["items"] = json!(lines.iter().map(|l| json!({ "name": l["name"], "qty": l["qty"], "price": l["price"], "total": l["total"] })).collect::<Vec<_>>());
+    v["items"] = json!(lines.iter().map(|l| json!({ "name": l["name"], "qty": l["qty"], "price": l["price"], "total": l["total"], "date": l["date"] })).collect::<Vec<_>>());
     v["totals"] = json!({
         "subtotal": h.gross_total,
         "discount": h.discount_total,

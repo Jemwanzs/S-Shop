@@ -27,6 +27,7 @@ import { SaleOwnerBar, type Owner } from "./SaleOwner";
 import { ReceiptPanel } from "@/components/ReceiptPanel";
 import { ProductGrid } from "./pos/ProductGrid";
 import { RankStars } from "./pos/RankStars";
+import { SaleDateBar, todayIn } from "./pos/SaleDate";
 
 const DEFAULT_POS = { style: "compact" as const, show_images: false, tablet_columns: 2, desktop_columns: 4, show_prices: true };
 
@@ -50,7 +51,7 @@ export default function Pos() {
   const [q, setQ] = useState("");
   const term = useDebounced(q);
   const [category, setCategory] = useState<string | null>(null);
-  const [cart, setCartRaw] = usePersistentState<{ lines: CartLine[]; ref: string; owner?: Owner | null }>(`sshop.cart.${branch?.id}`, { lines: [], ref: newRef() });
+  const [cart, setCartRaw] = usePersistentState<{ lines: CartLine[]; ref: string; owner?: Owner | null; saleDate?: string }>(`sshop.cart.${branch?.id}`, { lines: [], ref: newRef() });
   // Roadmap 91: while a sale waits for its M-Pesa STK Push, the server completes it exactly as sent — the cart is locked.
   const [waiting, setWaiting] = useState(false);
   const waitingRef = useRef(false);
@@ -69,6 +70,9 @@ export default function Pos() {
   const [cartOpen, setCartOpen] = useState(false);
   const [done, setDone] = useState<SaleDetail | null>(null);
   const [queued, setQueued] = useState<QueuedSale | null>(null);
+  // Roadmap 115: the sale's date — today unless someone allowed to backdate picked an earlier day.
+  const today = todayIn(profile?.tenant.timezone);
+  const saleDate = cart.saleDate && cart.saleDate < today ? cart.saleDate : today;
 
   // The full list is kept on this device per branch, so the till keeps working without a connection.
   const snapshotKey = `pos:${profile?.tenant.id}:${branch?.id}`;
@@ -153,7 +157,7 @@ export default function Pos() {
     }
     // The product barcode clears it at the counter (Require barcode clearance).
     const cleared = p.barcode === code ? code : undefined;
-    const same = lines.find((l) => l.product.id === p.id && !l.product.track_items && l.unitPrice === toNum(p.marked_price));
+    const same = lines.find((l) => l.product.id === p.id && !l.product.track_items && l.unitPrice === toNum(p.marked_price) && !l.saleDate);
     setCart((c) => ({
       ...c,
       lines: same
@@ -167,7 +171,9 @@ export default function Pos() {
     setCart((c) => {
       const rest = c.lines.filter((l) => l.key !== line.key);
       // Merge identical untracked lines at the same price.
-      const same = !line.product.track_items && !line.key ? rest.find((l) => l.product.id === line.product.id && l.unitPrice === line.unitPrice) : undefined;
+      const same = !line.product.track_items && !line.key
+        ? rest.find((l) => l.product.id === line.product.id && l.unitPrice === line.unitPrice && (l.saleDate ?? "") === (line.saleDate ?? ""))
+        : undefined;
       if (same) return { ...c, lines: rest.map((l) => (l === same ? { ...l, quantity: l.quantity + line.quantity } : l)) };
       return { ...c, lines: [...rest, { ...line, key: line.key || newRef() }] };
     });
@@ -205,8 +211,9 @@ export default function Pos() {
         <EmptyState icon={ShoppingCart} title="Cart is empty" hint="Search or scan products to add them." />
       ) : (
         <>
-          <CartLines lines={cart.lines} onEdit={(l) => { setEditing(l); setSelected(l.product); }} onRemove={(key) => setCart((c) => ({ ...c, lines: c.lines.filter((l) => l.key !== key) }))} />
-          <Checkout lines={cart.lines} onDone={finished} onQueued={savedOffline} clientRef={cart.ref} ownerId={cart.owner?.id} onWaiting={setWaiting} />
+          <CartLines lines={cart.lines} saleDate={saleDate} onEdit={(l) => { setEditing(l); setSelected(l.product); }} onRemove={(key) => setCart((c) => ({ ...c, lines: c.lines.filter((l) => l.key !== key) }))} />
+          <Checkout lines={cart.lines} onDone={finished} onQueued={savedOffline} clientRef={cart.ref} ownerId={cart.owner?.id} onWaiting={setWaiting}
+            saleDate={saleDate < today ? saleDate : undefined} />
         </>
       )}
     </div>
@@ -236,7 +243,11 @@ export default function Pos() {
           </div>
         )}
         {/* The Sale Owner stays with the cart until the sale completes (roadmap 62). */}
-        <SaleOwnerBar owner={cart.owner ?? null} onChange={(o) => setCart((c) => ({ ...c, owner: o }))} />
+        <div className="mb-2 flex gap-2">
+          <SaleOwnerBar className="mb-0 min-w-0 flex-1" owner={cart.owner ?? null} onChange={(o) => setCart((c) => ({ ...c, owner: o }))} />
+          <SaleDateBar value={saleDate} today={today} editable={can("sales.backdate")}
+            onChange={(d) => setCart((c) => ({ ...c, saleDate: d < today ? d : undefined }))} />
+        </div>
         <div className="sticky top-14 z-20 -mx-3.5 space-y-2 bg-background/90 px-3.5 pb-3 pt-1 backdrop-blur-sm md:-mx-6 md:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
           <SearchInput value={q} onChange={setQ} placeholder="Search name, nickname, code or barcode" autoFocus={desktop}
             onEnter={s.stock.barcode_requirement === "disabled" ? undefined : async (code) => {
@@ -299,6 +310,8 @@ export default function Pos() {
         product={selected}
         editing={editing}
         initialBarcode={prefillBarcode}
+        saleDate={saleDate}
+        today={today}
         onClose={() => { setSelected(null); setEditing(null); setPrefillBarcode(undefined); }}
         onSave={save}
         takenBarcodes={takenBarcodes}

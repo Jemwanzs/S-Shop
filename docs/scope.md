@@ -584,7 +584,7 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 **POS refinements, sale dates & receipt logo** ([module 36](modules/36-pos-dates-receipts.md)):
 - ✅ **114. POS stock visibility & images first** — POS Display switches *Show available stock count* (on) and *Show
   products with images first* (on); ordering: top sellers → sellable → with images → name, server-side.
-- ⏳ **115. Editable sale date** — Sale Date on New Sale (today by default, earlier dates with `sales.backdate`, never
+- ✅ **115. Editable sale date** — Sale Date on New Sale (today by default, earlier dates with `sales.backdate`, never
   future) and per-product dates in the cart; real entry time kept; stock movements on the line date with no negative
   history; product reports by line date, payments / receipts by sale date; M-Pesa confirmations never backdated.
 - ✅ **116. Receipt logo transparency** — no black box behind transparent logos in the PDF; one logo preparation for

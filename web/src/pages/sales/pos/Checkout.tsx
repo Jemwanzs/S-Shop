@@ -16,6 +16,7 @@ import { Field, ToggleRow } from "@/components/Form";
 import { Chip } from "@/components/Filters";
 import { PointsPill } from "@/components/Badges";
 import { exceedsMax, lineTotal, marked, salePoints, totals, type CartLine } from "./cart";
+import { dayLabel } from "./SaleDate";
 import { redemptionBlocked } from "@/lib/loyalty";
 import { t as tr } from "@/lib/i18n";
 import { SShopLoader } from "@/components/SShopLoader";
@@ -42,7 +43,7 @@ const STK_LABEL: Record<StkSale["status"], string> = {
   awaiting: "Pending", completed: "Successful", failed: "Failed", cancelled: "Cancelled", timeout: "Timed out", attention: "Needs attention",
 };
 
-export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEdit: (l: CartLine) => void; onRemove: (key: string) => void }) {
+export function CartLines({ lines, onEdit, onRemove, saleDate }: { lines: CartLine[]; onEdit: (l: CartLine) => void; onRemove: (key: string) => void; saleDate?: string }) {
   const { profile } = useSession();
   const s = profile!.settings;
   const net = lines.reduce((a, l) => a + lineTotal(l), 0);
@@ -61,6 +62,7 @@ export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEd
                 {disc !== 0 && <span className={disc > 0 ? "text-destructive" : "text-success"}> ({disc > 0 ? "−" : "+"}{count(Math.abs(disc))})</span>}
               </div>
               <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                {l.saleDate && l.saleDate !== saleDate && <span className="num rounded bg-warning/15 px-1.5 py-0.5 text-warning">📅 {dayLabel(l.saleDate)}</span>}
                 {l.barcode && <span className="num rounded bg-success/10 px-1.5 py-0.5 text-success">✓ {l.barcode}</span>}
                 {pts > 0 && <span className="rounded bg-points/10 px-1.5 py-0.5 text-points">🌼 +{pts}</span>}
                 {exceedsMax(l) && <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning">needs approval</span>}
@@ -80,8 +82,10 @@ export function CartLines({ lines, onEdit, onRemove }: { lines: CartLine[]; onEd
   );
 }
 
-export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaiting }: {
+export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaiting, saleDate }: {
   lines: CartLine[]; onDone: (sale: SaleDetail) => void; onQueued: (sale: QueuedSale) => void; clientRef: string; ownerId?: string;
+  /** Roadmap 115: an earlier sale date (unset = today). */
+  saleDate?: string;
   /** A sale is waiting for its STK Push (the cart must not change). */
   onWaiting?: (waiting: boolean) => void;
 }) {
@@ -240,7 +244,8 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   const saleBody = () => ({
           customer_id: customer?.id,
           customer: !customer && digits.length >= 9 ? { mobile: digits, first_name: firstName, nickname } : undefined,
-          items: lines.map((l) => ({ product_id: l.product.id, quantity: l.quantity, unit_price: l.unitPrice, barcode: l.barcode })),
+          items: lines.map((l) => ({ product_id: l.product.id, quantity: l.quantity, unit_price: l.unitPrice, barcode: l.barcode, sale_date: l.saleDate })),
+          sale_date: saleDate,
           payment: {
             method,
             reference: method === "mpesa" && !stk ? reference : "",
@@ -329,6 +334,11 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
 
   return (
     <div className="space-y-5">
+      {saleDate && (
+        <p className="num flex items-center gap-2 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
+          📅 {tr("Sale Date")}: <span className="font-semibold">{dayLabel(saleDate)}</span>
+        </p>
+      )}
       {/* Customer */}
       <section className="space-y-2">
         <p className="label-caps">{tr("Customer")} {method === "credit" || splitOnCredit ? "" : "· optional"}</p>

@@ -1,9 +1,10 @@
 /** Digital receipts (roadmap 65–67): one stored snapshot → the same 50 mm receipt on screen, as PDF, image, print, email
  * and WhatsApp. The server freezes the snapshot when the receipt is issued; this file only draws it. */
+import { dayLabel } from "@/lib/dates";
 import mark from "@/assets/sshop-mark.png";
 import { api } from "./api";
 
-export interface ReceiptLine { name: string; qty: number; price: string; total: string }
+export interface ReceiptLine { name: string; qty: number; price: string; total: string; date?: string | null }
 export interface ReceiptSnapshot {
   kind: "original" | "adjustment";
   title: string;
@@ -11,6 +12,8 @@ export interface ReceiptSnapshot {
   receipt_no: string;
   at: string;
   business_date: string;
+  /** Roadmap 115: set when the sale was recorded with an earlier date. */
+  sale_date?: string | null;
   status: string;
   currency: string;
   timezone: string;
@@ -76,7 +79,7 @@ export function receiptRows(s: ReceiptSnapshot): Row[] {
     if (v !== null && v !== undefined && v !== "") rows.push({ t: "kv", k, v: String(v), ...opts });
   };
   if (s.kind === "original") {
-    for (const i of s.items ?? []) rows.push({ t: "item", name: i.name, detail: `${i.qty} × ${amt(i.price)}`, total: amt(i.total) });
+    for (const i of s.items ?? []) rows.push({ t: "item", name: i.name, detail: `${i.qty} × ${amt(i.price)}${i.date ? ` · ${dayLabel(i.date)}` : ""}`, total: amt(i.total) });
     rows.push({ t: "rule" });
     const tt = s.totals!;
     if (n(tt.discount) > 0) kv("Subtotal", amt(tt.subtotal));
@@ -223,7 +226,8 @@ export async function receiptPdf(s: ReceiptSnapshot): Promise<Blob> {
       y += Math.max(1, keyLines.length) * size * 0.4 + 0.9;
     };
     kvLine(s.kind === "adjustment" ? "Ref:" : "Receipt:", s.number);
-    kvLine("Date:", when(s.at, s.timezone));
+    kvLine("Date:", s.sale_date ? dayLabel(s.sale_date) : when(s.at, s.timezone));
+    if (s.sale_date) kvLine("Recorded:", when(s.at, s.timezone));
     if (s.customer) kvLine("Customer:", s.customer);
     rule();
     if (s.kind === "original") {

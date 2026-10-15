@@ -12,6 +12,8 @@ export interface CartLine {
   quantity: number;
   unitPrice: number;
   barcode?: string;
+  /** Roadmap 115: this line's own sale date (yyyy-mm-dd); unset = the sale's date. */
+  saleDate?: string;
 }
 
 export const marked = (l: CartLine) => toNum(l.product.marked_price);

@@ -63,12 +63,12 @@ const PARAMS: &str = "WITH params AS (SELECT $1::uuid AS tid, $2::uuid[] AS br, 
     $12::int AS low)";
 
 const LINES: &str = "lines AS (
-    SELECT s.id AS sale_id, s.branch_id, s.owner_id AS user_id, s.customer_id, s.created_at, s.business_date, s.payment_method, si.product_id,
+    SELECT s.id AS sale_id, s.branch_id, s.owner_id AS user_id, s.customer_id, s.created_at, COALESCE(si.sale_date, s.business_date) AS business_date, s.payment_method, si.product_id,
            si.quantity - si.returned_qty AS qty, (si.quantity - si.returned_qty) * si.unit_price AS revenue,
            (si.quantity - si.returned_qty) * (si.marked_price - si.unit_price) AS discount,
            CASE WHEN si.unit_cost IS NOT NULL THEN (si.quantity - si.returned_qty) * si.unit_cost END AS cost
     FROM sales s JOIN sale_items si ON si.sale_id = s.id JOIN products p ON p.id = si.product_id, params
-    WHERE s.tenant_id = params.tid AND s.branch_id = ANY(params.br) AND s.business_date BETWEEN params.fd AND params.td
+    WHERE s.tenant_id = params.tid AND s.branch_id = ANY(params.br) AND COALESCE(si.sale_date, s.business_date) BETWEEN params.fd AND params.td
       AND s.status <> 'cancelled' AND (params.pid IS NULL OR si.product_id = params.pid)
       AND (params.cid IS NULL OR p.category_id = params.cid) AND (params.uid IS NULL OR s.owner_id = params.uid)
       AND (params.cust IS NULL OR s.customer_id = params.cust))";

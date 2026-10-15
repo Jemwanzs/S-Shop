@@ -291,6 +291,8 @@ export interface SaleDetail {
     /** Who physically entered the sale. */
     recorded_by_name: string | null;
     business_date: string;
+    /** Roadmap 115: recorded with an earlier sale date (business_date is that date). */
+    backdated?: boolean;
     gross_total: Money;
     discount_total: Money;
     total: Money;
@@ -312,6 +314,8 @@ export interface SaleDetail {
     id: Id;
     product_id: Id;
     product_name: string;
+    /** Roadmap 115: this line's own date when it differs from the sale's. */
+    sale_date?: string | null;
     product_code: string;
     barcode: string | null;
     quantity: number;

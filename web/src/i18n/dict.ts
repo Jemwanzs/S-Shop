@@ -3110,4 +3110,7 @@ export const DICT: Record<string, [string, string, string]> = {
   "recorded": ["imerekodiwa", "enregistrée", "سُجّل"],
   "Record sales with an earlier date": ["Rekodi mauzo kwa tarehe ya awali", "Enregistrer des ventes à une date antérieure", "تسجيل مبيعات بتاريخ سابق"],
   "Only people allowed to record sales with an earlier date can change it": ["Ni walioruhusiwa kurekodi mauzo kwa tarehe ya awali pekee wanaoweza kuibadilisha", "Seules les personnes autorisées à enregistrer des ventes à une date antérieure peuvent la modifier", "لا يمكن تغييره إلا لمن يُسمح لهم بتسجيل مبيعات بتاريخ سابق"],
+  // ── Roadmap 118: app updates ──────────────────────────────────────
+  "A new version of S'Shop is ready.": ["Toleo jipya la S'Shop liko tayari.", "Une nouvelle version de S'Shop est prête.", "إصدار جديد من S'Shop جاهز."],
+  "Refresh": ["Onyesha upya", "Actualiser", "تحديث"],
 };

@@ -27,6 +27,7 @@ import { Loading } from "@/components/Page";
 import { Field } from "@/components/Form";
 import { GlobalSearch } from "./GlobalSearch";
 import { OfflineBar } from "@/components/OfflineBar";
+import { useAppUpdate } from "@/lib/appUpdate";
 import { FloatingQuickAction } from "@/components/FloatingQuickAction";
 import { useOpenNow } from "@/components/Hours";
 import mark from "@/assets/sshop-mark.png";
@@ -468,6 +469,7 @@ export function AppShell() {
   const notes = useNotificationCounts();
   useLiveEvents(!!profile, preferences);
   useBrandIcons();
+  const update = useAppUpdate();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -496,6 +498,13 @@ export function AppShell() {
         <BillingBanner />
         <LocationGuard />
         <OfflineBar />
+        {/* Roadmap 118: a newer S'Shop is out — applied by itself on the next screen change, or now. */}
+        {update.ready && (
+          <div role="status" className="flex items-center justify-center gap-3 bg-primary/10 px-4 py-2 text-sm no-print">
+            <span>{t("A new version of S'Shop is ready.")}</span>
+            <Button size="sm" variant="outline" className="h-7" onClick={update.apply}>{t("Refresh")}</Button>
+          </div>
+        )}
         <QuickSaleShortcut />
         <IdleGuard />
         <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur-sm no-print">

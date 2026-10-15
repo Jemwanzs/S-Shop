@@ -32,7 +32,7 @@ export default function StockCount() {
   const qc = useQueryClient();
   const barcodes = useBarcodeSettings();
   const requireScan = barcodes.enabled && !!profile?.settings.stock.require_barcode_stocktake;
-  const [session, setSession] = usePersistentState<CountSession>(`sshop.stocktake.${branch?.id}`, empty);
+  const [session, setSession] = usePersistentState<CountSession>(`sshop.stocktake.${profile?.tenant.id}.${profile?.user.id}.${branch?.id}`, empty, `sshop.stocktake.${branch?.id}`);
   const [q, setQ] = useState("");
   const [reason, setReason] = useState("Stock take");
   const { data, isLoading } = useQuery({

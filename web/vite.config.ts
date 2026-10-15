@@ -1,10 +1,21 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
 
+// Roadmap 118: every build has its own version; the app compares it with /version.json to notice a new release.
+const BUILD = `${Date.now().toString(36)}`;
+const version: Plugin = {
+  name: "sshop-version",
+  apply: "build",
+  generateBundle() {
+    this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ version: BUILD }) });
+  },
+};
+
 // In development the API runs on :8080 (cargo run); Vite proxies /api to it.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), version],
+  define: { __APP_VERSION__: JSON.stringify(BUILD) },
   // Same alias as tsconfig.json "paths": @/* → src/*
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   server: {

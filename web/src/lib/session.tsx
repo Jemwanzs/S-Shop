@@ -89,6 +89,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onUnauthorized = () => {
       forgetProfile();
+      // Roadmap 118: the Current Branch belongs to the session — the next sign-in chooses again.
+      session.setBranch(null);
+      setBranchId(null);
       setToken(null);
       qc.clear();
     };
@@ -103,6 +106,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem(LOGOUT_SIGNAL, `${Date.now()}:${reason}`); } catch { /* other tabs follow at their next request */ }
     forgetProfile();
     session.setToken(null);
+    // Roadmap 118: never carried into the next sign-in (of this person or anyone else on this device).
+    session.setBranch(null);
+    setBranchId(null);
     setToken(null);
     qc.clear();
   }, [qc]);
@@ -163,12 +169,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         session.setToken(t);
         qc.setQueryData(["me", t], p);
         setToken(t);
-        // One branch, or the user's default branch (roadmap 64), becomes the Current Branch straight away.
+        // One branch, or the user's default branch (roadmap 64), becomes the Current Branch straight away; otherwise
+        // the branch is chosen (roadmap 118: a branch remembered from an earlier session is never reused). The same
+        // for a full sign-in and Quick PIN — both come through here, with the branches the server just checked.
         const preset = p.branches.length === 1 ? p.branches[0].id : p.branches.find((b) => b.id === p.user.default_branch_id)?.id;
-        if (preset) {
-          session.setBranch(preset);
-          setBranchId(preset);
-        }
+        session.setBranch(preset ?? null);
+        setBranchId(preset ?? null);
       },
       renewToken: async (t) => {
         const p = await api<Profile>("/auth/me", { token: t });

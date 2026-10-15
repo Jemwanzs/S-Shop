@@ -592,6 +592,12 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 - ✅ **117. New Sale category strip** — warm-cream strip, one scrollable row, overflow arrows, selected category kept
   in view.
 
+**Mobile session & app updates** ([module 30](modules/30-session-timeout.md#roadmap-118--branch-selection-per-person-device-data--app-updates-mobile)):
+- ✅ **118. Branch selection, per-person device data & app updates** — the Current Branch is forgotten at sign-out and
+  chosen afresh at every sign-in (full or Quick PIN: one branch, the default branch, or the picker), validated by the
+  server; carts and stock-count drafts kept per person; a new release noticed while the app is open (Refresh, or
+  applied on the next screen change when nothing is unsaved); old build files dropped by the service worker.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

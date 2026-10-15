@@ -65,3 +65,30 @@ the warning and ends the session on time.
   or a token from before this release answers `unauthorized` (*Please sign in to continue*).
 - Sign-out from the user menu also ends the server session (`POST /auth/logout`). A PIN change, opening another
   business, support sessions and switching business end the old session (`replaced`) and start a new one.
+
+## Roadmap 118 — branch selection, per-person device data & app updates (mobile)
+
+Brief: *Mobile Session Cache, Branch Selection & Login Initialization Fix* (James Sammy, SyncScore). Audit findings and
+fixes:
+
+- **Branch carried across sign-ins (the reported bypass)** — the Current Branch was stored on the device and survived
+  a sign-out, so the next sign-in (full or Quick PIN, same person or another) could reuse it and skip *Where are you
+  working today?*. Now the branch belongs to the session: sign-out, automatic logout, a sign-out in another tab and a
+  rejected session all forget it, and every sign-in chooses afresh from the branches the server just returned — the
+  only branch, the person's default branch (roadmap 64), otherwise the branch picker. Full sign-in and Quick PIN share
+  this one path.
+- **Validation** — the server sends only active branches assigned to the person, and checks the branch on every
+  request (`X-Branch-Id`); a restored session's branch is checked against the fresh profile and dropped when no longer
+  allowed. Screens wait (S'Shop loader) until the profile has loaded, the one-time-PIN check is done and a branch is
+  in force: *Authenticate → load the person, permissions and branches → validate the branch → choose if needed → the
+  landing page*.
+- **Device data per person** — the New Sale cart and stock-count drafts were kept per branch only, so another person on
+  the same phone could see them. They are now kept per business, person and branch (a draft saved before this release
+  moves over once). The saved-state hook reads the new key's own value when the person, business or branch changes.
+  The offline profile copy is tied to its session token; offline sales and product lists are per business.
+- **App updates** — every build has a version (`/version.json`). The open app checks it when it comes back to the
+  foreground, comes online and every 10 minutes; a newer release shows *A new version of S'Shop is ready* with
+  **Refresh**, and is applied by itself on the next change of screen when nothing is unsaved (carts and offline sales
+  stay on the device). `index.html` is always revalidated; fingerprinted assets are cached forever; when a new
+  release's page arrives, the service worker drops the previous build's files. The service worker never caches API
+  responses or credentials.

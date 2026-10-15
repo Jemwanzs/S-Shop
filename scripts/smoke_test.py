@@ -3310,6 +3310,23 @@ check("only people allowed to backdate may choose an earlier date", True)
 check("a sale on today's date needs no special right", sale115({"sale_date": str(today115)}, token=S115)["sale"]["id"])
 check("catalogue: the backdating permission exists", any(p_[0] == "sales.backdate" for g in call("GET", "/permissions") for p_ in g["permissions"]))
 
+step("Roadmap 118: the Current Branch is checked by the server for every request")
+b118 = call("POST", "/branches", {"name": f"Pop-up {suffix}", "code": f"PU{suffix}"})["id"]
+sp118 = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
+e118 = f"branch{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Branch Clerk", "email": e118, "pin": "4321", "role_id": sp118, "all_branches": False, "branch_ids": [BRANCH, b118]})
+S118 = call("POST", "/auth/login", {"email": e118, "pin": "4321"})["token"]
+check("signing in returns the branches the person may use (to choose from)",
+      sorted(x["id"] for x in call("GET", "/auth/me", token=S118)["branches"]) == sorted([BRANCH, b118]))
+other118 = me2["branches"][0]["id"]
+r = call("GET", "/sales?period=today", token=S118, branch=other118, expect=403)
+check("another business's branch is refused", "not assigned" in r["error"]["message"], r)
+br118 = next(x for x in call("GET", "/branches") if x["id"] == b118)
+call("PUT", f"/branches/{b118}", {**{k: br118[k] for k in ("name", "code", "location", "phone", "manager_id")}, "is_active": False})
+check("a deactivated branch is no longer offered", [x["id"] for x in call("GET", "/auth/me", token=S118)["branches"]] == [BRANCH])
+call("GET", "/sales?period=today", token=S118, branch=b118, expect=403)
+check("a deactivated branch remembered on a device is refused by the server", True)
+
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
 iv_mail = f"invitee{suffix.lower()}@sshop.test"

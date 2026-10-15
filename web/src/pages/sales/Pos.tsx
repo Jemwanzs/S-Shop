@@ -51,7 +51,9 @@ export default function Pos() {
   const [q, setQ] = useState("");
   const term = useDebounced(q);
   const [category, setCategory] = useState<string | null>(null);
-  const [cart, setCartRaw] = usePersistentState<{ lines: CartLine[]; ref: string; owner?: Owner | null; saleDate?: string }>(`sshop.cart.${branch?.id}`, { lines: [], ref: newRef() });
+  const [cart, setCartRaw] = usePersistentState<{ lines: CartLine[]; ref: string; owner?: Owner | null; saleDate?: string }>(
+    // Roadmap 118: each person's own cart per business and branch (an older device-wide cart moves over once).
+    `sshop.cart.${profile?.tenant.id}.${profile?.user.id}.${branch?.id}`, { lines: [], ref: newRef() }, `sshop.cart.${branch?.id}`);
   // Roadmap 91: while a sale waits for its M-Pesa STK Push, the server completes it exactly as sent — the cart is locked.
   const [waiting, setWaiting] = useState(false);
   const waitingRef = useRef(false);

@@ -136,6 +136,10 @@ class _Paystack(BaseHTTPRequestHandler):
         self._send(404, {"status": False, "message": "Not found"})
 
     def do_GET(self):
+        # Roadmap 127: exchange-rate stand-in (FX_URL) — the suite never depends on an outside service.
+        if self.path.startswith("/v6/latest/KES"):
+            return self._send(200, {"result": "success", "base_code": "KES", "time_last_update_utc": "Thu, 15 Oct 2026 00:00:01 +0000",
+                                    "rates": {"KES": 1, "USD": 0.0077, "EUR": 0.0071}})
         if self.path.startswith("/oauth/v1/generate"):
             ok = self.headers.get("Authorization") == "Basic " + base64.b64encode(f"{DARAJA['key']}:{DARAJA['secret']}".encode()).decode()
             if not ok:

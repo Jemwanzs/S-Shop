@@ -103,6 +103,10 @@ async fn save(State(state): State<AppState>, ctx: Ctx, Json(p): Json<Preferences
 
 const FX_TTL: Duration = Duration::from_secs(60 * 60);
 const FX_SOURCE: &str = "https://open.er-api.com/v6/latest/KES";
+/// Roadmap 127: `FX_URL` points the rates at another address (the test suite's stand-in); production uses the provider.
+fn fx_source() -> String {
+    std::env::var("FX_URL").ok().filter(|u| !u.trim().is_empty()).unwrap_or_else(|| FX_SOURCE.to_string())
+}
 
 /// Rates from KES to each supported display currency. Cached for an hour; on a fetch failure the
 /// last good rates are served (marked stale) so the app keeps working offline from the provider.
@@ -137,7 +141,7 @@ async fn fx(State(state): State<AppState>, _ctx: Ctx) -> AppResult<Json<Value>> 
 async fn fetch_rates(state: &AppState) -> Result<Value, String> {
     let body: Value = state
         .http
-        .get(FX_SOURCE)
+        .get(fx_source())
         .timeout(Duration::from_secs(8))
         .send()
         .await

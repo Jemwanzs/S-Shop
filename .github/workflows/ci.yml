@@ -98,6 +98,8 @@ jobs:
           # Daraja stand-in (same smoke-suite server): M-Pesa accounts, STK Push sales and callbacks (roadmap 91).
           MPESA_SANDBOX_URL: http://127.0.0.1:8098
           MPESA_PRODUCTION_URL: http://127.0.0.1:8098
+          # Exchange-rate stand-in (roadmap 127): the suite never depends on an outside service.
+          FX_URL: http://127.0.0.1:8098/v6/latest/KES
           # Renewal invoices / trial ends / suspension would otherwise run part-way through the suite.
           BACKGROUND_JOBS: "off"
         run: |

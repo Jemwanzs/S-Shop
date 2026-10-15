@@ -627,6 +627,9 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 - ✅ **126. Statement lines in the reader's language** — each statement line also carries its parts (payment method
   and reference, return kind and the sale it was for), so the screen words it in Kiswahili, French or Arabic; the PDF
   keeps English wording (its built-in font cannot draw Arabic script).
+- ⏳ **127. Test suite independent of outside services** — the exchange-rate address is configurable (`FX_URL`,
+  default the provider); CI and the local runner point it at the suite's own stand-in (as for Paystack, Resend and
+  Daraja), so an internet blip at open.er-api.com can no longer stop a full run (it did three times).
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

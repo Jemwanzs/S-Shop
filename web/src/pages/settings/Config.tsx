@@ -139,7 +139,7 @@ export function ProductSettings() {
 }
 
 /** Roadmap 109: POS display with its defaults for businesses that never saved one. */
-const pos = (s: Settings) => s.sales.pos ?? { style: "compact" as const, show_images: false, tablet_columns: 2, desktop_columns: 4, show_prices: true };
+const pos = (s: Settings) => ({ show_stock: true, images_first: true, ...(s.sales.pos ?? { style: "compact" as const, show_images: false, tablet_columns: 2, desktop_columns: 4, show_prices: true }) });
 
 /** Roadmap 110: top-selling ranking with its defaults. */
 const top = (s: Settings) => s.sales.top_selling ?? { enabled: true, metric: "quantity" as const, period: "week" as const };
@@ -187,6 +187,8 @@ export function SalesSettings() {
             </Row>
             <ToggleRow label="Show product images" hint="The primary product photo (image cards always show it)" checked={pos(s).show_images} onChange={(v) => d.update((x) => { x.sales.pos = { ...pos(x), show_images: v }; })} />
             <ToggleRow label="Show prices on products" hint="The cart, totals and payment always show amounts" checked={pos(s).show_prices} onChange={(v) => d.update((x) => { x.sales.pos = { ...pos(x), show_prices: v }; })} />
+            <ToggleRow label="Show available stock count" hint="“100 left” on each product. Off hides the number only — out-of-stock products still say so and cannot be sold" checked={pos(s).show_stock} onChange={(v) => d.update((x) => { x.sales.pos = { ...pos(x), show_stock: v }; })} />
+            <ToggleRow label="Show products with images first" hint="After top sellers and products in stock; products without images still show, after those with one" checked={pos(s).images_first} onChange={(v) => d.update((x) => { x.sales.pos = { ...pos(x), images_first: v }; })} />
             <Row label="Tablet columns" hint="Fewer when the screen is too narrow">
               <Select value={String(pos(s).tablet_columns)} onChange={(v) => d.update((x) => { x.sales.pos = { ...pos(x), tablet_columns: Number(v) }; })} className="w-28">
                 {[1, 2, 3, 4].map((n) => <option key={n} value={String(n)}>{n}</option>)}

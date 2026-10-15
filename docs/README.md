@@ -51,6 +51,7 @@
 | 33 | Business onboarding & data migration | [modules/33-onboarding.md](modules/33-onboarding.md) |
 | 34 | Loyalty rewards, split payments, credit & configurable POS | [modules/34-loyalty-payments-pos.md](modules/34-loyalty-payments-pos.md) |
 | 35 | Tenant partial white labelling & business logo | [modules/35-white-labelling.md](modules/35-white-labelling.md) |
+| 36 | POS refinements, sale dates & receipt logo | [modules/36-pos-dates-receipts.md](modules/36-pos-dates-receipts.md) |
 
 ## Glossary
 

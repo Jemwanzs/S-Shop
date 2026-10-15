@@ -133,22 +133,36 @@ export function receiptRows(s: ReceiptSnapshot): Row[] {
   return rows;
 }
 
-async function dataUrl(src: string): Promise<{ url: string; w: number; h: number } | null> {
+/**
+ * Roadmap 116: one logo preparation for every receipt export. Whatever the stored format (PNG, WebP, JPEG; SVG is
+ * converted on upload), the image is redrawn on a transparent canvas and handed over as PNG, which keeps the alpha
+ * channel — the PDF renderer flattened WebP transparency to black. Never enlarged; at most 600 px on its longer side.
+ */
+export async function receiptImage(src: string): Promise<{ url: string; w: number; h: number } | null> {
   try {
     const blob = await (await fetch(src)).blob();
-    const url = await new Promise<string>((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(String(r.result));
-      r.onerror = () => rej(r.error);
-      r.readAsDataURL(blob);
-    });
-    const dims = await new Promise<{ w: number; h: number }>((res) => {
-      const img = new Image();
-      img.onload = () => res({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
-      img.onerror = () => res({ w: 1, h: 1 });
-      img.src = url;
-    });
-    return { url, ...dims };
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise<HTMLImageElement>((res, rej) => {
+        const i = new Image();
+        i.onload = () => res(i);
+        i.onerror = () => rej(new Error("Image could not be read"));
+        i.src = objectUrl;
+      });
+      const w0 = img.naturalWidth || 1, h0 = img.naturalHeight || 1;
+      const scale = Math.min(1, 600 / Math.max(w0, h0));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(w0 * scale));
+      canvas.height = Math.max(1, Math.round(h0 * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return { url: canvas.toDataURL("image/png"), w: canvas.width, h: canvas.height };
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
   } catch {
     return null;
   }
@@ -160,8 +174,8 @@ const M = 2.5; // mm margin
 /** The receipt as a 50 mm wide PDF whose height fits the content exactly (two passes: measure, then draw). */
 export async function receiptPdf(s: ReceiptSnapshot): Promise<Blob> {
   const { jsPDF } = await import("jspdf");
-  const logo = s.business.logo ? await dataUrl(logoUrl(s.business.logo)!) : null;
-  const icon = await dataUrl(mark);
+  const logo = s.business.logo ? await receiptImage(logoUrl(s.business.logo)!) : null;
+  const icon = await receiptImage(mark);
   const font = s.font === "thermal" ? "courier" : "helvetica";
   const draw = (doc: InstanceType<typeof jsPDF>) => {
     let y = M + 1;
@@ -188,7 +202,7 @@ export async function receiptPdf(s: ReceiptSnapshot): Promise<Blob> {
     if (logo) {
       const lw = Math.min(14, (14 * logo.w) / logo.h);
       const lh = (lw * logo.h) / logo.w;
-      doc.addImage(logo.url, (W - lw) / 2, y, lw, lh);
+      doc.addImage(logo.url, "PNG", (W - lw) / 2, y, lw, lh, undefined, "SLOW");
       y += lh + 2;
     }
     center(s.business.name, 8.5, true);
@@ -265,7 +279,7 @@ export async function receiptPdf(s: ReceiptSnapshot): Promise<Blob> {
     y += 3;
     if (icon) {
       const iw = 4;
-      doc.addImage(icon.url, (W - iw) / 2, y, iw, (iw * icon.h) / icon.w);
+      doc.addImage(icon.url, "PNG", (W - iw) / 2, y, iw, (iw * icon.h) / icon.w, undefined, "SLOW");
       y += (iw * icon.h) / icon.w;
     }
     return y + M;

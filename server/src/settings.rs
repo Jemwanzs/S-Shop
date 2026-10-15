@@ -183,10 +183,14 @@ pub struct PosDisplay {
     pub desktop_columns: u8,
     /// Price labels on the product cards (the cart, totals and payment always show amounts).
     pub show_prices: bool,
+    /// Roadmap 114: "100 left" on the cards. Off hides the number only — out of stock still shows and is never sold.
+    pub show_stock: bool,
+    /// Roadmap 114: products with a primary photo before those without (after top sellers and sellable products).
+    pub images_first: bool,
 }
 impl Default for PosDisplay {
     fn default() -> Self {
-        Self { style: "compact".into(), show_images: false, tablet_columns: 2, desktop_columns: 4, show_prices: true }
+        Self { style: "compact".into(), show_images: false, tablet_columns: 2, desktop_columns: 4, show_prices: true, show_stock: true, images_first: true }
     }
 }
 

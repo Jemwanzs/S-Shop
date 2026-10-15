@@ -3102,7 +3102,7 @@ call("PUT", "/settings", cfg108)
 step("Roadmap 109: POS display and product list preferences")
 cfg109 = call("GET", "/settings")["settings"]
 check("defaults keep today's counter: compact cards, no images, prices shown, 2 / 4 columns",
-      cfg109["sales"]["pos"] == {"style": "compact", "show_images": False, "tablet_columns": 2, "desktop_columns": 4, "show_prices": True}
+      cfg109["sales"]["pos"] == {"style": "compact", "show_images": False, "tablet_columns": 2, "desktop_columns": 4, "show_prices": True, "show_stock": True, "images_first": True}
       and cfg109["product"]["list_show_images"] is False and cfg109["product"]["list_show_prices"] is True, (cfg109["sales"]["pos"], cfg109["product"]))
 for bad_, why in [({"style": "carousel"}, "unknown style"), ({"tablet_columns": 5}, "too many tablet columns"), ({"desktop_columns": 0}, "no desktop columns")]:
     call("PUT", "/settings", {**cfg109, "sales": {**cfg109["sales"], "pos": {**cfg109["sales"]["pos"], **bad_}}}, expect=400)
@@ -3242,6 +3242,26 @@ call("GET", f"/public/nosuch{suffix.lower()}/branding", token="none", branch="no
 check("an unknown business address shows S'Shop (nothing revealed)", True)
 call("PUT", "/settings", cfg113)
 call("DELETE", "/settings/logo")
+
+step("Roadmap 114: POS stock count and products with images first")
+cfg114 = call("GET", "/settings")["settings"]
+check("stock count shown and images first by default", cfg114["sales"]["pos"]["show_stock"] is True and cfg114["sales"]["pos"]["images_first"] is True, cfg114["sales"]["pos"])
+tag114 = f"Pic{suffix}"
+plain114 = call("POST", "/products", {"name": f"{tag114} Alpha", "marked_price": 100})["result"]["id"]
+photo114 = call("POST", "/products", {"name": f"{tag114} Beta", "marked_price": 100})["result"]["id"]
+empty114 = call("POST", "/products", {"name": f"{tag114} Aaron", "marked_price": 100})["result"]["id"]
+for pid in (plain114, photo114):
+    call("POST", "/stock/receive", {"product_id": pid, "quantity": 5, "cost_price": 50})
+upload_file(f"/products/{photo114}/photos", tiny_png(), "p.png", "image/png")
+upload_file(f"/products/{empty114}/photos", tiny_png((0, 0, 255)), "p.png", "image/png")
+order114 = lambda: [x["id"] for x in call("GET", f"/pos/products?q={tag114}&all=true")]
+check("images first: in-stock products with a photo before those without; out of stock stays last",
+      order114() == [photo114, plain114, empty114], order114())
+call("PUT", "/settings", {**cfg114, "sales": {**cfg114["sales"], "pos": {**cfg114["sales"]["pos"], "images_first": False, "show_stock": False}}})
+check("images first off: the previous order (sellable first, then by name)", order114() == [plain114, photo114, empty114], order114())
+check("stock count off is saved for the app (the number is hidden; stock rules unchanged)",
+      call("GET", "/auth/me")["settings"]["sales"]["pos"]["show_stock"] is False)
+call("PUT", "/settings", cfg114)
 
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}

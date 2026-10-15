@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { ScrollRow } from "@/components/ScrollRow";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock, CloudOff, PackageSearch, Printer, ScanLine, ShoppingCart, Trash2 } from "lucide-react";
@@ -246,9 +247,12 @@ export default function Pos() {
               else if (r?.tone === "error" && !/not found/i.test(r.title)) toast.error(r.title);
             }} />
           {categories.length > 1 && (
-            <div className="scrollbar-none -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 md:mx-0 md:px-0">
-              <Chip active={!category} onClick={() => setCategory(null)}>{translate("All")}</Chip>
-              {categories.map((c) => <Chip key={c} active={category === c} onClick={() => setCategory(c)}>{c}</Chip>)}
+            // Roadmap 117: a warm-cream strip, one scrollable row, arrows where categories are hidden, the chosen one in view.
+            <div className="rounded-xl bg-strip px-1.5 py-1.5">
+              <ScrollRow active={category} bleed={false} arrowsOnPhones label={translate("Categories")}>
+                <Chip active={!category} onClick={() => setCategory(null)}>{translate("All")}</Chip>
+                {categories.map((c) => <Chip key={c} active={category === c} onClick={() => setCategory(c)}>{c}</Chip>)}
+              </ScrollRow>
             </div>
           )}
         </div>

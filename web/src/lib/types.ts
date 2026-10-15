@@ -71,7 +71,7 @@ export interface Settings {
     /** Receipt configuration (roadmap 66). */
     receipt: { show_logo: boolean; show_branch: boolean; show_contact: boolean; show_customer: boolean; show_salesperson: boolean; show_loyalty: boolean; show_payment_ref: boolean; font: "sans" | "thermal" };
     /** Roadmap 109: Record Sale product display. */
-    pos: { style: "compact" | "image" | "list"; show_images: boolean; tablet_columns: number; desktop_columns: number; show_prices: boolean };
+    pos: { style: "compact" | "image" | "list"; show_images: boolean; tablet_columns: number; desktop_columns: number; show_prices: boolean; show_stock?: boolean; images_first?: boolean };
     /** Roadmap 110: top-selling products first, with Gold / Silver / Bronze stars. */
     top_selling: { enabled: boolean; metric: "quantity" | "value" | "sales"; period: "today" | "week" | "month" };
   };

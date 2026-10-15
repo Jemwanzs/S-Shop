@@ -581,6 +581,17 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   S'Shop; versioned logo URLs, no cross-tenant caching. Branding off keeps today's behaviour exactly (the logo stays
   where it already showed: sidebar, receipts, customer pages, website).
 
+**POS refinements, sale dates & receipt logo** ([module 36](modules/36-pos-dates-receipts.md)):
+- ✅ **114. POS stock visibility & images first** — POS Display switches *Show available stock count* (on) and *Show
+  products with images first* (on); ordering: top sellers → sellable → with images → name, server-side.
+- ⏳ **115. Editable sale date** — Sale Date on New Sale (today by default, earlier dates with `sales.backdate`, never
+  future) and per-product dates in the cart; real entry time kept; stock movements on the line date with no negative
+  history; product reports by line date, payments / receipts by sale date; M-Pesa confirmations never backdated.
+- ✅ **116. Receipt logo transparency** — no black box behind transparent logos in the PDF; one logo preparation for
+  preview, PDF, image, print and shared links.
+- ✅ **117. New Sale category strip** — warm-cream strip, one scrollable row, overflow arrows, selected category kept
+  in view.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

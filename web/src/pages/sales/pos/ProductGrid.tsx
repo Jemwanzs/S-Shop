@@ -9,6 +9,7 @@ import { photoUrl } from "@/lib/api";
 import { count, money } from "@/lib/format";
 import type { PosProduct, Settings } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 
 type Display = Settings["sales"]["pos"];
 
@@ -67,7 +68,7 @@ export function ProductGrid({ products, display, inCart, onOpen, lowThreshold, b
         const out = left <= 0;
         const stock = (
           <span className={cn("num text-xs", out ? "text-destructive" : left <= lowThreshold ? "text-warning" : "text-success")}>
-            {out ? "Out of stock" : `${count(left)} left`}
+            {out ? t("Out of stock") : display.show_stock === false ? (left <= lowThreshold ? t("Low stock") : "") : `${count(left)} ${t("left")}`}
           </span>
         );
         const price = display.show_prices && <span className="num font-semibold">{money(p.marked_price)}</span>;

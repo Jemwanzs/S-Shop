@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
 
-export function ScrollRow({ children, active, className, label, bleed = true }: {
+export function ScrollRow({ children, active, className, label, bleed = true, arrowsOnPhones = false }: {
   children: ReactNode;
   /** Changes when the selection changes, so the active item is scrolled into view. */
   active?: unknown;
@@ -14,6 +14,8 @@ export function ScrollRow({ children, active, className, label, bleed = true }: 
   label?: string;
   /** Reach the screen edges on phones (the page's own padding), as the chip rows always did. */
   bleed?: boolean;
+  /** Roadmap 117: compact ‹ › on phones as well (swiping still works). */
+  arrowsOnPhones?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -69,7 +71,8 @@ export function ScrollRow({ children, active, className, label, bleed = true }: 
     const el = ref.current;
     if (el) el.scrollBy({ left: dir * Math.max(120, el.clientWidth * 0.7), behavior: "smooth" });
   };
-  const arrow = "absolute top-1/2 z-10 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border bg-card text-foreground shadow-xs hover:bg-accent md:flex";
+  const arrow = cn("absolute top-1/2 z-10 h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border bg-card text-foreground shadow-xs hover:bg-accent",
+    arrowsOnPhones ? "flex" : "hidden md:flex");
   return (
     <div className={cn("relative min-w-0", bleed && "-mx-3.5 md:mx-0", className)}>
       <div ref={ref} role={label ? "group" : undefined} aria-label={label}

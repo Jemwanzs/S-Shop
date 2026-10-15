@@ -121,7 +121,9 @@ async fn pos_products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<P
            AND ($3::text IS NULL OR p.name ILIKE $3 OR p.nickname ILIKE $3 OR p.code ILIKE $3 OR p.barcode ILIKE $3)
            AND ($4::uuid IS NULL OR p.category_id = $4)
            AND ($5 OR COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) > 0)
-         ORDER BY r.rank NULLS LAST, (COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) > 0) DESC, p.name
+         -- Roadmap 114: top sellers, then sellable, then (when chosen) products with a photo, then by name.
+         ORDER BY r.rank NULLS LAST, (COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) > 0) DESC,
+                  CASE WHEN $10 THEN EXISTS (SELECT 1 FROM product_photos ph WHERE ph.product_id = p.id) END DESC NULLS LAST, p.name
          LIMIT 200",
     )
     .bind(ctx.tenant_id)
@@ -133,6 +135,7 @@ async fn pos_products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<P
     .bind(from)
     .bind(today)
     .bind(&ts.metric)
+    .bind(s.sales.pos.images_first)
     .fetch_all(&state.db)
     .await?;
     Ok(Json(rows))

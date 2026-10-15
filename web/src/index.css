@@ -47,6 +47,7 @@
   --color-destructive-foreground: hsl(var(--destructive-foreground));
 
   --color-muted: hsl(var(--muted));
+  --color-strip: hsl(var(--strip));
   --color-muted-foreground: hsl(var(--muted-foreground));
 
   --color-accent: hsl(var(--accent));
@@ -251,6 +252,7 @@
     --popover-foreground: 24 28% 11%;
     --primary: 22 88% 48%;
     --fab: 22 48% 30%;        /* warm brown floating quick actions */
+    --strip: 36 58% 93%;      /* warm cream strip behind chip rows (roadmap 117) */
     --primary-foreground: 0 0% 100%;
     --secondary: 32 38% 91%;
     --secondary-foreground: 24 28% 16%;
@@ -296,6 +298,7 @@
     --popover-foreground: 32 30% 94%;
     --primary: 24 92% 56%;
     --fab: 22 42% 38%;
+    --strip: 26 18% 13%;
     --primary-foreground: 24 30% 8%;
     --secondary: 24 12% 15%;
     --secondary-foreground: 32 30% 90%;

@@ -103,6 +103,12 @@ async fn connect() -> anyhow::Result<sqlx::PgPool> {
     Ok(db)
 }
 
+/// Roadmap 119: an API address that does not exist is a JSON 404 — never the app's page (an older app version calling
+/// a removed endpoint then gets a clear answer instead of HTML it cannot read).
+async fn api_not_found() -> error::AppError {
+    error::AppError::NotFound("Endpoint")
+}
+
 async fn healthz(axum::extract::State(state): axum::extract::State<state::AppState>) -> (axum::http::StatusCode, &'static str) {
     let ping = tokio::time::timeout(Duration::from_secs(3), sqlx::query("SELECT 1").execute(&state.db)).await;
     match ping {
@@ -166,7 +172,7 @@ async fn serve() -> anyhow::Result<()> {
 
     let mut app = Router::new()
         // Every write request goes through the duplicate-submission guard (roadmap 47).
-        .nest("/api", routes::api().layer(axum::middleware::from_fn_with_state(state.clone(), dedupe::guard)))
+        .nest("/api", routes::api().fallback(api_not_found).layer(axum::middleware::from_fn_with_state(state.clone(), dedupe::guard)))
         // Healthy only when the database answers (Railway restarts the service otherwise).
         .route("/healthz", axum::routing::get(healthz))
         .merge(assets)

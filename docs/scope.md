@@ -598,6 +598,10 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   server; carts and stock-count drafts kept per person; a new release noticed while the app is open (Refresh, or
   applied on the next screen change when nothing is unsaved); old build files dropped by the service worker.
 
+**Product health clinic follow-ups** (2026-10-15 report):
+- ✅ **119. Unknown API addresses answer 404** — `/api/*` paths with no route returned the app page (200, HTML),
+  so an older app version calling a removed endpoint got a confusing error; now a JSON 404 (`not_found`).
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

@@ -3327,6 +3327,12 @@ check("a deactivated branch is no longer offered", [x["id"] for x in call("GET",
 call("GET", "/sales?period=today", token=S118, branch=b118, expect=403)
 check("a deactivated branch remembered on a device is refused by the server", True)
 
+step("Roadmap 119: unknown API addresses answer 404")
+for m119, path119 in (("GET", "/no-such-endpoint"), ("POST", "/no-such/action/here")):
+    r = call(m119, path119, {} if m119 == "POST" else None, expect=404)
+    check(f"{m119} {path119}: a JSON 404, never the app page", r["error"]["code"] == "not_found", r)
+check("the app page still opens for screen addresses", urllib.request.urlopen(BASE + "/sales/history").status == 200)
+
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
 iv_mail = f"invitee{suffix.lower()}@sshop.test"

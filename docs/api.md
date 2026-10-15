@@ -11,6 +11,9 @@ List endpoints accept `limit` (≤500) and `offset`; period filters accept `peri
 **Geofencing:** staff requests may carry `X-Location: lat,lng,accuracy_m`; when the business restricts an area to the
 branch it is required (422 when missing, imprecise or outside the radius) and it is stored in the audit trail.
 
+
+Any `/api/…` address without a route answers **404** `{"error":{"code":"not_found",…}}` (roadmap 119) — never the app page.
+
 ## Authentication
 
 | Method | Path |

@@ -3126,4 +3126,15 @@ export const DICT: Record<string, [string, string, string]> = {
   "Stock cannot be received with a date in the closed period.": ["Stoki haiwezi kupokelewa kwa tarehe iliyo ndani ya kipindi kilichofungwa.", "Le stock ne peut pas être réceptionné à une date de la période clôturée.", "لا يمكن استلام مخزون بتاريخ داخل الفترة المقفلة."],
   "Expenses cannot be recorded in, or voided from, the closed period.": ["Matumizi hayawezi kurekodiwa au kufutwa katika kipindi kilichofungwa.", "Les dépenses ne peuvent pas être enregistrées ni annulées dans la période clôturée.", "لا يمكن تسجيل المصروفات أو إلغاؤها في الفترة المقفلة."],
   "Every change to the closing date is in the audit trail.": ["Kila mabadiliko ya tarehe ya kufunga yako kwenye kumbukumbu za ukaguzi.", "Chaque modification de la date de clôture figure dans le journal d'audit.", "كل تغيير في تاريخ الإقفال مسجل في سجل التدقيق."],
+  // ── Roadmap 124: credit statements ────────────────────────────────
+  "Credit statement": ["Taarifa ya mkopo", "Relevé de crédit", "كشف حساب الائتمان"],
+  "Statement": ["Taarifa", "Relevé", "كشف الحساب"],
+  "Last 90 days": ["Siku 90 zilizopita", "90 derniers jours", "آخر 90 يومًا"],
+  "Opening balance": ["Salio la mwanzo", "Solde d'ouverture", "الرصيد الافتتاحي"],
+  "Closing balance": ["Salio la mwisho", "Solde de clôture", "الرصيد الختامي"],
+  "Charged": ["Imetozwa", "Facturé", "المستحق"],
+  "Paid / reduced": ["Imelipwa / imepunguzwa", "Payé / réduit", "مدفوع / مخفّض"],
+  "No credit activity in this period": ["Hakuna shughuli za mkopo katika kipindi hiki", "Aucune activité de crédit sur cette période", "لا يوجد نشاط ائتمان في هذه الفترة"],
+  "Still to pay": ["Bado kulipwa", "Reste à payer", "المتبقي للدفع"],
+  "Sale on credit": ["Mauzo ya mkopo", "Vente à crédit", "بيع بالآجل"],
 };

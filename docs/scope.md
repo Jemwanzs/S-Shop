@@ -614,6 +614,16 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 - ✅ **123. Smaller first download** — the translation dictionary (464 KB source, the largest part of the main script)
   is downloaded only for Kiswahili, French or Arabic; English needs none of it. Text shows in English until it
   arrives; the service worker keeps it for offline use.
+- ✅ **124. Customer credit statements** — Customer → *Statement* (with `credit.view` and `customers.view_credit`):
+  all time, this year or the last 90 days; opening balance, every charge (sale on credit), payment, return / recall
+  and write-off with a running balance, closing balance (always equal to what the customer owes) and what is still
+  to pay with due dates. A4 PDF to download or print, business logo per Branding (*Receipts & business documents*),
+  transparency kept as on receipts. `GET /api/customers/{id}/credit-statement?from&to`.
+- ✅ **125. Dependency advisories fixed** — the first audit run (122) found 7 Rust advisories: `quick-xml` 0.31 (2 high:
+  memory / CPU exhaustion from a crafted spreadsheet — onboarding imports read customer files) → `calamine` 0.26 →
+  0.36 (quick-xml 0.41); `rustls` 0.23.45 (4 low / medium) → 0.23.46; `rsa` (Marvin timing, no fix exists) is only in
+  the lockfile through sqlx's MySQL driver, which is not built — recorded as ignored in `.cargo/audit.toml` with the
+  reason.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

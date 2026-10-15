@@ -23,6 +23,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/credit", get(list))
         .route("/credit/aging", get(aging))
+        .route("/customers/{id}/credit-statement", get(statement))
         .route("/credit/{id}", get(detail))
         .route("/credit/{id}/payments", post(repay))
         .route("/credit/{id}/write-off", post(write_off))
@@ -425,3 +426,106 @@ async fn aging(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuer
         .collect();
     Ok(Json(json!({ "buckets": buckets })))
 }
+
+#[derive(Deserialize)]
+struct StatementQuery {
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+}
+
+/// Roadmap 124: a customer's credit statement — opening balance, every charge (sale on credit), payment, return /
+/// recall and write-off in the period with a running balance, the closing balance and what is still open (due dates).
+/// Built from the records themselves, so it always agrees with the customer's balance.
+async fn statement(State(state): State<AppState>, ctx: Ctx, Path(customer): Path<Uuid>, Query(q): Query<StatementQuery>) -> AppResult<Json<Value>> {
+    ctx.require("credit.view")?;
+    let mut conn = state.db.acquire().await?;
+    let vis = ctx.visibility(&mut conn, "credit", None, None).await?;
+    if vis.owner.is_some() {
+        return Err(AppError::Forbidden("A statement shows all of a customer's credit — it needs access beyond your own sales".into()));
+    }
+    let branches = vis.branches;
+    let today = ctx.today();
+    let to = q.to.unwrap_or(today).min(today);
+    let from = q.from.unwrap_or_else(|| NaiveDate::from_ymd_opt(2000, 1, 1).expect("valid date"));
+    if from > to {
+        return Err(bad("The period starts after it ends"));
+    }
+    let who: (String, String) = sqlx::query_as(
+        "SELECT TRIM(first_name || ' ' || COALESCE(other_names, '')), mobile FROM customers WHERE id = $1 AND tenant_id = $2",
+    )
+    .bind(customer)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(AppError::NotFound("Customer"))?;
+    // Every event on the customer's credit, signed: + owed (a sale on credit), − paid / reduced / written off.
+    let events: Vec<(NaiveDate, DateTime<Utc>, String, String, String, Decimal)> = sqlx::query_as(
+        "WITH cs AS (SELECT c.*, s.receipt_no FROM credit_sales c JOIN sales s ON s.id = c.sale_id
+                     WHERE c.tenant_id = $1 AND c.customer_id = $2 AND c.branch_id = ANY($3))
+         SELECT business_date, created_at, 'charge', receipt_no, 'Sale on credit', original_amount FROM cs
+         UNION ALL
+         SELECT p.business_date, p.created_at, 'payment', cs.receipt_no,
+                'Payment · ' || p.method || CASE WHEN p.reference <> '' THEN ' ' || p.reference ELSE '' END, -p.amount
+         FROM payments p JOIN cs ON cs.id = p.credit_sale_id WHERE p.amount > 0
+         UNION ALL
+         SELECT r.business_date, r.created_at, 'return', r.return_no,
+                CASE r.kind WHEN 'recall' THEN 'Goods recalled' WHEN 'cancellation' THEN 'Sale cancelled' ELSE 'Goods returned' END
+                  || ' · ' || cs.receipt_no, -(r.balance_before - r.balance_after)
+         FROM sale_returns r JOIN cs ON cs.sale_id = r.sale_id
+         WHERE r.balance_before IS NOT NULL AND r.balance_after IS NOT NULL AND r.balance_before > r.balance_after
+         UNION ALL
+         SELECT business_date_of(written_off_at, tenant_id, branch_id), written_off_at, 'write_off', receipt_no, 'Written off',
+                -(original_amount - amount_paid - adjustments)
+         FROM cs WHERE status = 'written_off' AND written_off_at IS NOT NULL
+         ORDER BY 1, 2",
+    )
+    .bind(ctx.tenant_id)
+    .bind(customer)
+    .bind(&branches)
+    .fetch_all(&mut *conn)
+    .await?;
+    let opening: Decimal = events.iter().filter(|e| e.0 < from).map(|e| e.5).sum();
+    let mut balance = opening;
+    let lines: Vec<Value> = events
+        .iter()
+        .filter(|e| e.0 >= from && e.0 <= to)
+        .map(|(day, _, kind, reference, description, amount)| {
+            balance += *amount;
+            json!({
+                "date": day, "kind": kind, "reference": reference, "description": description,
+                "charge": if *amount > Decimal::ZERO { Some(*amount) } else { None },
+                "credit": if *amount < Decimal::ZERO { Some(-*amount) } else { None },
+                "balance": round2(balance),
+            })
+        })
+        .collect();
+    let open: Vec<Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object('receipt_no', s.receipt_no, 'date', c.business_date, 'due_date', c.due_date,
+                'balance', c.original_amount - c.amount_paid - c.adjustments, 'overdue', c.due_date < $4)
+         FROM credit_sales c JOIN sales s ON s.id = c.sale_id
+         WHERE c.tenant_id = $1 AND c.customer_id = $2 AND c.branch_id = ANY($3)
+           AND c.status IN ('outstanding', 'partially_paid') AND c.original_amount - c.amount_paid - c.adjustments > 0
+         ORDER BY c.due_date, s.receipt_no",
+    )
+    .bind(ctx.tenant_id)
+    .bind(customer)
+    .bind(&branches)
+    .bind(today)
+    .fetch_all(&mut *conn)
+    .await?;
+    let (name, phone, currency, timezone, raw): (String, String, String, String, Value) =
+        sqlx::query_as("SELECT name, phone, currency, timezone, settings FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&mut *conn).await?;
+    let s: crate::settings::TenantSettings = serde_json::from_value(raw).unwrap_or_default();
+    // The business logo on documents follows Branding (roadmap 113), stored once like a receipt's.
+    let logo = if s.branding.keeps(s.branding.documents) { crate::receipts::logo_asset(&mut conn, ctx.tenant_id).await? } else { None };
+    Ok(Json(json!({
+        "business": { "name": name, "phone": phone, "logo": logo },
+        "customer": { "id": customer, "name": who.0, "mobile": who.1 },
+        "from": if q.from.is_some() { Some(from) } else { None }, "to": to,
+        "currency": currency, "timezone": timezone,
+        "opening_balance": round2(opening), "closing_balance": round2(balance),
+        "lines": lines, "open": open,
+        "generated_at": Utc::now(), "generated_by": ctx.name,
+    })))
+}
+

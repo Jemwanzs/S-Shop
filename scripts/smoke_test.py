@@ -3369,6 +3369,40 @@ check("closing the books is in the audit trail", any("books" in json.dumps(a.get
 call("PUT", "/settings", cfg121)
 check("opening the books again allows the earlier date", sell121(d121(12))["sale"]["id"])
 
+step("Roadmap 124: customer credit statement")
+import datetime as _dt
+t124 = _dt.date.fromisoformat(call("GET", "/dashboard?period=today")["today"])
+st124 = call("POST", "/products", {"name": f"Statement Chair {suffix}", "marked_price": 1000})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": st124, "quantity": 10, "cost_price": 500, "date_received": str(t124 - _dt.timedelta(days=60))})
+m124 = "07" + str(uuid.uuid4().int)[:8]
+first124 = call("POST", "/sales", {"customer": {"mobile": m124, "first_name": "Wambui"}, "items": [{"product_id": st124, "quantity": 2, "unit_price": 1000}],
+                                   "payment": {"method": "credit"}, "client_ref": str(uuid.uuid4()), "sale_date": str(t124 - _dt.timedelta(days=30))})
+c124 = first124["sale"]["customer"]["id"]
+call("POST", f"/credit/{first124['credit']['id']}/payments", {"amount": 500, "method": "cash"})
+second124 = call("POST", "/sales", {"customer_id": c124, "items": [{"product_id": st124, "quantity": 1, "unit_price": 1000}],
+                                    "payment": {"method": "credit"}, "client_ref": str(uuid.uuid4())})
+full124 = call("GET", f"/customers/{c124}/credit-statement")
+kinds124 = [l["kind"] for l in full124["lines"]]
+owed124 = sum(float(x["balance"]) for x in call("GET", f"/customers/{c124}")["credit"])
+check("statement: every charge and payment with a running balance", kinds124 == ["charge", "payment", "charge"]
+      and [float(l["balance"]) for l in full124["lines"]] == [2000.0, 1500.0, 2500.0], full124["lines"])
+check("its closing balance equals what the customer owes", float(full124["closing_balance"]) == owed124 == 2500.0, (full124["closing_balance"], owed124))
+check("what is still open, with due dates", len(full124["open"]) == 2 and all(o["due_date"] for o in full124["open"]), full124["open"])
+recent124 = call("GET", f"/customers/{c124}/credit-statement?from={t124 - _dt.timedelta(days=10)}&to={t124}")
+check("a period starts from its opening balance (the earlier sale), then today's payment and new sale",
+      float(recent124["opening_balance"]) == 2000.0 and [l["kind"] for l in recent124["lines"]] == ["payment", "charge"]
+      and float(recent124["closing_balance"]) == 2500.0, recent124)
+call("GET", f"/customers/{c124}/credit-statement?from={t124}&to={t124 - _dt.timedelta(days=1)}", expect=400)
+check("a period that ends before it starts is refused", True)
+sp124 = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson")
+e124 = f"stmt{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Statement Clerk", "email": e124, "pin": "4321", "role_id": sp124, "all_branches": True, "branch_ids": []})
+S124 = call("POST", "/auth/login", {"email": e124, "pin": "4321"})["token"]
+call("GET", f"/customers/{c124}/credit-statement", token=S124, expect=403)
+check("only people who may see credit get statements", True)
+call("GET", f"/customers/{uuid.uuid4()}/credit-statement", expect=404)
+check("an unknown customer has no statement", True)
+
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
 iv_mail = f"invitee{suffix.lower()}@sshop.test"

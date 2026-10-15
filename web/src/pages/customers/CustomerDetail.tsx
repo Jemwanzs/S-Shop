@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Gift, MessageCircle, Pencil, Phone, SlidersHorizontal, UserPlus } from "lucide-react";
+import { FileText, Gift, MessageCircle, Pencil, Phone, SlidersHorizontal, UserPlus } from "lucide-react";
+import { CreditStatementDialog } from "./CreditStatement";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -39,6 +40,7 @@ export default function CustomerDetail() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<"sales" | "orders" | "credit" | "points" | "referrals">("sales");
   const [editing, setEditing] = useState(false);
+  const [statementOpen, setStatementOpen] = useState(false);
   const [pointsAction, setPointsAction] = useState<"redeem" | "adjust" | null>(null);
   const [pts, setPts] = useState("");
   const [notes, setNotes] = useState("");
@@ -107,10 +109,15 @@ export default function CustomerDetail() {
           <>
             <Button variant="outline" asChild><a href={`tel:+${c.mobile}`}><Phone /> {t("Call")}</a></Button>
             {loyalty && <Button variant="outline" onClick={message}><MessageCircle /> {t("WhatsApp")}</Button>}
+            {/* Roadmap 124: the customer's credit statement (A4 PDF / print). */}
+            {can("credit.view") && can("customers.view_credit") && data.credit.length > 0 && (
+              <Button variant="outline" onClick={() => setStatementOpen(true)}><FileText /> {t("Statement")}</Button>
+            )}
             {can("customers.edit") && <Button onClick={() => setEditing(true)}><Pencil /> {t("Edit")}</Button>}
           </>
         }
       />
+      {statementOpen && <CreditStatementDialog customerId={c.id} open onOpenChange={setStatementOpen} />}
 
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Total spend" value={money(c.total_spend)} tone="success" className="col-span-2 md:col-span-1" />

@@ -35,7 +35,7 @@ fn label(s: &TenantSettings, method: &str) -> String {
 }
 
 /// The current logo, stored as a receipt asset; returns its hash.
-async fn logo_asset(conn: &mut PgConnection, tenant_id: Uuid) -> AppResult<Option<String>> {
+pub(crate) async fn logo_asset(conn: &mut PgConnection, tenant_id: Uuid) -> AppResult<Option<String>> {
     let row: Option<(Option<Vec<u8>>, Option<String>)> = sqlx::query_as("SELECT logo, logo_mime FROM tenants WHERE id = $1").bind(tenant_id).fetch_optional(&mut *conn).await?;
     let Some((Some(data), mime)) = row else { return Ok(None) };
     let hash = hex::encode(Sha256::digest(&data));

@@ -5,6 +5,7 @@
 // per module. Edit the JSON (only features that exist today), bump "version", then run:
 //   node scripts/manual/build.mjs            (needs the `playwright` package and its Chromium; set PLAYWRIGHT_DIR to
 //                                            the folder holding node_modules/playwright if it is not installed here)
+//                                            (PLAYWRIGHT_CHANNEL=chrome: use the installed Google Chrome)
 // and commit the JSON and the PDF together.
 import { createRequire } from "node:module";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -87,7 +88,8 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8" />
 
 // MANUAL_HTML=<file>: also keep the HTML (to preview pages as images).
 if (process.env.MANUAL_HTML) writeFileSync(process.env.MANUAL_HTML, html);
-const browser = await chromium.launch();
+// PLAYWRIGHT_CHANNEL=chrome uses the installed Google Chrome instead of Playwright's own Chromium.
+const browser = await chromium.launch(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {});
 const page = await browser.newPage();
 await page.setContent(html, { waitUntil: "networkidle" });
 await page.evaluate(() => document.fonts.ready);

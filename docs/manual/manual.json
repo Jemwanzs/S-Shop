@@ -1,7 +1,7 @@
 {
   "title": "S'Shop — Smart Retail & Business Management",
   "subtitle": "Product Features & Capabilities Manual",
-  "version": "Version 1.2 · October 2026",
+  "version": "Version 1.3 · October 2026",
   "intro": "S'Shop runs a retail business end to end, from the till and stock room to the customer's phone and the business's own website. It works on phones, tablets and computers, across branches, online and offline. Each module below describes features available today.",
   "modules": [
     {
@@ -21,10 +21,11 @@
       "summary": "A fast till for the counter: find or scan products, build the cart and take payment in a few taps.",
       "bullets": [
         "Search by name, nickname, code or barcode, or scan with the phone camera or a handheld scanner",
-        "Selling price and discounts within each product's limits, with the difference from the marked price shown",
-        "Cash with change calculation, credit and custom payment methods",
+        "Product display your way: compact cards, image cards or a list; top sellers first with Gold, Silver and Bronze stars; products with photos first; stock counts shown or hidden",
+        "Selling price and discounts within each product's limits; an optional customer on every sale, with loyalty points shown before completing",
+        "Cash with change, credit and custom methods; split one sale across several methods, leaving any remainder on credit",
         "M-Pesa into the business's own Till or Paybill: STK Push to the customer's phone completes the sale once paid, or a manual confirmation code",
-        "Optional customer on every sale, with loyalty points shown before completing",
+        "Sale Date: today by default; authorised staff can record an earlier date for the whole sale or for one product, never a future date",
         "Offline selling: walk-in cash sales are saved on the device and synced when the connection returns",
         "Sales history with ownership, returns, exchanges and cancellations under approval rules"
       ]
@@ -34,8 +35,9 @@
       "summary": "One consistent receipt for every channel, issued once and kept unchanged.",
       "bullets": [
         "Receipts on screen, as PDF, printed, as an image, by email, on WhatsApp or as a secure link",
-        "Business logo, branch, items, payments, balance and loyalty points on every receipt",
+        "Business logo (transparent logos stay transparent in every format), branch, items, each payment, balance and loyalty points",
         "Returns, exchanges and cancellations produce a linked adjustment receipt; the original is always kept",
+        "Sales recorded with an earlier date show the sale date and when they were recorded",
         "Receipts available from the sales history at any time",
         "Clearly business receipts, never labelled as tax invoices"
       ]
@@ -47,6 +49,7 @@
         "Credit sales require an identified customer and a due date",
         "Optional deposit at the counter in cash, M-Pesa or another method",
         "Repayments recorded against each credit, with a full payment history",
+        "Credit statement per customer: opening balance, every charge, payment, return and write-off with a running balance, closing balance and what is still to pay, as an A4 PDF",
         "Statuses for open, partially paid, paid, overdue and written-off credit",
         "Overdue reminders to the team, plus credit aging and credit sales reports",
         "Write-offs controlled through approval workflows"
@@ -115,8 +118,8 @@
       "name": "Loyalty & Rewards",
       "summary": "Reward repeat customers with points, referrals and tiers, all kept in a complete ledger.",
       "bullets": [
-        "Points earned on every completed sale, with product-specific rules",
-        "Points redeemed at the till against the amount to pay",
+        "Points earned on the amount actually paid (net of discounts by default), with product-specific rules",
+        "Points redeemed at the till within the business's minimum, redemption window and maximum share of the sale (never more than 50%), with optional supervisor approval",
         "Referral rewards for customers who bring new customers",
         "Gold, Silver and Bronze tiers and awards for top customers",
         "Point balances shown on receipts and on the ordering link",
@@ -136,9 +139,10 @@
     },
     {
       "name": "Reports",
-      "summary": "Twenty-three standard reports covering sales, stock, customers, loyalty, credit, finance and staff.",
+      "summary": "Twenty-four standard reports covering sales, payments, stock, customers, loyalty, credit, finance and staff.",
       "bullets": [
         "Sales by product, branch and user; order, stock, customer, loyalty and credit reports",
+        "Payments collected by method, including split payments; sales recorded with an earlier date counted on their sale date, with the recorded time alongside",
         "Stock position, movement, valuation, transfers, adjustments and barcode inventory",
         "Expenses, profitability and user performance",
         "Consistent filters for period, branch, category, product and user",
@@ -166,7 +170,8 @@
         "Approval workflows with one to five levels, by administrator, role, user or branch manager",
         "Requesters never approve their own requests, and nobody approves two levels",
         "Approval conditions by amount, branch, requester role or expense category",
-        "Sale ownership changes handled through approvals"
+        "Sale ownership changes handled through approvals",
+        "New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes"
       ]
     },
     {
@@ -175,10 +180,12 @@
       "bullets": [
         "Email and PIN sign-in, with temporary lockout after repeated wrong attempts",
         "Optional Quick Login PIN on trusted devices; sensitive actions still need the full sign-in",
+        "The branch is chosen at every sign-in (only branch, default branch or the picker); on a shared phone nobody sees the previous person's cart",
         "Automatic logout after inactivity, with a warning first and stricter timeouts for sensitive roles",
-        "Self-service PIN reset by email and one-time PINs for new users",
+        "Self-service PIN reset by email; new users set their own PIN from their invitation",
         "Sign out everywhere and trusted-device management",
-        "Control over whether S'Shop support may enter the business, always time-limited and recorded"
+        "Control over whether S'Shop support may enter the business, always time-limited and recorded",
+        "S'Shop tells you when a new version is ready and refreshes without losing unsaved work"
       ]
     },
     {
@@ -197,9 +204,12 @@
       "summary": "Configure the business your way, with every change recorded.",
       "bullets": [
         "Business profile, logo, contact details, currency and time zone",
+        "Branding & white labelling: your logo on sign-in, the app, dashboards, POS, receipts, customer pages and emails, each switchable; “Powered by S'Shop” stays",
         "Product, customer, sales, loyalty and payment settings",
         "Workflow engine and workspace hours",
+        "Closing the books: lock finished periods so their sales, stock and expenses can no longer change",
         "Personal preferences: display currency, language, theme and font",
+        "The page each person lands on after signing in; dialogs never close by accident and ask before discarding changes",
         "English, Kiswahili, French and Arabic, with right-to-left support",
         "Every settings change saved with before and after values"
       ]
@@ -234,6 +244,7 @@
       "bullets": [
         "Excel templates for products, customers, opening stock, expenses, sales history, credit balances, loyalty points, orders and transfers",
         "Column mapping, a colour-coded preview and an error report of only the rows to fix",
+        "Imports run in the background with live progress and a clear result",
         "A migration cutover date that keeps history and S'Shop's own records apart",
         "History imported with its original dates and receipt numbers, never moving stock, awarding points or sending messages",
         "Outstanding orders hold stock and in-transit transfers are received in S'Shop",

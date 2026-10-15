@@ -10,7 +10,12 @@ export interface StatementLine {
   date: string;
   kind: "charge" | "payment" | "return" | "write_off";
   reference: string;
+  /** English wording (the PDF); the screen words it from `kind` + `detail` in the reader's language. */
   description: string;
+  /** Payment method, or the return kind (return / recall / cancellation). */
+  detail: string;
+  /** The payment's reference, or the sale a return was for. */
+  detail_reference: string;
   charge: string | null;
   credit: string | null;
   balance: string;
@@ -28,6 +33,23 @@ export interface Statement {
   open: { receipt_no: string; date: string; due_date: string; balance: string; overdue: boolean }[];
   generated_at: string;
   generated_by: string;
+}
+
+const RETURN_LABEL: Record<string, string> = { recall: "Goods recalled", cancellation: "Sale cancelled", return: "Goods returned" };
+/** A statement line in the reader's language (`tr` = the app's translator, `method` = its payment-method label). */
+export function lineLabel(l: StatementLine, tr: (s: string) => string, method: (m: string) => string): string {
+  switch (l.kind) {
+    case "charge":
+      return tr("Sale on credit");
+    case "payment":
+      return `${tr("Payment")} · ${method(l.detail)}${l.detail_reference ? ` ${l.detail_reference}` : ""}`;
+    case "return":
+      return `${tr(RETURN_LABEL[l.detail] ?? "Goods returned")} · ${l.detail_reference}`;
+    case "write_off":
+      return tr("Written off");
+    default:
+      return tr(l.description);
+  }
 }
 
 export const periodText = (s: Statement) => (s.from ? `${date(s.from)} – ${date(s.to)}` : `Up to ${date(s.to)}`);

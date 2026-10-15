@@ -3386,6 +3386,8 @@ kinds124 = [l["kind"] for l in full124["lines"]]
 owed124 = sum(float(x["balance"]) for x in call("GET", f"/customers/{c124}")["credit"])
 check("statement: every charge and payment with a running balance", kinds124 == ["charge", "payment", "charge"]
       and [float(l["balance"]) for l in full124["lines"]] == [2000.0, 1500.0, 2500.0], full124["lines"])
+check("roadmap 126: each line carries its parts for the reader's language (payment method)",
+      full124["lines"][1]["detail"] == "cash" and full124["lines"][0]["detail"] == "", full124["lines"][:2])
 check("its closing balance equals what the customer owes", float(full124["closing_balance"]) == owed124 == 2500.0, (full124["closing_balance"], owed124))
 check("what is still open, with due dates", len(full124["open"]) == 2 and all(o["due_date"] for o in full124["open"]), full124["open"])
 recent124 = call("GET", f"/customers/{c124}/credit-statement?from={t124 - _dt.timedelta(days=10)}&to={t124}")

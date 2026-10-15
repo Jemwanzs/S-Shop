@@ -3137,4 +3137,8 @@ export const DICT: Record<string, [string, string, string]> = {
   "No credit activity in this period": ["Hakuna shughuli za mkopo katika kipindi hiki", "Aucune activité de crédit sur cette période", "لا يوجد نشاط ائتمان في هذه الفترة"],
   "Still to pay": ["Bado kulipwa", "Reste à payer", "المتبقي للدفع"],
   "Sale on credit": ["Mauzo ya mkopo", "Vente à crédit", "بيع بالآجل"],
+  // ── Roadmap 126: statement lines in the reader's language ─────────
+  "Goods recalled": ["Bidhaa zimerudishwa (kurejeshwa)", "Marchandises reprises", "استرداد البضائع"],
+  "Sale cancelled": ["Mauzo yamefutwa", "Vente annulée", "تم إلغاء البيع"],
+  "Goods returned": ["Bidhaa zimerudishwa", "Marchandises retournées", "إرجاع البضائع"],
 };

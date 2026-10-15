@@ -459,23 +459,26 @@ async fn statement(State(state): State<AppState>, ctx: Ctx, Path(customer): Path
     .await?
     .ok_or(AppError::NotFound("Customer"))?;
     // Every event on the customer's credit, signed: + owed (a sale on credit), − paid / reduced / written off.
-    let events: Vec<(NaiveDate, DateTime<Utc>, String, String, String, Decimal)> = sqlx::query_as(
+    // (day, recorded, kind, reference, English description, amount, detail: method / return kind, payment reference /
+    // the sale a return was for) — the app words each line in the reader's language (roadmap 126).
+    let events: Vec<(NaiveDate, DateTime<Utc>, String, String, String, Decimal, String, String)> = sqlx::query_as(
         "WITH cs AS (SELECT c.*, s.receipt_no FROM credit_sales c JOIN sales s ON s.id = c.sale_id
                      WHERE c.tenant_id = $1 AND c.customer_id = $2 AND c.branch_id = ANY($3))
-         SELECT business_date, created_at, 'charge', receipt_no, 'Sale on credit', original_amount FROM cs
+         SELECT business_date, created_at, 'charge', receipt_no, 'Sale on credit', original_amount, '', '' FROM cs
          UNION ALL
          SELECT p.business_date, p.created_at, 'payment', cs.receipt_no,
-                'Payment · ' || p.method || CASE WHEN p.reference <> '' THEN ' ' || p.reference ELSE '' END, -p.amount
+                'Payment · ' || p.method || CASE WHEN p.reference <> '' THEN ' ' || p.reference ELSE '' END, -p.amount,
+                p.method, p.reference
          FROM payments p JOIN cs ON cs.id = p.credit_sale_id WHERE p.amount > 0
          UNION ALL
          SELECT r.business_date, r.created_at, 'return', r.return_no,
                 CASE r.kind WHEN 'recall' THEN 'Goods recalled' WHEN 'cancellation' THEN 'Sale cancelled' ELSE 'Goods returned' END
-                  || ' · ' || cs.receipt_no, -(r.balance_before - r.balance_after)
+                  || ' · ' || cs.receipt_no, -(r.balance_before - r.balance_after), r.kind, cs.receipt_no
          FROM sale_returns r JOIN cs ON cs.sale_id = r.sale_id
          WHERE r.balance_before IS NOT NULL AND r.balance_after IS NOT NULL AND r.balance_before > r.balance_after
          UNION ALL
          SELECT business_date_of(written_off_at, tenant_id, branch_id), written_off_at, 'write_off', receipt_no, 'Written off',
-                -(original_amount - amount_paid - adjustments)
+                -(original_amount - amount_paid - adjustments), '', ''
          FROM cs WHERE status = 'written_off' AND written_off_at IS NOT NULL
          ORDER BY 1, 2",
     )
@@ -489,10 +492,11 @@ async fn statement(State(state): State<AppState>, ctx: Ctx, Path(customer): Path
     let lines: Vec<Value> = events
         .iter()
         .filter(|e| e.0 >= from && e.0 <= to)
-        .map(|(day, _, kind, reference, description, amount)| {
+        .map(|(day, _, kind, reference, description, amount, detail, detail_ref)| {
             balance += *amount;
             json!({
                 "date": day, "kind": kind, "reference": reference, "description": description,
+                "detail": detail, "detail_reference": detail_ref,
                 "charge": if *amount > Decimal::ZERO { Some(*amount) } else { None },
                 "credit": if *amount < Decimal::ZERO { Some(-*amount) } else { None },
                 "balance": round2(balance),

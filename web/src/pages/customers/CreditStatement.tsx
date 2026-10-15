@@ -4,10 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Download, Printer } from "lucide-react";
 import { api } from "@/lib/api";
 import { t } from "@/lib/i18n";
-import { date, money } from "@/lib/format";
+import { date, methodLabel, money } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { download } from "@/lib/receipt";
-import { periodText, statementFile, statementPdf, type Statement } from "@/lib/statement";
+import { lineLabel, periodText, statementFile, statementPdf, type Statement } from "@/lib/statement";
 import { useSession } from "@/lib/session";
 import { todayIn } from "@/lib/dates";
 import { cn } from "@/lib/utils";
@@ -87,7 +87,7 @@ export function CreditStatementDialog({ customerId, open, onOpenChange }: { cust
                   {s.lines.map((l, i) => (
                     <tr key={i}>
                       <td className="num whitespace-nowrap p-2">{date(l.date)}</td>
-                      <td className="p-2"><span className="num text-xs text-muted-foreground">{l.reference}</span><div>{t(l.description)}</div></td>
+                      <td className="p-2"><span className="num text-xs text-muted-foreground">{l.reference}</span><div>{lineLabel(l, t, (m) => t(methodLabel(m)))}</div></td>
                       <td className="num p-2 text-end">{l.charge ? money(l.charge) : ""}</td>
                       <td className={cn("num p-2 text-end", l.credit && "text-success")}>{l.credit ? money(l.credit) : ""}</td>
                       <td className="num p-2 text-end font-medium">{money(l.balance)}</td>

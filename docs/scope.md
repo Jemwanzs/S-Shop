@@ -624,6 +624,9 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   0.36 (quick-xml 0.41); `rustls` 0.23.45 (4 low / medium) → 0.23.46; `rsa` (Marvin timing, no fix exists) is only in
   the lockfile through sqlx's MySQL driver, which is not built — recorded as ignored in `.cargo/audit.toml` with the
   reason.
+- ✅ **126. Statement lines in the reader's language** — each statement line also carries its parts (payment method
+  and reference, return kind and the sale it was for), so the screen words it in Kiswahili, French or Arabic; the PDF
+  keeps English wording (its built-in font cannot draw Arabic script).
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

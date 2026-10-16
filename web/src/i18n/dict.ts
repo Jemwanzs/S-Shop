@@ -3141,4 +3141,8 @@ export const DICT: Record<string, [string, string, string]> = {
   "Goods recalled": ["Bidhaa zimerudishwa (kurejeshwa)", "Marchandises reprises", "استرداد البضائع"],
   "Sale cancelled": ["Mauzo yamefutwa", "Vente annulée", "تم إلغاء البيع"],
   "Goods returned": ["Bidhaa zimerudishwa", "Marchandises retournées", "إرجاع البضائع"],
+  // ── Roadmap 128: iPhone home screen ───────────────────────────────
+  "Install": ["Sakinisha", "Installer", "تثبيت"],
+  "tap Share, then Add to Home Screen.": ["gusa Shiriki, kisha Ongeza kwenye Skrini ya Mwanzo.", "touchez Partager, puis Sur l'écran d'accueil.", "اضغط مشاركة، ثم إضافة إلى الشاشة الرئيسية."],
+  "Dismiss": ["Funga", "Fermer", "إغلاق"],
 };

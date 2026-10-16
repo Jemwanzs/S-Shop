@@ -30,6 +30,8 @@ pub fn routes() -> Router<AppState> {
         .route("/public/{slug}/logo", get(logo))
         .route("/public/{slug}/branding", get(public_branding))
         .route("/public/{slug}/manifest.webmanifest", get(manifest))
+        .route("/public/{slug}/order.webmanifest", get(order_manifest))
+        .route("/public/{slug}/touch-icon", get(touch_icon))
         .route("/branches", get(list_branches).post(create_branch))
         .route("/branches/{id}", put(update_branch))
         .route("/users", get(list_users).post(create_user))
@@ -321,6 +323,48 @@ async fn public_branding(State(state): State<AppState>, headers: axum::http::Hea
         "logo_url": login.then(|| crate::settings::logo_url(&slug, etag.as_deref())),
         "marketing": login && b.login_marketing,
     })))
+}
+
+/// Roadmap 128: the business's ordering link installed on a phone's home screen — its name, its logo where it shows
+/// on customer pages (roadmap 113), opening on its ordering page.
+async fn order_manifest(State(state): State<AppState>, Path(slug): Path<String>) -> AppResult<axum::response::Response> {
+    let row: Option<(String, bool, Option<String>, Option<String>, Value)> =
+        sqlx::query_as("SELECT name, logo IS NOT NULL, logo_etag, logo_mime, settings FROM tenants WHERE slug = $1 AND status = 'active'")
+            .bind(&slug)
+            .fetch_optional(&state.db)
+            .await?;
+    let (name, has_logo, etag, mime, raw) = row.ok_or(AppError::NotFound("Business"))?;
+    let b = serde_json::from_value::<TenantSettings>(raw).unwrap_or_default().branding;
+    let start = format!("/order/{slug}");
+    let icons = if has_logo && b.keeps(b.customer) {
+        json!([{ "src": crate::settings::logo_url(&slug, etag.as_deref()), "sizes": "any", "type": mime.unwrap_or_else(|| "image/png".into()), "purpose": "any" }])
+    } else {
+        json!([
+            { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+            { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+        ])
+    };
+    let body = json!({
+        "id": start, "name": name, "short_name": name.chars().take(12).collect::<String>(),
+        "start_url": start, "scope": format!("/order/{slug}"), "display": "standalone",
+        "background_color": "#faf5ee", "theme_color": "#faf5ee", "icons": icons,
+    });
+    Ok(([(header::CONTENT_TYPE, "application/manifest+json"), (header::CACHE_CONTROL, "no-cache")], body.to_string()).into_response())
+}
+
+/// Roadmap 128: the iPhone home-screen icon for a business's ordering link — its logo when it is a PNG or JPEG (what
+/// iOS uses for home-screen icons) and shown on customer pages, otherwise S'Shop's icon.
+async fn touch_icon(State(state): State<AppState>, Path(slug): Path<String>) -> AppResult<axum::response::Response> {
+    let row: Option<(Option<Vec<u8>>, Value)> =
+        sqlx::query_as("SELECT logo, settings FROM tenants WHERE slug = $1 AND status = 'active'").bind(&slug).fetch_optional(&state.db).await?;
+    let (logo, raw) = row.ok_or(AppError::NotFound("Business"))?;
+    let b = serde_json::from_value::<TenantSettings>(raw).unwrap_or_default().branding;
+    if let Some(data) = logo.filter(|_| b.keeps(b.customer)) {
+        if let Some(mime @ ("image/png" | "image/jpeg")) = super::catalog::sniff_image(&data) {
+            return Ok(([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "public, no-cache")], data).into_response());
+        }
+    }
+    Ok(axum::response::Redirect::temporary("/apple-touch-icon.png").into_response())
 }
 
 /// Roadmap 113 (advanced): the installed-app manifest with the business logo, only when the business chose it.

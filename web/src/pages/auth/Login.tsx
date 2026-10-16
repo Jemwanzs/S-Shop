@@ -13,6 +13,7 @@ import { forgetQuickDevice, preferredMethod, quickDevice, rememberMethod } from 
 import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
 import { SShopLoader } from "@/components/SShopLoader";
+import { InstallHint } from "@/components/InstallHint";
 import { landingPath } from "@/lib/landing";
 import { expiredBusiness, type LoginBrand } from "@/lib/brand";
 
@@ -20,10 +21,14 @@ import { expiredBusiness, type LoginBrand } from "@/lib/brand";
 const MANUAL = "SShop_Product_User_Manual.pdf";
 function ManualLink() {
   return (
+    <>
     <a href={`/${MANUAL}`} download={MANUAL} type="application/pdf"
       className="mx-auto mt-4 flex w-fit items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-primary hover:underline">
       {t("Manual")} <Download className="h-3.5 w-3.5" aria-hidden />
     </a>
+    {/* Roadmap 128: iPhones never offer an install button — say how. */}
+    <InstallHint className="mt-3" />
+    </>
   );
 }
 

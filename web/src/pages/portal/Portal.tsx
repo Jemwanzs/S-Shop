@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, ImageOff, Minus, Plus, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { InstallHint, useHomeScreenIdentity } from "@/components/InstallHint";
 import { api, photoUrl } from "@/lib/api";
 import { usePersistentState } from "@/lib/hooks";
 import { amount, count, date, phone, toNum } from "@/lib/format";
@@ -60,12 +61,24 @@ export default function Portal() {
   return (
     <div className="min-h-screen bg-background">
       <div className="absolute inset-e-3 top-3"><ThemeToggle /></div>
+      <HomeScreen b={b} slug={slug} />
       <Routes>
         <Route index element={<Entry b={b} sess={sess} setSess={setSess} />} />
         <Route path="shop" element={sess ? <Shop b={b} sess={sess} /> : <Navigate to={`/order/${slug}`} replace />} />
         <Route path="orders" element={sess ? <MyOrders b={b} sess={sess} /> : <Navigate to={`/order/${slug}`} replace />} />
         <Route path="*" element={<Navigate to={`/order/${slug}`} replace />} />
       </Routes>
+    </div>
+  );
+}
+
+/** Roadmap 128: "Add to Home Screen" here installs the business's ordering link (its name, logo, its page). */
+function HomeScreen({ b, slug }: { b: Business; slug: string }) {
+  const base = `/api/public/${encodeURIComponent(slug)}`;
+  useHomeScreenIdentity({ manifest: `${base}/order.webmanifest`, name: b.name, icon: `${base}/touch-icon` });
+  return (
+    <div className="mx-auto max-w-lg px-4 pt-14">
+      <InstallHint name={b.name} storageKey={`sshop.install-hint.${slug}`} />
     </div>
   );
 }

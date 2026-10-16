@@ -3416,6 +3416,36 @@ check("only people who may see credit get statements", True)
 call("GET", f"/customers/{uuid.uuid4()}/credit-statement", expect=404)
 check("an unknown customer has no statement", True)
 
+step("Roadmap 128: iPhone home screen (app and ordering link)")
+slug128 = call("GET", "/settings")["profile"]["slug"]
+def get128(path):
+    with urllib.request.urlopen(urllib.request.Request(BASE + path)) as r:
+        return r.status, r.headers.get("Content-Type", ""), r.read()
+st, ct, body = get128("/manifest.webmanifest")
+app128 = json.loads(body)
+check("the app installs standalone from its own start page", app128["display"] == "standalone" and app128["start_url"] == "/" and app128["scope"] == "/", app128)
+st, ct, body = get128("/")
+check("older iPhones open the home-screen icon full screen", b'apple-mobile-web-app-capable" content="yes"' in body and b"apple-touch-icon" in body)
+st, ct, body = get128(f"/api/public/{slug128}/order.webmanifest")
+om128 = json.loads(body)
+check("the ordering link installs as the business, opening on its ordering page",
+      om128["start_url"] == f"/order/{slug128}" and om128["scope"] == f"/order/{slug128}" and om128["display"] == "standalone"
+      and om128["name"] == call("GET", "/settings")["profile"]["name"] and "manifest" in ct, om128)
+st, ct, body = get128(f"/api/public/{slug128}/touch-icon")
+check("without a PNG / JPEG logo, the home-screen icon is S'Shop's (an iPhone-ready PNG)", st == 200 and body[:8] == b"\x89PNG\r\n\x1a\n", (st, ct))
+upload_file("/settings/logo", tiny_png((200, 40, 40)), "logo.png", "image/png")
+st, ct, body = get128(f"/api/public/{slug128}/touch-icon")
+check("with a PNG logo, the home-screen icon is the business's logo", ct == "image/png" and body == tiny_png((200, 40, 40)), ct)
+om128 = json.loads(get128(f"/api/public/{slug128}/order.webmanifest")[2])
+check("its manifest uses the business logo too", om128["icons"][0]["src"].startswith(f"/api/public/{slug128}/logo"), om128["icons"])
+call("DELETE", "/settings/logo")
+try:
+    urllib.request.urlopen(BASE + "/api/public/no-such-business/order.webmanifest")
+    nb128 = 200
+except urllib.error.HTTPError as e:
+    nb128 = e.code
+check("an unknown business has no ordering-link manifest", nb128 == 404)
+
 step("Roadmap 105: users are invited; they set their own PIN; step-up for Quick PIN sessions")
 iv_roles = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
 iv_mail = f"invitee{suffix.lower()}@sshop.test"

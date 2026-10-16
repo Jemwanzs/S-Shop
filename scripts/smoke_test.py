@@ -381,7 +381,7 @@ _sec = call("GET", "/platform/security")
 # half-way with "session expired" (roadmap 127).
 call("PUT", "/platform/security", {**_sec, "idle_default_minutes": 480, "idle_max_minutes": 480, "max_session_hours": 24})
 # An open session takes a longer limit at its next heartbeat (the app sends one after real input).
-check("heartbeat applies the new limit to this session", call("POST", "/auth/activity", {})["idle_seconds"] == 7200)
+check("heartbeat applies the new limit to this session", call("POST", "/auth/activity", {})["idle_seconds"] == 480 * 60)
 # A run that crashed part-way may have left trading-hour or location rules on: start from the defaults.
 _cfg = call("GET", "/settings")["settings"]
 if _cfg["workspace"]["location"]["mode"] != "anywhere" or _cfg["workspace"]["outside_hours"] != "allow" or _cfg["workspace"]["hours"]["open"] != _cfg["workspace"]["hours"]["close"]:
@@ -1213,15 +1213,20 @@ check("lists never show another business's records",
 
 step("Hardening: rate limits and health")
 codes = []
-for i in range(32):
+def _attempt(i):
     req = urllib.request.Request(BASE + "/api/auth/login", method="POST", data=json.dumps({"email": f"nobody{i}@sshop.test", "pin": "0000"}).encode())
     req.add_header("Content-Type", "application/json")
     req.add_header("X-Forwarded-For", f"203.0.113.{int(suffix, 36) % 250 if suffix.isalnum() else 7}")
     try:
-        urllib.request.urlopen(req); codes.append(200)
+        urllib.request.urlopen(req)
+        return 200
     except urllib.error.HTTPError as e:
-        codes.append(e.code)
-check("sign-in rate limited per client", codes[-1] == 429 and codes[0] == 400, codes[-3:])
+        return e.code
+# Sent together, so the 30-per-5-minutes limit is reached however slow the machine is (each wrong PIN costs a hash).
+import concurrent.futures as _cf
+with _cf.ThreadPoolExecutor(max_workers=8) as _pool:
+    codes = list(_pool.map(_attempt, range(34)))
+check("sign-in rate limited per client", codes.count(429) >= 1 and codes.count(400) >= 1 and set(codes) <= {400, 429}, sorted(set(codes)))
 check("health check pings the database", urllib.request.urlopen(BASE + "/healthz").read() == b"ok")
 # Roadmap 88: the Product User Manual downloads from the sign-in screen without signing in (a PDF, not the app page).
 _man = urllib.request.urlopen(BASE + "/SShop_Product_User_Manual.pdf")

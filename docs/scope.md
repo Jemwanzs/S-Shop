@@ -629,7 +629,7 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   keeps English wording (its built-in font cannot draw Arabic script).
 - ⏳ **127. Test suite independent of outside services** — the exchange-rate address is configurable (`FX_URL`,
   default the provider); CI and the local runner point it at the suite's own stand-in (as for Paystack, Resend and
-  Daraja), so an internet blip at open.er-api.com can no longer stop a full run (it did three times).
+  Daraja), so an internet blip at open.er-api.com can no longer stop a full run (it did three times); test sessions get the longest idle time and session so a slow machine cannot expire them.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

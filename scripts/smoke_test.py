@@ -377,7 +377,9 @@ check("signed-in profile carries the inactivity limits", login["profile"]["sessi
 # Sessions of businesses created during the run sit unused while other sections run: give them room (roadmap 87 is
 # tested on its own, with short limits).
 _sec = call("GET", "/platform/security")
-call("PUT", "/platform/security", {**_sec, "idle_default_minutes": 120, "idle_max_minutes": max(_sec["idle_max_minutes"], 120)})
+# Test sessions get the platform's longest idle time and session (8 h / 24 h), so a slow machine never ends a run
+# half-way with "session expired" (roadmap 127).
+call("PUT", "/platform/security", {**_sec, "idle_default_minutes": 480, "idle_max_minutes": 480, "max_session_hours": 24})
 # An open session takes a longer limit at its next heartbeat (the app sends one after real input).
 check("heartbeat applies the new limit to this session", call("POST", "/auth/activity", {})["idle_seconds"] == 7200)
 # A run that crashed part-way may have left trading-hour or location rules on: start from the defaults.

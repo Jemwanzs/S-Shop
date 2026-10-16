@@ -77,6 +77,10 @@ export interface Product {
   in_stock: boolean | null;
   /** add_to_cart | enquire | contact | whatsapp */
   action: string;
+  /** Roadmap 130: a second way to ask about a hidden-price product that can be ordered (whatsapp | contact | enquire). */
+  secondary_action?: string | null;
+  /** Roadmap 130: shown instead of a price revealed after the order is submitted. */
+  price_note?: string | null;
   cta_label: string;
   photo: string | null;
   photo_thumb: string | null;

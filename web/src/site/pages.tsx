@@ -381,7 +381,11 @@ export function ProductPage({ data }: { data: SiteData }) {
             ) : act ? (
               act.to ? <Link className="btn" to={act.to}>{act.label}</Link> : <a className="btn" href={act.href} target="_blank" rel="noopener noreferrer">{act.label}</a>
             ) : p.in_stock === false ? <p className="note">Out of stock — check back soon.</p> : !data.ordering.enabled && <p className="note">Online ordering is not available right now — please contact us.</p>}
-            {p.price == null && p.action === "add_to_cart" && <p className="hint">Price on request — we will confirm it with you before any payment.</p>}
+            {canOrder && p.secondary_action && (() => {
+              const second = productAction(data, { ...p, action: p.secondary_action, cta_label: "" });
+              return second && (second.to ? <Link className="btn ghost" to={second.to}>{second.label}</Link> : <a className="btn ghost" href={second.href} target="_blank" rel="noopener noreferrer">{second.label}</a>);
+            })()}
+            {p.price == null && p.action === "add_to_cart" && <p className="hint">{p.price_note || "Price revealed after order submission"} — submitting an order is not a payment.</p>}
           </div>
         </div>
         {res!.related.length > 0 && (
@@ -542,8 +546,31 @@ export function cartTotal(lines: { price: string | null; qty: number }[]): numbe
   return lines.reduce((a, l) => a + Number(l.price) * l.qty, 0);
 }
 
+/** Roadmap 130: the cart's figures without ever implying a hidden price — a total only when every price is public,
+ * otherwise the public prices' subtotal and how many items are priced after the order is submitted. */
+export function CartSummary({ data, lines, compact }: { data: SiteData; lines: { price: string | null; qty: number }[]; compact?: boolean }) {
+  const priced = lines.filter((l) => l.price != null);
+  const later = lines.filter((l) => l.price == null).reduce((a, l) => a + l.qty, 0);
+  const sub = priced.reduce((a, l) => a + Number(l.price) * l.qty, 0);
+  if (!later) return <div className="total"><span>Total</span><span>{money(data.business.currency, sub)}</span></div>;
+  return (
+    <>
+      {priced.length > 0 && <div className="total"><span>Priced items</span><span>{money(data.business.currency, sub)}</span></div>}
+      <p className={compact ? "hint" : "note"}>{later === 1 ? "1 item is" : `${later} items are`} priced after you submit the order — the prices are shown on your order confirmation. Submitting is not a payment.</p>
+    </>
+  );
+}
+
 interface Ident { mobile: string; exists: boolean; first_name: string | null; otp_required: boolean }
-interface Placed { id: string; order_no: string; track_token: string; total: string | null; price_note: string | null }
+interface Placed {
+  id: string;
+  order_no: string;
+  track_token: string;
+  total: string | null;
+  /** Roadmap 130: the order's own lines with the prices recorded at submission. */
+  items?: { name: string; quantity: number; unit_price: string | null; line_total: string | null }[];
+  status_note?: string;
+}
 
 export function OrderPage({ data }: { data: SiteData }) {
   useTitle("Your order", data);
@@ -559,6 +586,7 @@ export function OrderPage({ data }: { data: SiteData }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [placed, setPlaced] = useState<Placed | null>(null);
+  // Shown on the button only when every price in the cart is public (roadmap 130).
   const total = cartTotal(lines);
   useEffect(() => {
     if (lines.length) track("order_start");
@@ -587,7 +615,18 @@ export function OrderPage({ data }: { data: SiteData }) {
           <span style={{ width: 64, height: 64, borderRadius: 999, background: "var(--primary)", color: "var(--on-primary)", display: "grid", placeItems: "center" }}><Check size={30} /></span>
           <h1 style={{ fontSize: "1.8rem" }}>Thank you{customer ? `, ${customer.first_name}` : ""}!</h1>
           <p>Your order <strong>{placed.order_no}</strong> has been received. We are processing it now.</p>
-          {placed.total != null ? <p className="total" style={{ justifyContent: "center", gap: 8 }}>Total {money(data.business.currency, placed.total)}</p> : placed.price_note && <p className="note">{placed.price_note}</p>}
+          {placed.items && placed.items.length > 0 && (
+            <div className="stack" style={{ width: "100%", textAlign: "start", gap: 6 }}>
+              {placed.items.map((l, i) => (
+                <div key={i} className="total" style={{ fontWeight: 400 }}>
+                  <span>{l.quantity} × {l.name}{l.unit_price != null && <span className="muted"> · {money(data.business.currency, l.unit_price)}</span>}</span>
+                  <span>{l.line_total != null ? money(data.business.currency, l.line_total) : "Price to be confirmed"}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {placed.total != null && <p className="total" style={{ justifyContent: "center", gap: 8 }}>Total {money(data.business.currency, placed.total)}</p>}
+          {placed.status_note && <p className="note">{placed.status_note}</p>}
           <Link className="btn" to={`/track/${placed.track_token}`}>Track your order</Link>
           <Link className="btn ghost" to="/products">Continue shopping</Link>
         </div>
@@ -636,7 +675,7 @@ export function OrderPage({ data }: { data: SiteData }) {
         <div className="stack">
           <h1 style={{ fontSize: "clamp(1.6rem, 5vw, 2.2rem)" }}>Your order</h1>
           <CartLines data={data} />
-          {total != null ? <div className="total"><span>Total</span><span>{money(data.business.currency, total)}</span></div> : <p className="note">We will confirm the final price with you before any payment.</p>}
+          <CartSummary data={data} lines={lines} />
           {error && <p className="err" role="alert">{error}</p>}
           {!customer ? (
             !ident || (ident.exists && !ident.otp_required) ? (

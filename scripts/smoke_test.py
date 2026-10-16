@@ -1289,7 +1289,8 @@ cat_np = call("GET", f"/portal/{slug}/catalogue", token=ptoken)
 check("catalogue sends no prices", not has_price(cat_np) and len(cat_np["products"]) > 0)
 check("product detail sends no prices", not has_price(call("GET", f"/portal/{slug}/products/{nduma}", token=ptoken)))
 tr_np = call("GET", f"/portal/track/{o2['track_token']}", token="none")
-check("tracking sends no prices", not has_price(tr_np) and tr_np["business"]["show_prices"] is False)
+# Roadmap 130: a submitted order's own tracking page shows what it was recorded at (the link is that order's secret).
+check("tracking shows the order's own recorded prices", has_price(tr_np) and tr_np["business"]["show_prices"] is True)
 check("staff screens keep prices", call("GET", f"/products/{nduma}")["product"]["marked_price"] is not None)
 pc["orders"]["show_prices"] = True
 call("PUT", "/settings", pc)
@@ -1773,6 +1774,11 @@ call("POST", "/website/publish", {}, **T2)
 items = {p["id"]: p for p in call("GET", f"/site/products?slug={dk_slug}", **PUB)["items"]}
 check("per-product: price shown on one product while hidden website-wide", float(items[hat]["price"]) == 777 and items[hat]["name"] == "Summer Straw Hat")
 check("per-product: hidden price can still be ordered when allowed", items[bag]["price"] is None and items[bag]["action"] == "add_to_cart", items[bag])
+# Roadmap 129: the same per-product rule on the ordering link (Show price wins over prices off website-wide).
+pc129 = {p["id"]: p for p in call("GET", f"/portal/{dk_slug}/catalogue", **PUB)["products"]}
+check("roadmap 129: ordering link follows the product's Show price while prices are off", float(pc129[hat]["price"]) == 777
+      and "price" not in pc129[bag] and pc129[bag]["price_hidden"] is True and pc129[hat]["price_hidden"] is False, (pc129.get(hat), pc129.get(bag)))
+check("roadmap 130: a hidden price that can be ordered says it is revealed after the order", items[bag]["price_note"] == "Price revealed after order submission", items[bag])
 check("was price shown only with a visible, lower price", float(items[hat]["compare_at"]) == 999 and items[bag]["compare_at"] is None
       and not has_price_value(items[bag], 5000), (items[hat].get("compare_at"), items[bag].get("compare_at")))
 feat = call("GET", f"/site/products?slug={dk_slug}&section=featured", **PUB)["items"]
@@ -1789,8 +1795,12 @@ call("POST", "/site/events", {"slug": dk_slug, "kind": "order_complete", "visito
 check("visitors cannot fake completed orders", True)
 call("POST", "/site/orders", {"slug": dk_slug, "items": [{"product_id": bag, "quantity": 1}], "delivery_location": "Ngong Rd"}, **PUB, expect=401)
 check("ordering needs a customer session", True)
+bad130 = call("POST", "/site/orders", {"slug": dk_slug, "items": [{"product_id": bag, "quantity": 1}], "delivery_location": "", "visitor": vis}, **WC, expect=400)
+check("roadmap 130: a failed submission reveals no hidden price", not has_price_value(bad130, 4321), bad130)
 wo = call("POST", "/site/orders", {"slug": dk_slug, "items": [{"product_id": bag, "quantity": 1}], "delivery_location": "Ngong Rd", "visitor": vis}, **WC)
-check("website order placed; hidden total not revealed", wo["order_no"].startswith("ORD-") and wo["total"] is None and wo["price_note"], wo)
+check("roadmap 130: once submitted, the order's own prices are shown (snapshot), and it is not a payment",
+      wo["order_no"].startswith("ORD-") and float(wo["total"]) == 4321 and float(wo["items"][0]["unit_price"]) == 4321
+      and "not" not in wo["status_note"] and "confirmed by the shop" in wo["status_note"], wo)
 dk_items = call("GET", "/orders", **T2B)["items"]
 check("order lands in Orders with source website", any(o["id"] == wo["id"] and o.get("source") == "website" for o in dk_items),
       [o.get("source") for o in dk_items[:3]])
@@ -1962,11 +1972,13 @@ pc = {p["id"]: p for p in call("GET", f"/portal/{dk_slug}/catalogue", **PUB)["pr
 check("ordering link: the same product shows no price", bag in pc and "price" not in pc[bag] and float(pc[hat]["price"]) == 777, pc.get(bag))
 check("ordering link product page: no price", "price" not in call("GET", f"/portal/{dk_slug}/products/{bag}", **PUB)["product"])
 tr = call("GET", f"/portal/track/{wo['track_token']}", **PUB)
-check("tracking an order with a hidden-price product shows no prices", not has_price_value(tr, 4321) and tr["business"]["show_prices"] is False)
+check("roadmap 130: tracking that submitted order shows its own prices", has_price_value(tr, 4321) and tr["business"]["show_prices"] is True)
 mo = call("GET", f"/portal/{dk_slug}/orders", **WC)["orders"]
-check("order history: no prices for that order", not has_price_value(mo, 4321), mo[:1])
+check("roadmap 130: the customer's own order history shows what they were charged", has_price_value(mo, 4321), mo[:1])
 po = call("POST", f"/portal/{dk_slug}/orders", {"items": [{"product_id": bag, "quantity": 1}], "delivery_location": "Shop"}, **WC)
-check("ordering link confirmation: no total", "total" not in po, po)
+check("roadmap 130: ordering link confirmation shows the order's lines and total", float(po["total"]) == 4321 and po["items"][0]["quantity"] == 1, po)
+other130 = call("GET", f"/portal/track/{uuid.uuid4()}", **PUB, expect=404)
+check("roadmap 130: no other order can be read without its own link", not has_price_value(other130, 4321))
 
 step("Roadmap 58–61: onboarding emails, one-time PINs, self-service reset, applicant status")
 ob_mail = f"ob{suffix.lower()}@sshop.test"

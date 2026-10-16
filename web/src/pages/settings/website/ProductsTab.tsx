@@ -17,7 +17,9 @@ import { blankProduct, mediaUrl, useCatalogue, type CatalogueProduct, type Produ
 import { Block, Choice, Grid2, MediaField, MediaPicker, Move, moveItem } from "./kit";
 import type { TabProps } from "./Website";
 
-const ACTIONS: [string, string][] = [["enquire", "Enquire (contact page)"], ["whatsapp", "Ask on WhatsApp"], ["contact", "Call to order"], ["order", "Order — price confirmed later"]];
+// Roadmap 130: a hidden-price product that can be ordered always goes in the cart (its price is revealed after the
+// order is submitted); this is the extra way to ask about it — or what visitors can do when it cannot be ordered.
+const ACTIONS: [string, string][] = [["whatsapp", "Ask on WhatsApp"], ["enquire", "Enquire (contact page)"], ["contact", "Call to order"], ["order", "Only Add to Cart"]];
 
 function entry(c: SiteConfig, id: string): ProductCfg | undefined {
   return c.products.items.find((p) => p.product_id === id);
@@ -70,7 +72,7 @@ export function ProductsTab({ c, set, ov }: TabProps) {
         <ToggleRow label="Show product prices" hint="One setting for the website and the ordering link — applies straight away. Products can override it below." checked={!!ov.show_prices} disabled={prices.isPending} onChange={(v) => prices.mutate(v)} />
         <ToggleRow label="Publish new products automatically" hint="New S'Shop products appear on the website (after you publish)" checked={c.products.auto_publish_new} onChange={(v) => set((x) => { x.products.auto_publish_new = v; })} />
         <Grid2>
-          <Field label="When a price is hidden, visitors can"><Select value={c.products.hidden_action} onChange={(v) => set((x) => { x.products.hidden_action = v; })}>{ACTIONS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</Select></Field>
+          <Field label="With a hidden price, visitors can also" hint="Products that can be ordered always show Add to Cart"><Select value={c.products.hidden_action} onChange={(v) => set((x) => { x.products.hidden_action = v; })}>{ACTIONS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</Select></Field>
           <Field label="Photos per product"><Choice value={c.products.max_photos} onChange={(v) => set((x) => { x.products.max_photos = v; })} options={[1, 2, 3, 4, 5].map((n) => [n, String(n)])} /></Field>
           <ToggleRow label="Pages of products" hint="Off: a Load more button instead (never the whole catalogue at once)." checked={c.products.pagination !== false} onChange={(v) => set((x) => { x.products.pagination = v; })} />
           <Field label="Products per page" hint="1–100">
@@ -126,7 +128,7 @@ export function ProductsTab({ c, set, ov }: TabProps) {
                   })} />}
                   <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open === p.id && "rotate-180")} />
                 </div>
-                {open === p.id && <ProductEditor c={c} p={p} e={e ?? { ...blankProduct(p.id), published: on }} edit={(fn) => edit(p.id, fn)} categories={data?.categories ?? []} />}
+                {open === p.id && <ProductEditor c={c} p={p} e={e ?? { ...blankProduct(p.id), published: on }} edit={(fn) => edit(p.id, fn)} categories={data?.categories ?? []} showPrices={!!ov.show_prices} />}
               </li>
             );
           })}
@@ -137,7 +139,9 @@ export function ProductsTab({ c, set, ov }: TabProps) {
   );
 }
 
-function ProductEditor({ c, p, e, edit, categories }: { c: SiteConfig; p: CatalogueProduct; e: ProductCfg; edit: (fn: (x: ProductCfg) => void) => void; categories: { id: string; name: string }[] }) {
+function ProductEditor({ c, p, e, edit, categories, showPrices }: { c: SiteConfig; p: CatalogueProduct; e: ProductCfg; edit: (fn: (x: ProductCfg) => void) => void; categories: { id: string; name: string }[]; showPrices: boolean }) {
+  // Roadmap 129: what visitors actually see for this product.
+  const shown = e.price === "show" || (e.price !== "hide" && showPrices);
   const [picker, setPicker] = useState(false);
   const max = c.products.max_photos;
   return (
@@ -148,8 +152,10 @@ function ProductEditor({ c, p, e, edit, categories }: { c: SiteConfig; p: Catalo
       </Grid2>
       <Field label="Website description" optional><Textarea value={e.marketing_description} maxLength={2000} onChange={(v) => edit((x) => { x.marketing_description = v.target.value; })} /></Field>
       <Grid2>
-        <Field label="Price"><Choice value={e.price} onChange={(v) => edit((x) => { x.price = v; })} options={[["inherit", "Website setting"], ["show", "Always show"], ["hide", "Hide"]]} /></Field>
-        <Field label="When the price is hidden"><Select value={e.hidden_action} onChange={(v) => edit((x) => { x.hidden_action = v as ProductCfg["hidden_action"]; })}><option value="">{t("Website default")}</option>{ACTIONS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</Select></Field>
+        <Field label="Price" hint={shown ? "Effective: price shown" : "Effective: price hidden — revealed after the order is submitted"}>
+          <Choice value={e.price} onChange={(v) => edit((x) => { x.price = v; })} options={[["inherit", "Use global setting"], ["show", "Show price"], ["hide", "Hide price"]]} />
+        </Field>
+        <Field label="With a hidden price, also"><Select value={e.hidden_action} onChange={(v) => edit((x) => { x.hidden_action = v as ProductCfg["hidden_action"]; })}><option value="">{t("Website default")}</option>{ACTIONS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</Select></Field>
         <Field label="Show in category"><Select value={e.category_id ?? ""} onChange={(v) => edit((x) => { x.category_id = v || null; })}><option value="">{p.category_name ? `${t("Its category")} (${p.category_name})` : t("Its category")}</option>{categories.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}</Select></Field>
         <Field label="Button text" optional hint="Add to cart"><Input value={e.cta_label} maxLength={30} onChange={(v) => edit((x) => { x.cta_label = v.target.value; })} /></Field>
         <Field label="Was price" optional hint="Shown struck through with the saving when higher than the current price">

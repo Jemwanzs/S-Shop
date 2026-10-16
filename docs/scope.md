@@ -637,6 +637,22 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   `/api/public/{slug}/touch-icon`, falling back to S'Shop's icon). Apple's full-screen tags added for older iPhones.
   The installed app keeps its own storage, so people sign in once more inside it (how iOS works).
 
+**Website prices, hidden-price ordering & imports** (brief *Website Product Price Visibility, Hidden-Price Ordering &
+Product Import Enhancements*):
+- ⏳ **129. Per-product price visibility** — Settings → Website → Products → each product: *Use global setting*
+  (default) / *Show price* / *Hide price*, with the effective status shown. One server rule for the website and the
+  ordering link (cards, details, search, categories, catalogue): a product's own setting wins, else *Show product
+  prices*; a hidden price never leaves the server before an order.
+- ⏳ **130. Hidden-price products in the cart** — a hidden-price product that can be ordered shows *Add to Cart* and
+  *Price revealed after order submission*; the business's *Ask on WhatsApp* / call / enquire stays as a second
+  action. Carts show a total only when every price is public, otherwise the public subtotal and how many items are
+  priced after the order. After a successful submission the confirmation, tracking page and the customer's own order
+  history show the prices recorded with the order (snapshot), line totals and total — never for a failed submission or
+  another customer's order; *Submitting is not a payment*. Product page: no empty space under the purchase actions.
+- ⏳ **131. Selling price optional on import** — *Selling Price* not mandatory in the product templates; blank = not
+  set (NULL, distinct from a real 0); *Price on Request* on the website / ordering link; no checkout total, payment or
+  free sale for a product without a price; prices set later in Products.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

@@ -97,57 +97,53 @@ fn otp_hash(tenant: Uuid, mobile: &str, code: &str) -> String {
     hex::encode(Sha256::digest(format!("{tenant}:{mobile}:{code}").as_bytes()))
 }
 
-/// With "Show product prices" off, no price leaves the server for the ordering link (not just hidden in the page).
-fn priced(st: &TenantSettings, mut v: Value) -> Value {
-    fn strip(v: &mut Value) {
-        match v {
-            Value::Object(m) => {
-                for k in ["price", "unit_price", "line_total", "total", "marked_price"] {
-                    m.remove(k);
-                }
-                m.values_mut().for_each(strip);
-            }
-            Value::Array(a) => a.iter_mut().for_each(strip),
-            _ => {}
+/// Roadmap 129: one price-visibility rule for the website and the ordering link — a product's own setting on the
+/// website (Show price / Hide price) wins, otherwise the business's "Show product prices". Before an order is placed a
+/// hidden price never leaves the server (it is removed from the response, not just hidden in the page).
+pub(crate) struct PriceRules {
+    global: bool,
+    show: std::collections::HashSet<Uuid>,
+    hide: std::collections::HashSet<Uuid>,
+}
+impl PriceRules {
+    pub(crate) fn visible(&self, product: Uuid) -> bool {
+        if self.hide.contains(&product) {
+            false
+        } else {
+            self.global || self.show.contains(&product)
         }
     }
-    if !st.orders.show_prices {
-        strip(&mut v);
-    }
-    v
 }
-
-/// Products whose price the business hides on its website (per-product "Hide price"). The same products never show a
-/// price through the ordering link, an order confirmation, order history or tracking either — one rule everywhere.
-pub(crate) async fn hidden_prices(state: &AppState, tenant_id: Uuid) -> AppResult<std::collections::HashSet<Uuid>> {
+pub(crate) async fn price_rules(state: &AppState, tenant_id: Uuid, st: &TenantSettings) -> AppResult<PriceRules> {
     let published: Option<sqlx::types::Json<crate::website::SiteConfig>> =
         sqlx::query_scalar("SELECT published FROM websites WHERE tenant_id = $1 AND status = 'active' AND published IS NOT NULL")
             .bind(tenant_id)
             .fetch_optional(&state.db)
             .await?
             .flatten();
-    Ok(published.map(|c| c.0.products.items.into_iter().filter(|p| p.price == "hide").map(|p| p.product_id).collect()).unwrap_or_default())
+    let items = published.map(|c| c.0.products.items).unwrap_or_default();
+    Ok(PriceRules {
+        global: st.orders.show_prices,
+        show: items.iter().filter(|p| p.price == "show").map(|p| p.product_id).collect(),
+        hide: items.iter().filter(|p| p.price == "hide").map(|p| p.product_id).collect(),
+    })
 }
 
-/// Removes every price from an order (summary or detail) that contains a product with a hidden price.
-fn strip_order_prices(order: &mut Value, hidden: &std::collections::HashSet<Uuid>) {
-    let has_hidden = order["items"].as_array().is_some_and(|items| {
-        items.iter().any(|i| i["product_id"].as_str().and_then(|s| Uuid::parse_str(s).ok()).is_some_and(|id| hidden.contains(&id)))
-    });
-    if has_hidden {
-        if let Some(o) = order.as_object_mut() {
-            o.remove("total");
-        }
-        if let Some(items) = order["items"].as_array_mut() {
-            for i in items {
-                if let Some(m) = i.as_object_mut() {
-                    m.remove("unit_price");
-                    m.remove("line_total");
+/// Before an order: removes the price of every product whose price is not public (`id` names the product field).
+fn public_prices(rules: &PriceRules, items: &mut Value, id: &str) {
+    if let Some(list) = items.as_array_mut() {
+        for i in list.iter_mut() {
+            let shown = i[id].as_str().and_then(|s| Uuid::parse_str(s).ok()).is_some_and(|p| rules.visible(p));
+            if let Some(m) = i.as_object_mut() {
+                m.insert("price_hidden".into(), json!(!shown));
+                if !shown {
+                    m.remove("price");
                 }
             }
         }
     }
 }
+
 
 async fn business(State(state): State<AppState>, Path(slug): Path<String>) -> AppResult<Json<Value>> {
     let t = tenant(&state, &slug).await?;
@@ -377,12 +373,9 @@ async fn my_orders(State(state): State<AppState>, Path(slug): Path<String>, c: P
         .bind(c.customer_id)
         .fetch_one(&state.db)
         .await?;
-    let mut orders = serde_json::to_value(load_orders(&state, &t.settings, c.customer_id, 3).await?).unwrap_or_default();
-    let hidden = hidden_prices(&state, t.id).await?;
-    if let Some(list) = orders.as_array_mut() {
-        list.iter_mut().for_each(|o| strip_order_prices(o, &hidden));
-    }
-    Ok(Json(json!({ "total_orders": total, "orders": priced(&t.settings, orders) })))
+    // Roadmap 130: a customer's own submitted orders show the prices recorded when they were placed.
+    let orders = serde_json::to_value(load_orders(&state, &t.settings, c.customer_id, 3).await?).unwrap_or_default();
+    Ok(Json(json!({ "total_orders": total, "orders": orders })))
 }
 
 #[derive(Deserialize)]
@@ -431,19 +424,13 @@ async fn catalogue(State(state): State<AppState>, Path(slug): Path<String>, Quer
     .bind(t.id)
     .fetch_all(&state.db)
     .await?;
-    let hidden = hidden_prices(&state, t.id).await?;
+    let rules = price_rules(&state, t.id, &t.settings).await?;
     let mut items = serde_json::to_value(items).unwrap_or_default();
-    if let Some(list) = items.as_array_mut() {
-        for i in list.iter_mut() {
-            if i["id"].as_str().and_then(|s| Uuid::parse_str(s).ok()).is_some_and(|id| hidden.contains(&id)) {
-                i.as_object_mut().map(|m| m.remove("price"));
-            }
-        }
-    }
-    Ok(Json(priced(&t.settings, json!({
+    public_prices(&rules, &mut items, "id");
+    Ok(Json(json!({
         "products": items,
         "categories": categories.into_iter().map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
-    }))))
+    })))
 }
 
 async fn product(State(state): State<AppState>, Path((slug, id)): Path<(String, Uuid)>) -> AppResult<Json<Value>> {
@@ -466,11 +453,10 @@ async fn product(State(state): State<AppState>, Path((slug, id)): Path<(String, 
         .bind(id)
         .fetch_all(&state.db)
         .await?;
-    let mut item = serde_json::to_value(item).unwrap_or_default();
-    if hidden_prices(&state, t.id).await?.contains(&id) {
-        item.as_object_mut().map(|m| m.remove("price"));
-    }
-    Ok(Json(priced(&t.settings, json!({ "product": item, "photos": photos.into_iter().map(|p| format!("/api/photos/{p}")).collect::<Vec<_>>() }))))
+    let rules = price_rules(&state, t.id, &t.settings).await?;
+    let mut list = json!([serde_json::to_value(item).unwrap_or_default()]);
+    public_prices(&rules, &mut list, "id");
+    Ok(Json(json!({ "product": list[0].take(), "photos": photos.into_iter().map(|p| format!("/api/photos/{p}")).collect::<Vec<_>>() })))
 }
 
 #[derive(Deserialize)]
@@ -498,8 +484,6 @@ async fn place_order(State(state): State<AppState>, headers: HeaderMap, Path(slu
         .fetch_one(&mut *tx)
         .await?;
     tx.commit().await?;
-    let hidden = hidden_prices(&state, t.id).await?;
-    let price_hidden = b.items.iter().any(|l| hidden.contains(&l.product_id));
 
     announce_new(&state, t.id, branch, id, &order_no, &name, total).await;
     if t.settings.orders.notify_customer_whatsapp {
@@ -513,11 +497,13 @@ async fn place_order(State(state): State<AppState>, headers: HeaderMap, Path(slu
             ),
         );
     }
-    let mut out = json!({ "id": id, "order_no": order_no, "track_token": track_token, "total": total });
-    if price_hidden {
-        out.as_object_mut().map(|m| m.remove("total"));
-    }
-    Ok(Json(priced(&t.settings, out)))
+    // Roadmap 130: once the order is recorded, its own prices are disclosed — in this response only (and to whoever holds
+    // its tracking link or signs in as this customer); the prices are the snapshot stored with the order.
+    Ok(Json(json!({
+        "id": id, "order_no": order_no, "track_token": track_token, "total": total,
+        "items": submitted_lines(&state, id).await?,
+        "status_note": "Order submitted — payment and delivery are confirmed by the shop.",
+    })))
 }
 
 /// Public tracking by unguessable token — no account needed.
@@ -530,21 +516,19 @@ async fn track(State(state): State<AppState>, headers: HeaderMap, Path(token): P
     .bind(token)
     .fetch_optional(&state.db)
     .await?;
-    let (id, order_no, status, total, created_at, location, business, slug, has_logo, raw, tenant_id) = row.ok_or(AppError::NotFound("Order"))?;
+    let (id, order_no, status, total, created_at, location, business, slug, has_logo, raw, _tenant) = row.ok_or(AppError::NotFound("Order"))?;
     let mut st: TenantSettings = serde_json::from_value(raw).unwrap_or_default();
     let has_logo = has_logo && st.branding.keeps(st.branding.customer);
     let mut conn = state.db.acquire().await?;
     let lines = order_items(&mut conn, id).await?;
-    let hidden = hidden_prices(&state, tenant_id).await?;
-    if lines.iter().any(|l| hidden.contains(&l.0)) {
-        st.orders.show_prices = false;
-    }
+    // Roadmap 130: tracking shows this order's own recorded prices (the link is the order's secret).
+    st.orders.show_prices = true;
     let items: Vec<Value> = lines
         .into_iter()
         .map(|(_, name, qty, price, line, _)| json!({ "name": name, "quantity": qty, "unit_price": price, "line_total": line }))
         .collect();
     let events = order_events(&mut conn, &st, id).await?;
-    Ok(Json(priced(&st, json!({
+    Ok(Json(json!({
         "business": { "name": business, "slug": slug, "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")), "show_prices": st.orders.show_prices },
         "order": {
             "order_no": order_no, "status": status, "status_label": st.order_label(&status), "total": total,
@@ -554,5 +538,15 @@ async fn track(State(state): State<AppState>, headers: HeaderMap, Path(token): P
         "steps": steps(&st, &status),
         "items": items,
         "events": events.into_iter().map(|mut e| { e.as_object_mut().map(|o| o.remove("user_name")); e }).collect::<Vec<_>>(),
-    }))))
+    })))
+}
+
+/// Roadmap 130: the lines of a just-submitted order with the prices recorded at submission.
+pub(crate) async fn submitted_lines(state: &AppState, order: Uuid) -> AppResult<Vec<Value>> {
+    let mut conn = state.db.acquire().await?;
+    Ok(order_items(&mut conn, order)
+        .await?
+        .into_iter()
+        .map(|(_, name, qty, price, line, _)| json!({ "name": name, "quantity": qty, "unit_price": price, "line_total": line }))
+        .collect())
 }

@@ -45,6 +45,14 @@ interface PortalSession { token: string; customer: { first_name: string; nicknam
 interface Me { customer: PortalSession["customer"]; total_orders: number; loyalty: { points: number; value: string | null } | null }
 interface Item { id: string; name: string; description: string; category_id: string | null; /** Absent when the business hides this product's price. */
   price?: string; available: number; primary_photo_id: string | null }
+/** Roadmap 130: a submitted order with the prices recorded at submission. */
+interface Placed {
+  order_no: string;
+  track_token: string;
+  total?: string;
+  items?: { name: string; quantity: number; unit_price?: string; line_total?: string }[];
+  status_note?: string;
+}
 interface PortalOrder { id: string; order_no: string; status: string; status_label: string; total?: string; created_at: string; track_token: string; items: { name: string; quantity: number; line_total?: string }[]; steps: Step[] }
 type Cart = Record<string, { item: Item; qty: number }>;
 interface Ident { mobile: string; exists: boolean; first_name: string | null; otp_required: boolean }
@@ -210,7 +218,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
   const [cartOpen, setCartOpen] = useState(false);
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
-  const [placed, setPlaced] = useState<{ order_no: string; track_token: string } | null>(null);
+  const [placed, setPlaced] = useState<Placed | null>(null);
   const cat = useQuery({ queryKey: ["portal", b.slug, "catalogue"], queryFn: () => api<{ products: Item[]; categories: { id: string; name: string }[] }>(`/portal/${b.slug}/catalogue`, { token: null }) });
   // Roadmap 80: sort and pages of 12 (counted in products); a filter or sort change goes back to page 1.
   const [sort, setSort] = useState("recommended");
@@ -223,17 +231,21 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
       const price = (x: Item) => (x.price == null ? Infinity : toNum(x.price));
       if (sort === "name_asc") list.sort(byName);
       if (sort === "name_desc") list.sort((a, b) => byName(b, a));
-      if (sort === "price_asc" && b.show_prices) list.sort((a, c) => price(a) - price(c));
-      if (sort === "price_desc" && b.show_prices) list.sort((a, c) => (c.price == null ? -Infinity : toNum(c.price)) - (a.price == null ? -Infinity : toNum(a.price)));
+      if (sort === "price_asc") list.sort((a, c) => price(a) - price(c));
+      if (sort === "price_desc") list.sort((a, c) => (c.price == null ? -Infinity : toNum(c.price)) - (a.price == null ? -Infinity : toNum(a.price)));
       return list;
     },
-    [cat.data, category, q, sort, b.show_prices],
+    [cat.data, category, q, sort],
   );
+  // Roadmap 129: the server sends a price only when it may be shown (the business's setting or the product's own).
+  const anyPriced = (cat.data?.products ?? []).some((p) => p.price != null);
   const lines = Object.values(cart);
   const units = lines.reduce((a, l) => a + l.qty, 0);
-  const total = lines.reduce((a, l) => a + toNum(l.item.price) * l.qty, 0);
-  // A total is shown only when every line has a price (a hidden price is confirmed by the shop).
-  const priced = b.show_prices && lines.every((l) => l.item.price != null);
+  const total = lines.reduce((a, l) => a + (l.item.price != null ? toNum(l.item.price) * l.qty : 0), 0);
+  // Roadmap 130: a total only when every line has a public price; otherwise the public subtotal and a note — a hidden
+  // price is revealed on the order confirmation, never implied by the cart's figures.
+  const priced = lines.every((l) => l.item.price != null);
+  const later = lines.filter((l) => l.item.price == null).reduce((a, l) => a + l.qty, 0);
   const setQty = (item: Item, qty: number) =>
     setCart((c) => {
       const next = { ...c };
@@ -243,7 +255,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
     });
 
   const submit = useMutation({
-    mutationFn: () => api<{ order_no: string; track_token: string }>(`/portal/${b.slug}/orders`, { token: sess.token, body: { items: lines.map((l) => ({ product_id: l.item.id, quantity: l.qty })), delivery_location: location, notes } }),
+    mutationFn: () => api<Placed>(`/portal/${b.slug}/orders`, { token: sess.token, body: { items: lines.map((l) => ({ product_id: l.item.id, quantity: l.qty })), delivery_location: location, notes } }),
     onSuccess: (r) => {
       setPlaced(r);
       setCart({});
@@ -262,6 +274,19 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
           <h2 className="text-2xl font-semibold">{t("Order submitted successfully.")}</h2>
           <p className="text-muted-foreground">{t("We are now processing your order.")}</p>
           <p className="num text-lg">{placed.order_no}</p>
+          {/* Roadmap 130: this order's own prices, recorded at submission. */}
+          {placed.items && placed.items.length > 0 && (
+            <ul className="divide-y rounded-xl border text-start text-sm">
+              {placed.items.map((l, i) => (
+                <li key={i} className="flex justify-between gap-3 px-3 py-2">
+                  <span>{l.quantity} × {l.name}{l.unit_price != null && <span className="num text-muted-foreground"> · {amount(l.unit_price)}</span>}</span>
+                  <span className="num font-medium">{l.line_total != null ? amount(l.line_total) : t("Price to be confirmed")}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {placed.total != null && <p className="flex justify-between text-lg font-semibold"><span>{t("Total")}</span><span className="num">{b.currency} {amount(placed.total)}</span></p>}
+          {placed.status_note && <p className="text-sm text-muted-foreground">{t(placed.status_note)}</p>}
           <Button asChild variant="ink" size="lg" className="h-14 w-full rounded-xl"><Link to={`/track/${placed.track_token}`}>{t("Track My Order")}</Link></Button>
           <Button asChild variant="ghost" className="w-full"><Link to={`/order/${b.slug}`}>{t("Back to home")}</Link></Button>
         </div>
@@ -298,8 +323,8 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
               <option value="recommended">{t("Recommended")}</option>
               <option value="name_asc">{t("Name A–Z")}</option>
               <option value="name_desc">{t("Name Z–A")}</option>
-              {b.show_prices && <option value="price_asc">{t("Price: low to high")}</option>}
-              {b.show_prices && <option value="price_desc">{t("Price: high to low")}</option>}
+              {anyPriced && <option value="price_asc">{t("Price: low to high")}</option>}
+              {anyPriced && <option value="price_desc">{t("Price: high to low")}</option>}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -316,7 +341,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
                   </div>
                   <div className="space-y-1 p-3">
                     <p className="line-clamp-2 font-medium leading-snug">{p.name}</p>
-                    {b.show_prices && p.price != null && <p className="num font-semibold">{b.currency} {amount(p.price)}</p>}
+                    {p.price != null ? <p className="num font-semibold">{b.currency} {amount(p.price)}</p> : <p className="text-xs text-muted-foreground">{t("Price revealed after order submission")}</p>}
                     <p className={cn("text-xs font-medium", out ? "text-destructive" : "text-success")}>{out ? "Out of stock" : "In stock"}</p>
                   </div>
                 </button>
@@ -354,19 +379,23 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
               <li key={l.item.id} className="flex items-center gap-3 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{l.item.name}</p>
-                  {b.show_prices && l.item.price != null && <p className="num text-sm text-muted-foreground">{b.currency} {amount(l.item.price)}</p>}
+                  {l.item.price != null && <p className="num text-sm text-muted-foreground">{b.currency} {amount(l.item.price)}</p>}
                 </div>
                 <div className="flex items-center rounded-full border">
                   <button className="p-2" onClick={() => setQty(l.item, l.qty - 1)} aria-label="Less">{l.qty === 1 ? <Trash2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}</button>
                   <span className="num w-6 text-center">{l.qty}</span>
                   <button className="p-2" onClick={() => setQty(l.item, l.qty + 1)} disabled={l.qty >= l.item.available} aria-label="More"><Plus className="h-4 w-4" /></button>
                 </div>
-                {b.show_prices && l.item.price != null && <span className="num w-20 text-end font-semibold">{amount(toNum(l.item.price) * l.qty)}</span>}
+                {l.item.price != null && <span className="num w-20 text-end font-semibold">{amount(toNum(l.item.price) * l.qty)}</span>}
               </li>
             ))}
           </ul>
-          {priced ? <div className="flex justify-between text-lg font-semibold"><span>{t("Total")}</span><span className="num">{b.currency} {amount(total)}</span></div>
-            : b.show_prices && <p className="text-sm text-muted-foreground">{t("We will confirm the final price with you before any payment.")}</p>}
+          {priced ? <div className="flex justify-between text-lg font-semibold"><span>{t("Total")}</span><span className="num">{b.currency} {amount(total)}</span></div> : (
+            <>
+              {total > 0 && <div className="flex justify-between font-semibold"><span>{t("Priced items")}</span><span className="num">{b.currency} {amount(total)}</span></div>}
+              <p className="text-sm text-muted-foreground">{later} {t("item(s) priced after you submit the order — the prices are shown on your order confirmation. Submitting is not a payment.")}</p>
+            </>
+          )}
           <div className="space-y-1 rounded-xl bg-muted/60 p-4 text-sm">
             <p><span className="text-muted-foreground">{t("Customer:")}</span> {sess.customer.first_name}{sess.customer.nickname && ` (${sess.customer.nickname})`}</p>
             <p><span className="text-muted-foreground">{t("Mobile:")}</span> <span className="num">{phone(sess.customer.mobile)}</span></p>
@@ -400,7 +429,7 @@ function ProductSheet({ b, item, qty, onClose, onAdd }: { b: Business; item: Ite
             <button className="p-3" onClick={() => setN(Math.min(item.available, n + 1))} aria-label="More"><Plus className="h-4 w-4" /></button>
           </div>
           <Button variant="ink" size="lg" className="h-12 flex-1 rounded-xl" disabled={out} onClick={() => onAdd(item, qty + n)}>
-            {out ? "Out of stock" : <>Add to Cart{b.show_prices && item.price != null && <> · <span className="num">{b.currency} {amount(toNum(item.price) * n)}</span></>}</>}
+            {out ? "Out of stock" : <>Add to Cart{item.price != null && <> · <span className="num">{b.currency} {amount(toNum(item.price) * n)}</span></>}</>}
           </Button>
         </div>
       }
@@ -419,7 +448,7 @@ function ProductSheet({ b, item, qty, onClose, onAdd }: { b: Business; item: Ite
           )}
         </div>
         <div className="space-y-3">
-          {b.show_prices && item.price != null && <p className="num text-2xl font-bold">{b.currency} {amount(item.price)}</p>}
+          {item.price != null ? <p className="num text-2xl font-bold">{b.currency} {amount(item.price)}</p> : <p className="text-sm text-muted-foreground">{t("Price revealed after order submission")}</p>}
           <p className={cn("text-sm font-medium", out ? "text-destructive" : "text-success")}>{out ? "Out of stock" : item.available <= 5 ? `Only ${item.available} left` : "In stock"}</p>
           {item.description && <p className="whitespace-pre-line text-muted-foreground">{item.description}</p>}
           {qty > 0 && <p className="text-sm text-muted-foreground">{qty} already in your cart</p>}
@@ -446,7 +475,7 @@ function MyOrders({ b, sess }: { b: Business; sess: PortalSession }) {
             <div key={o.id} className="surface card-body space-y-4">
               <Link to={`/track/${o.track_token}`} className="flex items-start justify-between gap-3">
                 <div><p className="num font-medium">{o.order_no}</p><p className="num text-sm text-muted-foreground">{date(o.created_at)}</p></div>
-                <div className="text-end">{b.show_prices && o.total != null && <p className="num font-semibold">{amount(o.total)}</p>}<p className="text-sm text-muted-foreground">{o.status_label}</p></div>
+                <div className="text-end">{o.total != null && <p className="num font-semibold">{amount(o.total)}</p>}<p className="text-sm text-muted-foreground">{o.status_label}</p></div>
               </Link>
               {active && i === 0 && <Steps steps={o.steps} compact />}
             </div>

@@ -7,7 +7,7 @@ import type { Palette, Product, SiteData } from "./types";
 import { CampaignBanner } from "./campaign";
 import { call, consent, money, onColor, pagePath, runtime, track } from "./lib";
 import {
-  AboutPage, CartLines, cartTotal, CategoriesPage, CategoryPage, ContactPage, HomePage, NotFound, OrderPage, ProductPage, ProductsPage, ratio,
+  AboutPage, CartLines, CartSummary, CategoriesPage, CategoryPage, ContactPage, HomePage, NotFound, OrderPage, ProductPage, ProductsPage, ratio,
   ServicesPage, TestimonialsPage, TrackPage, useCart, useScrollTop,
 } from "./pages";
 
@@ -107,7 +107,6 @@ function SearchPanel({ data, onClose }: { data: SiteData; onClose: () => void })
 
 function CartDrawer({ data, onClose }: { data: SiteData; onClose: () => void }) {
   const lines = useCart();
-  const total = cartTotal(lines);
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", esc);
@@ -123,7 +122,7 @@ function CartDrawer({ data, onClose }: { data: SiteData; onClose: () => void }) 
         </div>
         {lines.length > 0 && (
           <div className="drawer-foot">
-            {total != null ? <div className="total"><span>Total</span><span>{money(data.business.currency, total)}</span></div> : <p className="hint">Some prices are confirmed by the shop before payment.</p>}
+            <CartSummary data={data} lines={lines} compact />
             <Link className="btn block" to="/order" onClick={onClose}>Checkout</Link>
             <button className="btn ghost" onClick={onClose}>Continue shopping</button>
           </div>

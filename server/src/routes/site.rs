@@ -276,6 +276,10 @@ pub struct PubProduct {
     pub in_stock: Option<bool>,
     /// add_to_cart | enquire | contact | whatsapp
     pub action: String,
+    /// Roadmap 130: a second way to ask about a hidden-price product that can be ordered (whatsapp | contact | enquire).
+    pub secondary_action: Option<String>,
+    /// Roadmap 130: shown instead of a price that is revealed after the order is submitted.
+    pub price_note: Option<String>,
     pub cta_label: String,
     pub photo: Option<String>,
     pub photo_thumb: Option<String>,
@@ -343,15 +347,18 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
         let in_stock = r.available > 0;
         let orderable = s.ordering && r.available_for_orders && (in_stock || show_out);
         let hidden_action = e.map(|e| e.hidden_action.as_str()).filter(|a| !a.is_empty()).unwrap_or(&cfg.hidden_action).to_string();
-        let action = if price_visible {
-            if orderable { "add_to_cart".to_string() } else { "enquire".to_string() }
-        } else if hidden_action == "order" && orderable {
-            "add_to_cart".to_string()
+        // Roadmap 130: a hidden-price product that can be ordered goes in the cart like any other (its price is shown
+        // after the order is submitted); the business's way of asking about it stays as a second action.
+        let (action, secondary_action) = if price_visible {
+            (if orderable { "add_to_cart" } else { "enquire" }.to_string(), None)
+        } else if orderable {
+            ("add_to_cart".to_string(), (hidden_action != "order").then(|| hidden_action.clone()))
         } else if hidden_action == "order" {
-            "enquire".to_string()
+            ("enquire".to_string(), None)
         } else {
-            hidden_action
+            (hidden_action, None)
         };
+        let price_note = (!price_visible && action == "add_to_cart").then(|| "Price revealed after order submission".to_string());
         let photos: Vec<String> = match e {
             Some(e) if !e.use_product_photos => e.photos.iter().take(max).map(|m| media_url(*m)).collect(),
             _ => r
@@ -384,6 +391,8 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
             badge: if cfg.grid.show_badges { e.map(|e| e.badge.clone()).unwrap_or_default() } else { String::new() },
             in_stock: cfg.grid.show_availability.then_some(in_stock),
             action,
+            secondary_action,
+            price_note,
             cta_label: e.map(|e| e.cta_label.clone()).unwrap_or_default(),
             photo: photos.first().cloned(),
             photo_thumb: thumb,
@@ -608,13 +617,11 @@ async fn place_order(State(state): State<AppState>, headers: HeaderMap, c: Porta
         return Err(bad("Tell us where to deliver"));
     }
     let items = published(&state, &s).await?;
-    let mut hidden_price = false;
     for line in &b.items {
         let p = items.iter().find(|p| p.id == line.product_id).ok_or_else(|| bad("A product in your cart is no longer available"))?;
         if p.action != "add_to_cart" {
             return Err(refused("Ask us first", format!("{} cannot be ordered online — please contact us", p.name)));
         }
-        hidden_price |= p.price.is_none();
     }
     let branch = portal::portal_branch(&state, &t).await?;
     let mut tx = state.db.begin().await?;
@@ -641,11 +648,11 @@ async fn place_order(State(state): State<AppState>, headers: HeaderMap, c: Porta
             format!("Hi {name}! 🎉 We've received your {} order {order_no}. We are now processing it.\nTrack it here: {site_url}/track/{track_token}", s.name),
         );
     }
-    let show_total = t.settings.orders.show_prices && !hidden_price;
+    // Roadmap 130: once recorded, the order's own prices are disclosed in this response (the snapshot stored with it).
     Ok(Json(json!({
-        "id": id, "order_no": order_no, "track_token": track_token,
-        "total": show_total.then_some(total),
-        "price_note": (!show_total).then_some("We will confirm the final price with you before any payment."),
+        "id": id, "order_no": order_no, "track_token": track_token, "total": total,
+        "items": portal::submitted_lines(&state, id).await?,
+        "status_note": "Order submitted — payment and delivery are confirmed by the shop.",
     })))
 }
 

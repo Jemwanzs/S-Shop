@@ -117,7 +117,7 @@ export function ProductCard({ data, p }: { data: SiteData; p: Product }) {
       </Link>
       {(p.price != null || quick) && (
         <div className="foot">
-          {p.price != null ? (
+          {p.price == null && p.price_note ? <span className="hint" style={{ fontSize: ".78em", lineHeight: 1.25 }}>{p.price_note}</span> : p.price != null ? (
             <span className="prices">
               <span className="price">{money(data.business.currency, p.price)}</span>
               {p.compare_at && <s className="was" aria-label={`Was ${money(data.business.currency, p.compare_at)}`}>{money(data.business.currency, p.compare_at)}</s>}
@@ -135,6 +135,15 @@ export function ProductCard({ data, p }: { data: SiteData; p: Product }) {
           {act.to ? <Link className="btn sm outline block" to={act.to}>{act.label}</Link> : <a className="btn sm outline block" href={act.href} target="_blank" rel="noopener noreferrer">{act.label}</a>}
         </div>
       )}
+      {/* Roadmap 130: a hidden-price product in the cart keeps the business's way of asking about it. */}
+      {!act && orderable && p.secondary_action && g.card !== "compact" && (() => {
+        const second = productAction(data, { ...p, action: p.secondary_action, cta_label: "" });
+        return second && (
+          <div className="cta">
+            {second.to ? <Link className="btn sm outline block" to={second.to}>{second.label}</Link> : <a className="btn sm outline block" href={second.href} target="_blank" rel="noopener noreferrer">{second.label}</a>}
+          </div>
+        );
+      })()}
     </article>
   );
 }

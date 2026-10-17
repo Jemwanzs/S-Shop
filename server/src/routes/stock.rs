@@ -48,7 +48,8 @@ pub struct LevelRow {
     pub category_name: Option<String>,
     pub track_items: bool,
     pub is_active: bool,
-    pub marked_price: Decimal,
+    /// Roadmap 131: None = no selling price set yet.
+    pub marked_price: Option<Decimal>,
     pub cost_price: Option<Decimal>,
     pub on_hand: i32,
     pub reserved: i32,
@@ -186,7 +187,7 @@ struct ProductInfo {
     barcode: Option<String>,
     track_items: bool,
     is_active: bool,
-    marked_price: Decimal,
+    marked_price: Option<Decimal>,
     cost_price: Option<Decimal>,
 }
 
@@ -259,7 +260,7 @@ async fn check_receipt(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b
             }
         }
     }
-    if let (Some(mp), Some(md)) = (b.marked_price.or(Some(p.marked_price)), b.max_discount) {
+    if let (Some(mp), Some(md)) = (b.marked_price.or(p.marked_price), b.max_discount) {
         if md > mp {
             return Err(bad("Maximum discount cannot exceed the marked price"));
         }
@@ -287,7 +288,8 @@ async fn receive(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Rece
     }
     check_receipt(&mut tx, &ctx, &s, &mut b, &p).await?;
 
-    let unit_value = b.cost_price.or(p.cost_price).unwrap_or(b.marked_price.unwrap_or(p.marked_price));
+    // Roadmap 131: with neither a cost nor a selling price the receipt has no value (never an invented one).
+    let unit_value = b.cost_price.or(p.cost_price).or(b.marked_price).or(p.marked_price).unwrap_or(Decimal::ZERO);
     let amount = unit_value * Decimal::from(b.quantity);
     if workflow::needs_approval(&mut tx, &ctx, "stock.add", workflow::Gate::branch(branch).amount(amount)).await? {
         let approval = workflow::submit(
@@ -318,7 +320,7 @@ async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, ap
     let branch = b.branch_id.unwrap_or(ctx.branch_id);
     let p = product_info(conn, ctx.tenant_id, b.product_id).await?;
     let kind = b.kind.as_deref().unwrap_or("received");
-    let marked = b.marked_price.unwrap_or(p.marked_price);
+    let marked = b.marked_price.or(p.marked_price);
 
     // Price changes captured with the receipt update the catalogue (audited below).
     sqlx::query(
@@ -351,13 +353,13 @@ async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, ap
             .bind(b.cost_price)
             .fetch_one(&mut *conn)
             .await?;
-            let mut m = Movement::new(branch, b.product_id, kind, 1).item(Some(item_id)).cost(b.cost_price).price(Some(marked)).notes(&notes);
+            let mut m = Movement::new(branch, b.product_id, kind, 1).item(Some(item_id)).cost(b.cost_price).price(marked).notes(&notes);
             m.supplier_id = b.supplier_id;
             m.occurred_on = b.date_received;
             level = Some(inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), true, Check::None, m).await?.1);
         }
     } else {
-        let mut m = Movement::new(branch, b.product_id, kind, b.quantity).cost(b.cost_price).price(Some(marked)).notes(&notes);
+        let mut m = Movement::new(branch, b.product_id, kind, b.quantity).cost(b.cost_price).price(marked).notes(&notes);
         m.supplier_id = b.supplier_id;
         m.occurred_on = b.date_received;
         level = Some(inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), true, Check::None, m).await?.1);

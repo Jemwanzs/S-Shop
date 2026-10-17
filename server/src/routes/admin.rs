@@ -1058,6 +1058,7 @@ async fn reset_user_pin(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
         return Err(AppError::NotFound("User"));
     }
     crate::routes::quickpin::revoke_devices(&mut tx, id, "PIN reset by an administrator", Some(ctx.user_id)).await?;
+    crate::routes::passkeys::revoke_all(&mut tx, id, "PIN reset by an administrator", Some(ctx.user_id)).await?;
     audit::record(&mut tx, &ctx, Entry::new("users", "reset_pin", "user", id)).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true })))

@@ -71,7 +71,9 @@ export function ProductGrid({ products, display, inCart, onOpen, lowThreshold, b
             {out ? t("Out of stock") : display.show_stock === false ? (left <= lowThreshold ? t("Low stock") : "") : `${count(left)} ${t("left")}`}
           </span>
         );
-        const price = display.show_prices && <span className="num font-semibold">{money(p.marked_price)}</span>;
+        const price = display.show_prices && (p.marked_price == null
+          ? <span className="text-xs text-muted-foreground">{t("Price not set")}</span>
+          : <span className="num font-semibold">{money(p.marked_price)}</span>);
         const common = {
           onClick: () => onOpen(p),
           disabled: out && !p.track_items,

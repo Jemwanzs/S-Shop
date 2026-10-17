@@ -32,6 +32,7 @@ pub mod webhooks;
 pub mod receipts;
 pub mod tenants;
 pub mod quickpin;
+pub mod passkeys;
 pub mod campaigns;
 pub mod recovery;
 pub mod website;
@@ -50,6 +51,7 @@ pub fn api() -> Router<AppState> {
         .merge(receipts::routes())
         .merge(tenants::routes())
         .merge(quickpin::routes())
+        .merge(passkeys::routes())
         .merge(campaigns::routes())
         .merge(prefs::routes())
         .merge(platform::routes())

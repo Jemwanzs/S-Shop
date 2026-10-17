@@ -173,7 +173,8 @@ export interface Product {
   category_name: string | null;
   supplier_id: Id | null;
   supplier_name: string | null;
-  marked_price: Money;
+  /** Roadmap 131: null = no selling price set yet. */
+  marked_price: Money | null;
   max_discount: Money | null;
   cost_price: Money | null;
   barcode: string | null;
@@ -203,7 +204,8 @@ export interface PosProduct {
   category_name: string | null;
   barcode: string | null;
   track_items: boolean;
-  marked_price: Money;
+  /** Roadmap 131: null = no selling price set yet. */
+  marked_price: Money | null;
   max_discount: Money | null;
   loyalty_eligible: boolean;
   loyalty_threshold: Money | null;
@@ -402,7 +404,8 @@ export interface StockLevel {
   category_name: string | null;
   track_items: boolean;
   is_active: boolean;
-  marked_price: Money;
+  /** Roadmap 131: null = no selling price set yet. */
+  marked_price: Money | null;
   cost_price: Money | null;
   on_hand: number;
   reserved: number;

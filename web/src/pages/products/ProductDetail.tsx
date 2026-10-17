@@ -98,7 +98,7 @@ export default function ProductDetail() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="surface card-body"><p className="label-caps">{t("Marked price")}</p><p className="num mt-1 text-2xl font-semibold">{money(p.marked_price)}</p></div>
+            <div className="surface card-body"><p className="label-caps">{t("Marked price")}</p><p className="num mt-1 text-2xl font-semibold">{p.marked_price == null ? t("Not set") : money(p.marked_price)}</p></div>
             <div className="surface card-body"><p className="label-caps">{t("Here now")}</p><p className="num mt-1 text-2xl font-semibold">{count(p.available)}</p><p className="num text-xs text-muted-foreground">{count(p.reserved)} reserved</p></div>
             <div className="surface card-body"><p className="label-caps">{t("All branches")}</p><p className="num mt-1 text-2xl font-semibold">{count(totalOnHand)}</p></div>
           </div>

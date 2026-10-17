@@ -222,6 +222,13 @@ textarea.field { min-height: 90px; resize: vertical; }
 /* Product page */
 .pdp { display: grid; gap: 24px; }
 @media (min-width: 860px) { .pdp { grid-template-columns: 1.1fr 1fr; gap: 48px; align-items: start; } }
+/* Roadmap 130: no tall blank area under the purchase actions — the photo is capped to the screen and, on wide screens,
+   the details sit centred beside it (a long description simply grows past it). */
+.pdp .gallery .main { max-height: min(62vh, 560px); }
+@media (min-width: 860px) {
+  .pdp .gallery .main { max-height: min(74vh, 640px); }
+  .pdp > .stack { align-self: center; }
+}
 .gallery .main { aspect-ratio: var(--ratio, 1 / 1); border-radius: var(--r-lg); overflow: hidden; background: color-mix(in srgb, var(--text) 6%, transparent); }
 .gallery .main img { width: 100%; height: 100%; object-fit: var(--fit, cover); }
 .gallery .thumbs { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; }

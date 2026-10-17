@@ -385,10 +385,21 @@ warning_seconds}`. `/api/platform/security` also carries `idle_default_minutes`,
 | POST | `/api/auth/quick-pin/devices` (`current_pin`, `device_name`) · DELETE `/{id}` · POST `/revoke-all` | trust this device · remove one · sign out everywhere |
 | POST | `/api/auth/quick-login` (`device_token`, `pin`) | public, rate-limited; 400 wrong PIN, 403 locked, 422 *Full sign-in needed* |
 | POST | `/api/users/{id}/quick-pin/reset` | `users.manage`, full sign-in |
-| GET / PUT | `/api/security/quick-pin` (`enabled`, `role_ids`) | business rule (administrators, full sign-in) |
-| GET / PUT | `/api/platform/security` | platform rules |
+| GET / PUT | `/api/security/quick-pin` (`enabled`, `role_ids`, `passkeys`) | business rule (administrators, full sign-in); also `users_with_passkeys` |
+| GET / PUT | `/api/platform/security` | platform rules (`passkeys_enabled` too) |
 
 Any endpoint needing a full sign-in answers a Quick session with 422 *Full sign-in needed*.
+
+## Face ID & biometric login ([module 37](modules/37-face-id-biometric-login.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/auth/passkeys` | available / reason, enabled, registered devices (`id`, `credential_id`, `name`, `created_at`, `last_used_at`), `quick_session`, `rp_id` |
+| POST | `/api/auth/passkeys/register/start` (`current_pin`) | full sign-in + full PIN; returns `challenge_id` and WebAuthn creation `options` |
+| POST | `/api/auth/passkeys/register/finish` (`challenge_id`, `credential`, `device_name`) | verified; returns `id`, `credential_id` |
+| DELETE | `/api/auth/passkeys/{id}` · POST `/api/auth/passkeys/disable` | remove one · switch off (all removed) |
+| POST | `/api/auth/passkey/login/start` (`credential_id`) | public, rate-limited; 422 *Full sign-in needed* / *Face ID & biometrics unavailable* |
+| POST | `/api/auth/passkey/login/finish` (`challenge_id`, `credential`) | public; `{token, profile, quick: true}`; 400 failed check, 422 *Request expired* |
 
 ## Tenants & secure access ([module 27](modules/27-tenants-and-secure-access.md))
 

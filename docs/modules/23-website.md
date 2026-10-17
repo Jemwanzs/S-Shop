@@ -293,3 +293,20 @@ returns:
   publish, discard, rollback, shared price setting, website-only permissions, separate billing, disable / re-activate,
   isolation) and *Roadmap 53–57* (public site, hidden prices everywhere, per-product overrides, ordering into Orders,
   events and analytics, media grading and isolation, domain guards and uniqueness).
+
+## Price visibility, hidden-price ordering & products without a price (roadmap 129–131)
+
+- **Per product** (Settings → Website → Products → a product's settings): *Use global setting* (default) / *Show price*
+  / *Hide price*, with the effective status shown. One server rule (`portal::PriceRules`) for the website and the
+  ordering link — cards, product pages, search, categories, catalogue: the product's own setting wins, else *Show
+  product prices*. Before an order a hidden price is removed from every response (not just hidden in the page).
+- **Hidden-price products in the cart**: a hidden-price product that can be ordered shows **Add to Cart** with *Price
+  revealed after order submission*; the business's *Ask on WhatsApp* / call / enquire stays as a second button
+  (`secondary_action`). Carts show a total only when every price is public, otherwise the public subtotal and how many
+  items are priced after the order — never a figure that implies a hidden price.
+- **After a successful submission** the confirmation (`items` with unit prices, line totals, total), the order's
+  tracking page and the customer's own order history show the prices recorded with the order (the order's snapshot —
+  later price changes never alter it). A failed submission and other customers' orders reveal nothing. The
+  confirmation says *Order submitted — payment and delivery are confirmed by the shop*: submitting is not a payment.
+- **No selling price set** (roadmap 131): *Price on Request* — published if otherwise eligible, never ordered online at a
+  price (the business's enquire / WhatsApp action instead); the orders engine refuses to price an order from nothing.

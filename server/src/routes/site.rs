@@ -253,7 +253,8 @@ struct ProductDb {
     description: String,
     category_id: Option<Uuid>,
     category_name: Option<String>,
-    price: Decimal,
+    /// Roadmap 131: None = no selling price yet.
+    price: Option<Decimal>,
     available: i32,
     available_for_orders: bool,
     created_at: DateTime<Utc>,
@@ -345,7 +346,10 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
             _ => show_prices,
         };
         let in_stock = r.available > 0;
-        let orderable = s.ordering && r.available_for_orders && (in_stock || show_out);
+        // Roadmap 131: a product without a selling price is "Price on request" — enquired about, never ordered at a price.
+        let priced = r.price.is_some();
+        let orderable = s.ordering && r.available_for_orders && (in_stock || show_out) && priced;
+        let price_visible = price_visible && priced;
         let hidden_action = e.map(|e| e.hidden_action.as_str()).filter(|a| !a.is_empty()).unwrap_or(&cfg.hidden_action).to_string();
         // Roadmap 130: a hidden-price product that can be ordered goes in the cart like any other (its price is shown
         // after the order is submitted); the business's way of asking about it stays as a second action.
@@ -358,7 +362,11 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
         } else {
             (hidden_action, None)
         };
-        let price_note = (!price_visible && action == "add_to_cart").then(|| "Price revealed after order submission".to_string());
+        let price_note = if !priced {
+            Some("Price on Request".to_string())
+        } else {
+            (!price_visible && action == "add_to_cart").then(|| "Price revealed after order submission".to_string())
+        };
         let photos: Vec<String> = match e {
             Some(e) if !e.use_product_photos => e.photos.iter().take(max).map(|m| media_url(*m)).collect(),
             _ => r
@@ -385,8 +393,8 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
             description,
             category_id,
             category_name,
-            price: price_visible.then_some(r.price),
-            compare_at: e.and_then(|e| e.compare_at).filter(|c| price_visible && *c > r.price),
+            price: if price_visible { r.price } else { None },
+            compare_at: e.and_then(|e| e.compare_at).filter(|c| price_visible && r.price.is_some_and(|p| *c > p)),
             stock_ok: in_stock,
             badge: if cfg.grid.show_badges { e.map(|e| e.badge.clone()).unwrap_or_default() } else { String::new() },
             in_stock: cfg.grid.show_availability.then_some(in_stock),

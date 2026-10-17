@@ -23,7 +23,8 @@ RUN touch server/src/main.rs && cargo build --release -p sshop
 
 # ── 3. Runtime ────────────────────────────────────────────────
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata \
+# libssl3: passkey (WebAuthn) verification uses OpenSSL (roadmap 132).
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata libssl3 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 sshop
 WORKDIR /app

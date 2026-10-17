@@ -44,7 +44,9 @@ interface Business { name: string; slug: string; tagline: string; phone: string;
 interface PortalSession { token: string; customer: { first_name: string; nickname: string; mobile: string } }
 interface Me { customer: PortalSession["customer"]; total_orders: number; loyalty: { points: number; value: string | null } | null }
 interface Item { id: string; name: string; description: string; category_id: string | null; /** Absent when the business hides this product's price. */
-  price?: string; available: number; primary_photo_id: string | null }
+  price?: string; available: number; primary_photo_id: string | null;
+  /** Roadmap 131: no selling price yet — shown as Price on request, cannot be ordered online. */
+  price_on_request?: boolean }
 /** Roadmap 130: a submitted order with the prices recorded at submission. */
 interface Placed {
   order_no: string;
@@ -341,7 +343,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
                   </div>
                   <div className="space-y-1 p-3">
                     <p className="line-clamp-2 font-medium leading-snug">{p.name}</p>
-                    {p.price != null ? <p className="num font-semibold">{b.currency} {amount(p.price)}</p> : <p className="text-xs text-muted-foreground">{t("Price revealed after order submission")}</p>}
+                    {p.price != null ? <p className="num font-semibold">{b.currency} {amount(p.price)}</p> : <p className="text-xs text-muted-foreground">{t(p.price_on_request ? "Price on request" : "Price revealed after order submission")}</p>}
                     <p className={cn("text-xs font-medium", out ? "text-destructive" : "text-success")}>{out ? "Out of stock" : "In stock"}</p>
                   </div>
                 </button>
@@ -428,8 +430,8 @@ function ProductSheet({ b, item, qty, onClose, onAdd }: { b: Business; item: Ite
             <span className="num w-8 text-center text-lg">{n}</span>
             <button className="p-3" onClick={() => setN(Math.min(item.available, n + 1))} aria-label="More"><Plus className="h-4 w-4" /></button>
           </div>
-          <Button variant="ink" size="lg" className="h-12 flex-1 rounded-xl" disabled={out} onClick={() => onAdd(item, qty + n)}>
-            {out ? "Out of stock" : <>Add to Cart{item.price != null && <> · <span className="num">{b.currency} {amount(toNum(item.price) * n)}</span></>}</>}
+          <Button variant="ink" size="lg" className="h-12 flex-1 rounded-xl" disabled={out || item.price_on_request} onClick={() => onAdd(item, qty + n)}>
+            {item.price_on_request ? t("Price on request") : out ? "Out of stock" : <>Add to Cart{item.price != null && <> · <span className="num">{b.currency} {amount(toNum(item.price) * n)}</span></>}</>}
           </Button>
         </div>
       }
@@ -448,7 +450,7 @@ function ProductSheet({ b, item, qty, onClose, onAdd }: { b: Business; item: Ite
           )}
         </div>
         <div className="space-y-3">
-          {item.price != null ? <p className="num text-2xl font-bold">{b.currency} {amount(item.price)}</p> : <p className="text-sm text-muted-foreground">{t("Price revealed after order submission")}</p>}
+          {item.price != null ? <p className="num text-2xl font-bold">{b.currency} {amount(item.price)}</p> : <p className="text-sm text-muted-foreground">{t(item.price_on_request ? "Price on request — contact us for a quote" : "Price revealed after order submission")}</p>}
           <p className={cn("text-sm font-medium", out ? "text-destructive" : "text-success")}>{out ? "Out of stock" : item.available <= 5 ? `Only ${item.available} left` : "In stock"}</p>
           {item.description && <p className="whitespace-pre-line text-muted-foreground">{item.description}</p>}
           {qty > 0 && <p className="text-sm text-muted-foreground">{qty} already in your cart</p>}

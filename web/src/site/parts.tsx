@@ -115,7 +115,7 @@ export function ProductCard({ data, p }: { data: SiteData; p: Product }) {
           {g.show_availability && p.in_stock != null && <span className={`stock ${p.in_stock ? "" : "out"}`}><i aria-hidden />{p.in_stock ? "In stock" : "Out of stock"}</span>}
         </div>
       </Link>
-      {(p.price != null || quick) && (
+      {(p.price != null || quick || p.price_note) && (
         <div className="foot">
           {p.price == null && p.price_note ? <span className="hint" style={{ fontSize: ".78em", lineHeight: 1.25 }}>{p.price_note}</span> : p.price != null ? (
             <span className="prices">

@@ -51,7 +51,8 @@ pub struct ProductRow {
     pub category_name: Option<String>,
     pub supplier_id: Option<Uuid>,
     pub supplier_name: Option<String>,
-    pub marked_price: Decimal,
+    /// Roadmap 131: None = no selling price set yet.
+    pub marked_price: Option<Decimal>,
     pub max_discount: Option<Decimal>,
     pub cost_price: Option<Decimal>,
     pub barcode: Option<String>,
@@ -184,7 +185,9 @@ pub struct ProductBody {
     pub description: String,
     pub category_id: Option<Uuid>,
     pub supplier_id: Option<Uuid>,
-    pub marked_price: Decimal,
+    /// Roadmap 131: blank = not set (never 0); set it any time later.
+    #[serde(default)]
+    pub marked_price: Option<Decimal>,
     pub max_discount: Option<Decimal>,
     pub cost_price: Option<Decimal>,
     pub barcode: Option<String>,
@@ -219,11 +222,11 @@ async fn validate(conn: &mut PgConnection, ctx: &Ctx, b: &mut ProductBody, exist
         return Err(bad("Product name is required"));
     }
     b.custom_fields = super::fields::clean(conn, ctx.tenant_id, super::fields::Kind::Product, &b.custom_fields).await?;
-    if b.marked_price < Decimal::ZERO {
+    if b.marked_price.is_some_and(|p| p < Decimal::ZERO) {
         return Err(bad("Price cannot be negative"));
     }
-    if let Some(d) = b.max_discount {
-        if d > b.marked_price {
+    if let (Some(d), Some(p)) = (b.max_discount, b.marked_price) {
+        if d > p {
             return Err(bad("Maximum discount cannot exceed the marked price"));
         }
     }

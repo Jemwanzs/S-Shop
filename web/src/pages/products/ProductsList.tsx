@@ -92,7 +92,7 @@ export default function ProductsList() {
             ),
           },
           { key: "category", header: "Category", cell: (r) => r.category_name ?? "—", hideBelow: "lg" },
-          ...(showPrices ? [{ key: "price", header: "Price", align: "right" as const, cell: (r: Product) => <span className="num font-medium">{money(r.marked_price)}</span> }] : []),
+          ...(showPrices ? [{ key: "price", header: "Price", align: "right" as const, cell: (r: Product) => (r.marked_price == null ? <span className="text-xs text-muted-foreground">{t("Not set")}</span> : <span className="num font-medium">{money(r.marked_price)}</span>) }] : []),
           { key: "stock", header: "Here", cell: (r) => <StockIndicator available={r.available} threshold={r.low_stock_threshold ?? low} /> },
           { key: "orders", header: "Online", cell: (r) => (r.available_for_orders ? <Pill tone="success">{t("Yes")}</Pill> : <Pill>No</Pill>), hideBelow: "xl" },
           { key: "status", header: "Status", cell: (r) => (r.is_active ? <Pill tone="success">{t("Active")}</Pill> : <Pill tone="danger">{t("Inactive")}</Pill>) },
@@ -101,7 +101,7 @@ export default function ProductsList() {
           <CardRow
             title={r.name}
             subtitle={`${r.code}${r.category_name ? ` · ${r.category_name}` : ""}`}
-            value={showPrices ? money(r.marked_price) : undefined}
+            value={showPrices ? (r.marked_price == null ? t("Price not set") : money(r.marked_price)) : undefined}
             meta={r.is_active ? <span className={r.available > 0 ? "text-success" : "text-destructive"}>{r.available > 0 ? `${count(r.available)} here` : "Out of stock"}</span> : <span className="text-destructive">{t("Inactive")}</span>}
           />
         )}

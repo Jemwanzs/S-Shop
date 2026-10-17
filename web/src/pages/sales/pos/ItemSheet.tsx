@@ -51,6 +51,9 @@ export function ItemSheet({
   const verify = (code: string) =>
     api<{ ok: boolean }>("/sales/check-barcode", { body: { product_id: product!.id, barcode: code } });
   const s = profile!.settings;
+  // Roadmap 131: a product without a selling price yet — the cashier types the price (never 0 by accident); there is
+  // no marked price to discount from.
+  const noPrice = !!product && product.marked_price == null;
   const markedPrice = toNum(product?.marked_price);
   const [qty, setQty] = useState(1);
   const [price, setPrice] = useState("");
@@ -64,9 +67,9 @@ export function ItemSheet({
   useEffect(() => {
     if (!product) return;
     setQty(editing?.quantity ?? 1);
-    const p = editing?.unitPrice ?? markedPrice;
-    setPrice(String(p));
-    setDiscount(markedPrice - p > 0 ? String(markedPrice - p) : "");
+    const p = editing?.unitPrice ?? (product.marked_price == null ? null : markedPrice);
+    setPrice(p == null ? "" : String(p));
+    setDiscount(p != null && product.marked_price != null && markedPrice - p > 0 ? String(markedPrice - p) : "");
     setBarcode(editing?.barcode);
     setShowOther(false);
     setLineDate(editing?.saleDate ?? saleDate);
@@ -99,15 +102,15 @@ export function ItemSheet({
   if (!product) return null;
   const qtyLocked = s.sales.quantity_entry === "locked" || product.track_items;
   const unit = toNum(price);
-  const diff = unit - markedPrice;
-  const unitDisc = markedPrice - unit;
+  const diff = noPrice ? 0 : unit - markedPrice;
+  const unitDisc = noPrice ? 0 : markedPrice - unit;
   const overMax = product.max_discount !== null && unitDisc > toNum(product.max_discount);
   const needsBarcode = product.track_items || (s.sales.require_barcode_clearance && !!product.barcode);
   // `barcode` is only set after the server confirmed it belongs to this product, branch and available stock.
   const barcodeOk = !needsBarcode || !!barcode;
   const belowMarkedBlocked = unitDisc > 0 && !can("sales.discount");
   const maxQty = Math.max(product.available, 0);
-  const valid = unit >= 0 && price !== "" && qty >= 1 && qty <= maxQty && barcodeOk && !belowMarkedBlocked;
+  const valid = (noPrice ? unit > 0 : unit >= 0) && price !== "" && qty >= 1 && qty <= maxQty && barcodeOk && !belowMarkedBlocked;
 
   const onScan = async (code: string): Promise<ScanOutcome | void> => {
     if (product.track_items && takenBarcodes.includes(code) && code !== editing?.barcode) {
@@ -167,7 +170,7 @@ export function ItemSheet({
               </div>
             </Field>
             <Field label="Marked price">
-              <div className="num flex h-11 items-center rounded-lg bg-muted px-3 font-semibold text-muted-foreground">{money(markedPrice)}</div>
+              <div className="num flex h-11 items-center rounded-lg bg-muted px-3 font-semibold text-muted-foreground">{noPrice ? t("Not set") : money(markedPrice)}</div>
             </Field>
           </div>
 
@@ -190,17 +193,21 @@ export function ItemSheet({
               onChange={(e) => {
                 const v = e.target.value.replace(/[^\d.]/g, "");
                 setPrice(v);
-                const d = markedPrice - toNum(v);
+                const d = noPrice ? 0 : markedPrice - toNum(v);
                 setDiscount(d > 0 ? String(Math.round(d * 100) / 100) : "");
               }}
               onFocus={(e) => e.target.select()}
             />
-            <span className={cn("num block text-sm font-medium", diff < 0 ? "text-destructive" : diff > 0 ? "text-success" : "text-muted-foreground")}>
-              {t("Difference from marked price:")} {signed(diff)}
-            </span>
+            {noPrice ? (
+              <span className="block text-sm font-medium text-warning">{t("No selling price is set for this product — enter the price it is sold for.")}</span>
+            ) : (
+              <span className={cn("num block text-sm font-medium", diff < 0 ? "text-destructive" : diff > 0 ? "text-success" : "text-muted-foreground")}>
+                {t("Difference from marked price:")} {signed(diff)}
+              </span>
+            )}
           </Field>
 
-          <Field label="Discount applied" optional hint="Typing a discount sets the selling price — it is never applied twice.">
+          {!noPrice && <Field label="Discount applied" optional hint="Typing a discount sets the selling price — it is never applied twice.">
             <Input
               inputMode="decimal"
               placeholder="Optional"
@@ -212,7 +219,7 @@ export function ItemSheet({
                 setPrice(String(Math.max(0, markedPrice - toNum(v))));
               }}
             />
-          </Field>
+          </Field>}
 
           {overMax && (
             <p className="flex gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning">

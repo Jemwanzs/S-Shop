@@ -32,7 +32,7 @@ async fn search(State(state): State<AppState>, ctx: Ctx, Query(q): Query<SearchQ
     let mut results: Vec<Value> = Vec::new();
 
     if ctx.can("products.view") || ctx.can("stock.view") || ctx.can("sales.create") {
-        let rows: Vec<(Uuid, String, String, Decimal, i32)> = sqlx::query_as(
+        let rows: Vec<(Uuid, String, String, Option<Decimal>, i32)> = sqlx::query_as(
             "SELECT p.id, p.name, p.code, p.marked_price, COALESCE(sl.on_hand - sl.reserved, 0)
              FROM products p LEFT JOIN stock_levels sl ON sl.product_id = p.id AND sl.branch_id = $3
              WHERE p.tenant_id = $1 AND (p.name ILIKE $2 OR p.nickname ILIKE $2 OR p.code ILIKE $2 OR p.barcode = $4

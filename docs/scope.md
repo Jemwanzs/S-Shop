@@ -639,11 +639,11 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 
 **Website prices, hidden-price ordering & imports** (brief *Website Product Price Visibility, Hidden-Price Ordering &
 Product Import Enhancements*):
-- ⏳ **129. Per-product price visibility** — Settings → Website → Products → each product: *Use global setting*
+- ✅ **129. Per-product price visibility** — Settings → Website → Products → each product: *Use global setting*
   (default) / *Show price* / *Hide price*, with the effective status shown. One server rule for the website and the
   ordering link (cards, details, search, categories, catalogue): a product's own setting wins, else *Show product
   prices*; a hidden price never leaves the server before an order.
-- ⏳ **130. Hidden-price products in the cart** — a hidden-price product that can be ordered shows *Add to Cart* and
+- ✅ **130. Hidden-price products in the cart** — a hidden-price product that can be ordered shows *Add to Cart* and
   *Price revealed after order submission*; the business's *Ask on WhatsApp* / call / enquire stays as a second
   action. Carts show a total only when every price is public, otherwise the public subtotal and how many items are
   priced after the order. After a successful submission the confirmation, tracking page and the customer's own order
@@ -652,6 +652,20 @@ Product Import Enhancements*):
 - ⏳ **131. Selling price optional on import** — *Selling Price* not mandatory in the product templates; blank = not
   set (NULL, distinct from a real 0); *Price on Request* on the website / ordering link; no checkout total, payment or
   free sale for a product without a price; prices set later in Products.
+
+**Face ID & biometric sign-in** (brief *Face ID & Biometric Quick Login Enhancement*):
+- ⏳ **132. Passkey / biometric sign-in (WebAuthn)** — Settings → Preferences, below Quick Login PIN: *Face ID &
+  Biometric Login* (off by default): set up (full PIN re-entered first, then the device's own Face ID / fingerprint /
+  screen-lock prompt), registered devices (registered / last used), remove. Server-side verification with the
+  audited **webauthn-rs** (single-use, short-lived challenges; origin, RP ID, credential ownership, user verification);
+  only the public-key credential is stored, per user and business; audited. Sign-in offers *Sign in with Face ID /
+  Biometrics* (or *Passkey*) only where this device has registered one; then the same branch selection, permissions,
+  session limits and audit as any sign-in; a passkey session needs the full PIN for sensitive actions like a Quick PIN
+  session. Quick PIN and biometrics are independent. Cancelled or failed prompts never sign in. No camera, no face
+  images, no biometric data ever reach S'Shop.
+  Built: `routes/passkeys.rs`, migration 0038, `lib/passkey.ts`, Preferences card, login button; business and platform
+  switches; ends on PIN change / reset and *Sign out everywhere*; real-ceremony tests with a software authenticator
+  ([module 37](modules/37-face-id-biometric-login.md)).
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

@@ -135,9 +135,9 @@ export default function Exchange() {
               <ul className="mt-2 divide-y rounded-lg border">
                 {(products.data ?? []).slice(0, 8).map((p) => (
                   <li key={p.id}>
-                    <button type="button" disabled={p.available <= 0} onClick={() => add(p)} className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-start text-sm hover:bg-accent disabled:opacity-50">
+                    <button type="button" disabled={p.available <= 0 || p.marked_price == null} onClick={() => add(p)} className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-start text-sm hover:bg-accent disabled:opacity-50">
                       <span className="min-w-0 truncate">{p.name}{p.track_items && <span className="text-xs text-muted-foreground"> · {t("scan item")}</span>}</span>
-                      <span className="num shrink-0 font-medium">{money(p.marked_price)}</span>
+                      <span className="num shrink-0 font-medium">{p.marked_price == null ? t("Price not set") : money(p.marked_price)}</span>
                     </button>
                   </li>
                 ))}

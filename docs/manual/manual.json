@@ -1,7 +1,7 @@
 {
   "title": "S'Shop — Smart Retail & Business Management",
   "subtitle": "Product Features & Capabilities Manual",
-  "version": "Version 1.3 · October 2026",
+  "version": "Version 1.4 · October 2026",
   "intro": "S'Shop runs a retail business end to end, from the till and stock room to the customer's phone and the business's own website. It works on phones, tablets and computers, across branches, online and offline. Each module below describes features available today.",
   "modules": [
     {
@@ -62,6 +62,7 @@
         "A branded, image-rich ordering link for each business, with no customer sign-up",
         "Optional WhatsApp code to verify customers before they see their details",
         "Customers see past orders, loyalty points and live order tracking",
+        "Products with hidden prices can be ordered; the prices appear on the order confirmation and tracking",
         "Order statuses from new to delivered or completed, with live alerts for new orders",
         "Stock reserved for confirmed orders and deducted only when the order is completed",
         "Notifications go only to the people responsible for the order's branch"
@@ -73,6 +74,7 @@
       "bullets": [
         "Automatic or custom product codes, categories and suppliers with quick-add",
         "Marked price, maximum discount and optional cost price for profit reporting",
+        "The selling price can be left blank (Price on Request) and set later; a product is never sold or ordered at an invented price",
         "A shared barcode per product, or individual tracking of each item",
         "Several photos per product and your own fields such as size, colour or brand",
         "Control over which branches stock a product and whether it appears online",
@@ -180,6 +182,7 @@
       "bullets": [
         "Email and PIN sign-in, with temporary lockout after repeated wrong attempts",
         "Optional Quick Login PIN on trusted devices; sensitive actions still need the full sign-in",
+        "Optional Face ID & biometric login (passkeys) on your own phone or computer; the device checks your face or fingerprint and S'Shop never receives biometric data",
         "The branch is chosen at every sign-in (only branch, default branch or the picker); on a shared phone nobody sees the previous person's cart",
         "Automatic logout after inactivity, with a warning first and stricter timeouts for sensitive roles",
         "Self-service PIN reset by email; new users set their own PIN from their invitation",
@@ -220,6 +223,7 @@
       "bullets": [
         "Brand colours, pages, menus and a premium product storefront without writing code",
         "Products, prices, photos and stock come from S'Shop, so there is nothing to sync",
+        "Show or hide prices for the whole site or per product; customers can still order hidden-price products and see the prices once the order is submitted",
         "Website orders arrive in the Orders list with alerts",
         "Draft, preview and publish, with a media library and image-quality checks",
         "Custom domains with guided DNS checks and secure HTTPS",
@@ -243,6 +247,7 @@
       "summary": "Bring an existing business into S'Shop from Excel, check every figure, then trade in S'Shop.",
       "bullets": [
         "Excel templates for products, customers, opening stock, expenses, sales history, credit balances, loyalty points, orders and transfers",
+        "Selling Price is optional in the product import: blank stays not set, never 0",
         "Column mapping, a colour-coded preview and an error report of only the rows to fix",
         "Imports run in the background with live progress and a clear result",
         "A migration cutover date that keeps history and S'Shop's own records apart",

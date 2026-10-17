@@ -382,6 +382,7 @@ pub async fn set_one_time_pin(conn: &mut sqlx::PgConnection, user_id: Uuid, pin:
     .await?;
     // Roadmap 83: a replaced PIN also ends Quick PIN on every trusted device.
     crate::routes::quickpin::revoke_devices(conn, user_id, "PIN replaced", None).await?;
+    crate::routes::passkeys::revoke_all(conn, user_id, "PIN replaced", None).await?;
     Ok(())
 }
 

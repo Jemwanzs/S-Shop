@@ -385,6 +385,8 @@ export function ProductPage({ data }: { data: SiteData }) {
               const second = productAction(data, { ...p, action: p.secondary_action, cta_label: "" });
               return second && (second.to ? <Link className="btn ghost" to={second.to}>{second.label}</Link> : <a className="btn ghost" href={second.href} target="_blank" rel="noopener noreferrer">{second.label}</a>);
             })()}
+            {/* Roadmap 131: a product without a selling price yet. */}
+            {p.price == null && p.price_note && p.action !== "add_to_cart" && <p style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--heading)" }}>{p.price_note}</p>}
             {p.price == null && p.action === "add_to_cart" && <p className="hint">{p.price_note || "Price revealed after order submission"} — submitting an order is not a payment.</p>}
           </div>
         </div>

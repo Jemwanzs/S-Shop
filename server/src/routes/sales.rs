@@ -50,7 +50,8 @@ struct PosProduct {
     category_name: Option<String>,
     barcode: Option<String>,
     track_items: bool,
-    marked_price: Decimal,
+    /// Roadmap 131: None = no selling price set yet (staff type the price).
+    marked_price: Option<Decimal>,
     max_discount: Option<Decimal>,
     loyalty_eligible: bool,
     loyalty_threshold: Option<Decimal>,
@@ -325,7 +326,8 @@ struct SaleProduct {
     is_active: bool,
     track_items: bool,
     barcode: Option<String>,
-    marked_price: Decimal,
+    /// Roadmap 131: None = no selling price set yet (staff type the price).
+    marked_price: Option<Decimal>,
     max_discount: Option<Decimal>,
     cost_price: Option<Decimal>,
     loyalty_eligible: bool,
@@ -407,8 +409,17 @@ async fn prepare_lines(
             return Err(bad("Selling price cannot be negative"));
         }
 
+        // Roadmap 131: a product without a selling price is sold at the price the cashier types — never at 0 by
+        // accident; it has no marked price to discount from.
+        let marked_price = match p.marked_price {
+            Some(m) => m,
+            None if !trusted_prices && l.unit_price <= Decimal::ZERO => {
+                return Err(refused("Price needed", format!("{} has no selling price yet — enter the price it is sold for.", p.name)));
+            }
+            None => l.unit_price,
+        };
         // Single pricing model: the selling price is the truth; discount = marked − selling.
-        let unit_discount = p.marked_price - l.unit_price;
+        let unit_discount = marked_price - l.unit_price;
         if !trusted_prices && unit_discount > Decimal::ZERO {
             if !ctx.can("sales.discount") {
                 return Err(AppError::Forbidden(format!("You cannot sell {} below its marked price", p.name)));
@@ -449,7 +460,7 @@ async fn prepare_lines(
             stock_item_id,
             barcode,
             quantity: l.quantity,
-            marked_price: p.marked_price,
+            marked_price,
             unit_price: l.unit_price,
             line_total,
             unit_cost,

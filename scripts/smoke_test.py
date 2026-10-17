@@ -2499,6 +2499,164 @@ r = call("PUT", "/auth/quick-pin", {"current_pin": "8642", "quick_pin": "4826"},
 check("platform minimum length applies", "5–6" in r["error"]["message"], r)
 call("PUT", "/platform/security", ps)
 
+step("Roadmap 132: Face ID & biometric sign-in (passkeys)")
+# A software authenticator (P-256 / ES256, "none" attestation) stands in for Face ID, a fingerprint or Windows Hello: it
+# answers the server's challenges exactly as a phone would, so every check below runs the real WebAuthn verification.
+_P = 2**256 - 2**224 + 2**192 + 2**96 - 1
+_N = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551
+_G = (0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296, 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5)
+def _ec_add(a, b):
+    if a is None: return b
+    if b is None: return a
+    if a[0] == b[0] and (a[1] + b[1]) % _P == 0: return None
+    lam = (3 * a[0] * a[0] - 3) * pow(2 * a[1], -1, _P) if a == b else (b[1] - a[1]) * pow(b[0] - a[0], -1, _P)
+    x = (lam * lam - a[0] - b[0]) % _P
+    return (x, (lam * (a[0] - x) - a[1]) % _P)
+def _ec_mul(k, pt):
+    out = None
+    while k:
+        if k & 1: out = _ec_add(out, pt)
+        pt, k = _ec_add(pt, pt), k >> 1
+    return out
+def _der_int(v):
+    b = v.to_bytes(32, "big").lstrip(b"\0") or b"\0"
+    if b[0] & 0x80: b = b"\0" + b
+    return b"\x02" + bytes([len(b)]) + b
+def _es256(d, msg):
+    z = int.from_bytes(hashlib.sha256(msg).digest(), "big")
+    while True:
+        k = int.from_bytes(os.urandom(32), "big") % _N
+        if not k: continue
+        r = _ec_mul(k, _G)[0] % _N
+        s = pow(k, -1, _N) * (z + r * d) % _N
+        if r and s:
+            body = _der_int(r) + _der_int(s)
+            return b"\x30" + bytes([len(body)]) + body
+def _cbor(v):
+    def head(major, n):
+        if n < 24: return bytes([major << 5 | n])
+        if n < 256: return bytes([major << 5 | 24, n])
+        return bytes([major << 5 | 25]) + n.to_bytes(2, "big")
+    if isinstance(v, int): return head(0, v) if v >= 0 else head(1, -1 - v)
+    if isinstance(v, bytes): return head(2, len(v)) + v
+    if isinstance(v, str): return head(3, len(v.encode())) + v.encode()
+    if isinstance(v, dict): return head(5, len(v)) + b"".join(_cbor(k) + _cbor(x) for k, x in v.items())
+    raise TypeError(v)
+def _b64u(b): return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+def _unb64u(s): return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+class Authenticator:
+    def __init__(self):
+        self.d = int.from_bytes(os.urandom(32), "big") % (_N - 1) + 1
+        self.q = _ec_mul(self.d, _G)
+        self.cred = os.urandom(16)
+        self.count = 0
+    def _client(self, kind, challenge, origin=None):
+        return json.dumps({"type": kind, "challenge": challenge, "origin": origin or BASE, "crossOrigin": False}, separators=(",", ":")).encode()
+    def create(self, options, origin=None, rp="localhost"):
+        pk = options["publicKey"]
+        cose = {1: 2, 3: -7, -1: 1, -2: self.q[0].to_bytes(32, "big"), -3: self.q[1].to_bytes(32, "big")}
+        auth = hashlib.sha256(rp.encode()).digest() + bytes([0x45]) + self.count.to_bytes(4, "big") + b"\0" * 16 + len(self.cred).to_bytes(2, "big") + self.cred + _cbor(cose)
+        cd = self._client("webauthn.create", pk["challenge"], origin)
+        return {"id": _b64u(self.cred), "rawId": _b64u(self.cred), "type": "public-key", "extensions": {},
+                "response": {"attestationObject": _b64u(_cbor({"fmt": "none", "attStmt": {}, "authData": auth})), "clientDataJSON": _b64u(cd)}}
+    def get(self, options, uv=True, counter=None, key=None, origin=None):
+        pk = options["publicKey"]
+        self.count = self.count + 1 if counter is None else counter
+        auth = hashlib.sha256(b"localhost").digest() + bytes([0x05 if uv else 0x01]) + self.count.to_bytes(4, "big")
+        cd = self._client("webauthn.get", pk["challenge"], origin)
+        sig = _es256(key or self.d, auth + hashlib.sha256(cd).digest())
+        return {"id": _b64u(self.cred), "rawId": _b64u(self.cred), "type": "public-key", "extensions": {},
+                "response": {"authenticatorData": _b64u(auth), "clientDataJSON": _b64u(cd), "signature": _b64u(sig), "userHandle": None}}
+
+pk_mail = f"bio{suffix.lower()}@sshop.test"
+pk_user = call("POST", "/users", {"name": f"Bio {suffix}", "email": pk_mail, "pin": "4321", "role_id": qp_roles["Manager"], "all_branches": True, "branch_ids": []})["id"]
+PF = {"token": call("POST", "/auth/login", {"email": pk_mail, "pin": "4321"})["token"], "branch": BRANCH}
+st = call("GET", "/auth/passkeys", **PF)
+check("roadmap 132: available, off until the person sets it up, on S'Shop's own domain", st["available"] and not st["enabled"] and st["passkeys"] == [] and st["rp_id"] == "localhost", st)
+call("POST", "/auth/passkeys/register/start", {"current_pin": "wrong"}, **PF, expect=400)
+check("setting up needs the full PIN re-entered", True)
+rs = call("POST", "/auth/passkeys/register/start", {"current_pin": "4321"}, **PF)
+opt = rs["options"]["publicKey"]
+check("the device is asked for user verification (Face ID / fingerprint / screen lock) on S'Shop's domain",
+      opt["rp"]["id"] == "localhost" and opt["authenticatorSelection"]["userVerification"] == "required" and len(_unb64u(opt["challenge"])) >= 16, opt)
+phone = Authenticator()
+r = call("POST", "/auth/passkeys/register/finish", {"challenge_id": rs["challenge_id"], "credential": phone.create(rs["options"], origin="https://evil.example")}, **PF, expect=400)
+check("an answer from another website is refused", "could not be set up" in r["error"]["message"], r)
+r = call("POST", "/auth/passkeys/register/finish", {"challenge_id": rs["challenge_id"], "credential": phone.create(rs["options"])}, **PF, expect=422)
+check("challenges are single use (even after a refused answer)", r["error"]["title"] == "Request expired", r)
+rs = call("POST", "/auth/passkeys/register/start", {"current_pin": "4321"}, **PF)
+r = call("POST", "/auth/passkeys/register/finish", {"challenge_id": rs["challenge_id"], "credential": phone.create(rs["options"], rp="evil.example")}, **PF, expect=400)
+check("a passkey made for another domain (RP ID) is refused", True)
+rs = call("POST", "/auth/passkeys/register/start", {"current_pin": "4321"}, **PF)
+reg = call("POST", "/auth/passkeys/register/finish", {"challenge_id": rs["challenge_id"], "credential": phone.create(rs["options"]), "device_name": "Bio phone"}, **PF)
+check("this device is set up (only a public key is kept)", reg["credential_id"] == _b64u(phone.cred), reg)
+st = call("GET", "/auth/passkeys", **PF)
+check("Face ID & biometric login on, the device listed", st["enabled"] and [x["name"] for x in st["passkeys"]] == ["Bio phone"], st)
+rs = call("POST", "/auth/passkeys/register/start", {"current_pin": "4321"}, **PF)
+check("a device already set up is not added twice", any(c["id"] == _b64u(phone.cred) for c in rs["options"]["publicKey"].get("excludeCredentials") or []), rs["options"]["publicKey"].get("excludeCredentials"))
+# Sign-in
+r = call("POST", "/auth/passkey/login/start", {"credential_id": _b64u(os.urandom(16))}, token="none", branch="none", expect=422)
+check("an unknown device always needs the full sign-in (nobody's email is asked or revealed)", r["error"]["title"] == "Full sign-in needed" and "@" not in json.dumps(r), r)
+ls = call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none")
+check("sign-in challenge asks for user verification and only this device's passkey",
+      ls["options"]["publicKey"]["userVerification"] == "required" and [c["id"] for c in ls["options"]["publicKey"]["allowCredentials"]] == [reg["credential_id"]], ls["options"])
+r = call("POST", "/auth/passkey/login/finish", {"challenge_id": ls["challenge_id"], "credential": phone.get(ls["options"], uv=False)}, token="none", branch="none", expect=400)
+check("no Face ID / fingerprint check (presence only): refused", "biometric check failed" in r["error"]["message"], r)
+ls = call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none")
+other = int.from_bytes(os.urandom(32), "big") % (_N - 1) + 1
+call("POST", "/auth/passkey/login/finish", {"challenge_id": ls["challenge_id"], "credential": phone.get(ls["options"], key=other)}, token="none", branch="none", expect=400)
+check("a signature from any other key is refused", True)
+ls = call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none")
+call("POST", "/auth/passkey/login/finish", {"challenge_id": ls["challenge_id"], "credential": phone.get(ls["options"], origin="https://evil.example")}, token="none", branch="none", expect=400)
+check("a sign-in answered for another website is refused", True)
+ls = call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none")
+answer = phone.get(ls["options"], counter=10)
+pl = call("POST", "/auth/passkey/login/finish", {"challenge_id": ls["challenge_id"], "credential": answer}, token="none", branch="none")
+PQ = {"token": pl["token"], "branch": BRANCH}
+check("signed in with Face ID / biometrics; the session is a limited (quick) one", pl["profile"]["quick"] is True and call("GET", "/auth/me", **PQ)["quick"] is True)
+r = call("POST", "/auth/passkey/login/finish", {"challenge_id": ls["challenge_id"], "credential": answer}, token="none", branch="none", expect=422)
+check("a recorded answer cannot be replayed", r["error"]["title"] == "Request expired", r)
+ls = call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none")
+call("POST", "/auth/passkey/login/finish", {"challenge_id": ls["challenge_id"], "credential": phone.get(ls["options"], counter=3)}, token="none", branch="none", expect=400)
+check("a cloned passkey (signature counter going back) is refused", True)
+for m_, p_, b_ in [("POST", "/auth/change-pin", {"current_pin": "4321", "new_pin": "5678"}), ("POST", "/auth/passkeys/register/start", {"current_pin": "4321"}),
+                   ("POST", "/roles", {"name": "Sneaky", "permissions": ["sales.view"]})]:
+    r = call(m_, p_, b_, **PQ, expect=422)
+    check(f"biometric session cannot {p_} without the full PIN", r["error"]["title"] == "Full sign-in needed", r)
+PQ = {"token": call("POST", "/auth/step-up", {"pin": "4321"}, **PQ)["token"], "branch": BRANCH}
+check("re-entering the full PIN makes it a full session", call("GET", "/auth/me", **PQ)["quick"] is False)
+audit_p = call("GET", "/audit?period=today&limit=300&module=auth")["items"]
+check("set-up and sign-ins audited (method passkey), failures too",
+      any(a["action"] == "passkey_added" for a in audit_p) and any(a["action"] == "login" and (a.get("after") or {}).get("method") == "passkey" for a in audit_p)
+      and any(a["action"] == "passkey_login_failed" for a in audit_p), [a["action"] for a in audit_p[:20]])
+# Tenant isolation: nobody else can remove (or see) this person's devices
+r = call("DELETE", f"/auth/passkeys/{reg['id']}", **QF, expect=404)
+check("another person cannot remove someone's device", True)
+check("…or see it", call("GET", "/auth/passkeys", **QF)["passkeys"] == [])
+# Business and platform rules
+call("PUT", "/security/quick-pin", {"enabled": True, "role_ids": [], "passkeys": False})
+r = call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none", expect=422)
+check("business switched biometric sign-in off: refused at sign-in", r["error"]["title"] == "Face ID & biometrics unavailable", r)
+check("…and in the person's preferences", call("GET", "/auth/passkeys", **PQ)["available"] is False)
+call("PUT", "/security/quick-pin", {"enabled": True, "role_ids": []})
+check("business rule defaults to on", call("GET", "/security/quick-pin")["policy"]["passkeys"] is True)
+ps = call("GET", "/platform/security")
+call("PUT", "/platform/security", {**ps, "passkeys_enabled": False})
+r = call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none", expect=422)
+check("platform switched it off: refused", "switched off on S'Shop" in r["error"]["message"], r)
+call("PUT", "/platform/security", ps)
+# Removing the device ends it; a full PIN change ends every device
+call("DELETE", f"/auth/passkeys/{reg['id']}", **PQ)
+call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none", expect=422)
+check("a removed device needs the full sign-in", call("GET", "/auth/passkeys", **PQ)["enabled"] is False)
+laptop = Authenticator()
+rs = call("POST", "/auth/passkeys/register/start", {"current_pin": "4321"}, **PQ)
+reg2 = call("POST", "/auth/passkeys/register/finish", {"challenge_id": rs["challenge_id"], "credential": laptop.create(rs["options"])}, **PQ)
+call("POST", "/auth/change-pin", {"current_pin": "4321", "new_pin": "9753"}, **PQ)
+r = call("POST", "/auth/passkey/login/start", {"credential_id": reg2["credential_id"]}, token="none", branch="none", expect=422)
+check("changing the full PIN ends every biometric device", r["error"]["title"] == "Full sign-in needed", r)
+check("the Quick PIN is independent (still available to set up)", call("GET", "/auth/quick-pin", token=call("POST", "/auth/login", {"email": pk_mail, "pin": "9753"})["token"], branch=BRANCH)["available"])
+
 step("Roadmap 87: automatic logout after inactivity")
 sp_roles = {r["name"]: r["id"] for r in call("GET", "/roles")}
 pol = call("GET", "/security/sessions")
@@ -2766,6 +2924,33 @@ check("the same workbook cannot be imported twice", r["error"]["title"] == "Alre
 upd = upload_xlsx("products", make_xlsx(["Product Code", "Product Name", "Category", "Selling Price"], [[f"OBJ{suffix}", f"Imported Jar {suffix}", "Kitchen", 650]]), mode="update")
 import_now(upd['batch']['id'], {})
 check("update mode changes an existing product by code", float(call("GET", f"/products?q=OBJ{suffix}&status=all")["items"][0]["marked_price"]) == 650)
+# Roadmap 131: Selling Price is optional — a blank price stays "not set" (never 0) and a real 0 stays 0.
+np_book = make_xlsx(["Product Name", "Category", "Selling Price", "Cost Price", "Barcode Required During Sale"],
+                    [[f"Unpriced Lamp {suffix}", "Kitchen", "", 120, "NO"], [f"Free Sample {suffix}", "Kitchen", 0, 0, "NO"]])
+np131 = upload_xlsx("products", np_book, name=f"np-{ob}.xlsx")
+check("roadmap 131: products import without a selling price (no error)", np131["batch"]["invalid_rows"] == 0, np131["batch"])
+import_now(np131["batch"]["id"], {})
+lamp = call("GET", f"/products?q=Unpriced Lamp {suffix}&status=all")["items"][0]
+free = call("GET", f"/products?q=Free Sample {suffix}&status=all")["items"][0]
+check("roadmap 131: a blank price is stored as not set; a real 0 stays 0", lamp["marked_price"] is None and float(free["marked_price"]) == 0, (lamp["marked_price"], free["marked_price"]))
+keep = upload_xlsx("products", make_xlsx(["Product Code", "Product Name", "Category", "Selling Price"], [[f"OBJ{suffix}", f"Imported Jar {suffix}", "Kitchen", ""]]), mode="update", name=f"keep-{ob}.xlsx")
+import_now(keep["batch"]["id"], {})
+check("roadmap 131: updating with a blank price keeps the existing price (never wipes it)",
+      float(call("GET", f"/products?q=OBJ{suffix}&status=all")["items"][0]["marked_price"]) == 650)
+call("POST", "/stock/receive", {"product_id": lamp["id"], "quantity": 4})
+check("receiving stock without a price leaves it not set (never 0)", call("GET", f"/products/{lamp['id']}")["product"]["marked_price"] is None)
+r = call("POST", "/sales", {"items": [{"product_id": lamp["id"], "quantity": 1, "unit_price": 0}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, expect=422)
+check("roadmap 131: no accidental free sale — the POS needs the price it is sold for", r["error"]["title"] == "Price needed", r)
+s131 = call("POST", "/sales", {"items": [{"product_id": lamp["id"], "quantity": 1, "unit_price": 350}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})["sale"]
+check("sold at the typed price, with no invented discount", float(s131["total"]) == 350 and float(s131["discount_total"]) == 0, (s131["total"], s131["discount_total"]))
+r = call("POST", "/orders", {"customer": {"mobile": "07" + str(uuid.uuid4().int)[:8], "first_name": "Quote"}, "items": [{"product_id": lamp["id"], "quantity": 1}], "delivery_location": "Shop"}, expect=422)
+check("roadmap 131: no order total is invented for a product without a price", r["error"]["title"] == "Price on request", r)
+pc131 = {x["id"]: x for x in call("GET", f"/portal/{slug}/catalogue", token=ptoken)["products"]}
+check("ordering link: Price on request, no price", lamp["id"] in pc131 and pc131[lamp["id"]]["price_on_request"] is True and pc131[lamp["id"]].get("price") is None, pc131.get(lamp["id"]))
+r = call("POST", f"/portal/{slug}/orders", {"items": [{"product_id": lamp["id"], "quantity": 1}], "delivery_location": "Shop"}, token=ptoken, expect=422)
+check("ordering link: it cannot be checked out at a price", r["error"]["title"] == "Price on request", r)
+call("POST", "/stock/receive", {"product_id": lamp["id"], "quantity": 1, "marked_price": 400})
+check("roadmap 131: the price can be set later (here while receiving stock)", float(call("GET", f"/products/{lamp['id']}")["product"]["marked_price"]) == 400)
 
 known = "0744" + str(int(time.time()))[-6:]
 call("POST", "/customers", {"mobile": known, "first_name": "Known"})

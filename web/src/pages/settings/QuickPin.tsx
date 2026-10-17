@@ -148,24 +148,30 @@ function SetupDialog({ mode, min, onClose, onDone }: { mode: "set" | "trust"; mi
   );
 }
 
-/** Settings → Security: the business's Quick PIN rule (within the platform's). */
+interface Policy { enabled: boolean; role_ids: string[]; passkeys: boolean }
+
+/** Settings → Security: the business's Quick PIN and biometric sign-in rule (within the platform's). */
 export function TenantQuickPinCard() {
   const qc = useQueryClient();
   const { profile } = useSession();
-  const q = useQuery({ queryKey: ["quick-pin-policy"], queryFn: () => api<{ policy: { enabled: boolean; role_ids: string[] }; platform: { enabled: boolean; min_length: number; session_hours: number }; users_with_quick_pin: number }>("/security/quick-pin") });
+  const q = useQuery({ queryKey: ["quick-pin-policy"], queryFn: () => api<{ policy: Policy; platform: { enabled: boolean; min_length: number; session_hours: number; passkeys: boolean }; users_with_quick_pin: number; users_with_passkeys: number }>("/security/quick-pin") });
   const roles = useQuery({ queryKey: ["roles"], queryFn: () => api<Role[]>("/roles") });
-  const [draft, setDraft] = useState<{ enabled: boolean; role_ids: string[] } | null>(null);
+  const [draft, setDraft] = useState<Policy | null>(null);
   useEffect(() => { if (q.data) setDraft(q.data.policy); }, [q.data]);
-  if (!q.data || !draft) return <Card title="Quick Login PIN"><Loading /></Card>;
+  if (!q.data || !draft) return <Card title="Quick Login PIN & Face ID"><Loading /></Card>;
   const admin = profile?.permissions.includes("*") && !profile?.acting && !profile?.quick;
   const dirty = JSON.stringify(draft) !== JSON.stringify(q.data.policy);
   return (
-    <Card title="Quick Login PIN">
+    <Card title="Quick Login PIN & Face ID">
       <div className="space-y-2 py-2 text-sm">
         {!q.data.platform.enabled && <p className="rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground">{t("Quick PIN sign-in is switched off on S'Shop")}</p>}
         <ToggleRow label="Allow Quick PIN sign-in" hint={`${q.data.platform.min_length}–6 ${t("digits, on devices people trust after a full sign-in")} · ${q.data.users_with_quick_pin} ${t("people use it")}`}
           checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} disabled={!admin || !q.data.platform.enabled} />
-        {draft.enabled && (
+        {/* Roadmap 132: Face ID & biometric sign-in (passkeys), independent of the Quick PIN; the roles below apply to both. */}
+        {!q.data.platform.passkeys && <p className="rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground">{t("Face ID & biometric sign-in is switched off on S'Shop")}</p>}
+        <ToggleRow label="Allow Face ID & biometric sign-in" hint={`${t("Passkeys: the device checks the face or fingerprint — S'Shop never receives biometric data")} · ${q.data.users_with_passkeys} ${t("people use it")}`}
+          checked={draft.passkeys} onChange={(v) => setDraft({ ...draft, passkeys: v })} disabled={!admin || !q.data.platform.passkeys} />
+        {(draft.enabled || draft.passkeys) && (
           <Field group label="Roles" hint="None selected = every role">
             <div className="grid gap-2 rounded-xl bg-muted/50 p-3 sm:grid-cols-2">
               {roles.data?.filter((r) => r.is_active).map((r) => (
@@ -182,7 +188,7 @@ export function TenantQuickPinCard() {
           <div className="flex justify-end">
             <ActionButton online blockedBy={[!dirty && "Nothing to save"]} onAction={async () => {
               await api("/security/quick-pin", { method: "PUT", body: draft });
-              toast.success("Quick PIN rule saved");
+              toast.success("Quick sign-in rules saved");
               qc.invalidateQueries({ queryKey: ["quick-pin-policy"] });
             }}>{t("Save")}</ActionButton>
           </div>
@@ -194,7 +200,9 @@ export function TenantQuickPinCard() {
 
 interface PlatformSecurity { quick_pin_enabled: boolean; quick_pin_min_length: number; quick_session_hours: number; max_attempts: number; device_days: number;
   /** Roadmap 87: automatic logout after inactivity. */
-  idle_default_minutes: number; idle_min_minutes: number; idle_max_minutes: number; warning_seconds: number; max_session_hours: number }
+  idle_default_minutes: number; idle_min_minutes: number; idle_max_minutes: number; warning_seconds: number; max_session_hours: number;
+  /** Roadmap 132: Face ID & biometric sign-in (passkeys). */
+  passkeys_enabled: boolean }
 
 /** Platform → Security. */
 export function PlatformSecuritySettings() {
@@ -226,6 +234,7 @@ export function PlatformSecuritySettings() {
             <Field label="Wrong PINs before a lock" hint="3–10; twice this needs a full sign-in"><Input type="number" min={3} max={10} value={d.max_attempts} onChange={(e) => setD({ ...d, max_attempts: Number(e.target.value) || 3 })} /></Field>
             <Field label="Trusted device lifetime (days)" hint="7–365"><Input type="number" min={7} max={365} value={d.device_days} onChange={(e) => setD({ ...d, device_days: Number(e.target.value) || 7 })} /></Field>
           </div>
+          <ToggleRow label="Allow Face ID & biometric sign-in" hint="Passkeys — the device checks the face or fingerprint; no biometric data reaches S'Shop. Same limits as a Quick sign-in." checked={d.passkeys_enabled} onChange={(v) => setD({ ...d, passkeys_enabled: v })} />
           <Fact label="Full sign-in still required for">{t("payments, roles & access, security settings, platform administration")}</Fact>
         </Card>
       )}

@@ -324,6 +324,7 @@ async fn change_pin(State(state): State<AppState>, ctx: Ctx, Json(body): Json<Ch
     .execute(&mut *tx)
     .await?;
     crate::routes::quickpin::revoke_devices(&mut tx, identity, "PIN changed", Some(identity)).await?;
+    crate::routes::passkeys::revoke_all(&mut tx, identity, "PIN changed", Some(identity)).await?;
     sqlx::query("UPDATE auth_tokens SET revoked_at = now() WHERE user_id = $1 AND kind IN ('setup', 'reset') AND used_at IS NULL AND revoked_at IS NULL")
         .bind(identity)
         .execute(&mut *tx)

@@ -269,7 +269,7 @@ pub async fn create_order(
         if l.quantity <= 0 || l.quantity > 999 {
             return Err(bad("Choose a valid quantity"));
         }
-        let (name, price, active, for_orders): (String, Decimal, bool, bool) = sqlx::query_as(
+        let (name, price, active, for_orders): (String, Option<Decimal>, bool, bool) = sqlx::query_as(
             "SELECT name, marked_price, is_active, available_for_orders FROM products WHERE id = $1 AND tenant_id = $2",
         )
         .bind(l.product_id)
@@ -280,6 +280,8 @@ pub async fn create_order(
         if !active || (source == "portal" && !for_orders) {
             return Err(rule(format!("{name} is not available for ordering")));
         }
+        // Roadmap 131: an order is never priced from nothing — a product without a selling price is enquired about.
+        let price = price.ok_or_else(|| crate::error::refused("Price on request", format!("{name} has no price yet — please ask the shop for a quote")))?;
         inventory::ensure_product_in_branch(conn, tenant_id, l.product_id, branch_id).await?;
         let level = inventory::lock(conn, tenant_id, branch_id, l.product_id).await?;
         if level.available() < l.quantity {

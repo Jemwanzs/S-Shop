@@ -16,7 +16,8 @@ export interface CartLine {
   saleDate?: string;
 }
 
-export const marked = (l: CartLine) => toNum(l.product.marked_price);
+// Roadmap 131: a product without a selling price has no marked price to discount from — the typed price is its price.
+export const marked = (l: CartLine) => (l.product.marked_price == null ? l.unitPrice : toNum(l.product.marked_price));
 export const unitDiscount = (l: CartLine) => marked(l) - l.unitPrice;
 export const lineTotal = (l: CartLine) => Math.round(l.unitPrice * l.quantity * 100) / 100;
 export const exceedsMax = (l: CartLine) => l.product.max_discount !== null && unitDiscount(l) > toNum(l.product.max_discount);

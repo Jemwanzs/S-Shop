@@ -390,7 +390,9 @@ struct CatalogueItem {
     name: String,
     description: String,
     category_id: Option<Uuid>,
-    price: Decimal,
+    /// Roadmap 131: None = no selling price yet (shown as Price on request; cannot be ordered online).
+    price: Option<Decimal>,
+    price_on_request: bool,
     available: i32,
     primary_photo_id: Option<Uuid>,
 }
@@ -399,7 +401,7 @@ async fn catalogue(State(state): State<AppState>, Path(slug): Path<String>, Quer
     let t = tenant(&state, &slug).await?;
     let branch = portal_branch(&state, &t).await?;
     let items: Vec<CatalogueItem> = sqlx::query_as(
-        "SELECT p.id, p.name, p.description, p.category_id, p.marked_price AS price,
+        "SELECT p.id, p.name, p.description, p.category_id, p.marked_price AS price, p.marked_price IS NULL AS price_on_request,
                 GREATEST(COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0), 0) AS available,
                 (SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order LIMIT 1) AS primary_photo_id
          FROM products p LEFT JOIN stock_levels sl ON sl.product_id = p.id AND sl.branch_id = $2
@@ -437,7 +439,7 @@ async fn product(State(state): State<AppState>, Path((slug, id)): Path<(String, 
     let t = tenant(&state, &slug).await?;
     let branch = portal_branch(&state, &t).await?;
     let item: CatalogueItem = sqlx::query_as(
-        "SELECT p.id, p.name, p.description, p.category_id, p.marked_price AS price,
+        "SELECT p.id, p.name, p.description, p.category_id, p.marked_price AS price, p.marked_price IS NULL AS price_on_request,
                 GREATEST(COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0), 0) AS available,
                 (SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order LIMIT 1) AS primary_photo_id
          FROM products p LEFT JOIN stock_levels sl ON sl.product_id = p.id AND sl.branch_id = $3

@@ -89,7 +89,7 @@ static PRODUCTS: [Col; 16] = [
     Col { aliases: &["category name", "group"], ..col("category", "Category", Need::Required, Kind::Text, "An existing category, or a new one (created on import).", "Fragrance") },
     Col { aliases: &["details"], ..col("description", "Description", Need::Optional, Kind::Text, "Shown on the ordering link and website.", "Long-lasting eau de parfum") },
     Col { aliases: &["short name", "alias"], ..col("nickname", "Nickname", Need::Optional, Kind::Text, "A short name the team uses.", "Black 100") },
-    Col { aliases: &["price", "selling price (ksh)", "retail price", "marked price"], ..col("selling_price", "Selling Price", Need::Required, Kind::Money, "The marked selling price.", "3500") },
+    Col { aliases: &["price", "selling price (ksh)", "retail price", "marked price"], ..col("selling_price", "Selling Price", Need::Optional, Kind::Money, "The marked selling price. Leave blank when it is not set yet (Price on Request) — never 0 unless the product really is free.", "3500") },
     Col { aliases: &["cost", "buying price", "unit cost"], ..col("cost_price", "Cost Price", Need::Optional, Kind::Money, "What one unit costs you (for profit reports).", "2100") },
     Col { aliases: &["max discount"], ..col("max_discount", "Maximum Discount", Need::Optional, Kind::Money, "The largest discount a cashier may give without approval (an amount).", "200") },
     Col { aliases: &["barcode", "barcode no", "ean", "upc"], ..col("barcode", "Barcode Number", Need::Conditional, Kind::Code, "The manufacturer's barcode shared by all units (not the product code). Required when 'Barcode Required During Sale' is YES. Keep leading zeros.", "6291234567890") },

@@ -193,6 +193,7 @@ async fn set_pin(State(state): State<AppState>, headers: HeaderMap, Json(b): Jso
     .await?;
     sqlx::query("UPDATE auth_tokens SET used_at = now() WHERE id = $1").bind(t.id).execute(&mut *tx).await?;
     crate::routes::quickpin::revoke_devices(&mut tx, user_id, "PIN reset", None).await?;
+    crate::routes::passkeys::revoke_all(&mut tx, user_id, "PIN reset", None).await?;
     sqlx::query("UPDATE auth_tokens SET revoked_at = now() WHERE user_id = $1 AND used_at IS NULL AND revoked_at IS NULL").bind(user_id).execute(&mut *tx).await?;
     let action = if t.kind == "setup" || t.kind == "invite" { "setup_completed" } else { "reset_completed" };
     audit::system(&mut tx, tenant_id, Some(user_id), Entry::new("auth", action, "user", user_id), &ip, &ua).await?;

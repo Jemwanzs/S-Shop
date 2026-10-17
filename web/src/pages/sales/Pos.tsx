@@ -153,6 +153,12 @@ export default function Pos() {
       return { tone: "success", title: `${p.name} added` };
     }
 
+    // Roadmap 131: no selling price yet — open it so the price is typed (never added at 0).
+    if (p.marked_price == null) {
+      setScan(false);
+      open(p, p.barcode === code ? code : undefined);
+      return { tone: "info", title: `${p.name} has no price yet — enter the selling price` };
+    }
     const already = lines.filter((l) => l.product.id === p.id).reduce((a, l) => a + l.quantity, 0);
     if (p.available - already <= 0 && !s.stock.allow_negative) {
       return { tone: "error", title: `${p.name} — out of stock at ${branch?.name}`, detail: where };

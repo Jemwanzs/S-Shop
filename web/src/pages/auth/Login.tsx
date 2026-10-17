@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Mail, TimerReset } from "lucide-react";
+import { Download, Mail, ScanFace, TimerReset } from "lucide-react";
 import { api, ApiError, errorMessage, SESSION_EXPIRED } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import type { Profile } from "@/lib/types";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
 import { PinPad } from "@/components/PinPad";
 import { forgetQuickDevice, preferredMethod, quickDevice, rememberMethod } from "@/lib/quick";
+import { forgetPasskey, PasskeyCancelled, passkeyDevice, passkeysSupported, signInWithPasskey } from "@/lib/passkey";
 import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
 import { SShopLoader } from "@/components/SShopLoader";
@@ -45,6 +46,8 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"quick" | "full">(() => (quickDevice() && preferredMethod() === "quick" && !params.get("email") ? "quick" : "full"));
   const [quick, setQuick] = useState("");
   const [shake, setShake] = useState(0);
+  // Roadmap 132: this device set up Face ID / biometric sign-in (only offered where the browser supports passkeys).
+  const [pk, setPk] = useState(() => (passkeysSupported() ? passkeyDevice() : null));
   // Roadmap 87: shown after an automatic logout until the next sign-in (the Quick PIN keypad still opens on a trusted device).
   const [expired] = useState(() => {
     try {
@@ -104,6 +107,35 @@ export default function LoginPage() {
     }
   };
 
+  const passkeyLogin = async () => {
+    if (!pk || busy) return;
+    setError("");
+    setBusy(true);
+    try {
+      enter(await signInWithPasskey(pk.credential_id));
+    } catch (err) {
+      if (err instanceof PasskeyCancelled) {
+        setError(t("Biometric check cancelled — try again or use your PIN"));
+      } else {
+        // The passkey was removed or revoked (PIN changed, signed out everywhere): back to the full sign-in for good.
+        if (err instanceof ApiError && err.title === "Full sign-in needed") {
+          forgetPasskey();
+          setPk(null);
+          setEmail(pk.email);
+          setMode("full");
+        }
+        setError(errorMessage(err));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  const passkeyButton = pk && (
+    <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={passkeyLogin}>
+      <ScanFace /> {t("Sign in with Face ID / Biometrics")}
+    </Button>
+  );
+
   if (mode === "quick" && device) {
     return (
       <AuthLayout brand={layoutBrand} title="S'Shop" subtitle={`${t("Welcome back")}, ${device.name.split(" ")[0]}`}>
@@ -112,6 +144,7 @@ export default function LoginPage() {
           <p className="text-center text-sm text-muted-foreground">{t("Enter your Quick PIN")} · <span className="text-foreground">{device.business}</span></p>
           <PinPad key={shake} value={quick} onChange={(v) => { setQuick(v); setError(""); }} onSubmit={quickLogin} disabled={busy} error={shake > 0 && !quick} />
           {busy && <SShopLoader size="md" className="mx-auto flex" label="Signing in…" />}
+          {passkeyButton}
           {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">{error}</p>}
           <div className="flex items-center justify-between text-xs font-medium">
             <button type="button" className="text-primary hover:underline" onClick={() => { rememberMethod("full"); setEmail(device.email); setMode("full"); setError(""); }}>{t("Use password instead")}</button>
@@ -141,6 +174,13 @@ export default function LoginPage() {
     <AuthLayout brand={layoutBrand} title="S'Shop" subtitle="Sign in to continue">
       <form onSubmit={submit} className="space-y-4">
         {expiredNote}
+        {pk && (
+          <div className="space-y-3">
+            <p className="text-center text-sm text-muted-foreground">{t("Welcome back")}, <span className="text-foreground">{pk.name.split(" ")[0]}</span> · {pk.business}</p>
+            {passkeyButton}
+            <p className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">{t("or use your email and PIN")}</p>
+          </div>
+        )}
         <label className="block">
           <AuthLabel>{t("Email")}</AuthLabel>
           <div className="relative">

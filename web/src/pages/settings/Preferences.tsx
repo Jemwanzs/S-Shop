@@ -13,6 +13,7 @@ import { Select, ToggleRow } from "@/components/Form";
 import { canOpen, LANDING_PAGES } from "@/lib/landing";
 import { Card, SettingsPage } from "./shared";
 import { QuickPinCard } from "./QuickPin";
+import { PasskeyCard } from "./Passkeys";
 
 /** Settings → User preferences: per person, applies on every device they sign in to. */
 export function PreferencesSettings() {
@@ -98,6 +99,7 @@ export function PreferencesSettings() {
       )}
 
       <QuickPinCard />
+      <PasskeyCard />
 
       <Card title="Notifications">
         {can("orders.manage") && (

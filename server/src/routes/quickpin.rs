@@ -66,6 +66,8 @@ pub struct PlatformSecurity {
     pub idle_max_minutes: u16,
     pub warning_seconds: u16,
     pub max_session_hours: u8,
+    /// Roadmap 132: Face ID & biometric sign-in with passkeys.
+    pub passkeys_enabled: bool,
 }
 impl Default for PlatformSecurity {
     fn default() -> Self {
@@ -80,6 +82,7 @@ impl Default for PlatformSecurity {
             idle_max_minutes: 120,
             warning_seconds: 30,
             max_session_hours: 12,
+            passkeys_enabled: true,
         }
     }
 }
@@ -89,7 +92,7 @@ pub async fn platform_security(db: &sqlx::PgPool) -> AppResult<PlatformSecurity>
     Ok(v.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default())
 }
 
-async fn tenant_rules(db: &sqlx::PgPool, tenant: Uuid) -> AppResult<QuickPinPolicy> {
+pub(crate) async fn tenant_rules(db: &sqlx::PgPool, tenant: Uuid) -> AppResult<QuickPinPolicy> {
     let v: Option<Value> = sqlx::query_scalar("SELECT settings->'security'->'quick_pin' FROM tenants WHERE id = $1").bind(tenant).fetch_one(db).await?;
     Ok(v.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default())
 }
@@ -126,7 +129,7 @@ fn validate_quick(pin: &str, min: u8) -> AppResult<()> {
 }
 
 /// The person's sign-in account behind this session (a linked row's identity).
-async fn identity(state: &AppState, ctx: &Ctx) -> AppResult<Uuid> {
+pub(crate) async fn identity(state: &AppState, ctx: &Ctx) -> AppResult<Uuid> {
     if ctx.support.is_some() {
         return Err(rule("Not available during a support session"));
     }
@@ -180,7 +183,7 @@ async fn dismiss_offer(State(state): State<AppState>, ctx: Ctx) -> AppResult<Jso
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn check_full_pin(state: &AppState, ident: Uuid, pin: &str) -> AppResult<()> {
+pub(crate) async fn check_full_pin(state: &AppState, ident: Uuid, pin: &str) -> AppResult<()> {
     state.limits.check(&ident.to_string(), "quick_pin_setup", 10, std::time::Duration::from_secs(600))?;
     let hash: String = sqlx::query_scalar("SELECT pin_hash FROM users WHERE id = $1").bind(ident).fetch_one(&state.db).await?;
     if !verify_pin(pin, &hash) {
@@ -206,7 +209,7 @@ fn device_secret() -> String {
     base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, raw)
 }
 
-fn device_name(given: &str, ua: &str) -> String {
+pub(crate) fn device_name(given: &str, ua: &str) -> String {
     let g: String = given.trim().chars().take(60).collect();
     if !g.is_empty() {
         return g;
@@ -368,8 +371,9 @@ async fn revoke_all(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<V
     let ident = identity(&state, &ctx).await?;
     let mut tx = state.db.begin().await?;
     let n = revoke_devices(&mut tx, ident, "Signed out everywhere", Some(ident)).await?;
+    let passkeys = super::passkeys::revoke_all(&mut tx, ident, "Signed out everywhere", Some(ident)).await?;
     sqlx::query("UPDATE users SET sessions_valid_after = now() WHERE id = $1").bind(ident).execute(&mut *tx).await?;
-    audit::record(&mut tx, &ctx, Entry::new("auth", "signed_out_everywhere", "user", ident).after(json!({ "devices_revoked": n }))).await?;
+    audit::record(&mut tx, &ctx, Entry::new("auth", "signed_out_everywhere", "user", ident).after(json!({ "devices_revoked": n, "passkeys_revoked": passkeys }))).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true, "devices_revoked": n })))
 }
@@ -497,7 +501,17 @@ async fn tenant_policy(State(state): State<AppState>, ctx: Ctx) -> AppResult<Jso
         .bind(ctx.tenant_id)
         .fetch_one(&state.db)
         .await?;
-    Ok(Json(json!({ "policy": t, "platform": { "enabled": p.quick_pin_enabled, "min_length": p.quick_pin_min_length, "session_hours": p.quick_session_hours }, "users_with_quick_pin": users })))
+    let with_passkeys: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT p.user_id) FROM passkeys p JOIN users u ON u.id = p.user_id WHERE u.tenant_id = $1 AND p.revoked_at IS NULL",
+    )
+    .bind(ctx.tenant_id)
+    .fetch_one(&state.db)
+    .await?;
+    Ok(Json(json!({
+        "policy": t,
+        "platform": { "enabled": p.quick_pin_enabled, "min_length": p.quick_pin_min_length, "session_hours": p.quick_session_hours, "passkeys": p.passkeys_enabled },
+        "users_with_quick_pin": users, "users_with_passkeys": with_passkeys,
+    })))
 }
 
 /// The business's own rule — administrators only, full sign-in, never from a support session.

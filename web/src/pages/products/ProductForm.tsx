@@ -114,7 +114,8 @@ export default function ProductForm() {
         code: f.code.trim() || null,
         category_id: f.category_id || null,
         supplier_id: f.supplier_id || null,
-        marked_price: Number(f.marked_price || 0),
+        // Roadmap 131: blank = not set yet (never saved as 0).
+        marked_price: f.marked_price.trim() === "" ? null : Number(f.marked_price),
         max_discount: numOrNull(f.max_discount),
         cost_price: numOrNull(f.cost_price),
         barcode: f.barcode.trim() || null,
@@ -153,7 +154,7 @@ export default function ProductForm() {
   });
 
   if (editing && existing.isLoading) return <Loading />;
-  const valid = f.name.trim() && f.marked_price !== "" && (f.all_branches || f.branch_ids.length > 0);
+  const valid = f.name.trim() && (f.all_branches || f.branch_ids.length > 0);
 
   return (
     <>
@@ -212,7 +213,7 @@ export default function ProductForm() {
 
           <Section title="Pricing">
             <div className="grid gap-4 sm:grid-cols-3">
-              <Field label="Marked selling price"><Input inputMode="decimal" className="num" value={f.marked_price} onChange={(e) => set("marked_price", e.target.value.replace(/[^\d.]/g, ""))} required /></Field>
+              <Field label="Marked selling price" hint="Leave blank if not set yet — shown as Price on Request; 0 means free"><Input inputMode="decimal" className="num" value={f.marked_price} onChange={(e) => set("marked_price", e.target.value.replace(/[^\d.]/g, ""))} placeholder={t("Not set")} /></Field>
               <Field label="Maximum discount" optional hint="Above this needs supervisor approval"><Input inputMode="decimal" className="num" value={f.max_discount} onChange={(e) => set("max_discount", e.target.value.replace(/[^\d.]/g, ""))} placeholder="Optional" /></Field>
               {(profile?.settings.stock.capture_cost ?? true) && can("sales.view_financials") && (
                 <Field label="Cost price" optional hint="Used for profit reports"><Input inputMode="decimal" className="num" value={f.cost_price} onChange={(e) => set("cost_price", e.target.value.replace(/[^\d.]/g, ""))} placeholder="Optional" /></Field>

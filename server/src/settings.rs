@@ -152,12 +152,14 @@ impl Default for SecuritySettings {
 #[serde(default)]
 pub struct QuickPinPolicy {
     pub enabled: bool,
-    /// Roles whose people may use a Quick PIN (empty = every role).
+    /// Roles whose people may use a Quick PIN or biometric sign-in (empty = every role).
     pub role_ids: Vec<uuid::Uuid>,
+    /// Roadmap 132: Face ID & biometric sign-in (passkeys), independent of the Quick PIN.
+    pub passkeys: bool,
 }
 impl Default for QuickPinPolicy {
     fn default() -> Self {
-        Self { enabled: true, role_ids: Vec::new() }
+        Self { enabled: true, role_ids: Vec::new(), passkeys: true }
     }
 }
 

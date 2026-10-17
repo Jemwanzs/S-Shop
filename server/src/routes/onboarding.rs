@@ -2347,7 +2347,7 @@ async fn post_product(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, mode: &st
         let code = s_req(d, "code")?;
         id = sqlx::query_scalar(
             "UPDATE products SET name = $3, nickname = COALESCE($4, nickname), description = COALESCE($5, description), category_id = $6,
-                    supplier_id = COALESCE($7, supplier_id), marked_price = $8, cost_price = COALESCE($9, cost_price),
+                    supplier_id = COALESCE($7, supplier_id), marked_price = COALESCE($8, marked_price), cost_price = COALESCE($9, cost_price),
                     max_discount = COALESCE($10, max_discount), barcode = COALESCE($11, barcode), low_stock_threshold = COALESCE($12, low_stock_threshold),
                     is_active = $13, available_for_orders = $14, all_branches = $15, updated_at = now()
              WHERE tenant_id = $1 AND upper(code) = $2 RETURNING id",
@@ -2359,7 +2359,7 @@ async fn post_product(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, mode: &st
         .bind(s(d, "description"))
         .bind(cat)
         .bind(sup)
-        .bind(money(d, "selling_price").unwrap_or_default())
+        .bind(money(d, "selling_price"))
         .bind(money(d, "cost_price"))
         .bind(money(d, "max_discount"))
         .bind(&barcode)
@@ -2397,7 +2397,7 @@ async fn post_product(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, mode: &st
         .bind(s(d, "description").unwrap_or(""))
         .bind(cat)
         .bind(sup)
-        .bind(money(d, "selling_price").unwrap_or_default())
+        .bind(money(d, "selling_price"))
         .bind(money(d, "max_discount"))
         .bind(money(d, "cost_price"))
         .bind(&barcode)

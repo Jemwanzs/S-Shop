@@ -60,7 +60,7 @@ export default function ReceiveStock() {
 
   useEffect(() => {
     if (!p) return;
-    setPrice(String(toNum(p.marked_price)));
+    setPrice(p.marked_price == null ? "" : String(toNum(p.marked_price)));
     setMaxDiscount(p.max_discount === null ? "" : String(toNum(p.max_discount)));
     setCost(p.cost_price === null ? "" : String(toNum(p.cost_price)));
     setSupplier(p.supplier_id ?? "");
@@ -179,8 +179,8 @@ export default function ReceiveStock() {
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Mini label="On hand" value={count(onHand)} />
-                  <Mini label="Value" value={money(onHand * toNum(p.cost_price ?? p.marked_price))} />
-                  <Mini label="Marked price" value={money(p.marked_price)} />
+                  <Mini label="Value" value={p.cost_price == null && p.marked_price == null ? t("Not set") : money(onHand * toNum(p.cost_price ?? p.marked_price))} />
+                  <Mini label="Marked price" value={p.marked_price == null ? t("Not set") : money(p.marked_price)} />
                   <Mini label="Branch" value={profile?.branches.find((b) => b.id === branchId)?.name ?? ""} />
                 </div>
                 <div className="flex flex-wrap gap-2">

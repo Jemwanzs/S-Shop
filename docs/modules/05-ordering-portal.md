@@ -29,5 +29,5 @@ The business's logo, name and tagline lead every screen; a subtle “Powered by 
 - New orders notify staff with `orders.manage` instantly; the customer gets a WhatsApp confirmation when configured.
 
 ## Settings
-Orders → ordering link open, fulfilling branch, reserve stock, sale stage, WhatsApp verification, show out-of-stock, **show product prices** (on by default; when off no price is sent to or shown on the ordering link — catalogue, product, cart, order history, tracking — staff screens unaffected),
+Orders → ordering link open, fulfilling branch, reserve stock, sale stage, WhatsApp verification, show out-of-stock, **show product prices** (on by default; when off no price is sent to the ordering link *before an order* — catalogue, product, cart; a product's own website setting *Show price* / *Hide price* wins (roadmap 129); once an order is submitted, its confirmation, tracking page and the customer's own order history show the prices recorded with that order (roadmap 130); products without a selling price show *Price on request* and cannot be ordered online (roadmap 131); staff screens unaffected),
 customer notifications. Loyalty → show points / value on the portal. Business profile → slug, logo, tagline.

@@ -1327,7 +1327,7 @@ async fn analytics(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Anal
 /// website editor works without any stock, sales or product-management permission.
 async fn catalogue(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
     ctx.require_any(&["website.products", "website.categories", "website.content", "website.view"])?;
-    let products: Vec<(Uuid, String, String, Option<Uuid>, Option<String>, rust_decimal::Decimal, bool, bool, Vec<Uuid>)> = sqlx::query_as(
+    let products: Vec<(Uuid, String, String, Option<Uuid>, Option<String>, Option<rust_decimal::Decimal>, bool, bool, Vec<Uuid>)> = sqlx::query_as(
         "SELECT p.id, p.name, p.code, p.category_id, c.name, p.marked_price, p.is_active, p.available_for_orders,
                 ARRAY(SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order)
          FROM products p LEFT JOIN categories c ON c.id = p.category_id

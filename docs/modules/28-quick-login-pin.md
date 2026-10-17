@@ -74,5 +74,7 @@ The server refuses these from a Quick session with *Full sign-in needed*:
 - Audit events are recorded without any PIN or secret: `quick_pin_enabled` / `changed` / `disabled`, `device_trusted`,
   `device_revoked`, `signed_out_everywhere`, `login` (method `quick_pin`), `quick_login_failed` (attempt, lock, device
   revoked), `users.quick_pin_reset`, `settings.quick_pin_policy`, `platform.security_settings`.
+- **Face ID & biometric sign-in** (passkeys, [module 37](37-face-id-biometric-login.md)) is independent of the Quick
+  PIN but opens the same limited kind of session, under the same business role list.
 - There is no MFA today, so there is nothing for a Quick PIN to bypass. When MFA is added, Quick sign-in must stay
   limited to what MFA allows.

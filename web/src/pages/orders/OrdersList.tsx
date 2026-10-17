@@ -103,7 +103,7 @@ function NewOrder({ open, onOpenChange, onCreated }: { open: boolean; onOpenChan
   const [items, setItems] = useState<{ product: PosProduct; quantity: number }[]>([]);
   const term = useDebounced(q);
   const products = useQuery({ queryKey: ["pos-products", "order", term], queryFn: () => api<PosProduct[]>("/pos/products", { query: { q: term } }), enabled: open });
-  const total = items.reduce((a, i) => a + toNum(i.product.marked_price) * i.quantity, 0);
+  const total = items.reduce((a, i) => a + (i.product.marked_price == null ? 0 : toNum(i.product.marked_price)) * i.quantity, 0);
   const create = useMutation({
     mutationFn: () =>
       api<{ id: string; order_no: string }>("/orders", {
@@ -144,7 +144,7 @@ function NewOrder({ open, onOpenChange, onCreated }: { open: boolean; onOpenChan
               {products.data?.map((p) => (
                 <li key={p.id}>
                   <button className="flex w-full justify-between px-3 py-2 text-start text-sm hover:bg-accent" onClick={() => { if (!items.some((i) => i.product.id === p.id)) setItems([...items, { product: p, quantity: 1 }]); setQ(""); }}>
-                    <span>{p.name}</span><span className="num text-muted-foreground">{count(p.available)} · {money(p.marked_price)}</span>
+                    <span>{p.name}</span><span className="num text-muted-foreground">{count(p.available)} · {p.marked_price == null ? t("Price not set") : money(p.marked_price)}</span>
                   </button>
                 </li>
               ))}

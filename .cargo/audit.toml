@@ -5,4 +5,11 @@ ignore = [
     # sqlx's optional MySQL driver, which S'Shop does not build (Postgres only) — it is not compiled into the server
     # (`cargo tree -i rsa -e normal` prints nothing). Remove this entry if that ever changes.
     "RUSTSEC-2023-0071",
+    # RUSTSEC-2026-0367 / 0368 / 0369 (zip < 9: SUID bits, symlinks and permissions when *extracting* an archive to
+    # disk). Only calamine 0.36.1 (the newest; Excel import) still uses zip 8, and it reads workbook parts in memory —
+    # neither calamine nor S'Shop ever calls ZipArchive::extract / ZipStreamReader::extract. rust_xlsxwriter is on the
+    # fixed zip 9. Remove these when calamine moves to zip >= 9.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]

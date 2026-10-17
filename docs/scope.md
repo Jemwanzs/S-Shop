@@ -649,12 +649,12 @@ Product Import Enhancements*):
   priced after the order. After a successful submission the confirmation, tracking page and the customer's own order
   history show the prices recorded with the order (snapshot), line totals and total — never for a failed submission or
   another customer's order; *Submitting is not a payment*. Product page: no empty space under the purchase actions.
-- ⏳ **131. Selling price optional on import** — *Selling Price* not mandatory in the product templates; blank = not
+- ✅ **131. Selling price optional on import** — *Selling Price* not mandatory in the product templates; blank = not
   set (NULL, distinct from a real 0); *Price on Request* on the website / ordering link; no checkout total, payment or
   free sale for a product without a price; prices set later in Products.
 
 **Face ID & biometric sign-in** (brief *Face ID & Biometric Quick Login Enhancement*):
-- ⏳ **132. Passkey / biometric sign-in (WebAuthn)** — Settings → Preferences, below Quick Login PIN: *Face ID &
+- ✅ **132. Passkey / biometric sign-in (WebAuthn)** — Settings → Preferences, below Quick Login PIN: *Face ID &
   Biometric Login* (off by default): set up (full PIN re-entered first, then the device's own Face ID / fingerprint /
   screen-lock prompt), registered devices (registered / last used), remove. Server-side verification with the
   audited **webauthn-rs** (single-use, short-lived challenges; origin, RP ID, credential ownership, user verification);

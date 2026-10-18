@@ -712,10 +712,10 @@ server already refuses a unit sold twice, from another branch or another product
   the toggle appears and that it needs Publish.
 
 **Product price filter & phone navigation** (brief *Product Price Filter & Mobile Bottom Navigation Enhancement*):
-- ⏳ **140. Price status filter** — Products → after *All categories*: *All prices* · *Price set* (a genuine 0 included) ·
+- ✅ **140. Price status filter** — Products → after *All categories*: *All prices* · *Price set* (a genuine 0 included) ·
   *Missing price* (NULL); server-side, combined with status, category and search; counts and pages follow; the price
   column shows *Not set* while filtering for missing prices.
-- ⏳ **141. Products on the phone bar** — bottom bar **Home · Sales · Stock · Products · More**; Orders moves to More
+- ✅ **141. Products on the phone bar** — bottom bar **Home · Sales · Stock · Products · More**; Orders moves to More
   (module, permissions, links and notifications unchanged; the new-order count shows on *More* and on the Orders tile);
   Products is highlighted on the catalogue and product pages; desktop sidebar unchanged.
 

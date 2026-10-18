@@ -4,7 +4,7 @@ import { ExternalLink, KeyRound, LogOut, Moon, Sun } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { initials } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { ChangePin, useTheme } from "@/components/layout/AppShell";
+import { ChangePin, CountBadge, useNotificationCounts, useTheme } from "@/components/layout/AppShell";
 import { PoweredBy } from "@/components/PoweredBy";
 import { allowed, BOTTOM, NAV } from "@/components/layout/nav";
 import { t } from "@/lib/i18n";
@@ -15,6 +15,7 @@ export default function More() {
   const { dark, toggle } = useTheme();
   const [pinOpen, setPinOpen] = useState(false);
   const bottom = new Set(BOTTOM.map((b) => b.to));
+  const newOrders = useNotificationCounts().data?.new_orders ?? 0;
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="surface card-body flex items-center gap-3">
@@ -34,7 +35,8 @@ export default function More() {
             <p className="label-caps mb-1.5 px-1">{t(g.group)}</p>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {items.map((i) => (
-                <Link key={i.to} to={i.to} className="surface flex h-19 flex-col items-center justify-center gap-1 p-2 text-center text-xs font-medium leading-tight transition active:scale-95">
+                <Link key={i.to} to={i.to} className="surface relative flex h-19 flex-col items-center justify-center gap-1 p-2 text-center text-xs font-medium leading-tight transition active:scale-95">
+                  {i.to === "/orders" && <CountBadge n={newOrders} className="absolute top-1.5 inset-e-1.5" />}
                   <span className="rounded-lg bg-primary/10 p-2 text-primary"><i.icon className="h-5 w-5" /></span>
                   {t(i.label)}
                 </Link>

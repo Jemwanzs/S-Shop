@@ -82,7 +82,8 @@ export const BOTTOM: NavItem[] = [
   { to: "/", label: "Home", icon: LayoutGrid, perms: [] },
   { to: "/pos", label: "Sales", icon: ShoppingCart, perms: ["sales.create"] },
   { to: "/stock", label: "Stock", icon: Boxes, perms: ["stock.view"] },
-  { to: "/orders", label: "Orders", icon: ClipboardList, perms: ["orders.view"] },
+  // Roadmap 141: Products on the phone bar; Orders moves to More (its new-order counter goes with it).
+  { to: "/products", label: "Products", icon: Package, perms: ["products.view"] },
 ];
 
 export const allowed = (item: NavItem, can: (p: string) => boolean) => item.perms.length === 0 || item.perms.some(can);

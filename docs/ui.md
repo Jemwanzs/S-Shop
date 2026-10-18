@@ -40,7 +40,7 @@ Fonts: **Outfit** (UI) and **JetBrains Mono** (`.num` — tabular figures that n
 
 | Width | Navigation | Lists | Dialogs |
 |---|---|---|---|
-| < 768 (phones) | Top bar + bottom bar **Home · Sales · Stock · Orders · More** | Cards | Bottom sheets |
+| < 768 (phones) | Top bar + bottom bar **Home · Sales · Stock · Products · More** (roadmap 141; Orders is under More, its new-order count shown on More and on the Orders tile) | Cards | Bottom sheets |
 | 768–1023 (tablets) | Same, wider content | Tables (secondary columns hidden) | Centred dialogs |
 | ≥ 1024 (laptops) | Grouped **sidebar** + search bar (Ctrl/⌘ K) | Full tables | Centred dialogs |
 | ≥ 1536 / 1920 | Sidebar; grids grow to 4–6 columns; max content width 1680 px | Extra columns appear | — |

@@ -96,6 +96,8 @@ struct ListQuery {
     category_id: Option<Uuid>,
     status: Option<String>,
     branch_id: Option<Uuid>,
+    /// Roadmap 140: all | set (a selling price, 0 included) | missing (no selling price yet).
+    price: Option<String>,
     #[serde(flatten)]
     page: Page,
 }
@@ -103,12 +105,16 @@ struct ListQuery {
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Paged<ProductRow>>> {
     ctx.require_any(&["products.view", "stock.view", "sales.create"])?;
     let branch = ctx.branch_or_current(q.branch_id)?;
+    if !matches!(q.price.as_deref(), None | Some("all" | "set" | "missing")) {
+        return Err(bad("Price status: all, set or missing"));
+    }
     let select = PRODUCT_SELECT.replacen("SELECT", "SELECT COUNT(*) OVER() AS total_count,", 1);
     let mut rows: Vec<Counted<ProductRow>> = sqlx::query_as(&format!(
         "{select} WHERE p.tenant_id = $1
            AND ($3::text IS NULL OR p.name ILIKE $3 OR p.nickname ILIKE $3 OR p.code ILIKE $3 OR p.barcode ILIKE $3)
            AND ($4::uuid IS NULL OR p.category_id = $4)
            AND ($5::text IS NULL OR $5 = 'all' OR ($5 = 'active' AND p.is_active) OR ($5 = 'inactive' AND NOT p.is_active))
+           AND ($8::text IS NULL OR $8 = 'all' OR ($8 = 'set' AND p.marked_price IS NOT NULL) OR ($8 = 'missing' AND p.marked_price IS NULL))
          ORDER BY p.is_active DESC, p.name LIMIT $6 OFFSET $7"
     ))
     .bind(ctx.tenant_id)
@@ -118,6 +124,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .bind(&q.status)
     .bind(q.page.limit())
     .bind(q.page.offset())
+    .bind(&q.price)
     .fetch_all(&state.db)
     .await?;
     if costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {

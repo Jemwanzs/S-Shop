@@ -63,7 +63,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   );
 }
 
-function useNotificationCounts() {
+export function useNotificationCounts() {
   return useQuery({
     queryKey: ["notifications"],
     queryFn: () => api<{ items: Notification[]; unread: number; pending_approvals: number; new_orders?: number }>("/notifications", { query: { limit: 30 } }),
@@ -341,7 +341,7 @@ function QuickSaleShortcut() {
 }
 
 /** Compact orange counter beside a menu item (99+ above 99); nothing at zero. */
-function CountBadge({ n, className }: { n: number; className?: string }) {
+export function CountBadge({ n, className }: { n: number; className?: string }) {
   if (n <= 0) return null;
   return (
     <span className={cn("num inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold leading-none text-primary-foreground", className)}>
@@ -399,6 +399,8 @@ function BottomNav({ orders }: { orders: number }) {
   const { pathname } = useLocation();
   const items = BOTTOM.filter((i) => allowed(i, can));
   const moreActive = !items.some((i) => (i.to === "/" ? pathname === "/" : pathname.startsWith(i.to)));
+  // New orders are announced on More while Orders lives there (roadmap 141).
+  const moreOrders = !items.some((i) => i.to === "/orders") && can("orders.view") ? orders : 0;
   return (
     <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur-sm lg:hidden no-print">
       <div className="mx-auto flex max-w-2xl items-stretch justify-around">
@@ -430,6 +432,7 @@ function BottomNav({ orders }: { orders: number }) {
         })}
         <NavLink to="/more" className={cn("relative flex h-nav flex-1 flex-col items-center justify-center gap-0.5 text-[0.7rem] font-medium", moreActive ? "text-primary" : "text-muted-foreground")}>
           {moreActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
+          <CountBadge n={moreOrders} className="absolute top-1.5 inset-s-1/2 ms-1.5" />
           <Menu className="h-5 w-5" />
           {t("More")}
         </NavLink>

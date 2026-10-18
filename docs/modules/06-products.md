@@ -28,6 +28,13 @@ Each photo is saved on its own: the screen reports exactly how many were saved a
 product is never reported as failed or created twice. Every pending photo carries an upload id, so a retried or
 repeated upload is stored once.
 
+## Catalogue filters
+*Active / Inactive / All* · search (name, nickname, code, barcode) · *All categories* · **Price status** (roadmap 140):
+*All prices* (default), *Price set* (any selling price, a genuine 0 included) or *Missing price* (no selling price yet —
+imported blank or never set). The filters combine; the product count and pages follow them across the whole
+catalogue. Open a product with a missing price and set it with *Edit* (or while receiving stock). While *Missing price*
+is chosen, the price column shows *Not set* even when prices are hidden from the list.
+
 ## Product page
 Price, stock here, stock across branches, photo manager, recent stock movements, details, buttons for
 *Performance* (dashboard filtered to the product), *Receive stock*, *Edit*, *Activate/Deactivate*, barcoded items.

@@ -89,7 +89,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 
 | Method | Path |
 |---|---|
-| GET | `/api/products` |
+| GET | `/api/products` (`q`, `category_id`, `status` active/inactive/all, `price` all/set/missing — roadmap 140, `branch_id`, `limit`, `offset`) |
 | POST | `/api/products` |
 | GET | `/api/products/lookup` |
 | GET | `/api/products/{id}` |

@@ -3074,6 +3074,19 @@ pc131 = {x["id"]: x for x in call("GET", f"/portal/{slug}/catalogue", token=ptok
 check("ordering link: Price on request, no price", lamp["id"] in pc131 and pc131[lamp["id"]]["price_on_request"] is True and pc131[lamp["id"]].get("price") is None, pc131.get(lamp["id"]))
 r = call("POST", f"/portal/{slug}/orders", {"items": [{"product_id": lamp["id"], "quantity": 1}], "delivery_location": "Shop"}, token=ptoken, expect=422)
 check("ordering link: it cannot be checked out at a price", r["error"]["title"] == "Price on request", r)
+# Roadmap 140: Products → Price status filter (a real 0 is a set price), combined with search and status
+def ids_for(**qs):
+    qs = "&".join(f"{k}={v}" for k, v in qs.items())
+    return {x["id"] for x in call("GET", f"/products?{qs}&status=all&limit=200")["items"]}
+miss = ids_for(price="missing", q=f"{suffix}")
+pset = ids_for(price="set", q=f"{suffix}")
+check("roadmap 140: Missing price lists products without a selling price, not the free one", lamp["id"] in miss and free["id"] not in miss, len(miss))
+check("Price set includes a genuine zero price and excludes unpriced products", free["id"] in pset and lamp["id"] not in pset)
+check("All prices = set + missing (counts follow the filter)", call("GET", f"/products?q={suffix}&status=all&limit=1")["total"] == call("GET", f"/products?q={suffix}&status=all&price=set&limit=1")["total"] + call("GET", f"/products?q={suffix}&status=all&price=missing&limit=1")["total"])
+check("combines with search", ids_for(price="missing", q=f"Unpriced Lamp {suffix}") == {lamp["id"]})
+check("combines with the active / inactive status", lamp["id"] not in {x["id"] for x in call("GET", f"/products?q={suffix}&status=inactive&price=missing&limit=200")["items"]})
+call("GET", "/products?price=cheap", expect=400)
+check("unknown price status refused", True)
 call("POST", "/stock/receive", {"product_id": lamp["id"], "quantity": 1, "marked_price": 400})
 check("roadmap 131: the price can be set later (here while receiving stock)", float(call("GET", f"/products/{lamp['id']}")["product"]["marked_price"]) == 400)
 

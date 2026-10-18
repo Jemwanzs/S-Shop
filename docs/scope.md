@@ -711,6 +711,14 @@ server already refuses a unit sold twice, from another branch or another product
   visitor's own light / dark setting; the sun / moon toggle then remembers their choice. The Theme setting explains where
   the toggle appears and that it needs Publish.
 
+**Product price filter & phone navigation** (brief *Product Price Filter & Mobile Bottom Navigation Enhancement*):
+- ⏳ **140. Price status filter** — Products → after *All categories*: *All prices* · *Price set* (a genuine 0 included) ·
+  *Missing price* (NULL); server-side, combined with status, category and search; counts and pages follow; the price
+  column shows *Not set* while filtering for missing prices.
+- ⏳ **141. Products on the phone bar** — bottom bar **Home · Sales · Stock · Products · More**; Orders moves to More
+  (module, permissions, links and notifications unchanged; the new-order count shows on *More* and on the Orders tile);
+  Products is highlighted on the catalogue and product pages; desktop sidebar unchanged.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

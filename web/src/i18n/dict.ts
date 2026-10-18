@@ -3216,6 +3216,12 @@ export const DICT: Record<string, [string, string, string]> = {
   "Biometric sign-in could not start — please try again": ["Kuingia kwa bayometriki hakukuweza kuanza — tafadhali jaribu tena", "La connexion biométrique n'a pas pu démarrer — veuillez réessayer", "تعذّر بدء تسجيل الدخول البيومتري — حاول مجددًا"],
   "Both: visitors get a sun / moon button in the website header (first visit follows their phone or computer). Publish to apply.": ["Zote: wageni wanapata kitufe cha jua / mwezi juu ya tovuti (ziara ya kwanza hufuata simu au kompyuta yao). Chapisha ili kutumika.", "Les deux : les visiteurs ont un bouton soleil / lune dans l'en-tête (la première visite suit leur téléphone ou ordinateur). Publiez pour appliquer.", "كلاهما: يحصل الزوار على زر شمس / قمر في رأس الموقع (الزيارة الأولى تتبع إعداد هاتفهم أو حاسوبهم). انشر للتطبيق."],
   // ── Roadmap 133–138: item barcodes, labels, scan-to-clear ──
+  "product": ["bidhaa", "produit", "منتج"],
+  "Price status": ["Hali ya bei", "Statut du prix", "حالة السعر"],
+  "All prices": ["Bei zote", "Tous les prix", "كل الأسعار"],
+  "Price set": ["Bei imewekwa", "Prix défini", "السعر محدد"],
+  "Missing price": ["Bei haipo", "Prix manquant", "السعر مفقود"],
+  "Price status: all, set or missing": ["Hali ya bei: zote, imewekwa au haipo", "Statut du prix : tous, défini ou manquant", "حالة السعر: الكل أو محدد أو مفقود"],
   "Label existing stock first": ["Weka lebo kwenye stoo iliyopo kwanza", "Étiquetez d'abord le stock existant", "ألصق ملصقات المخزون الحالي أولًا"],
   "Typing barcodes is switched off for stock receiving — scan the labels or generate new ones": ["Kuandika misimbopau kumezimwa kwa kupokea stoo — changanua lebo au tengeneza mpya", "La saisie des codes est désactivée à la réception — scannez les étiquettes ou générez-en", "كتابة الباركود معطلة عند استلام المخزون — امسح الملصقات أو أنشئ جديدة"],
   "barcode": ["msimbopau", "code-barres", "باركود"],

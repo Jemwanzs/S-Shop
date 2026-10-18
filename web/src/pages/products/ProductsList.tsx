@@ -27,9 +27,11 @@ export default function ProductsList() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<"active" | "inactive" | "all">("active");
   const [category, setCategory] = useState("");
+  // Roadmap 140: products with or without a selling price (a real 0 counts as set).
+  const [price, setPrice] = useState<"" | "set" | "missing">("");
   const [offset, setOffset] = useState(0);
   const term = useDebounced(q);
-  const query = { q: term, status, category_id: category, limit: LIMIT, offset };
+  const query = { q: term, status, category_id: category, price: price || undefined, limit: LIMIT, offset };
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["products", query],
     queryFn: () => api<Paged<Product>>("/products", { query }),
@@ -39,14 +41,15 @@ export default function ProductsList() {
   const low = profile?.settings.stock.low_stock_threshold ?? 3;
   // Roadmap 109: product list display preferences.
   const showImages = !!profile?.settings.product.list_show_images;
-  const showPrices = profile?.settings.product.list_show_prices ?? true;
+  // Filtering for missing prices always shows the price column (so "Not set" is visible).
+  const showPrices = (profile?.settings.product.list_show_prices ?? true) || price === "missing";
 
   return (
     <>
       <PageHeader
         eyebrow="Catalogue"
         title="Products"
-        description={data ? `${count(data.total)} products` : undefined}
+        description={data ? `${count(data.total)} ${t(data.total === 1 ? "product" : "products")}` : undefined}
         actions={can("products.create") && <Button asChild><Link to="/products/new"><Plus /> {t("New product")}</Link></Button>}
       />
       {assign && (
@@ -61,11 +64,16 @@ export default function ProductsList() {
       )}
       <div className="mb-4 space-y-3">
         <Segments value={status} onChange={(v) => { setStatus(v); setOffset(0); }} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }, { value: "all", label: "All" }]} />
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:flex">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 md:flex">
           <SearchInput value={q} onChange={(v) => { setQ(v); setOffset(0); }} placeholder="Name, nickname, code or barcode" className="md:w-80" />
           <Select value={category} label="Category" onChange={(v) => { setCategory(v); setOffset(0); }} className="md:w-52">
             <option value="">{t("All categories")}</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+          <Select value={price} label="Price status" onChange={(v) => { setPrice(v as "" | "set" | "missing"); setOffset(0); }} className="md:w-44">
+            <option value="">{t("All prices")}</option>
+            <option value="set">{t("Price set")}</option>
+            <option value="missing">{t("Missing price")}</option>
           </Select>
         </div>
       </div>

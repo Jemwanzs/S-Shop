@@ -24,8 +24,8 @@ import { ImportProgress } from "@/components/ImportProgress";
 import { Card, SettingsPage } from "./shared";
 
 interface Column { key: string; header: string; required: boolean; help?: string }
-interface Dataset { key: string; label: string; columns: Column[]; may_skip_invalid: boolean }
-interface BatchRow {
+export interface Dataset { key: string; label: string; columns: Column[]; may_skip_invalid: boolean }
+export interface BatchRow {
   id: string; dataset: string; mode: string; status: string; file_name: string; total_rows: number; valid_rows: number; warning_rows: number;
   invalid_rows: number; posted_rows: number; created_at: string; posted_at: string | null; uploaded_by: string | null; decided_by: string | null; error: string | null;
   reference?: string | null;
@@ -60,7 +60,7 @@ const ORDER = [
   "Loyalty opening points", "Opening stock at the cutover date", "Orders and stock transfers", "Reconcile, then trade in S'Shop",
 ];
 
-async function fetchFile(path: string, name: string) {
+export async function fetchFile(path: string, name: string) {
   const res = await fetch(`/api${path}`, { headers: { Authorization: `Bearer ${session.token}` } });
   if (!res.ok) throw new Error(t("The file could not be downloaded"));
   download(await res.blob(), name);
@@ -276,7 +276,7 @@ function Tile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function UploadButton({ dataset, canUpdate, onDone }: { dataset: string; canUpdate: boolean; onDone: (id: string) => void }) {
+export function UploadButton({ dataset, canUpdate, onDone, label = "Upload Excel" }: { dataset: string; canUpdate: boolean; onDone: (id: string) => void; label?: string }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState("create");
@@ -303,14 +303,14 @@ function UploadButton({ dataset, canUpdate, onDone }: { dataset: string; canUpda
           <option value="update">{t("Update existing products")}</option>
         </Select>
       )}
-      <Button size="sm" disabled={busy} onClick={() => input.current?.click()}><Upload /> {busy ? t("Checking…") : t("Upload Excel")}</Button>
+      <Button size="sm" disabled={busy} onClick={() => input.current?.click()}><Upload /> {busy ? t("Checking…") : t(label)}</Button>
       <input ref={input} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) void send(f); }} />
     </>
   );
 }
 
-function BatchDialog({ id, datasets, onClose, onProgress }: { id: string; datasets: Dataset[]; onClose: () => void; onProgress: (id: string) => void }) {
+export function BatchDialog({ id, datasets, onClose, onProgress }: { id: string; datasets: Dataset[]; onClose: () => void; onProgress: (id: string) => void }) {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<string>("");
   const [skip, setSkip] = useState(false);
@@ -360,7 +360,12 @@ function BatchDialog({ id, datasets, onClose, onProgress }: { id: string; datase
             ))}
             <Pill tone={STATUS[b.status]?.[0] ?? "neutral"} className="ms-auto">{STATUS[b.status]?.[1] ?? b.status}</Pill>
           </div>
-          {b.status === "posted" && (
+          {b.status === "posted" && b.dataset === "stock_balances" && (
+            <p className="rounded-lg bg-success/10 p-2.5 text-sm text-success">
+              {count(b.summary?.updated ?? 0)} {t("balance(s) updated")} · {count(b.summary?.unchanged ?? 0)} {t("unchanged")} · +{count(b.summary?.units_added ?? 0)} / −{count(b.summary?.units_removed ?? 0)} {t("units")}{b.decided_by ? ` · ${t("approved by")} ${b.decided_by}` : ""}
+            </p>
+          )}
+          {b.status === "posted" && b.dataset !== "stock_balances" && (
             <p className="rounded-lg bg-success/10 p-2.5 text-sm text-success">
               {t("Imported")} {count(b.posted_rows)} {t("row(s)")}{b.summary?.created ? ` · ${count(b.summary.created)} ${t("created")}` : ""}{b.summary?.matched ? ` · ${count(b.summary.matched)} ${t("matched (not duplicated)")}` : ""}{b.decided_by ? ` · ${t("approved by")} ${b.decided_by}` : ""}
             </p>
@@ -373,7 +378,7 @@ function BatchDialog({ id, datasets, onClose, onProgress }: { id: string; datase
             <label className="flex items-center gap-2 text-sm"><Checkbox checked={skip} onCheckedChange={(c) => setSkip(!!c)} /> {t("Import only the valid rows (invalid rows stay out; fix them and upload them again)")}</label>
           )}
           {editable && b.invalid_rows > 0 && !v.may_skip_invalid && <p className="flex gap-2 text-xs text-muted-foreground"><Info className="h-4 w-4 shrink-0" /> {t("Stock and money import complete or not at all: fix the invalid rows (error report), then upload again.")}</p>}
-          {editable && (
+          {editable && b.dataset !== "stock_balances" && (
             <details className="rounded-xl border p-3 text-sm">
               <summary className="cursor-pointer font-medium">{t("Column mapping")}</summary>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -393,6 +398,7 @@ function BatchDialog({ id, datasets, onClose, onProgress }: { id: string; datase
               )}
             </details>
           )}
+          {b.dataset === "stock_balances" ? <BalancePreview rows={v.rows} /> : (
           <div className="overflow-x-auto rounded-xl border">
             <table className="w-full text-xs">
               <thead className="bg-muted/60">
@@ -419,9 +425,67 @@ function BatchDialog({ id, datasets, onClose, onProgress }: { id: string; datase
               </tbody>
             </table>
           </div>
+          )}
           {v.rows.length >= 200 && <p className="text-xs text-muted-foreground">{t("Showing the first 200 rows of this view — use the filters or the error report for the rest.")}</p>}
         </div>
       )}
     </ResponsiveDialog>
+  );
+}
+
+/** Roadmap 142: an uploaded stock balance sheet — the counted target against today's balance, row by row. */
+function BalancePreview({ rows }: { rows: Row[] }) {
+  const num = (x: unknown) => (typeof x === "number" ? x : x == null || typeof x === "object" ? null : Number(x));
+  const totals = rows.reduce((a, r) => {
+    const d = num(r.data.difference) ?? 0;
+    if (r.status !== "invalid") { if (d > 0) a.up += d; else if (d < 0) a.down -= d; else a.same += 1; }
+    return a;
+  }, { up: 0, down: 0, same: 0 });
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2 text-xs">
+        <Pill tone="success">+{count(totals.up)} {t("units")}</Pill>
+        <Pill tone="danger">−{count(totals.down)} {t("units")}</Pill>
+        <Pill tone="neutral">{count(totals.same)} {t("unchanged")}</Pill>
+      </div>
+      <div className="overflow-x-auto rounded-xl border">
+        <table className="w-full min-w-136 text-xs">
+          <thead className="bg-muted/60">
+            <tr>
+              <th className="px-2 py-2 text-start">{t("Product")}</th>
+              <th className="px-2 py-2 text-start">{t("Branch")}</th>
+              <th className="px-2 py-2 text-end">{t("Current")}</th>
+              <th className="px-2 py-2 text-end">{t("Uploaded")}</th>
+              <th className="px-2 py-2 text-end">{t("Difference")}</th>
+              <th className="px-2 py-2 text-end">{t("Unit cost")}</th>
+              <th className="px-2 py-2 text-start">{t("Status")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {rows.map((r) => {
+              const diff = num(r.data.difference);
+              const cost = num(r.data.unit_cost);
+              const product = String(r.data.product_name ?? r.data.product ?? "");
+              return (
+                <tr key={r.row_no} className={cn(r.status === "invalid" && "bg-destructive/5", r.status === "warning" && "bg-warning/5")}>
+                  <td className="px-2 py-1.5"><span className="font-medium">{product}</span><span className="block text-muted-foreground">{String(r.data.product ?? "")} · {t("row")} {r.row_no}</span></td>
+                  <td className="px-2 py-1.5">{String(r.data.branch_name ?? r.data.branch ?? "")}</td>
+                  <td className="num px-2 py-1.5 text-end">{num(r.data.current_qty) ?? "—"}</td>
+                  <td className="num px-2 py-1.5 text-end font-semibold">{num(r.data.quantity) ?? "—"}</td>
+                  <td className={cn("num px-2 py-1.5 text-end font-semibold", diff != null && diff > 0 && "text-success", diff != null && diff < 0 && "text-destructive", diff === 0 && "text-muted-foreground")}>
+                    {diff == null ? "—" : diff > 0 ? `+${diff}` : diff < 0 ? `−${-diff}` : "0"}
+                  </td>
+                  <td className="num px-2 py-1.5 text-end">{cost == null ? "—" : money(cost)}</td>
+                  <td className="min-w-[14rem] px-2 py-1.5">
+                    <Pill tone={ROW_TONE[r.status] ?? "neutral"}>{r.status === "valid" ? t(diff ? (diff > 0 ? "Increase" : "Decrease") : "Unchanged") : r.status}</Pill>
+                    {r.messages.map((m, i) => <p key={i} className={m.level === "error" ? "text-destructive" : "text-warning"}>{m.message}</p>)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 {
   "title": "S'Shop — Smart Retail & Business Management",
   "subtitle": "Product Features & Capabilities Manual",
-  "version": "Version 1.6 · October 2026",
+  "version": "Version 1.7 · October 2026",
   "intro": "S'Shop runs a retail business end to end, from the till and stock room to the customer's phone and the business's own website. It works on phones, tablets and computers, across branches, online and offline. Each module below describes features available today.",
   "modules": [
     {
@@ -94,7 +94,8 @@
         "Receiving stock, stock counts and adjustments with reasons",
         "Low-stock and out-of-stock alerts to the right people",
         "Stock valuation for people allowed to see financial figures",
-        "Seven-digit barcodes generated for each individually tracked item, printed on stickers (business name, barcode, number, product) and confirmed attached before stock is received"
+        "Seven-digit barcodes generated for each individually tracked item, printed on stickers (business name, barcode, number, product) and confirmed attached before stock is received",
+        "Stock balances in Excel: download a sheet prefilled with every product and branch, count and correct it, upload it, review each difference and apply — quantities are the counted balances, never additions"
       ]
     },
     {

@@ -130,3 +130,6 @@ unfinished import remains; the date is shown on the centre afterwards.
     a failed import saves nothing and can be checked again.
 - **Browser** (Playwright): progress screen on a 1,874-row file, partial and full summaries, report download.
 - **Unit**: templates read back, header aliases, value conversion.
+
+**Stock balances** (roadmap 142) use the same engine for day-to-day reconciliation — a prefilled sheet of today's
+balances, uploaded quantities as target balances. See [module 07](07-stock.md#stock-balances-from-excel-roadmap-142).

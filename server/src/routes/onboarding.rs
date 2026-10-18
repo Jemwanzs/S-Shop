@@ -53,10 +53,26 @@ pub fn routes() -> Router<AppState> {
         .route("/onboarding/reconciliation", get(reconciliation))
         .route("/onboarding/reconciliation/export", get(reconciliation_export))
         .route("/onboarding/complete", post(complete_onboarding))
+        .route("/onboarding/stock_balances/batches", get(stock_balance_batches))
 }
 
 fn can(ctx: &Ctx) -> AppResult<()> {
     ctx.require("settings.onboarding")
+}
+
+/// Roadmap 142: stock balances are stock management (Stock → Stock balances, and Onboarding): *Adjust & count stock*.
+fn can_dataset(ctx: &Ctx, dataset: &str) -> AppResult<()> {
+    if dataset == "stock_balances" {
+        ctx.require("stock.adjust")
+    } else {
+        can(ctx)
+    }
+}
+
+/// The permission an existing import needs (its dataset decides).
+async fn can_batch(db: &sqlx::PgPool, ctx: &Ctx, id: Uuid) -> AppResult<()> {
+    let dataset: Option<String> = sqlx::query_scalar("SELECT dataset FROM import_batches WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).fetch_optional(db).await?;
+    can_dataset(ctx, &dataset.ok_or(AppError::NotFound("Import"))?)
 }
 
 /// Stock and money must import complete; leaving invalid rows out is allowed only for these.
@@ -138,9 +154,26 @@ async fn set_cutover(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Cuto
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn template(State(state): State<AppState>, ctx: Ctx, Path(dataset): Path<String>) -> AppResult<impl IntoResponse> {
-    can(&ctx)?;
+#[derive(Deserialize, Default)]
+struct TemplateQuery {
+    /// Stock balances: one branch only (large catalogues stay under the row limit).
+    branch_id: Option<Uuid>,
+}
+
+async fn template(State(state): State<AppState>, ctx: Ctx, Path(dataset): Path<String>, Query(tq): Query<TemplateQuery>) -> AppResult<impl IntoResponse> {
+    can_dataset(&ctx, &dataset)?;
     let label = ob::label(&dataset).ok_or(AppError::NotFound("Dataset"))?;
+    if dataset == "stock_balances" {
+        let bytes = stock_balance_sheet(&state, &ctx, tq.branch_id).await?;
+        let name = format!("SShop_Stock_Balances_{}.xlsx", Utc::now().with_timezone(&ctx.tz).format("%Y-%m-%d"));
+        return Ok((
+            [
+                (header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+                (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+            ],
+            bytes,
+        ));
+    }
     let mut extra: HashMap<&'static str, Vec<String>> = HashMap::new();
     let codes: Vec<String> = sqlx::query_scalar("SELECT code FROM branches WHERE tenant_id = $1 AND is_active ORDER BY code").bind(ctx.tenant_id).fetch_all(&state.db).await?;
     extra.insert("branch", codes);
@@ -155,6 +188,126 @@ async fn template(State(state): State<AppState>, ctx: Ctx, Path(dataset): Path<S
         ],
         bytes,
     ))
+}
+
+/// Roadmap 142: the prefilled stock balance workbook — one row per product × branch the person works in (products
+/// assigned to the branch, and any with stock there), today's balance, recorded cost, product barcode or masked item
+/// barcodes, and hidden references; plus Item Barcode Details (one row per labelled unit, masked unless the person may
+/// reveal item barcodes — revealing is recorded in the audit).
+async fn stock_balance_sheet(state: &AppState, ctx: &Ctx, branch: Option<Uuid>) -> AppResult<Vec<u8>> {
+    let branches: Vec<Uuid> = match branch {
+        Some(b) => {
+            ctx.ensure_branch(b)?;
+            vec![b]
+        }
+        None => ctx.branch_ids.clone(),
+    };
+    type Line = (Uuid, String, String, bool, Option<String>, Option<Decimal>, Uuid, String, String, i64);
+    let rows: Vec<Line> = sqlx::query_as(
+        "SELECT p.id, p.code, p.name, p.track_items, p.barcode, p.cost_price, b.id, b.code, b.name, COALESCE(l.on_hand, 0)::bigint
+           FROM products p
+           JOIN branches b ON b.tenant_id = p.tenant_id AND b.is_active AND b.id = ANY($2)
+           LEFT JOIN stock_levels l ON l.product_id = p.id AND l.branch_id = b.id
+          WHERE p.tenant_id = $1
+            AND ((p.is_active AND (p.all_branches OR EXISTS (SELECT 1 FROM product_branches pb WHERE pb.product_id = p.id AND pb.branch_id = b.id)))
+                 OR COALESCE(l.on_hand, 0) <> 0)
+          ORDER BY b.name, p.name",
+    )
+    .bind(ctx.tenant_id)
+    .bind(&branches)
+    .fetch_all(&state.db)
+    .await?;
+    if rows.len() > ob::MAX_ROWS {
+        return Err(rule(format!("{} product × branch rows — more than {} per sheet: download one branch at a time", rows.len(), ob::MAX_ROWS)));
+    }
+    let reveal = ctx.can("barcodes.reveal");
+    let units: Vec<(Uuid, Uuid, String, String, String, String)> = sqlx::query_as(
+        "SELECT i.product_id, i.branch_id, p.code, p.name, b.name, i.barcode FROM stock_items i
+           JOIN products p ON p.id = i.product_id JOIN branches b ON b.id = i.branch_id
+          WHERE i.tenant_id = $1 AND i.status = 'in_stock' AND i.branch_id = ANY($2) ORDER BY b.name, p.name, i.created_at",
+    )
+    .bind(ctx.tenant_id)
+    .bind(&branches)
+    .fetch_all(&state.db)
+    .await?;
+    let mut per: HashMap<(Uuid, Uuid), Vec<String>> = HashMap::new();
+    for u in &units {
+        per.entry((u.0, u.1)).or_default().push(super::barcodes::mask(&u.5));
+    }
+    let today = ctx.today();
+    let cells: Vec<Vec<ob::Cell>> = rows
+        .iter()
+        .map(|(pid, code, name, track, barcode, cost, bid, bcode, _bname, qty)| {
+            let item = if *track {
+                let masked = per.get(&(*pid, *bid)).cloned().unwrap_or_default();
+                match masked.len() {
+                    0 => String::new(),
+                    n if n <= 6 => masked.join("; "),
+                    n => format!("{} … ({n} items — see Item Barcode Details)", masked[..3].join("; ")),
+                }
+            } else {
+                barcode.clone().unwrap_or_default()
+            };
+            vec![
+                ob::Cell::Text(code.clone()),
+                ob::Cell::Text(name.clone()),
+                ob::Cell::Text(bcode.clone()),
+                ob::Cell::Int(*qty),
+                ob::Cell::Money(cost.and_then(|c| c.to_string().parse::<f64>().ok())),
+                ob::Cell::Date(today),
+                ob::Cell::Text(item),
+                ob::Cell::Text(String::new()),
+                ob::Cell::Text(pid.to_string()),
+                ob::Cell::Text(bid.to_string()),
+                ob::Cell::Int(*qty),
+            ]
+        })
+        .collect();
+    let details: Vec<Vec<String>> = units
+        .iter()
+        .map(|u| vec![u.2.clone(), u.3.clone(), u.4.clone(), if reveal { u.5.clone() } else { super::barcodes::mask(&u.5) }, "In stock".into()])
+        .collect();
+    let mut extra: HashMap<&'static str, Vec<String>> = HashMap::new();
+    let codes: Vec<String> = sqlx::query_scalar("SELECT code FROM branches WHERE tenant_id = $1 AND is_active AND id = ANY($2) ORDER BY code")
+        .bind(ctx.tenant_id)
+        .bind(&branches)
+        .fetch_all(&state.db)
+        .await?;
+    extra.insert("branch", codes);
+    let heads: &[&str] = &["Product Code", "Product Name", "Branch", "Item Barcode", "Status"];
+    let bytes = ob::prefilled("stock_balances", &extra, &cells, (!details.is_empty()).then_some(("Item Barcode Details", heads, &details[..])))?;
+    let mut tx = state.db.begin().await?;
+    audit::record(
+        &mut tx,
+        ctx,
+        Entry::new("stock", "balance_sheet_downloaded", "tenant", ctx.tenant_id)
+            .after(json!({ "rows": cells.len(), "branches": branches.len(), "item_barcodes": units.len(), "full_item_barcodes": reveal && !units.is_empty() })),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(bytes)
+}
+
+/// Stock → Stock balances: this business's balance uploads (the Onboarding page lists every import).
+async fn stock_balance_batches(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    ctx.require("stock.adjust")?;
+    fail_interrupted(&state.db, ctx.tenant_id).await?;
+    let batches: Vec<Value> = sqlx::query_scalar(
+        "SELECT json_build_object('id', b.id, 'dataset', b.dataset, 'mode', b.mode, 'status', b.status, 'file_name', b.file_name,
+                'total_rows', b.total_rows, 'valid_rows', b.valid_rows, 'warning_rows', b.warning_rows, 'invalid_rows', b.invalid_rows,
+                'posted_rows', b.posted_rows, 'created_at', b.created_at, 'posted_at', b.posted_at, 'uploaded_by', u.name,
+                'decided_by', d.name, 'error', b.error, 'reference', b.reference, 'summary', b.summary)
+         FROM import_batches b LEFT JOIN users u ON u.id = b.uploaded_by LEFT JOIN users d ON d.id = b.decided_by
+         WHERE b.tenant_id = $1 AND b.dataset = 'stock_balances' ORDER BY b.created_at DESC LIMIT 30",
+    )
+    .bind(ctx.tenant_id)
+    .fetch_all(&state.db)
+    .await?;
+    let cols: Vec<Value> = ob::columns("stock_balances")
+        .iter()
+        .map(|c| json!({ "key": c.key, "header": c.header, "required": c.need == Need::Required, "help": c.help }))
+        .collect();
+    Ok(Json(json!({ "batches": batches, "dataset": { "key": "stock_balances", "label": "Stock balances", "columns": cols, "may_skip_invalid": false } })))
 }
 
 // ── Validation ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -201,6 +354,16 @@ struct Refs {
     barcodes_on: bool,
     cutover: Option<NaiveDate>,
     today: NaiveDate,
+    /// Roadmap 142 (stock balances): lower(branch name) → id, id → name, the branches this person works in, on-hand
+    /// and labelled units per product + branch, each product + branch's last stock movement, recorded costs, closed books.
+    branch_names: HashMap<String, Uuid>,
+    branch_label: HashMap<Uuid, String>,
+    allowed_branches: HashSet<Uuid>,
+    on_hand: HashMap<(Uuid, Uuid), i64>,
+    units: HashMap<(Uuid, Uuid), i64>,
+    last_moved: HashMap<(Uuid, Uuid), NaiveDate>,
+    costs: HashMap<Uuid, Decimal>,
+    books_closed: Option<NaiveDate>,
 }
 
 async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
@@ -242,6 +405,20 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
         .await?;
     let s = settings::load(conn, t).await?;
     let cutover: Option<NaiveDate> = sqlx::query_scalar("SELECT migration_cutover FROM tenants WHERE id = $1").bind(t).fetch_one(&mut *conn).await?;
+    let branch_rows: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, name FROM branches WHERE tenant_id = $1 AND is_active").bind(t).fetch_all(&mut *conn).await?;
+    let on_hand: Vec<(Uuid, Uuid, i64)> = sqlx::query_as("SELECT product_id, branch_id, on_hand::bigint FROM stock_levels WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
+    let units: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
+        "SELECT product_id, branch_id, count(*) FROM stock_items WHERE tenant_id = $1 AND status = 'in_stock' GROUP BY product_id, branch_id",
+    )
+    .bind(t)
+    .fetch_all(&mut *conn)
+    .await?;
+    let last_moved: Vec<(Uuid, Uuid, NaiveDate)> =
+        sqlx::query_as("SELECT product_id, branch_id, max(business_date) FROM stock_movements WHERE tenant_id = $1 GROUP BY product_id, branch_id")
+            .bind(t)
+            .fetch_all(&mut *conn)
+            .await?;
+    let costs: Vec<(Uuid, Decimal)> = sqlx::query_as("SELECT id, cost_price FROM products WHERE tenant_id = $1 AND cost_price IS NOT NULL").bind(t).fetch_all(&mut *conn).await?;
     let mut payment_methods = HashMap::new();
     for m in s.sales.payment_methods.iter().filter(|m| m.enabled && m.key != "credit") {
         payment_methods.insert(m.label.trim().to_lowercase(), m.key.clone());
@@ -275,6 +452,14 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
         barcodes_on: s.stock.barcode_requirement != settings::BarcodeRequirement::Disabled,
         cutover,
         today: Utc::now().with_timezone(&ctx.tz).date_naive(),
+        branch_names: branch_rows.iter().map(|(id, n)| (n.trim().to_lowercase(), *id)).collect(),
+        branch_label: branch_rows.into_iter().collect(),
+        allowed_branches: ctx.branch_ids.iter().copied().collect(),
+        on_hand: on_hand.into_iter().map(|(p, b, q)| ((p, b), q)).collect(),
+        units: units.into_iter().map(|(p, b, q)| ((p, b), q)).collect(),
+        last_moved: last_moved.into_iter().map(|(p, b, d)| ((p, b), d)).collect(),
+        costs: costs.into_iter().collect(),
+        books_closed: s.books.closed_until,
     })
 }
 
@@ -470,6 +655,7 @@ fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &R
                     }
                 }
             }
+            "stock_balances" => stock_balance_row(&mut d, &mut c, r, &mut dup),
             "opening_stock" => {
                 let product = s(&d, "product").map(str::to_string);
                 let p = product.as_deref().and_then(|code| {
@@ -962,6 +1148,96 @@ fn documents(dataset: &str, rows: &[(u32, Map<String, Value>)], out: &mut [(Map<
     }
 }
 
+/// Roadmap 142: one row of an uploaded stock balance sheet. The quantity is the target balance; the row records the
+/// current balance and the difference for the preview, and is refused when it cannot be applied safely.
+fn stock_balance_row(d: &mut Map<String, Value>, c: &mut Check, r: &Refs, dup: &mut impl FnMut(String, &str, &str, &mut Check)) {
+    let code = s(d, "product").map(str::to_string);
+    let p = code.as_deref().and_then(|x| r.products.get(&x.to_uppercase()).cloned());
+    if let (Some(x), None) = (&code, &p) {
+        c.err("product", format!("No product with code {x} — product codes come from the downloaded sheet"));
+    }
+    if let (Some(hidden), Some(p)) = (s(d, "product_id").and_then(|x| Uuid::parse_str(x).ok()), &p) {
+        if hidden != p.0 {
+            c.err("product", "This row's Product Code was changed — it no longer matches its product. Download a fresh sheet");
+        }
+    }
+    let bname = s(d, "branch").map(str::to_string);
+    let b = bname.as_deref().and_then(|x| r.branches.get(&x.to_lowercase()).or_else(|| r.branch_names.get(&x.to_lowercase())).copied());
+    if let (Some(x), None) = (&bname, b) {
+        c.err("branch", format!("Branch {x} does not exist (Settings → Branches)"));
+    }
+    if let Some(b) = b {
+        if !r.allowed_branches.contains(&b) {
+            c.err("branch", format!("You do not work at {} — only your branches' stock can be updated", r.branch_label.get(&b).cloned().unwrap_or_default()));
+        }
+        if s(d, "branch_id").and_then(|x| Uuid::parse_str(x).ok()).is_some_and(|hidden| hidden != b) {
+            c.err("branch", "This row's Branch was changed — it no longer matches its branch. Download a fresh sheet");
+        }
+    }
+    let qty = d.get("quantity").and_then(|v| v.as_i64());
+    if qty.is_some_and(|q| q < 0) {
+        c.err("quantity", "Available Stock / QTY cannot be negative");
+    }
+    let cost = money(d, "unit_cost");
+    if cost.is_some_and(|v| v < Decimal::ZERO) {
+        c.err("unit_cost", "Unit Cost cannot be negative");
+    }
+    let as_of = match d.get("as_of") {
+        Some(Value::String(x)) => NaiveDate::parse_from_str(x, "%Y-%m-%d").ok(),
+        _ => None,
+    }
+    .unwrap_or(r.today);
+    if as_of > r.today {
+        c.err("as_of", "Date As Of cannot be in the future");
+    } else if r.books_closed.is_some_and(|closed| as_of <= closed) {
+        c.err("as_of", format!("The books are closed up to {} — use a later Date As Of", r.books_closed.unwrap_or(as_of)));
+    }
+    d.insert("as_of".into(), json!(as_of.to_string()));
+    let (Some(p), Some(b), Some(qty)) = (&p, b, qty) else { return };
+    let key = (p.0, b);
+    dup(format!("balance:{}:{b}", p.0), "product", &format!("{} at this branch", p.3), c);
+    let current = r.on_hand.get(&key).copied().unwrap_or(0);
+    let labelled = r.units.get(&key).copied().unwrap_or(0);
+    let diff = qty - current;
+    d.insert("product_id".into(), json!(p.0));
+    d.insert("branch_id".into(), json!(b));
+    d.insert("product_name".into(), json!(p.3));
+    d.insert("branch_name".into(), json!(r.branch_label.get(&b).cloned().unwrap_or_default()));
+    d.insert("current_qty".into(), json!(current));
+    d.insert("difference".into(), json!(diff));
+    d.insert("change".into(), json!(if diff > 0 { "increase" } else if diff < 0 { "decrease" } else { "unchanged" }));
+    // An old sheet never overwrites newer sales, receipts or transfers: the balance at download (hidden column) — or,
+    // for a sheet without it, the balance when it was uploaded — must still be the balance when the upload is applied.
+    match d.get("system_qty").and_then(|v| v.as_i64()) {
+        Some(then) if then != current => {
+            c.err("quantity", format!("Stock changed since this sheet was downloaded or uploaded ({then} then, {current} now) — download a fresh sheet"));
+        }
+        Some(_) => {}
+        None => {
+            d.insert("system_qty".into(), json!(current));
+        }
+    }
+    if diff != 0 && as_of < r.today && r.last_moved.get(&key).is_some_and(|last| *last > as_of) {
+        c.err("as_of", format!("Stock moved at this branch after {as_of} (last on {}) — a past balance cannot be applied over later movements; use today's date", r.last_moved[&key]));
+    }
+    if p.1 {
+        if current > labelled {
+            c.err("quantity", format!("{} is tracked per item: {} of {current} unit(s) here have no barcode yet — label existing stock first (product → Barcode labels)", p.3, current - labelled));
+        } else if qty != labelled {
+            c.err("quantity", format!("{} is tracked per item ({labelled} labelled item(s) here): reconcile item by item — a stock take by scanning, receive new units with labels or write units off — not by quantity", p.3));
+        }
+    }
+    if let (Some(uc), Some(rec)) = (cost, r.costs.get(&p.0)) {
+        if uc != *rec {
+            if diff > 0 {
+                c.warn("unit_cost", format!("Unit Cost {uc} differs from the recorded cost ({rec}): it values only the {diff} unit(s) added — the recorded cost is not changed"));
+            } else {
+                c.warn("unit_cost", format!("Unit Cost {uc} differs from the recorded cost ({rec}) — nothing is revalued (no units are added); change costs in Products"));
+            }
+        }
+    }
+}
+
 fn row_status(c: &Check) -> &'static str {
     if c.errors > 0 {
         "invalid"
@@ -1029,7 +1305,7 @@ fn raw_fields(dataset: &str, v: Value) -> Map<String, Value> {
 // ── Upload, view, remap, error report ───────────────────────────────────────────────────────────────────────────────
 
 async fn upload(State(state): State<AppState>, ctx: Ctx, Path(dataset): Path<String>, mut mp: Multipart) -> AppResult<Json<Value>> {
-    can(&ctx)?;
+    can_dataset(&ctx, &dataset)?;
     ob::label(&dataset).ok_or(AppError::NotFound("Dataset"))?;
     let (mut file, mut name, mut mode, mut mapping) = (None::<Bytes>, String::from("upload.xlsx"), String::from("create"), HashMap::<String, String>::new());
     while let Some(f) = mp.next_field().await.map_err(|_| bad("The file could not be read. Try again."))? {
@@ -1100,7 +1376,7 @@ struct RowsQuery {
 }
 
 async fn batch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Query(q): Query<RowsQuery>) -> AppResult<Json<Value>> {
-    can(&ctx)?;
+    can_batch(&state.db, &ctx, id).await?;
     Ok(Json(batch_view(&state, &ctx, id, q.status.as_deref(), q.offset).await?))
 }
 
@@ -1140,7 +1416,7 @@ struct RemapBody {
 
 /// Re-reads the stored workbook with another column mapping (source header → field, "" = ignore).
 async fn remap(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(body): Json<RemapBody>) -> AppResult<Json<Value>> {
-    can(&ctx)?;
+    can_batch(&state.db, &ctx, id).await?;
     let mut tx = state.db.begin().await?;
     let (dataset, mode, status, file): (String, String, String, Vec<u8>) =
         sqlx::query_as("SELECT dataset, mode, status, file FROM import_batches WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
@@ -1171,7 +1447,7 @@ async fn remap(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Js
 
 /// Checks again (e.g. after importing the products an opening-stock file refers to).
 async fn revalidate(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
-    can(&ctx)?;
+    can_batch(&state.db, &ctx, id).await?;
     let mut tx = state.db.begin().await?;
     let (dataset, mode, status): (String, String, String) = sqlx::query_as("SELECT dataset, mode, status FROM import_batches WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
         .bind(id)
@@ -1190,7 +1466,7 @@ async fn revalidate(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
 
 /// The rows with errors or warnings, as uploaded, plus what to fix — correct them and upload this file again.
 async fn error_report(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<impl IntoResponse> {
-    can(&ctx)?;
+    can_batch(&state.db, &ctx, id).await?;
     let (dataset, file_name): (String, String) = sqlx::query_as("SELECT dataset, file_name FROM import_batches WHERE id = $1 AND tenant_id = $2")
         .bind(id)
         .bind(ctx.tenant_id)
@@ -1219,7 +1495,7 @@ async fn error_report(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
 
 /// The import report: a summary (reference, who, when, counts) and every row with what happened to it.
 async fn import_report(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<impl IntoResponse> {
-    can(&ctx)?;
+    can_batch(&state.db, &ctx, id).await?;
     type Head = (String, String, String, String, Option<String>, Option<Value>, Option<chrono::DateTime<Utc>>, Option<String>, Option<String>, Option<String>);
     let (dataset, mode, status, file_name, reference, summary, posted_at, uploader, approver, error): Head = sqlx::query_as(
         "SELECT b.dataset, b.mode, b.status, b.file_name, b.reference, b.summary, b.posted_at, u.name, d.name, b.error
@@ -1325,7 +1601,7 @@ fn rows_sheet(ws: &mut rust_xlsxwriter::Worksheet, dataset: &str, rows: &[(i32, 
 }
 
 async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
-    can(&ctx)?;
+    can_batch(&state.db, &ctx, id).await?;
     let n = sqlx::query("UPDATE import_batches SET status = 'cancelled', decided_by = $3, decided_at = now(), file = '' WHERE id = $1 AND tenant_id = $2 AND status IN ('validated', 'failed')")
         .bind(id)
         .bind(ctx.tenant_id)
@@ -1445,7 +1721,8 @@ async fn reconcile_data(conn: &mut PgConnection, tenant: Uuid, q: &RecQuery) -> 
     }
     let unfinished: Vec<Value> = sqlx::query_scalar(
         "SELECT json_build_object('id', id, 'dataset', dataset, 'file_name', file_name, 'status', status, 'created_at', created_at)
-         FROM import_batches WHERE tenant_id = $1 AND status IN ('validated', 'pending_approval', 'posting', 'failed') ORDER BY created_at",
+         FROM import_batches WHERE tenant_id = $1 AND status IN ('validated', 'pending_approval', 'posting', 'failed') AND dataset <> 'stock_balances'
+         ORDER BY created_at",
     )
     .bind(tenant)
     .fetch_all(&mut *conn)
@@ -1540,7 +1817,7 @@ struct PostBody {
 
 /// Posts now, or sends the batch for approval when the *Data import* workflow is on.
 async fn post_batch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<PostBody>) -> AppResult<Json<Value>> {
-    can(&ctx)?;
+    can_batch(&state.db, &ctx, id).await?;
     ctx.require_full()?;
     let mut tx = state.db.begin().await?;
     let (dataset, status, total, invalid, file_name): (String, String, i32, i32, String) =
@@ -1576,7 +1853,10 @@ async fn post_batch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
         .bind(&reference)
         .execute(&mut *tx)
         .await?;
-    if workflow::needs_approval(&mut tx, &ctx, "data.import", workflow::Gate::default()).await? {
+    // Roadmap 142: a stock balance upload also needs approval wherever stock adjustments do (maker-checker).
+    let gated = workflow::needs_approval(&mut tx, &ctx, "data.import", workflow::Gate::default()).await?
+        || (dataset == "stock_balances" && workflow::needs_approval(&mut tx, &ctx, "stock.adjust", workflow::Gate::default()).await?);
+    if gated {
         let label = ob::label(&dataset).unwrap_or("Data");
         let approval = workflow::submit(
             &mut tx,
@@ -1712,7 +1992,7 @@ async fn fail_interrupted(db: &sqlx::PgPool, tenant: Uuid) -> AppResult<()> {
 
 /// Live state of one import for the progress screen (polled while it runs; works again after a refresh).
 async fn progress(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
-    can(&ctx)?;
+    can_batch(&state.db, &ctx, id).await?;
     fail_interrupted(&state.db, ctx.tenant_id).await?;
     let v: Value = sqlx::query_scalar(
         "SELECT json_build_object('id', b.id, 'dataset', b.dataset, 'mode', b.mode, 'status', b.status, 'file_name', b.file_name,
@@ -1775,6 +2055,8 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, p: &mut Progres
     let mut matched = 0;
     let mut quantity: i64 = 0;
     let mut amount = Decimal::ZERO;
+    // Roadmap 142: stock balance uploads.
+    let (mut adjusted, mut unchanged, mut added, mut removed) = (0i64, 0i64, 0i64, 0i64);
     let grouped = matches!(dataset.as_str(), "sales" | "orders" | "transfers");
     if grouped {
         let (n, total, units) = match dataset.as_str() {
@@ -1815,6 +2097,31 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, p: &mut Progres
                     matched += 1;
                 }
                 Some(cid)
+            }
+            "stock_balances" => {
+                let diff = d.get("difference").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                if diff == 0 {
+                    unchanged += 1;
+                    None
+                } else {
+                    let target = d.get("quantity").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                    let expected = d.get("current_qty").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                    let as_of = s(&d, "as_of").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()).unwrap_or_else(|| ctx.today());
+                    let reference: Option<String> = sqlx::query_scalar("SELECT reference FROM import_batches WHERE id = $1").bind(id).fetch_one(&mut *conn).await?;
+                    let reason = match s(&d, "notes") {
+                        Some(n) => format!("Stock balance upload {} — {n}", reference.unwrap_or_default()),
+                        None => format!("Stock balance upload {}", reference.unwrap_or_default()),
+                    };
+                    let (adj, delta) =
+                        super::stock::balance_adjust(conn, ctx, id, uuid_of(&d, "product_id")?, uuid_of(&d, "branch_id")?, target, expected, as_of, money(&d, "unit_cost"), &reason).await?;
+                    if delta > 0 {
+                        added += delta as i64;
+                    } else {
+                        removed += -delta as i64;
+                    }
+                    adjusted += 1;
+                    Some(adj)
+                }
             }
             "opening_stock" => {
                 let qty = d.get("quantity").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
@@ -1966,10 +2273,16 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, p: &mut Progres
     let total: i64 = sqlx::query_scalar("SELECT count(*) FROM import_rows WHERE batch_id = $1").bind(id).fetch_one(&mut *conn).await?;
     // Updating existing products changes them; matching an existing customer leaves them as they were (not duplicated).
     let updated = if dataset == "products" && mode == "update" { std::mem::take(&mut matched) } else { 0 };
-    let summary = json!({
+    let mut summary = json!({
         "total": total, "posted": posted, "created": created, "updated": updated, "matched": matched, "skipped": skipped,
         "failed": 0, "quantity": quantity, "amount": amount,
     });
+    if dataset == "stock_balances" {
+        summary["updated"] = json!(adjusted);
+        summary["unchanged"] = json!(unchanged);
+        summary["units_added"] = json!(added);
+        summary["units_removed"] = json!(removed);
+    }
     sqlx::query("UPDATE import_batches SET status = 'posted', posted_rows = $2, posted_at = now(), summary = $3, file = '' WHERE id = $1")
         .bind(id)
         .bind(posted)

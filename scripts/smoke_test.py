@@ -3016,7 +3016,7 @@ call("PUT", "/settings", st)
 
 step("Roadmap 99: onboarding — Excel templates, validation, approval and posting")
 ov = call("GET", "/onboarding")
-check("onboarding centre: its datasets, cutover, totals", [d["key"] for d in ov["datasets"]] == ["products", "customers", "opening_stock", "expenses", "sales", "credit", "loyalty", "orders", "transfers"] and "totals" in ov, [d["key"] for d in ov["datasets"]])
+check("onboarding centre: its datasets, cutover, totals", [d["key"] for d in ov["datasets"]] == ["products", "customers", "opening_stock", "expenses", "sales", "credit", "loyalty", "orders", "transfers", "stock_balances"] and "totals" in ov, [d["key"] for d in ov["datasets"]])
 req = urllib.request.Request(BASE + "/api/onboarding/products/template", headers={"Authorization": "Bearer " + TOKEN})
 tpl = urllib.request.urlopen(req).read()
 check("templates download as Excel workbooks", tpl[:2] == b"PK" and len(tpl) > 3000, len(tpl))
@@ -3310,6 +3310,116 @@ s_mail = f"importclerk{ob}@sshop.test"
 call("POST", "/users", {"name": "Import Clerk", "email": s_mail, "pin": "4321", "role_id": spr, "all_branches": True, "branch_ids": []})
 call("GET", "/onboarding", token=call("POST", "/auth/login", {"email": s_mail, "pin": "4321"})["token"], expect=403)
 check("only people allowed to onboard data see the centre", True)
+
+step("Roadmap 142: stock balances — prefilled template, upload as target balances, reconciliation")
+import zipfile as _zf
+sb_tee = call("POST", "/products", {"name": f"Balance Tee {suffix}", "marked_price": 500, "cost_price": 100})["result"]["id"]
+sb_cap = call("POST", "/products", {"name": f"Balance Cap {suffix}", "marked_price": 300, "cost_price": 80})["result"]["id"]
+sb_mug = call("POST", "/products", {"name": f"Balance Mug {suffix}", "marked_price": 200, "cost_price": 50})["result"]["id"]
+sb_watch = call("POST", "/products", {"name": f"Balance Watch {suffix}", "marked_price": 9000, "track_items": True})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": sb_tee, "quantity": 12, "cost_price": 100})
+call("POST", "/stock/receive", {"product_id": sb_cap, "quantity": 20, "cost_price": 80})
+call("POST", "/stock/receive", {"product_id": sb_mug, "quantity": 8, "cost_price": 50})
+call("POST", "/stock/receive", {"product_id": sb_watch, "quantity": 2, "barcodes": [f"BW{suffix}1", f"BW{suffix}2"]})
+codes = {pid: call("GET", f"/products/{pid}")["product"]["code"] for pid in (sb_tee, sb_cap, sb_mug, sb_watch)}
+main_code_sb = next(b["code"] for b in call("GET", "/branches") if b["id"] == BRANCH)
+req = urllib.request.Request(BASE + f"/api/onboarding/stock_balances/template?branch_id={BRANCH}", headers={"Authorization": "Bearer " + TOKEN, "X-Branch-Id": BRANCH})
+tpl = urllib.request.urlopen(req).read()
+import io as _io
+zf = _zf.ZipFile(_io.BytesIO(tpl))
+shared = zf.read("xl/sharedStrings.xml").decode()
+wbx = zf.read("xl/workbook.xml").decode()
+check("roadmap 142: the template is prefilled with the business's own products and branch", tpl[:2] == b"PK" and codes[sb_tee] in shared and codes[sb_watch] in shared and main_code_sb in shared)
+check("…with an Item Barcode Details sheet for individually tracked units (full codes for those who may reveal them)", "Item Barcode Details" in wbx and "****" in shared and f"BW{suffix}1" in shared)
+check("…and hidden technical references (product and branch ids)", sb_tee in shared and BRANCH in shared)
+SBH = ["Product Code", "Branch", "Available Stock / QTY", "Unit Cost", "Date As Of", "Notes", "System QTY"]
+today_sb = datetime.date.today().isoformat()
+future = (datetime.date.today() + datetime.timedelta(days=3)).isoformat()
+bad_book = make_xlsx(SBH, [
+    [codes[sb_tee], main_code_sb, 15, 100, today_sb, "", 12],
+    [codes[sb_tee], main_code_sb, 16, 100, today_sb, "", 12],
+    ["NOPE" + suffix, main_code_sb, 3, "", today_sb, "", ""],
+    [codes[sb_cap], main_code_sb, 18, "", future, "", 20],
+    [codes[sb_watch], main_code_sb, 3, "", today_sb, "", 2],
+    [codes[sb_mug], main_code_sb, -1, "", today_sb, "", 8],
+])
+up = upload_xlsx("stock_balances", bad_book, name=f"bal-bad-{suffix}.xlsx")
+msgs = " | ".join(m["message"] for r in up["rows"] for m in r["messages"])
+check("roadmap 142: duplicate product × branch, unknown codes, future dates, negative quantities refused",
+      up["batch"]["invalid_rows"] >= 5 and "already on row" in msgs and "No product with code" in msgs and "future" in msgs and "negative" in msgs, msgs[:400])
+check("individually tracked stock is reconciled item by item, never by quantity", "tracked per item" in msgs and "item by item" in msgs)
+r = call("POST", f"/onboarding/batches/{up['batch']['id']}/post", {"skip_invalid": True}, expect=422)
+check("stock balances apply completely or not at all (invalid rows cannot be left out)", r["error"]["title"] == "Fix the invalid rows", r)
+call("POST", f"/onboarding/batches/{up['batch']['id']}/cancel")
+good = make_xlsx(SBH, [
+    [codes[sb_tee], main_code_sb, 15, 110, today_sb, "Shelf recount", 12],
+    [codes[sb_cap], main_code_sb, 18, "", today_sb, "", 20],
+    [codes[sb_mug], main_code_sb, 8, "", today_sb, "", 8],
+    [codes[sb_watch], main_code_sb, 2, "", today_sb, "", 2],
+])
+up = upload_xlsx("stock_balances", good, name=f"bal-good-{suffix}.xlsx")
+rows = {r["data"]["product_id"]: r for r in up["rows"]}
+check("preview: current, uploaded and difference for every row", rows[sb_tee]["data"]["current_qty"] == 12 and rows[sb_tee]["data"]["difference"] == 3
+      and rows[sb_cap]["data"]["difference"] == -2 and rows[sb_mug]["data"]["change"] == "unchanged" and up["batch"]["invalid_rows"] == 0, [(r["data"].get("current_qty"), r["data"].get("difference")) for r in up["rows"]])
+check("a different unit cost is flagged, never a silent revaluation", any(m["field"] == "unit_cost" and "not changed" in m["message"] for m in rows[sb_tee]["messages"]))
+done = import_now(up["batch"]["id"], {})
+lv = lambda pid: next(x for x in call("GET", f"/stock?q={codes[pid]}&branch_id={BRANCH}")["items"] if x["product_id"] == pid)["on_hand"]
+check("roadmap 142: uploaded quantities are target balances (12 → 15, 20 → 18, 8 stays 8) — never added", lv(sb_tee) == 15 and lv(sb_cap) == 18 and lv(sb_mug) == 8, (lv(sb_tee), lv(sb_cap), lv(sb_mug)))
+check("results: updated, unchanged and units added / removed", done["summary"]["updated"] == 2 and done["summary"]["unchanged"] == 2
+      and done["summary"]["units_added"] == 3 and done["summary"]["units_removed"] == 2, done["summary"])
+adjs = [a for a in call("GET", "/stock/adjustments?period=today&limit=100")["items"] if a.get("product_name") in (f"Balance Tee {suffix}", f"Balance Cap {suffix}")]
+check("each change is an auditable count adjustment with the upload in its reason", len(adjs) >= 2 and all("Stock balance upload" in (a.get("reason") or "") for a in adjs), [a.get("reason") for a in adjs][:3])
+aud = [a for a in call("GET", "/audit?period=today&limit=100&module=stock")["items"] if a["action"] == "balance_upload"]
+check("audit: old balance, new balance, difference, effective date and the upload", any((a.get("before") or {}).get("quantity") == 12 and (a.get("after") or {}).get("quantity") == 15
+      and (a.get("after") or {}).get("delta") == 3 and (a.get("after") or {}).get("effective_date") == today_sb and (a.get("after") or {}).get("import_batch_id") == up["batch"]["id"] for a in aud), aud[:1])
+r = upload_xlsx("stock_balances", good, name=f"bal-good-{suffix}.xlsx", expect=422)
+check("the same workbook is never applied twice", r["error"]["title"] == "Already imported", r)
+# An old sheet never overwrites newer movements
+call("POST", "/sales", {"items": [{"product_id": sb_tee, "quantity": 1, "unit_price": 500}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+stale = upload_xlsx("stock_balances", make_xlsx(SBH, [[codes[sb_tee], main_code_sb, 20, "", today_sb, "late sheet", 15]]), name=f"bal-stale-{suffix}.xlsx")
+check("a sheet downloaded before a sale is refused for that row (download a fresh sheet)", stale["batch"]["invalid_rows"] == 1 and "Stock changed since" in stale["rows"][0]["messages"][0]["message"], stale["rows"][0]["messages"])
+call("POST", f"/onboarding/batches/{stale['batch']['id']}/cancel")
+# Without the hidden snapshot, the balance seen at upload is pinned until it is applied
+pinned = upload_xlsx("stock_balances", make_xlsx(["Product Code", "Branch", "Available Stock / QTY"], [[codes[sb_tee], main_code_sb, 30]]), name=f"bal-pin-{suffix}.xlsx")
+call("POST", "/sales", {"items": [{"product_id": sb_tee, "quantity": 1, "unit_price": 500}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+r = call("POST", f"/onboarding/batches/{pinned['batch']['id']}/post", {})
+pr = r
+for _ in range(100):
+    pr = call("GET", f"/onboarding/batches/{pinned['batch']['id']}/progress")
+    if pr["status"] != "posting":
+        break
+    time.sleep(0.1)
+check("a sale between upload and apply stops the stale upload (nothing overwritten)", pr["status"] == "failed" and lv(sb_tee) == 13, (pr["status"], pr.get("error"), lv(sb_tee)))
+# A past balance cannot be applied over later movements
+past = (datetime.date.today() - datetime.timedelta(days=2)).isoformat()
+r = upload_xlsx("stock_balances", make_xlsx(SBH, [[codes[sb_cap], main_code_sb, 17, "", past, "", 18]]), name=f"bal-past-{suffix}.xlsx")
+check("a historical Date As Of before later stock movements is refused (controlled adjustment instead)", "after" in r["rows"][0]["messages"][0]["message"], r["rows"][0]["messages"])
+call("POST", f"/onboarding/batches/{r['batch']['id']}/cancel")
+# Branch access and permissions
+sb_roles = {x["name"]: x["id"] for x in call("GET", "/roles")}
+sk_mail = f"stk{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": f"Store {suffix}", "email": sk_mail, "pin": "4321", "role_id": sb_roles["Storekeeper"], "all_branches": False, "branch_ids": [BRANCH]})
+SK = call("POST", "/auth/login", {"email": sk_mail, "pin": "4321"})["token"]
+sk_tpl = urllib.request.urlopen(urllib.request.Request(BASE + "/api/onboarding/stock_balances/template", headers={"Authorization": "Bearer " + SK, "X-Branch-Id": BRANCH})).read()
+sk_shared = _zf.ZipFile(_io.BytesIO(sk_tpl)).read("xl/sharedStrings.xml").decode()
+check("without permission to reveal, item barcodes are masked everywhere in the sheet", f"BW{suffix}1" not in sk_shared and "****" in sk_shared and b2 not in sk_shared)
+b2_code = next(b["code"] for b in call("GET", "/branches") if b["id"] == b2)
+r = upload_xlsx("stock_balances", make_xlsx(SBH, [[codes[sb_mug], b2_code, 4, "", today_sb, "", 0]]), name=f"bal-b2-{suffix}.xlsx", token=SK)
+check("a branch the person does not work at is refused", "do not work at" in r["rows"][0]["messages"][0]["message"], r["rows"][0]["messages"])
+sp_mail = f"tillsb{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": f"Till SB {suffix}", "email": sp_mail, "pin": "4321", "role_id": sb_roles["Salesperson"], "all_branches": True, "branch_ids": []})
+SPT = call("POST", "/auth/login", {"email": sp_mail, "pin": "4321"})["token"]
+call("GET", "/onboarding/stock_balances/template", token=SPT, expect=403)
+upload_xlsx("stock_balances", good, name="x.xlsx", token=SPT, expect=403)
+check("people who may not adjust stock cannot download or upload balances", True)
+lst = call("GET", "/onboarding/stock_balances/batches")
+check("Stock → Stock balances lists the uploads with their results", any(b["status"] == "posted" and (b.get("summary") or {}).get("updated") == 2 for b in lst["batches"]), [b["status"] for b in lst["batches"]][:5])
+# Maker-checker: where stock adjustments need approval, so does a balance upload
+call("PUT", "/settings/workflows/stock.adjust", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+ap = upload_xlsx("stock_balances", make_xlsx(SBH, [[codes[sb_mug], main_code_sb, 9, "", today_sb, "", 8]]), name=f"bal-ap-{suffix}.xlsx")
+r = call("POST", f"/onboarding/batches/{ap['batch']['id']}/post", {})
+check("roadmap 142: an approval workflow on stock adjustments holds the upload for approval", r["status"] == "pending_approval" and lv(sb_mug) == 8, r)
+call("PUT", "/settings/workflows/stock.adjust", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
 
 step("Roadmap 106: loyalty earned on the payable amount; redemption window, minimum and the 50% cap")
 cfg106 = call("GET", "/settings")["settings"]

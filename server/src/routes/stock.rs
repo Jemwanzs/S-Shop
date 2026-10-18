@@ -604,6 +604,74 @@ pub struct AdjustBody {
     pub reason: String,
 }
 
+/// Roadmap 142: one row of an uploaded stock balance sheet — the balance becomes `target` through an audited count
+/// adjustment. Refused when stock moved since the upload was checked (`expected`), so an old sheet never overwrites
+/// newer sales or receipts. Units added are valued at `unit_cost` (recorded product costs are not revalued).
+#[allow(clippy::too_many_arguments)]
+pub async fn balance_adjust(
+    conn: &mut PgConnection,
+    ctx: &Ctx,
+    batch: Uuid,
+    product: Uuid,
+    branch: Uuid,
+    target: i32,
+    expected: i32,
+    as_of: NaiveDate,
+    unit_cost: Option<Decimal>,
+    reason: &str,
+) -> AppResult<(Uuid, i32)> {
+    ctx.ensure_branch(branch)?;
+    let p = product_info(conn, ctx.tenant_id, product).await?;
+    let level = inventory::lock(conn, ctx.tenant_id, branch, product).await?;
+    if level.on_hand != expected {
+        return Err(refused(
+            "Data changed",
+            format!("{}: stock moved since the upload was checked ({expected} then, {} now) — check the upload again", p.name, level.on_hand),
+        ));
+    }
+    let delta = target - level.on_hand;
+    if target < 0 || delta == 0 {
+        return Err(bad("Nothing to adjust"));
+    }
+    let adj: Uuid = sqlx::query_scalar(
+        "INSERT INTO stock_adjustments (tenant_id, branch_id, product_id, kind, previous_qty, delta, new_qty, reason, status, created_by,
+                                        decided_by, decided_at, import_batch_id, effective_date)
+         VALUES ($1,$2,$3,'count',$4,$5,$6,$7,'applied',$8,$8,now(),$9,$10) RETURNING id",
+    )
+    .bind(ctx.tenant_id)
+    .bind(branch)
+    .bind(product)
+    .bind(level.on_hand)
+    .bind(delta)
+    .bind(target)
+    .bind(reason)
+    .bind(ctx.user_id)
+    .bind(batch)
+    .bind(as_of)
+    .fetch_one(&mut *conn)
+    .await?;
+    let s = settings::load(conn, ctx.tenant_id).await?;
+    let mut m = Movement::new(branch, product, "count_variance", delta).reference("stock_adjustment", adj).notes(reason);
+    if delta > 0 {
+        m = m.cost(unit_cost.or(p.cost_price));
+    }
+    m.occurred_on = Some(as_of);
+    m.effective_date = Some(as_of);
+    inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), s.stock.allow_negative, Check::None, m).await?;
+    sqlx::query("UPDATE stock_movements SET import_batch_id = $1 WHERE ref_type = 'stock_adjustment' AND ref_id = $2").bind(batch).bind(adj).execute(&mut *conn).await?;
+    audit::record(
+        conn,
+        ctx,
+        Entry::new("stock", "balance_upload", "stock_adjustment", adj)
+            .branch(branch)
+            .before(json!({ "quantity": level.on_hand }))
+            .after(json!({ "quantity": target, "delta": delta, "product_id": product, "effective_date": as_of, "import_batch_id": batch, "unit_cost": unit_cost }))
+            .comments(reason),
+    )
+    .await?;
+    Ok((adj, delta))
+}
+
 fn movement_kind(adj: &str) -> &'static str {
     match adj {
         "count" => "count_variance",

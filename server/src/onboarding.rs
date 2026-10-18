@@ -61,6 +61,7 @@ pub const DATASETS: &[(&str, &str)] = &[
     ("loyalty", "Loyalty opening points"),
     ("orders", "Orders"),
     ("transfers", "Stock transfers"),
+    ("stock_balances", "Stock balances"),
 ];
 
 pub fn label(dataset: &str) -> Option<&'static str> {
@@ -79,6 +80,7 @@ pub fn columns(dataset: &str) -> &'static [Col] {
         "loyalty" => &LOYALTY,
         "orders" => &ORDERS,
         "transfers" => &TRANSFERS,
+        "stock_balances" => &STOCK_BALANCES,
         _ => &[],
     }
 }
@@ -195,6 +197,123 @@ static TRANSFERS: [Col; 10] = [
     Col { choices: &["Received", "In transit", "Pending", "Cancelled"], aliases: &["status"], ..col("status", "Transfer Status", Need::Required, Kind::Text, "Received / Cancelled = history (no stock moves: opening stock already reflects it). In transit = sent before the cutover, not yet arrived: receive it in S'Shop (it is in neither branch's opening stock). Pending = not sent: dispatch it in S'Shop.", "Received") },
     Col { aliases: &["remarks", "comment"], ..col("notes", "Notes", Need::Optional, Kind::Text, "", "") },
 ];
+
+/// Roadmap 142: the prefilled stock balance sheet — uploaded quantities are the target balances (a count), never units
+/// to add. The last three columns are hidden technical references written by S'Shop.
+static STOCK_BALANCES: [Col; 11] = [
+    Col { aliases: &["product code", "code", "sku", "item code"], ..col("product", "Product Code", Need::Required, Kind::Code, "Reference — the product's code (do not change).", "") },
+    Col { aliases: &["product", "name", "item"], ..col("product_name", "Product Name", Need::Optional, Kind::Text, "Reference — for reading only.", "") },
+    Col { aliases: &["branch code", "store", "location"], ..col("branch", "Branch", Need::Required, Kind::Code, "Reference — the branch's code (do not change).", "") },
+    Col { aliases: &["available stock", "qty", "quantity", "stock", "on hand", "available stock / qty", "counted"], ..col("quantity", "Available Stock / QTY", Need::Required, Kind::Int, "Edit: the units physically there on the Date As Of — the target balance (0 or more), not units to add.", "") },
+    Col { aliases: &["cost", "cost price"], ..col("unit_cost", "Unit Cost", Need::Optional, Kind::Money, "Edit: cost of one unit — values units added by this upload; recorded costs are not revalued.", "") },
+    Col { aliases: &["as of", "date", "as-of date", "date as of", "effective date"], ..col("as_of", "Date As Of", Need::Optional, Kind::Date, "Edit: the date of the balance (default today; never in the future or a closed period).", "") },
+    Col { aliases: &["barcode", "item barcodes"], ..col("item_barcode", "Item Barcode", Need::Optional, Kind::Code, "Reference — the product barcode, or the individually tracked units (masked; see the Item Barcode Details sheet). Never imported.", "") },
+    Col { aliases: &["remarks", "comment", "reason"], ..col("notes", "Notes", Need::Optional, Kind::Text, "Optional — kept on the stock adjustment.", "") },
+    Col { aliases: &[], ..col("product_id", "Product ID", Need::Optional, Kind::Code, "Hidden — S'Shop's product reference.", "") },
+    Col { aliases: &[], ..col("branch_id", "Branch ID", Need::Optional, Kind::Code, "Hidden — S'Shop's branch reference.", "") },
+    Col { aliases: &["system qty"], ..col("system_qty", "System QTY", Need::Optional, Kind::Int, "Hidden — the balance when the sheet was downloaded (stops an old sheet overwriting newer stock movements).", "") },
+];
+
+/// Columns of the prefilled stock balance sheet a person edits (the rest are references).
+pub const STOCK_BALANCE_EDITABLE: &[&str] = &["quantity", "unit_cost", "as_of", "notes"];
+/// Trailing technical columns (hidden in the sheet).
+pub const STOCK_BALANCE_HIDDEN: u16 = 3;
+
+/// One cell of a prefilled sheet.
+pub enum Cell {
+    Text(String),
+    Int(i64),
+    Money(Option<f64>),
+    Date(NaiveDate),
+}
+
+/// Roadmap 142: a template filled with the business's own records — the data sheet (reference columns shaded,
+/// editable ones white, technical columns hidden, dropdowns), an optional details sheet, and the Instructions sheet.
+pub fn prefilled(dataset: &str, extra: &HashMap<&'static str, Vec<String>>, rows: &[Vec<Cell>], details: Option<(&str, &[&str], &[Vec<String>])>) -> AppResult<Vec<u8>> {
+    let cols = columns(dataset);
+    let title = label(dataset).ok_or_else(|| bad("Unknown dataset"))?;
+    let x = |e: rust_xlsxwriter::XlsxError| crate::error::AppError::Other(anyhow::anyhow!(e));
+    let mut wb = Workbook::new();
+    let head_edit = Format::new().set_bold().set_background_color("F9E3CF").set_border(rust_xlsxwriter::FormatBorder::Thin);
+    let head_ref = Format::new().set_bold().set_background_color("E7E1D9").set_border(rust_xlsxwriter::FormatBorder::Thin);
+    let reference = Format::new().set_background_color("F3EEE7").set_num_format("@");
+    let edit_int = Format::new().set_num_format("0");
+    let edit_money = Format::new().set_num_format("#,##0.00");
+    let edit_date = Format::new().set_num_format("yyyy-mm-dd");
+    let text = Format::new().set_num_format("@");
+    let hidden_from = cols.len() as u16 - STOCK_BALANCE_HIDDEN;
+    {
+        let ws = wb.add_worksheet().set_name(title.chars().take(31).collect::<String>()).map_err(x)?;
+        for (i, c) in cols.iter().enumerate() {
+            let i = i as u16;
+            let editable = STOCK_BALANCE_EDITABLE.contains(&c.key);
+            ws.write_string_with_format(0, i, c.header, if editable { &head_edit } else { &head_ref }).map_err(x)?;
+            ws.set_column_width(i, (c.header.len() as f64 + 6.0).clamp(12.0, 34.0)).map_err(x)?;
+            if i >= hidden_from {
+                ws.set_column_hidden(i).map_err(x)?;
+            }
+            if let Some(list) = extra.get(c.key).filter(|v| !v.is_empty() && v.iter().map(|s| s.len() + 1).sum::<usize>() < 250) {
+                let dv = DataValidation::new().allow_list_strings(list).map_err(x)?.ignore_blank(true);
+                ws.add_data_validation(1, i, (rows.len() as u32).max(1) + 200, i, &dv).map_err(x)?;
+            }
+        }
+        for (r, row) in rows.iter().enumerate() {
+            let r = r as u32 + 1;
+            for (i, (cell, c)) in row.iter().zip(cols.iter()).enumerate() {
+                let i = i as u16;
+                let editable = STOCK_BALANCE_EDITABLE.contains(&c.key);
+                match cell {
+                    Cell::Text(s) => ws.write_string_with_format(r, i, s, if editable { &text } else { &reference }).map_err(x)?,
+                    Cell::Int(n) => ws.write_number_with_format(r, i, *n as f64, if editable { &edit_int } else { &reference }).map_err(x)?,
+                    Cell::Money(Some(v)) => ws.write_number_with_format(r, i, *v, &edit_money).map_err(x)?,
+                    Cell::Money(None) => ws.write_blank(r, i, &edit_money).map_err(x)?,
+                    Cell::Date(d) => ws.write_string_with_format(r, i, d.to_string(), &edit_date).map_err(x)?,
+                };
+            }
+        }
+        ws.set_freeze_panes(1, 2).map_err(x)?;
+        ws.autofilter(0, 0, (rows.len() as u32).max(1), hidden_from.saturating_sub(1)).map_err(x)?;
+    }
+    if let Some((name, headers, lines)) = details {
+        let ws = wb.add_worksheet().set_name(name).map_err(x)?;
+        for (i, h) in headers.iter().enumerate() {
+            ws.write_string_with_format(0, i as u16, *h, &head_ref).map_err(x)?;
+            ws.set_column_width(i as u16, 22).map_err(x)?;
+        }
+        for (r, line) in lines.iter().enumerate() {
+            for (i, v) in line.iter().enumerate() {
+                ws.write_string_with_format(r as u32 + 1, i as u16, v, &reference).map_err(x)?;
+            }
+        }
+        ws.set_freeze_panes(1, 0).map_err(x)?;
+    }
+    {
+        let ws = wb.add_worksheet().set_name("Instructions").map_err(x)?;
+        let bold = Format::new().set_bold();
+        let wrap = Format::new().set_text_wrap().set_align(FormatAlign::Top);
+        ws.set_column_width(0, 30).map_err(x)?;
+        ws.set_column_width(1, 90).map_err(x)?;
+        ws.write_string_with_format(0, 0, format!("S'Shop — {title}"), &bold).map_err(x)?;
+        let intro = [
+            "Your products and branches are already filled in, with the balances at download. Change only the white columns: Available Stock / QTY, Unit Cost, Date As Of and Notes.",
+            "Available Stock / QTY is the balance you counted — the target. S'Shop records only the difference (12 → 15 adds 3; 20 → 18 removes 2). It never adds the whole figure.",
+            "Delete the rows you do not want to change, or leave them as they are (unchanged rows change nothing). Do not add products or branches here.",
+            "Individually tracked products (with item barcodes) are reconciled item by item — scan them in a stock take, receive them with labels or write them off. Their quantity here must match their labelled items.",
+            "If stock moves after you download this sheet (a sale, a receipt), those rows are refused on upload so nothing newer is overwritten: download a fresh sheet.",
+            "Upload it in Stock → Stock balances (or Settings → Onboarding). You see Current, Uploaded and Difference for every row before anything is saved; approval may apply.",
+        ];
+        for (r, s) in intro.iter().enumerate() {
+            ws.write_string_with_format(r as u32 + 1, 0, format!("{}.", r + 1), &bold).map_err(x)?;
+            ws.write_string_with_format(r as u32 + 1, 1, *s, &wrap).map_err(x)?;
+        }
+        let top = intro.len() as u32 + 2;
+        for (r, c) in cols.iter().enumerate() {
+            ws.write_string_with_format(top + r as u32, 0, c.header, &bold).map_err(x)?;
+            ws.write_string_with_format(top + r as u32, 1, c.help, &wrap).map_err(x)?;
+        }
+    }
+    wb.save_to_buffer().map_err(x)
+}
 
 fn norm(s: &str) -> String {
     s.trim().to_lowercase().replace(['_', '*'], " ").split_whitespace().collect::<Vec<_>>().join(" ")

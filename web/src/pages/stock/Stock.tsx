@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, ClipboardCheck, PackagePlus, ScanSearch, SlidersHorizontal } from "lucide-react";
+import { Boxes, ClipboardCheck, FileSpreadsheet, PackagePlus, ScanSearch, SlidersHorizontal } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
@@ -18,6 +18,7 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { AdjustDialog } from "./AdjustDialog";
 import { ItemBarcodeActions } from "@/components/ItemBarcodes";
+import { StockBalancesDialog } from "./StockBalancesDialog";
 import { t as tr } from "@/lib/i18n";
 
 type Tab = "levels" | "position" | "movements" | "adjustments" | "barcodes";
@@ -26,10 +27,13 @@ const LIMIT = 50;
 export default function Stock() {
   const { can, branch } = useSession();
   const [params, setParams] = useSearchParams();
+  // Roadmap 142: download / upload stock balances (Excel).
+  const [balances, setBalances] = useState(false);
   const tab = (params.get("tab") as Tab) ?? "levels";
   const [adjusting, setAdjusting] = useState(false);
   return (
     <>
+      {balances && <StockBalancesDialog onClose={() => setBalances(false)} />}
       <PageHeader
         eyebrow={branch?.name}
         title="Stock & inventory"
@@ -37,6 +41,7 @@ export default function Stock() {
           <>
             {can("stock.adjust") && <Button variant="outline" onClick={() => setAdjusting(true)}><SlidersHorizontal /> {tr("Adjust")}</Button>}
             {can("stock.adjust") && <Button variant="outline" asChild><Link to="/stock/count"><ClipboardCheck /> {tr("Stock take")}</Link></Button>}
+            {can("stock.adjust") && <Button variant="outline" onClick={() => setBalances(true)}><FileSpreadsheet /> {tr("Stock balances")}</Button>}
             {can("stock.add") && <Button asChild><Link to="/stock/receive"><PackagePlus /> {tr("Receive stock")}</Link></Button>}
           </>
         }

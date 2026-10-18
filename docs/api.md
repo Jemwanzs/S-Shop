@@ -401,6 +401,16 @@ Any endpoint needing a full sign-in answers a Quick session with 422 *Full sign-
 | POST | `/api/auth/passkey/login/start` (`credential_id`) | public, rate-limited; 422 *Full sign-in needed* / *Face ID & biometrics unavailable* |
 | POST | `/api/auth/passkey/login/finish` (`challenge_id`, `credential`) | public; `{token, profile, quick: true}`; 400 failed check, 422 *Request expired* |
 
+## Stock balances from Excel ([module 07](modules/07-stock.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/onboarding/stock_balances/template` (`branch_id`) | *Adjust & count stock*; prefilled workbook (+ Item Barcode Details); audited |
+| POST | `/api/onboarding/stock_balances/upload` | the onboarding upload; rows carry `current_qty`, `difference`, `change` |
+| GET | `/api/onboarding/stock_balances/batches` | this business's balance uploads with their results |
+
+Posting, progress, error report and approval are the onboarding batch endpoints (`/api/onboarding/batches/{id}/…`).
+
 ## Item barcodes & labels ([module 38](modules/38-item-barcodes-labels.md))
 
 | Method | Path | Notes |

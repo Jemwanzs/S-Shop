@@ -719,6 +719,16 @@ server already refuses a unit sold twice, from another branch or another product
   (module, permissions, links and notifications unchanged; the new-order count shows on *More* and on the Orders tile);
   Products is highlighted on the catalogue and product pages; desktop sidebar unchanged.
 
+**Stock balances from Excel** (brief *Prefilled Stock Balances Template, Bulk Upload & Inventory Reconciliation*):
+- ⏳ **142. Prefilled stock balance sheet, upload & reconciliation** — Stock → Stock balances (and Onboarding):
+  *Download template* (products × the person's branches, today's balance, recorded cost, today's date, product barcode
+  or masked item barcodes, notes; hidden ids and the balance at download; Item Barcode Details sheet, masked unless the
+  person may reveal), *Upload stock balances* (preview Current · Uploaded · Difference · Unit cost · Status; quantities
+  are target balances, never additions), *Download current balances*. Refuses duplicates, unknown or changed rows,
+  other branches, future / closed dates, sheets older than the latest movements, past dates before later movements and
+  tracked products that do not match their labelled items; applies as audited count adjustments with the effective
+  date, linked to the upload; approval when adjustments need it; never applied twice.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

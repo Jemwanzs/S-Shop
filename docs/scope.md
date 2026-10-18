@@ -720,7 +720,7 @@ server already refuses a unit sold twice, from another branch or another product
   Products is highlighted on the catalogue and product pages; desktop sidebar unchanged.
 
 **Stock balances from Excel** (brief *Prefilled Stock Balances Template, Bulk Upload & Inventory Reconciliation*):
-- ⏳ **142. Prefilled stock balance sheet, upload & reconciliation** — Stock → Stock balances (and Onboarding):
+- ✅ **142. Prefilled stock balance sheet, upload & reconciliation** — Stock → Stock balances (and Onboarding):
   *Download template* (products × the person's branches, today's balance, recorded cost, today's date, product barcode
   or masked item barcodes, notes; hidden ids and the balance at download; Item Barcode Details sheet, masked unless the
   person may reveal), *Upload stock balances* (preview Current · Uploaded · Difference · Unit cost · Status; quantities

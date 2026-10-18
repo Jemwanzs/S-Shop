@@ -17,6 +17,7 @@ import { Pill, StatusBadge, StockIndicator } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { AdjustDialog } from "./AdjustDialog";
+import { ItemBarcodeActions } from "@/components/ItemBarcodes";
 import { t as tr } from "@/lib/i18n";
 
 type Tab = "levels" | "position" | "movements" | "adjustments" | "barcodes";
@@ -264,12 +265,17 @@ function Barcodes({ productId }: { productId?: string }) {
   const [status, setStatus] = useState("in_stock");
   const [q, setQ] = useState("");
   const [offset, setOffset] = useState(0);
-  const [lookup, setLookup] = useState<string | null>(null);
+  // Roadmap 136: rows open by item (their barcodes are masked); a scanned code is traced as scanned.
+  const [lookup, setLookup] = useState<{ code?: string; id?: string } | null>(null);
   const [scan, setScan] = useState(false);
   const term = useDebounced(q);
   const query = { status: status || undefined, q: term, product_id: productId, limit: LIMIT, offset };
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["stock", "items", query], queryFn: () => api<Paged<ItemRow>>("/stock/items", { query }), placeholderData: (p) => p });
-  const history = useQuery({ queryKey: ["stock", "barcode", lookup], queryFn: () => api<History>(`/stock/barcode/${encodeURIComponent(lookup!)}`), enabled: !!lookup });
+  const history = useQuery({
+    queryKey: ["stock", "barcode", lookup],
+    queryFn: () => api<History>(lookup!.id ? `/stock/items/${lookup!.id}/history` : `/stock/barcode/${encodeURIComponent(lookup!.code!)}`),
+    enabled: !!lookup,
+  });
   return (
     <>
       <div className="mb-4 space-y-3">
@@ -285,7 +291,7 @@ function Barcodes({ productId }: { productId?: string }) {
         error={error}
         retry={refetch}
         rowKey={(r) => r.id}
-        onRowClick={(r) => setLookup(r.barcode)}
+        onRowClick={(r) => setLookup({ id: r.id })}
         empty={<EmptyState icon={ScanSearch} title="No barcoded items" hint="Products set to “track each item” appear here once received." />}
         columns={[
           { key: "barcode", header: "Barcode", cell: (r) => <span className="num font-medium">{r.barcode}</span> },
@@ -297,14 +303,19 @@ function Barcodes({ productId }: { productId?: string }) {
         mobile={(r) => <CardRow title={<span className="num">{r.barcode}</span>} subtitle={`${r.product_name} · ${r.branch_name}`} meta={<StatusBadge status={r.status} />} />}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}
       />
-      <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={setLookup} title="Trace a barcode" />
-      <ResponsiveDialog open={!!lookup} onOpenChange={(o) => !o && setLookup(null)} title={<span className="num">{lookup}</span>} description="Barcode history">
+      <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={(code) => setLookup({ code })} title="Trace a barcode" />
+      <ResponsiveDialog open={!!lookup} onOpenChange={(o) => !o && setLookup(null)} title={<span className="num">{history.data?.barcode ?? ""}</span>} description="Barcode history">
         {history.isLoading ? (
           <Loading className="py-6" />
         ) : history.data && (
           <div className="space-y-4">
             {history.data.product_barcode_of && <p className="text-sm">{tr("Product barcode of")} <span className="font-medium">{history.data.product_barcode_of.name}</span></p>}
-            {history.data.items.map((i) => <p key={i.id} className="flex justify-between text-sm"><span>{i.product_name} · {i.branch_name}</span><StatusBadge status={i.status} /></p>)}
+            {history.data.items.map((i) => (
+              <div key={i.id} className="space-y-2">
+                <p className="flex justify-between text-sm"><span>{i.product_name} · {i.branch_name}</span><StatusBadge status={i.status} /></p>
+                <ItemBarcodeActions itemId={i.id} status={i.status} onChanged={() => { history.refetch(); refetch(); }} />
+              </div>
+            ))}
             <ol className="relative space-y-3 border-s ps-5">
               {history.data.history.map((m) => (
                 <li key={m.id} className="relative text-sm">

@@ -59,10 +59,17 @@ export interface Settings {
     low_stock_threshold: number;
     allow_negative: boolean;
     transfer_receipt_control: boolean;
+    /** Roadmap 133/135: S'Shop generates seven-digit item barcodes; new labels are scanned before a receipt completes. */
+    generate_item_barcodes: boolean;
+    require_label_verification: boolean;
+    /** Roadmap 134/138: sticker size (mm) and label printer (system printing, ZPL or TSPL). */
+    labels: { width_mm: number; height_mm: number; printer: "system" | "zpl" | "tspl" };
   };
   sales: {
     quantity_entry: "editable" | "locked";
     require_barcode_clearance: boolean;
+    /** Roadmap 137: barcodes of barcode-controlled items may be typed at the till (default off: scan only). */
+    manual_barcode_entry: boolean;
     payment_methods: PaymentMethod[];
     mpesa_manual_confirmation: boolean;
     credit_enabled: boolean;
@@ -321,7 +328,9 @@ export interface SaleDetail {
     /** Roadmap 115: this line's own date when it differs from the sale's. */
     sale_date?: string | null;
     product_code: string;
+    /** Roadmap 136: an individually tracked unit's barcode arrives masked (`****047`). */
     barcode: string | null;
+    tracked?: boolean;
     quantity: number;
     returned_qty: number;
     marked_price: Money;

@@ -1,7 +1,7 @@
 {
   "title": "S'Shop — Smart Retail & Business Management",
   "subtitle": "Product Features & Capabilities Manual",
-  "version": "Version 1.4 · October 2026",
+  "version": "Version 1.5 · October 2026",
   "intro": "S'Shop runs a retail business end to end, from the till and stock room to the customer's phone and the business's own website. It works on phones, tablets and computers, across branches, online and offline. Each module below describes features available today.",
   "modules": [
     {
@@ -27,7 +27,8 @@
         "M-Pesa into the business's own Till or Paybill: STK Push to the customer's phone completes the sale once paid, or a manual confirmation code",
         "Sale Date: today by default; authorised staff can record an earlier date for the whole sale or for one product, never a future date",
         "Offline selling: walk-in cash sales are saved on the device and synced when the connection returns",
-        "Sales history with ownership, returns, exchanges and cancellations under approval rules"
+        "Sales history with ownership, returns, exchanges and cancellations under approval rules",
+        "Barcode-controlled items are cleared only by scanning their sticker; typing barcodes at the till is off by default"
       ]
     },
     {
@@ -78,7 +79,8 @@
         "A shared barcode per product, or individual tracking of each item",
         "Several photos per product and your own fields such as size, colour or brand",
         "Control over which branches stock a product and whether it appears online",
-        "Low-stock alert levels and loyalty rules per product"
+        "Low-stock alert levels and loyalty rules per product",
+        "Item barcodes stay concealed (****047) on screens, reports and exports; printing, reprinting, replacing and revealing them are permission-controlled and recorded"
       ]
     },
     {
@@ -90,7 +92,8 @@
         "Stock position for any period, from opening to closing stock",
         "Receiving stock, stock counts and adjustments with reasons",
         "Low-stock and out-of-stock alerts to the right people",
-        "Stock valuation for people allowed to see financial figures"
+        "Stock valuation for people allowed to see financial figures",
+        "Seven-digit barcodes generated for each individually tracked item, printed on stickers (business name, barcode, number, product) and confirmed attached before stock is received"
       ]
     },
     {
@@ -214,7 +217,8 @@
         "Personal preferences: display currency, language, theme and font",
         "The page each person lands on after signing in; dialogs never close by accident and ask before discarding changes",
         "English, Kiswahili, French and Arabic, with right-to-left support",
-        "Every settings change saved with before and after values"
+        "Every settings change saved with before and after values",
+        "Barcode hardware: label sizes, label printers (system printing, ZPL, TSPL), a test label and a scanner test"
       ]
     },
     {

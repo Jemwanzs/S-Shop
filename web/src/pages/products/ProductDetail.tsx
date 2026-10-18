@@ -16,6 +16,7 @@ import { ConfirmDialog } from "@/components/Form";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { CustomFieldValues } from "@/components/CustomFields";
 import { t } from "@/lib/i18n";
+import { ProductBarcodeLabels } from "@/components/ItemBarcodes";
 
 interface Detail {
   product: Product;
@@ -177,9 +178,16 @@ export default function ProductDetail() {
             <CustomFieldValues kind="product" values={p.custom_fields ?? {}} />
             {p.description && <p className="mt-2 rounded-lg bg-muted p-3 text-sm">{p.description}</p>}
           </Section>
-          {p.track_items && (
-            <Button variant="outline" className="w-full" asChild><Link to={`/stock?tab=barcodes&product=${p.id}`}>{t("View barcoded items")}</Link></Button>
-          )}
+          {p.track_items && (() => {
+            // Roadmap 135: Barcode labels — print the labels of units in stock; label stock that has none yet.
+            const here = data.stock_by_branch.find((b) => b.is_current) ?? data.stock_by_branch[0];
+            return (
+              <Section title="Barcode labels">
+                {here && <ProductBarcodeLabels productId={p.id} branchId={here.branch_id} branchName={here.branch_name} onHand={here.on_hand} />}
+                <Button variant="outline" className="mt-3 w-full" asChild><Link to={`/stock?tab=barcodes&product=${p.id}`}>{t("View barcoded items")}</Link></Button>
+              </Section>
+            );
+          })()}
           {can("products.deactivate") && !data.pending_approval_id && (
             <Button variant="outline" className={cn("w-full", p.is_active && "text-destructive")} onClick={() => setToggling(true)}>
               <Power /> {p.is_active ? "Deactivate product" : "Activate product"}

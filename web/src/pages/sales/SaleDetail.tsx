@@ -5,7 +5,7 @@ import { Ban, RefreshCcw, RotateCcw, ScanLine } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { amount, dateTime, money, toNum } from "@/lib/format";
+import { amount, dateTime, money, toNum, maskCode } from "@/lib/format";
 import { dayLabel } from "./pos/SaleDate";
 import type { Outcome, SaleDetail as Detail } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -67,7 +67,7 @@ export default function SaleDetail() {
   const returnable = data.items.filter((i) => i.quantity > i.returned_qty);
   // Scanning a returned item ticks it: its own barcode for tracked items, otherwise the product's barcode.
   const onReturnScan = async (code: string): Promise<ScanOutcome> => {
-    let item = returnable.find((i) => i.barcode === code);
+    let item = returnable.find((i) => !!i.barcode && i.barcode === (i.tracked ? maskCode(code) : code));
     if (!item) {
       try {
         const r = await api<{ product: { id: string } }>("/products/lookup", { query: { code } });

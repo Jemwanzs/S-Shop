@@ -359,6 +359,11 @@ def paystack_webhook(event, sign=True):
         return e.code
 
 
+def mask(code):
+    """Roadmap 136: an item barcode as the server shows it outside label printing."""
+    return "***" if len(code) <= 3 else "****" + code[-3:]
+
+
 def check(name, cond, detail=""):
     print(("  ✓ " if cond else "  ✗ ") + name + (f" — {detail}" if detail and not cond else ""))
     if not cond:
@@ -1034,7 +1039,7 @@ threads = [_th.Thread(target=race) for _ in range(2)]
 [t_.start() for t_ in threads]; [t_.join() for t_ in threads]
 check("simultaneous sale of one unit: one wins", sorted(results) == [200, 422], results)
 mv = [m for m in call("GET", f"/stock/movements?period=today&product_id={ring}&limit=50")["items"] if m["kind"] == "sale"]
-check("exact units cleared with a movement each", sorted(m["barcode"] for m in mv) == sorted([R[0], R[2]]), [m["barcode"] for m in mv])
+check("exact units cleared with a movement each (barcodes masked)", sorted(m["barcode"] for m in mv) == sorted([mask(R[0]), mask(R[2])]), [m["barcode"] for m in mv])
 check("units cleared only by completed sales", next(x for x in call("GET", f"/stock?q=Ring {suffix}")["items"])["on_hand"] == 1)
 
 step("Roadmap 18: transfer receipt with discrepancies")
@@ -1047,7 +1052,7 @@ dt = call("POST", "/transfers", {"to_branch_id": b2, "items": [{"product_id": nd
                                   {"product_id": chain, "quantity": 2, "barcodes": [f"CH{suffix}b", f"CH{suffix}c"]}], "submit": True})
 call("POST", f"/transfers/{dt['id']}/dispatch")
 lines = {(i["product_id"], i["barcode"]): i["id"] for i in call("GET", f"/transfers/{dt['id']}")["items"]}
-nd_line, ch_damaged = lines[(nduma, None)], lines[(chain, f"CH{suffix}c")]
+nd_line, ch_damaged = lines[(nduma, None)], lines[(chain, mask(f"CH{suffix}c"))]
 call("POST", f"/transfers/{dt['id']}/receive", {"lines": [{"id": nd_line, "short": 2, "damaged": 1}], "reason": ""}, branch=b2, expect=400)
 check("discrepancy needs a reason", True)
 call("POST", f"/transfers/{dt['id']}/receive", {"lines": [{"id": nd_line, "short": 5, "damaged": 2}], "reason": "Box crushed"}, branch=b2, expect=400)
@@ -1127,7 +1132,7 @@ rc_id = rcs["credit"]["id"]
 rc = call("GET", f"/credit/{rc_id}")
 nd_item = next(i for i in rc["items"] if not i["tracked"])
 rg_item = next(i for i in rc["items"] if i["tracked"])
-check("credit detail lists what was sold", rc["can_recall"] and rg_item["barcode"] == RC[0] and nd_item["quantity"] == 3)
+check("credit detail lists what was sold (item barcode masked)", rc["can_recall"] and rg_item["barcode"] == mask(RC[0]) and nd_item["quantity"] == 3)
 def recall(items, reason="Customer could not pay", settle="", expect=200, token=None, **kw):
     return call("POST", f"/credit/{rc_id}/recall", {"items": items, "reason": reason, "settle": settle, **kw}, token=token, expect=expect)
 call("POST", f"/credit/{rc_id}/recall", {"items": [{"sale_item_id": nd_item["id"], "quantity": 1}], "reason": "x"}, token=reporter, expect=403)
@@ -2657,6 +2662,126 @@ r = call("POST", "/auth/passkey/login/start", {"credential_id": reg2["credential
 check("changing the full PIN ends every biometric device", r["error"]["title"] == "Full sign-in needed", r)
 check("the Quick PIN is independent (still available to set up)", call("GET", "/auth/quick-pin", token=call("POST", "/auth/login", {"email": pk_mail, "pin": "9753"})["token"], branch=BRANCH)["available"])
 
+step("Roadmap 133–137: seven-digit item barcodes, labels, concealment and scan-to-clear")
+bc_roles = {r["name"]: r["id"] for r in call("GET", "/roles")}
+heritage = call("POST", "/products", {"name": f"Heritage Automatic {suffix}", "marked_price": 5000, "cost_price": 3000, "track_items": True})["result"]["id"]
+plain = call("POST", "/products", {"name": f"Plain Tee {suffix}", "marked_price": 300, "cost_price": 100})["result"]["id"]
+g = call("POST", "/barcodes/generate", {"product_id": heritage, "quantity": 3})
+H = g["codes"]
+check("roadmap 133: one seven-digit code per unit (1000000–9999999), all different", len(H) == 3 and len(set(H)) == 3
+      and all(len(c) == 7 and c.isdigit() and c[0] != "0" for c in H), H)
+check("label carries the business name (never the branch) and the product", g["label"]["product"] == f"Heritage Automatic {suffix}" and g["label"]["business"] == call("GET", "/auth/me")["tenant"]["name"], g["label"])
+r = call("POST", "/barcodes/generate", {"product_id": plain, "quantity": 2}, expect=422)
+check("a shared-barcode product gets no item barcodes", "shared barcode" in r["error"]["message"], r)
+call("POST", "/barcodes/generate", {"product_id": heritage, "quantity": 0}, expect=400)
+call("POST", "/barcodes/generate", {"product_id": heritage, "quantity": 501}, expect=400)
+check("1–500 codes at a time", True)
+batch = call("POST", "/barcodes/generate", {"product_id": heritage, "quantity": 40})["codes"]
+nums = sorted(int(c) for c in batch)
+check("codes are random, not sequential", sum(1 for a_, b_ in zip(nums, nums[1:]) if b_ - a_ == 1) <= 1 and nums[-1] - nums[0] > 100000, nums[:5])
+# Receiving: printing a label is not attaching it
+r = call("POST", "/stock/receive", {"product_id": heritage, "quantity": 3, "barcodes": H}, expect=422)
+check("roadmap 135: generated labels must be confirmed attached before receiving", "attached" in r["error"]["message"], r)
+s_ = call("GET", "/settings")["settings"]
+call("PUT", "/settings", {**s_, "stock": {**s_["stock"], "require_label_verification": True}})
+r = call("POST", "/stock/receive", {"product_id": heritage, "quantity": 3, "barcodes": H, "labels_attached": True}, expect=422)
+check("…and verified by scanning when the business requires it", "verify" in r["error"]["message"], r)
+rh = call("POST", "/stock/receive", {"product_id": heritage, "quantity": 3, "barcodes": H, "labels_attached": True, "labels_verified": True})
+call("PUT", "/settings", s_)
+check("received: three units, each with its own barcode", rh["result"]["on_hand"] == 3, rh)
+# Never reused, never another business's or product's
+other_p = call("POST", "/products", {"name": f"Pilot Chrono {suffix}", "marked_price": 8000, "track_items": True})["result"]["id"]
+r = call("POST", "/stock/receive", {"product_id": other_p, "quantity": 1, "barcodes": [H[0]]}, expect=422)
+check("roadmap 133: a code already on an item is never given to another", "already" in r["error"]["message"].lower() or "used" in r["error"]["message"], r)
+r = call("POST", "/stock/receive", {"product_id": other_p, "quantity": 1, "barcodes": [batch[0]], "labels_attached": True}, expect=422)
+check("a code generated for another product is refused", "another product" in r["error"]["message"], r)
+call("PUT", "/settings", {**s_, "stock": {**s_["stock"], "manual_barcode_entry": False}})
+r = call("POST", "/stock/receive", {"product_id": other_p, "quantity": 1, "barcodes": [f"PC{suffix}01"], "barcode_sources": ["manual"]}, expect=422)
+check("roadmap 137: with typing off for receiving, a typed barcode is refused", r["error"]["title"] == "Scan required", r)
+call("POST", "/stock/receive", {"product_id": other_p, "quantity": 1, "barcodes": [f"PC{suffix}01"], "barcode_sources": ["scanner"]})
+check("…a scanned one is accepted", call("GET", f"/stock/items?product_id={other_p}&status=in_stock")["total"] == 1)
+call("PUT", "/settings", s_)
+# Concealment
+items_h = call("GET", f"/stock/items?product_id={heritage}&status=in_stock")["items"]
+check("roadmap 136: item barcodes are masked in stock lists (****047)", sorted(i["barcode"] for i in items_h) == sorted(mask(c) for c in H) and all(i["barcode"].startswith("****") for i in items_h), [i["barcode"] for i in items_h])
+look_h = call("GET", f"/products/lookup?code={H[0]}")
+check("a scan resolves the item, shown masked", look_h["stock_item"]["barcode"] == mask(H[0]) and look_h["product"]["id"] == heritage, look_h["stock_item"])
+mv_h = [m for m in call("GET", f"/stock/movements?period=today&product_id={heritage}&limit=20")["items"]]
+check("movements show masked barcodes", mv_h and all((m["barcode"] or "").startswith("****") for m in mv_h), [m["barcode"] for m in mv_h])
+inv = call("GET", "/reports/barcode_inventory?period=today")
+check("reports and exports show masked barcodes", not any(c in json.dumps(inv) for c in H), "full code in report")
+aud_r = [a for a in call("GET", "/audit?period=today&limit=50&module=stock")["items"] if a["action"] == "receive" and a["entity_id"] == heritage]
+check("the receipt's audit entry holds masked barcodes", aud_r and not any(c in json.dumps(aud_r) for c in H), "full code in audit")
+# Reveal / print need their permissions
+sp_mail = f"tillbc{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": f"Till BC {suffix}", "email": sp_mail, "pin": "4321", "role_id": bc_roles["Salesperson"], "all_branches": True, "branch_ids": []})
+SP = {"token": call("POST", "/auth/login", {"email": sp_mail, "pin": "4321"})["token"], "branch": BRANCH}
+item0 = next(i for i in items_h if i["barcode"] == mask(H[0]))["id"]
+call("POST", "/barcodes/reveal", {"stock_item_id": item0}, **SP, expect=403)
+call("POST", "/barcodes/labels", {"stock_item_ids": [item0]}, **SP, expect=403)
+call("POST", "/barcodes/generate", {"product_id": heritage, "quantity": 1}, **SP, expect=403)
+check("sales agents cannot reveal, print or generate item barcodes", True)
+check("an authorised reveal returns the full code", call("POST", "/barcodes/reveal", {"stock_item_id": item0})["code"] == H[0])
+lab = call("POST", "/barcodes/labels", {"product_id": heritage, "branch_id": BRANCH})
+check("reprinting returns the full codes for the printer only", sorted(l_["code"] for l_ in lab["labels"]) == sorted(H) and lab["business"], lab)
+acts = [a["action"] for a in call("GET", "/audit?period=today&limit=100&module=barcodes")["items"]]
+check("generation, printing and reveals are audited", {"generated", "labels_reprinted", "revealed"} <= set(acts), acts)
+# Scan-to-clear at the till
+def sell_h(code, source, expect=200, token=None, branch=None):
+    return call("POST", "/sales", {"items": [{"product_id": heritage, "quantity": 1, "unit_price": 5000, "barcode": code, "scan_source": source}],
+                                   "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, expect=expect, token=token, branch=branch)
+check("roadmap 137: typing barcodes at the till is off by default", call("GET", "/settings")["settings"]["sales"]["manual_barcode_entry"] is False)
+r = sell_h(H[0], "manual", expect=422)
+check("a typed barcode cannot clear an item", r["error"]["title"] == "Scan required", r)
+r = call("POST", "/sales", {"items": [{"product_id": heritage, "quantity": 1, "unit_price": 5000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, expect=422)
+check("nor can choosing the product and a quantity", r["error"]["title"] == "Scan required", r)
+sale_h = sell_h(H[0], "scanner")["sale"]
+det_h = call("GET", f"/sales/{sale_h['id']}")
+line_h = det_h["items"][0]
+check("a scanned item is cleared; the sale shows it masked", line_h["barcode"] == mask(H[0]) and line_h["tracked"] is True, line_h)
+r = sell_h(H[0], "scanner", expect=422)
+check("a sold item can never be sold again", r["error"]["title"] == "Item already sold", r)
+r = call("POST", "/sales", {"items": [{"product_id": heritage, "quantity": 1, "unit_price": 5000, "barcode": H[1], "scan_source": "camera"},
+                                      {"product_id": heritage, "quantity": 1, "unit_price": 5000, "barcode": H[1], "scan_source": "camera"}],
+                            "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, expect=422)
+check("the same item twice in one sale is refused (masked in the message)", r["error"]["title"] == "Already in this sale" and H[1] not in r["error"]["message"], r)
+r = sell_h(H[1], "scanner", expect=422, branch=b2)
+check("an item from another branch is refused", r["error"]["title"] in ("Wrong branch", "Unknown barcode"), r)
+call("PUT", "/settings", {**s_, "sales": {**s_["sales"], "manual_barcode_entry": True}})
+r = sell_h(H[1], "manual", expect=422, token=SP["token"])
+check("allowed typing still needs the till permission", r["error"]["title"] == "Scan required", r)
+sell_h(H[1], "manual")
+call("PUT", "/settings", s_)
+check("an authorised person may type when the business allows it", True)
+# Replace a damaged label: new code, old one retired forever
+item2 = next(i for i in call("GET", f"/stock/items?product_id={heritage}&status=in_stock")["items"])["id"]
+call("POST", "/barcodes/replace", {"stock_item_id": item2, "reason": ""}, expect=400)
+rep_ = call("POST", "/barcodes/replace", {"stock_item_id": item2, "reason": "Label torn"})
+check("roadmap 135: a replaced label gets a new seven-digit code", len(rep_["code"]) == 7 and rep_["code"] != H[2] and rep_["masked"] == mask(rep_["code"]))
+r = sell_h(H[2], "scanner", expect=422)
+check("the old label no longer sells the item", r["error"]["title"] in ("Unknown barcode", "Barcode mismatch"), r)
+r = call("POST", "/stock/receive", {"product_id": heritage, "quantity": 1, "barcodes": [H[2]]}, expect=422)
+check("…and the old code is never reused", "never reused" in r["error"]["message"], r)
+tr_ = call("GET", f"/stock/barcode/{H[2]}")
+check("tracing the old code still finds the item", len(tr_["items"]) == 1 and tr_["barcode"] == mask(H[2]), tr_)
+check("the item's history opens from the list too", call("GET", f"/stock/items/{item2}/history")["items"][0]["id"] == item2)
+# Stock from before individual tracking
+shirt = call("POST", "/products", {"name": f"Silk Shirt {suffix}", "marked_price": 1200, "cost_price": 600})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": shirt, "quantity": 2})
+call("PUT", f"/products/{shirt}", {"name": f"Silk Shirt {suffix}", "marked_price": 1200, "cost_price": 600, "track_items": True})
+r = call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": shirt, "barcodes": []}]}, expect=422)
+check("roadmap 135: a stock take waits until stock from before tracking is labelled", r["error"]["title"] == "Label existing stock first", r)
+le = call("POST", "/barcodes/label-existing", {"product_id": shirt, "branch_id": BRANCH})
+check("existing stock gets one barcode per unit on hand (stock unchanged)", len(le["codes"]) == 2 and call("GET", f"/stock/items?product_id={shirt}&status=in_stock")["total"] == 2)
+call("POST", "/barcodes/label-existing", {"product_id": shirt, "branch_id": BRANCH}, expect=422)
+check("…only once", True)
+r = call("PUT", f"/products/{shirt}", {"name": f"Silk Shirt {suffix}", "marked_price": 1200, "cost_price": 600, "track_items": False}, expect=422)
+check("units with their own barcode cannot lose it by switching back to a shared barcode", "own barcode" in r["error"]["message"], r)
+# Platform capacity
+cap = call("GET", "/platform/barcodes/capacity")
+check("roadmap 133: platform capacity of the seven-digit namespace", cap["capacity"] == 9000000 and cap["used"] >= 46 and cap["remaining"] == cap["capacity"] - cap["used"], cap)
+call("GET", "/platform/barcodes/capacity", **SP, expect=403)
+
 step("Roadmap 87: automatic logout after inactivity")
 sp_roles = {r["name"]: r["id"] for r in call("GET", "/roles")}
 pol = call("GET", "/security/sessions")
@@ -2971,6 +3096,15 @@ jar = call("GET", f"/stock?q=Imported Jar {suffix}")["items"][0]
 check("opening stock posted through the stock ledger (12 on hand)", odone["summary"]["quantity"] == 12 and jar["on_hand"] == 12, (odone, jar["on_hand"]))
 again = upload_xlsx("opening_stock", make_xlsx(["Product Code", "Branch Code", "Opening Quantity", "As-of Date"], [[f"OBJ{suffix}", main_code, 5, today_s]]))
 check("opening stock is never added on top of recorded stock", again["batch"]["invalid_rows"] == 1 and "already has stock" in again["rows"][0]["messages"][0]["message"], again["rows"][0]["messages"])
+
+# Roadmap 133: tracked opening stock may leave Item Barcodes blank — S'Shop issues one seven-digit code per unit.
+ob_watch = call("POST", "/products", {"name": f"Import Watch {suffix}", "marked_price": 900, "track_items": True})["result"]["id"]
+ob_code = call("GET", f"/products/{ob_watch}")["product"]["code"]
+osg = upload_xlsx("opening_stock", make_xlsx(["Product Code", "Branch Code", "Opening Quantity", "As-of Date"], [[ob_code, main_code, 2, today_s]]))
+check("roadmap 133: tracked opening stock without item barcodes is accepted", osg["batch"]["invalid_rows"] == 0, osg["rows"][0]["messages"])
+import_now(osg["batch"]["id"], {})
+ob_units = call("GET", f"/stock/items?product_id={ob_watch}&status=in_stock")["items"]
+check("…S'Shop issued one barcode per unit (shown masked; labels printed from the product)", len(ob_units) == 2 and all(u["barcode"].startswith("****") for u in ob_units), ob_units)
 
 exp = upload_xlsx("expenses", make_xlsx(["Voucher No", "Date", "Branch", "Category", "Amount", "Payment Method", "Paid To"],
                                         [[f"V{suffix}1", "14/09/2026", main_code, f"Imported rent {suffix}", 45000, "Cash", "Landlord"]]))

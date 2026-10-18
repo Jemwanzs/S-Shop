@@ -198,6 +198,31 @@ export function TenantQuickPinCard() {
   );
 }
 
+/** Roadmap 133: how much of the seven-digit item barcode namespace S'Shop has issued (codes are never reused). */
+function BarcodeCapacity() {
+  const q = useQuery({
+    queryKey: ["barcode-capacity"],
+    queryFn: () => api<{ used: number; assigned: number; allocated: number; capacity: number; remaining: number; percent: number; warning: boolean; stop_percent: number }>("/platform/barcodes/capacity"),
+  });
+  const c = q.data;
+  return (
+    <Card title="Item barcodes (seven digits)">
+      {!c ? <Loading /> : (
+        <div className="space-y-2 py-2 text-sm">
+          <div className="h-2 overflow-hidden rounded-full bg-muted"><div className={cn("h-full", c.warning ? "bg-warning" : "bg-primary")} style={{ width: `${Math.max(0.5, c.percent)}%` }} /></div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Fact label="Issued">{c.used.toLocaleString()} ({c.percent}%)</Fact>
+            <Fact label="On items">{c.assigned.toLocaleString()}</Fact>
+            <Fact label="Still available">{c.remaining.toLocaleString()}</Fact>
+          </div>
+          {c.warning && <p className="rounded-lg bg-warning/10 p-2.5 text-xs text-warning">{t("Over 70% of seven-digit codes are issued — plan the move to longer codes (docs, module 38).")}</p>}
+          <p className="text-xs text-muted-foreground">{t("Codes are issued at random from 1000000–9999999, once each across every business, and never reused. Issuing stops at")} {c.stop_percent}%.</p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 interface PlatformSecurity { quick_pin_enabled: boolean; quick_pin_min_length: number; quick_session_hours: number; max_attempts: number; device_days: number;
   /** Roadmap 87: automatic logout after inactivity. */
   idle_default_minutes: number; idle_min_minutes: number; idle_max_minutes: number; warning_seconds: number; max_session_hours: number;
@@ -250,6 +275,7 @@ export function PlatformSecuritySettings() {
           </div>
         </Card>
       )}
+      <BarcodeCapacity />
       <PlatformCampaignSettings />
     </SettingsPage>
   );

@@ -1,5 +1,7 @@
 # 19 · Barcode scanning (camera, handheld, manual)
 
+> Seven-digit item barcodes, printed stickers, masked item barcodes and scan-only clearing at the till: see [module 38](38-item-barcodes-labels.md) (roadmap 133–138).
+
 **Scope:** owner request 2026-10-05 · **Code:** `web/src/lib/scanner.ts` (engine), `web/src/components/BarcodeScanner.tsx`
 (the one scanner UI) · **API:** `GET /api/products/lookup?code=&branch_id=`
 

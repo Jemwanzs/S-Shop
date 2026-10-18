@@ -20,6 +20,7 @@ import { Chip } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { t } from "@/lib/i18n";
+import { TYPING_OFF, useManualBarcodes, type ScanSource } from "@/lib/scan";
 
 interface Detail {
   order: OrderRow;
@@ -41,6 +42,9 @@ export default function OrderDetail() {
   const [reference, setReference] = useState("");
   // Individually tracked products: every unit handed over is scanned when the order becomes a sale.
   const [units, setUnits] = useState<Record<string, string[]>>({});
+  // Roadmap 137: how each unit's barcode was captured (same order as `units`).
+  const [sources, setSources] = useState<Record<string, ScanSource[]>>({});
+  const typingAllowed = useManualBarcodes("sale");
   const unitsRef = useRef(units);
   unitsRef.current = units;
   const [scanUnits, setScanUnits] = useState(false);
@@ -52,7 +56,7 @@ export default function OrderDetail() {
           status: target,
           notes,
           payment: needsPayment ? { method, reference } : undefined,
-          barcodes: needsPayment ? Object.entries(units).map(([product_id, barcodes]) => ({ product_id, barcodes })) : [],
+          barcodes: needsPayment ? Object.entries(units).map(([product_id, barcodes]) => ({ product_id, barcodes, sources: sources[product_id] ?? [] })) : [],
         },
       }),
     onSuccess: (r) => {
@@ -61,6 +65,7 @@ export default function OrderDetail() {
       setNotes("");
       setReference("");
       setUnits({});
+      setSources({});
       qc.invalidateQueries({ queryKey: ["order", id] });
       qc.invalidateQueries({ queryKey: ["orders"] });
     },
@@ -82,7 +87,8 @@ export default function OrderDetail() {
   const methods = profile?.settings.sales.payment_methods.filter((m) => m.enabled) ?? [];
   const trackedItems = data.items.filter((i) => i.track_items);
   const unitsMissing = needsPayment && trackedItems.some((i) => (units[i.product_id]?.length ?? 0) < i.quantity);
-  const onUnitScan = async (code: string): Promise<ScanOutcome> => {
+  const onUnitScan = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
+    if (source === "manual" && !typingAllowed) return { tone: "error", title: TYPING_OFF };
     let r: { product: { id: string; name: string }; stock_item: { status: string; in_current_branch: boolean; branch_name: string } | null };
     try {
       r = await api("/products/lookup", { query: { code, branch_id: o.branch_id } });
@@ -98,6 +104,7 @@ export default function OrderDetail() {
     if (have.includes(code)) return { tone: "info", title: "Already scanned" };
     if (have.length >= line.quantity) return { tone: "info", title: `All ${line.quantity} ${line.product_name} scanned` };
     setUnits((u) => ({ ...u, [line.product_id]: [...(u[line.product_id] ?? []), code] }));
+    setSources((s) => ({ ...s, [line.product_id]: [...(s[line.product_id] ?? []), source ?? "scanner"] }));
     return { tone: "success", title: `${line.product_name} · ${have.length + 1} of ${line.quantity}` };
   };
   const waText = `Hi ${o.customer_name.split(" ")[0]}! Your order ${o.order_no} is ${titleCase(o.status)}. Track it here: ${data.track_url}`;
@@ -248,7 +255,7 @@ export default function OrderDetail() {
           <Field label="Note" optional><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. rider name, reason" /></Field>
         </div>
       </ResponsiveDialog>
-      <BarcodeScanner open={scanUnits} onOpenChange={setScanUnits} onDetected={onUnitScan} continuous title="Scan order items" hint={o.order_no} />
+      <BarcodeScanner open={scanUnits} onOpenChange={setScanUnits} onDetected={onUnitScan} continuous context="sale" title="Scan order items" hint={o.order_no} />
     </>
   );
 }

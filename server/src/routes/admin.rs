@@ -163,6 +163,14 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(mut body): J
             return Err(bad("Every order status needs a name"));
         }
     }
+    // Roadmap 134/138: a sticker big enough to scan, small enough for label rolls.
+    let l = &body.stock.labels;
+    if !(25..=100).contains(&l.width_mm) || !(15..=80).contains(&l.height_mm) || l.height_mm > l.width_mm {
+        return Err(bad("Label size: 25–100 mm wide, 15–80 mm high, no taller than it is wide"));
+    }
+    if !matches!(l.printer.as_str(), "system" | "zpl" | "tspl") {
+        return Err(bad("Label printer: system printing, ZPL or TSPL"));
+    }
     if body.sales.payment_methods.iter().all(|m| !m.enabled) {
         return Err(bad("Enable at least one payment method"));
     }

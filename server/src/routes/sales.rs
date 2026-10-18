@@ -153,6 +153,9 @@ pub struct LineInput {
     /// Roadmap 115: this line's own sale date (None = the sale's date).
     #[serde(default)]
     pub sale_date: Option<NaiveDate>,
+    /// Roadmap 137: how the barcode was captured — scanner | camera | manual (typed).
+    #[serde(default)]
+    pub scan_source: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
@@ -339,6 +342,7 @@ struct PreparedLine {
     product_id: Uuid,
     stock_item_id: Option<Uuid>,
     barcode: Option<String>,
+    scan_source: Option<String>,
     quantity: i32,
     marked_price: Decimal,
     unit_price: Decimal,
@@ -430,6 +434,18 @@ async fn prepare_lines(
         }
 
         let barcode = l.barcode.as_deref().map(str::trim).filter(|c| !c.is_empty()).map(String::from);
+        // Roadmap 137: barcode-controlled items are cleared by scanning; a typed barcode is refused unless the business
+        // allows typing at the till and this person may do it. (The capture source comes from the till and cannot be
+        // proven for keyboard-style scanners — it is enforced as far as the till can tell and recorded.)
+        let scan_source = match l.scan_source.as_deref() {
+            None => None,
+            Some(src @ ("scanner" | "camera" | "manual")) => Some(src.to_string()),
+            Some(_) => return Err(bad("Unknown barcode capture")),
+        };
+        let controlled = p.track_items || (s.sales.require_barcode_clearance && !trusted_prices && p.barcode.is_some());
+        if controlled && barcode.is_some() && scan_source.as_deref() == Some("manual") && !(s.sales.manual_barcode_entry && ctx.can("barcodes.manual_sale")) {
+            return Err(refused("Scan required", format!("Typing barcodes at the till is switched off — scan the label on the {}.", p.name)));
+        }
         let mut stock_item_id = None;
         let mut unit_cost = p.cost_price;
         if p.track_items {
@@ -440,7 +456,7 @@ async fn prepare_lines(
             // Locked until the sale commits: a second till selling the same item waits, then finds it sold.
             let (id, cost) = claim_item(conn, ctx.tenant_id, l.product_id, &p.name, input.branch_id, &code, true).await?;
             if seen_items.contains(&id) {
-                return Err(refused("Already in this sale", format!("{code} has already been added to this sale.")));
+                return Err(refused("Already in this sale", format!("{} has already been added to this sale.", super::barcodes::mask(&code))));
             }
             seen_items.push(id);
             stock_item_id = Some(id);
@@ -459,6 +475,7 @@ async fn prepare_lines(
             product_id: l.product_id,
             stock_item_id,
             barcode,
+            scan_source: if controlled { scan_source } else { None },
             quantity: l.quantity,
             marked_price,
             unit_price: l.unit_price,
@@ -752,8 +769,8 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         // Persist the points actually awarded per line so returns reverse exactly.
         sqlx::query(
             "INSERT INTO sale_items (tenant_id, sale_id, product_id, stock_item_id, barcode, quantity, marked_price, unit_price,
-                                     line_total, unit_cost, points, sale_date)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+                                     line_total, unit_cost, points, sale_date, scan_source)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
         )
         .bind(ctx.tenant_id)
         .bind(sale_id)
@@ -767,6 +784,7 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         .bind(l.unit_cost)
         .bind(line_points)
         .bind(line_day)
+        .bind(&l.scan_source)
         .execute(&mut *conn)
         .await?;
         if let Some(item) = l.stock_item_id {
@@ -1456,7 +1474,7 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
     let show_cost = ctx.can("sales.view_financials");
     let items: Vec<Value> = sqlx::query_scalar(
         "SELECT jsonb_build_object('id', si.id, 'product_id', si.product_id, 'product_name', p.name, 'product_code', p.code,
-                'barcode', si.barcode, 'quantity', si.quantity, 'returned_qty', si.returned_qty, 'marked_price', si.marked_price,
+                'barcode', CASE WHEN si.stock_item_id IS NOT NULL THEN mask_item(si.barcode) ELSE si.barcode END, 'tracked', si.stock_item_id IS NOT NULL, 'quantity', si.quantity, 'returned_qty', si.returned_qty, 'marked_price', si.marked_price,
                 'unit_price', si.unit_price, 'discount', (si.marked_price - si.unit_price) * si.quantity,
                 'line_total', si.line_total, 'points', si.points, 'unit_cost', CASE WHEN $2 THEN si.unit_cost END, 'sale_date', si.sale_date)
          FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = $1 ORDER BY p.name",

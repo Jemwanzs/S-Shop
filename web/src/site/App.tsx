@@ -37,6 +37,10 @@ function useMode(data: SiteData): ["light" | "dark", (() => void) | null] {
       const saved = localStorage.getItem(key);
       if (saved === "light" || saved === "dark") return saved;
     } catch { /* default below */ }
+    // Roadmap 139: a first visit follows the visitor's phone / computer setting until they choose with the toggle.
+    try {
+      if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) return "dark";
+    } catch { /* light */ }
     return "light";
   });
   if (modes !== "both") return [modes === "dark" ? "dark" : "light", null];

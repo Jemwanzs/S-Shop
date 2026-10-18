@@ -6,7 +6,7 @@ import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
-import { count, todayIso } from "@/lib/format";
+import { count, todayIso, maskCode } from "@/lib/format";
 import type { Paged, StockLevel } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/ActionButton";
@@ -139,7 +139,7 @@ export default function TransferNew() {
                 {l.barcodes.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {l.barcodes.map((b) => (
-                      <span key={b} className="num inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">{b}<button onClick={() => update(l.product.product_id, (x) => ({ ...x, barcodes: x.barcodes.filter((y) => y !== b) }))} aria-label="Remove"><X className="h-3 w-3" /></button></span>
+                      <span key={b} className="num inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">{maskCode(b)}<button onClick={() => update(l.product.product_id, (x) => ({ ...x, barcodes: x.barcodes.filter((y) => y !== b) }))} aria-label="Remove"><X className="h-3 w-3" /></button></span>
                     ))}
                   </div>
                 )}

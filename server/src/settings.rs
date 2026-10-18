@@ -257,6 +257,28 @@ pub struct StockSettings {
     pub allow_negative: bool,
     /// When true, transfers sit "in transit" until the destination confirms receipt.
     pub transfer_receipt_control: bool,
+    /// Roadmap 133/135: S'Shop generates the seven-digit barcodes of individually tracked items when receiving.
+    pub generate_item_barcodes: bool,
+    /// Roadmap 135: every newly attached label is scanned before a receipt of individually tracked items completes.
+    pub require_label_verification: bool,
+    /// Roadmap 134/138: the barcode sticker and the label printer.
+    pub labels: LabelSettings,
+}
+
+/// Roadmap 134/138: the standard barcode sticker size and how labels reach the printer.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct LabelSettings {
+    /// Sticker size in millimetres (40×25, 50×30, 60×40 or custom, 25–100 × 15–80).
+    pub width_mm: u16,
+    pub height_mm: u16,
+    /// system (browser / system print dialog, PDF, PNG) · zpl (Zebra-language printers) · tspl (TSC-language printers)
+    pub printer: String,
+}
+impl Default for LabelSettings {
+    fn default() -> Self {
+        Self { width_mm: 50, height_mm: 30, printer: "system".into() }
+    }
 }
 impl Default for StockSettings {
     fn default() -> Self {
@@ -271,6 +293,9 @@ impl Default for StockSettings {
             low_stock_threshold: 3,
             allow_negative: false,
             transfer_receipt_control: true,
+            generate_item_barcodes: true,
+            require_label_verification: false,
+            labels: LabelSettings::default(),
         }
     }
 }
@@ -288,6 +313,8 @@ pub struct PaymentMethod {
 pub struct SalesSettings {
     pub quantity_entry: QuantityEntry,
     pub require_barcode_clearance: bool,
+    /// Roadmap 137: barcodes of barcode-controlled items may be typed at the till (off: they must be scanned).
+    pub manual_barcode_entry: bool,
     pub payment_methods: Vec<PaymentMethod>,
     /// Allow cashiers to confirm M-Pesa by typing the transaction code.
     pub mpesa_manual_confirmation: bool,
@@ -340,6 +367,7 @@ impl Default for SalesSettings {
         Self {
             quantity_entry: QuantityEntry::Editable,
             require_barcode_clearance: false,
+            manual_barcode_entry: false,
             payment_methods: vec![
                 PaymentMethod { key: "mpesa".into(), label: "M-Pesa".into(), enabled: true },
                 PaymentMethod { key: "cash".into(), label: "Cash".into(), enabled: true },

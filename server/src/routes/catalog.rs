@@ -412,6 +412,16 @@ async fn apply_update(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, b: &ProductB
         .bind(id)
         .fetch_one(&mut *conn)
         .await?;
+    // Roadmap 135: units with their own barcode cannot lose them by switching the product back to one shared barcode.
+    if before.get("track_items").and_then(Value::as_bool) == Some(true) && !b.track_items {
+        let live: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM stock_items WHERE product_id = $1 AND status IN ('in_stock','reserved','in_transit')")
+            .bind(id)
+            .fetch_one(&mut *conn)
+            .await?;
+        if live > 0 {
+            return Err(rule(format!("{live} item(s) of this product carry their own barcode — sell, transfer or write them off before switching to one shared barcode")));
+        }
+    }
     sqlx::query(
         "UPDATE products SET code=$3, name=$4, nickname=$5, description=$6, category_id=$7, supplier_id=$8, marked_price=$9,
              max_discount=$10, cost_price=$11, barcode=$12, track_items=$13, available_for_orders=$14, transfer_allowed=$15,
@@ -794,7 +804,7 @@ async fn lookup(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LookupQ
         "product": product,
         "other_branches": elsewhere.into_iter().map(|(id, name, available)| json!({ "branch_id": id, "branch_name": name, "available": available })).collect::<Vec<_>>(),
         "stock_item": item.map(|(id, _, bid, bname, status)| json!({
-            "id": id, "barcode": code, "branch_id": bid, "branch_name": bname, "status": status,
+            "id": id, "barcode": super::barcodes::mask(&code), "branch_id": bid, "branch_name": bname, "status": status,
             "in_current_branch": bid == branch,
         })),
     })))

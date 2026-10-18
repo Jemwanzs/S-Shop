@@ -73,7 +73,7 @@ export function DesignTab({ c, set }: TabProps) {
       </Block>
 
       <Block title="Look & feel">
-        <Field label="Theme"><Choice value={modes} onChange={(v) => set((x) => { x.theme.modes = v; })} options={[["light", "Light"], ["dark", "Dark"], ["both", "Both (visitors choose)"]]} /></Field>
+        <Field label="Theme" hint="Both: visitors get a sun / moon button in the website header (first visit follows their phone or computer). Publish to apply."><Choice value={modes} onChange={(v) => set((x) => { x.theme.modes = v; })} options={[["light", "Light"], ["dark", "Dark"], ["both", "Both (visitors choose)"]]} /></Field>
         <Field label="Style"><Choice value={c.theme.style} onChange={(v) => set((x) => { x.theme.style = v; })} options={[["modern", "Modern"], ["minimal", "Minimal"], ["elegant", "Elegant"], ["bold", "Bold"]]} /></Field>
         <Field label="Spacing"><Choice value={c.theme.scale} onChange={(v) => set((x) => { x.theme.scale = v; })} options={[["compact", "Compact"], ["balanced", "Balanced"], ["spacious", "Spacious"]]} /></Field>
         <Field label="Animations" hint="Gentle fades, card lift and cart feedback. Always off for visitors who ask their device for reduced motion.">

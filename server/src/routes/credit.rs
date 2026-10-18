@@ -175,7 +175,7 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     .await?;
     // What was sold (for recalls) and every recall so far.
     let items: Vec<(Uuid, String, String, i32, i32, Decimal, Option<String>, bool)> = sqlx::query_as(
-        "SELECT si.id, p.name, p.code, si.quantity, si.returned_qty, si.unit_price, si.barcode, si.stock_item_id IS NOT NULL
+        "SELECT si.id, p.name, p.code, si.quantity, si.returned_qty, si.unit_price, CASE WHEN si.stock_item_id IS NOT NULL THEN mask_item(si.barcode) ELSE si.barcode END, si.stock_item_id IS NOT NULL
          FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = $1 ORDER BY p.name, si.barcode",
     )
     .bind(row.sale_id)
@@ -183,7 +183,7 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     .await?;
     let recalls: Vec<(String, String, Decimal, Option<Decimal>, Option<Decimal>, Decimal, String, DateTime<Utc>, Option<String>, Value)> = sqlx::query_as(
         "SELECT r.return_no, r.reason, r.refund_amount, r.balance_before, r.balance_after, r.customer_credit, r.refund_method, r.created_at, u.name,
-                COALESCE((SELECT jsonb_agg(jsonb_build_object('product', p.name, 'quantity', ri.quantity, 'barcode', si.barcode))
+                COALESCE((SELECT jsonb_agg(jsonb_build_object('product', p.name, 'quantity', ri.quantity, 'barcode', CASE WHEN si.stock_item_id IS NOT NULL THEN mask_item(si.barcode) ELSE si.barcode END))
                           FROM sale_return_items ri JOIN sale_items si ON si.id = ri.sale_item_id JOIN products p ON p.id = si.product_id
                           WHERE ri.return_id = r.id), '[]'::jsonb)
          FROM sale_returns r LEFT JOIN users u ON u.id = r.user_id WHERE r.sale_id = $1 AND r.kind = 'recall' ORDER BY r.created_at",

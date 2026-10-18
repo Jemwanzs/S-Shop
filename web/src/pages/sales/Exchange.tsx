@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
-import { amount, money, toNum } from "@/lib/format";
+import { amount, money, toNum, maskCode } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { PosProduct, SaleDetail } from "@/lib/types";
@@ -18,12 +18,14 @@ import { ErrorState, Loading, PageHeader, Section } from "@/components/Page";
 import { Field, Select } from "@/components/Form";
 import { Chip, SearchInput } from "@/components/Filters";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
+import type { ScanSource } from "@/lib/scan";
 
 interface NewLine {
   key: string;
   product: PosProduct;
   quantity: number;
   barcode?: string;
+  barcodeSource?: ScanSource;
 }
 
 /** Exchange: items come back from a sale and others go out, settled in one step (the difference only). */
@@ -72,7 +74,7 @@ export default function Exchange() {
       api<SaleDetail | { pending_approval: true; approval_id: string }>(`/sales/${id}/exchange`, {
         body: {
           return_items: Object.entries(back).filter(([, n]) => n > 0).map(([sale_item_id, quantity]) => ({ sale_item_id, quantity })),
-          items: lines.map((l) => ({ product_id: l.product.id, quantity: l.quantity, unit_price: toNum(l.product.marked_price), barcode: l.barcode })),
+          items: lines.map((l) => ({ product_id: l.product.id, quantity: l.quantity, unit_price: toNum(l.product.marked_price), barcode: l.barcode, scan_source: l.barcode ? l.barcodeSource : undefined })),
           payment: { method, reference: method === "mpesa" ? code : "", phone: "" },
           refund_method: refundMethod,
           reason: reason.trim(),
@@ -149,7 +151,7 @@ export default function Exchange() {
                 <li key={l.key} className="flex items-center gap-3 py-2.5 text-sm">
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{l.product.name}</div>
-                    <div className="num text-xs text-muted-foreground">{money(l.product.marked_price)}{l.barcode && ` · ${l.barcode}`}</div>
+                    <div className="num text-xs text-muted-foreground">{money(l.product.marked_price)}{l.barcode && ` · ${l.product.track_items ? maskCode(l.barcode) : l.barcode}`}</div>
                   </div>
                   {!l.barcode && (
                     <div className="flex items-center gap-1">
@@ -208,11 +210,12 @@ export default function Exchange() {
         open={!!scanFor}
         onOpenChange={(o) => !o && setScanFor(null)}
         title={scanFor ? `${t("Scan")} ${scanFor.name}` : ""}
-        onDetected={async (barcode) => {
+        context="sale"
+        onDetected={async (barcode, source) => {
           if (!scanFor) return;
           if (lines.some((l) => l.barcode === barcode)) return { tone: "error", title: t("Already in this sale") };
           await api("/sales/check-barcode", { body: { product_id: scanFor.id, barcode } });
-          setLines((ls) => [...ls, { key: crypto.randomUUID(), product: scanFor, quantity: 1, barcode }]);
+          setLines((ls) => [...ls, { key: crypto.randomUUID(), product: scanFor, quantity: 1, barcode, barcodeSource: source }]);
           setQ("");
         }}
       />

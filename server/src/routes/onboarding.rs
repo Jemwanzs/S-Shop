@@ -169,7 +169,10 @@ struct Refs {
     products: HashMap<String, (Uuid, bool, Option<String>, String)>,
     /// barcode → product id
     product_barcodes: HashMap<String, Uuid>,
+    /// Roadmap 133: every barcode this business ever put on an item (item barcodes are never reused).
     item_barcodes: HashSet<String>,
+    /// Roadmap 133: S'Shop generates the item barcodes of tracked opening stock left without them.
+    generate_items: bool,
     customers: HashSet<String>,
     /// product id + branch id with any stock recorded already
     stocked: HashSet<(Uuid, Uuid)>,
@@ -209,7 +212,9 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
     let ecats = sqlx::query_as::<_, (String, Uuid)>("SELECT name, id FROM expense_categories WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
     let prods: Vec<(Uuid, String, bool, Option<String>, String)> =
         sqlx::query_as("SELECT id, code, track_items, barcode, name FROM products WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
-    let items: Vec<String> = sqlx::query_scalar("SELECT barcode FROM stock_items WHERE tenant_id = $1 AND status IN ('in_stock','reserved','in_transit')")
+    let items: Vec<String> = sqlx::query_scalar(
+        "SELECT barcode FROM stock_items WHERE tenant_id = $1 UNION SELECT barcode FROM stock_item_barcode_history WHERE tenant_id = $1",
+    )
         .bind(t)
         .fetch_all(&mut *conn)
         .await?;
@@ -250,6 +255,7 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
         product_barcodes: prods.iter().filter_map(|p| p.3.clone().map(|b| (b, p.0))).collect(),
         products: prods.into_iter().map(|(id, code, track, barcode, name)| (code.to_uppercase(), (id, track, barcode, name))).collect(),
         item_barcodes: items.into_iter().collect(),
+        generate_items: s.stock.generate_item_barcodes && s.stock.barcode_requirement != settings::BarcodeRequirement::Disabled,
         customers: customers.into_iter().collect(),
         stocked: stocked.into_iter().collect(),
         payment_methods,
@@ -499,7 +505,10 @@ fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &R
                     }
                     let units: Vec<String> = s(&d, "item_barcodes").map(|x| x.split([';', ',', '\n']).map(str::trim).filter(|x| !x.is_empty()).map(String::from).collect()).unwrap_or_default();
                     if p.1 {
-                        if units.len() as i64 != qty.unwrap_or(-1) {
+                        // Roadmap 133: no item barcodes given — S'Shop generates one per unit when the import posts.
+                        if units.is_empty() && r.generate_items && qty.unwrap_or(0) > 0 {
+                            d.insert("generate_units".into(), json!(true));
+                        } else if units.len() as i64 != qty.unwrap_or(-1) {
                             c.err("item_barcodes", format!("{} is tracked per item: give one Item Barcode per unit ({} given for {})", p.3, units.len(), qty.unwrap_or(0)));
                         }
                         for u in &units {
@@ -508,7 +517,7 @@ fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &R
                                 Ok(u) => {
                                     dup(format!("item:{u}"), "item_barcodes", &format!("Item barcode {u}"), &mut c);
                                     if r.item_barcodes.contains(&u) || r.product_barcodes.contains_key(&u) {
-                                        c.err("item_barcodes", format!("Item barcode {u} is already in use"));
+                                        c.err("item_barcodes", format!("Item barcode {u} is already in use or was used before (item barcodes are never reused)"));
                                     }
                                 }
                             }
@@ -1814,11 +1823,16 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, p: &mut Progres
                 } else {
                     let product_id = uuid_of(&d, "product_id")?;
                     let branch_id = uuid_of(&d, "branch_id")?;
+                    let mut barcodes: Vec<String> = d.get("units").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+                    if barcodes.is_empty() && d.get("generate_units").and_then(|v| v.as_bool()) == Some(true) {
+                        // Roadmap 133: seven-digit codes issued now; labels are printed from the product's Barcode Management.
+                        barcodes = super::barcodes::allocate(conn, ctx.tenant_id, product_id, ctx.user_id, qty).await?;
+                    }
                     let mut body = super::stock::ReceiveBody {
                         product_id,
                         branch_id: Some(branch_id),
                         quantity: qty,
-                        barcodes: d.get("units").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default(),
+                        barcodes,
                         cost_price: money(&d, "unit_cost"),
                         marked_price: None,
                         max_discount: None,
@@ -1827,6 +1841,10 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, p: &mut Progres
                         date_received: s(&d, "as_of").and_then(|x| NaiveDate::parse_from_str(x, "%Y-%m-%d").ok()),
                         activate: false,
                         kind: Some("opening".into()),
+                        // Labels of imported stock are printed afterwards from the product (nothing printed yet).
+                        labels_attached: false,
+                        labels_verified: false,
+                        barcode_sources: Vec::new(),
                     };
                     super::stock::receive_in_tx(conn, ctx, &cfg, &mut body).await?;
                     sqlx::query(

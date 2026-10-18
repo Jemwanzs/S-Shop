@@ -401,6 +401,22 @@ Any endpoint needing a full sign-in answers a Quick session with 422 *Full sign-
 | POST | `/api/auth/passkey/login/start` (`credential_id`) | public, rate-limited; 422 *Full sign-in needed* / *Face ID & biometrics unavailable* |
 | POST | `/api/auth/passkey/login/finish` (`challenge_id`, `credential`) | public; `{token, profile, quick: true}`; 400 failed check, 422 *Request expired* |
 
+## Item barcodes & labels ([module 38](modules/38-item-barcodes-labels.md))
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/barcodes/generate` (`product_id`, `quantity` 1–500) | *Generate item barcodes*; individually tracked products; `{codes, label: {business, product}}` |
+| POST | `/api/barcodes/labels` (`codes` · `stock_item_ids` · `product_id` + `branch_id`) | *Print & reprint labels*; full codes for printing only; audited |
+| POST | `/api/barcodes/replace` (`stock_item_id`, `reason`) | *Replace item barcodes*; in-stock item; new code, old retired |
+| POST | `/api/barcodes/label-existing` (`product_id`, `branch_id`) | *Generate* + *Receive stock*; one code per unlabelled unit on hand |
+| POST | `/api/barcodes/reveal` (`stock_item_id`) | *Reveal full item barcodes*; audited |
+| GET | `/api/platform/barcodes/capacity` | platform owner; issued / on items / remaining / percent / warning |
+| GET | `/api/stock/items/{id}/history` | an item's barcode history (list rows are masked) |
+
+`POST /api/stock/receive` takes `labels_attached` and `labels_verified` for S'Shop-generated codes. Sale lines (`/api/sales`,
+exchanges) take `scan_source` (`scanner` / `camera` / `manual`); order completion takes `barcodes[].sources`. Item barcodes in
+every other response are masked (`****047`).
+
 ## Tenants & secure access ([module 27](modules/27-tenants-and-secure-access.md))
 
 | Method | Path | Notes |

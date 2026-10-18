@@ -6,7 +6,7 @@ import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { usePersistentState } from "@/lib/hooks";
-import { count, signed } from "@/lib/format";
+import { count, signed, maskCode } from "@/lib/format";
 import type { Paged, Product, StockLevel } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -61,10 +61,10 @@ export default function StockCount() {
     if (p.track_items) {
       const unit = r.stock_item;
       if (!unit) return { tone: "error", title: `${p.name} is tracked per item`, detail: t("Scan each unit's own label, not the product barcode") };
-      if (!unit.in_current_branch || unit.status !== "in_stock") return { tone: "error", title: `${unit.barcode} is not in stock here`, detail: `${unit.status.replace("_", " ")} · ${unit.branch_name}` };
+      if (!unit.in_current_branch || unit.status !== "in_stock") return { tone: "error", title: `${maskCode(code)} is not in stock here`, detail: `${unit.status.replace("_", " ")} · ${unit.branch_name}` };
       const have = session.units[p.id] ?? [];
-      if (have.includes(unit.barcode)) return { tone: "info", title: `${unit.barcode} already counted`, detail: p.name };
-      setSession((s) => ({ ...s, units: { ...s.units, [p.id]: [...(s.units[p.id] ?? []), unit.barcode] } }));
+      if (have.includes(code)) return { tone: "info", title: `${maskCode(code)} already counted`, detail: p.name };
+      setSession((s) => ({ ...s, units: { ...s.units, [p.id]: [...(s.units[p.id] ?? []), code] } }));
       return { tone: "success", title: `${p.name} · ${have.length + 1} counted` };
     }
     let next = 0;

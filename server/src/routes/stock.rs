@@ -32,6 +32,7 @@ pub fn routes() -> Router<AppState> {
         .route("/stock/movements", get(movements))
         .route("/stock/items", get(items))
         .route("/stock/barcode/{code}", get(barcode_history))
+        .route("/stock/items/{id}/history", get(item_history))
         .route("/stock/adjustments", get(list_adjustments).post(create_adjustment))
         .route("/stock/count", post(stock_count))
         .route("/stock/position", get(position))
@@ -179,6 +180,14 @@ pub struct ReceiveBody {
     pub activate: bool,
     /// "received" (default) or "opening" for first-time stock loads.
     pub kind: Option<String>,
+    /// Roadmap 135: for barcodes S'Shop generated — the labels are on the items (and were scanned to verify them).
+    #[serde(default)]
+    pub labels_attached: bool,
+    #[serde(default)]
+    pub labels_verified: bool,
+    /// Roadmap 137: how each scanned barcode arrived (same order as `barcodes`): scanner | camera | manual.
+    #[serde(default)]
+    pub barcode_sources: Vec<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -246,6 +255,8 @@ async fn check_receipt(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b
         if !taken.is_empty() {
             return Err(rule(format!("Barcode already in use: {}", taken.join(", "))));
         }
+        // Roadmap 133: never a code issued to another business or product, and never one used on an item before.
+        super::barcodes::check_new_item_codes(conn, ctx.tenant_id, b.product_id, &b.barcodes).await?;
     } else {
         if b.barcodes.len() > 1 {
             return Err(rule("This product uses one shared barcode — scan a single code"));
@@ -286,7 +297,21 @@ async fn receive(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Rece
     if !s.stock.capture_cost {
         b.cost_price = None;
     }
+    // Roadmap 137: with manual entry during receiving switched off, barcodes are scanned or generated, never typed.
+    if !s.stock.manual_barcode_entry && b.barcode_sources.iter().any(|x| x == "manual") {
+        return Err(refused("Scan required", "Typing barcodes is switched off for stock receiving — scan the labels or generate new ones"));
+    }
     check_receipt(&mut tx, &ctx, &s, &mut b, &p).await?;
+    // Roadmap 135: printing a label is not attaching it — newly generated labels are confirmed (and verified when the
+    // business requires it) before the items count as received.
+    if p.track_items && super::barcodes::generated_count(&mut tx, ctx.tenant_id, &b.barcodes).await? > 0 {
+        if !b.labels_attached {
+            return Err(rule("Confirm that a label is attached to each item before receiving"));
+        }
+        if s.stock.require_label_verification && !b.labels_verified {
+            return Err(rule("Scan each new label to verify it before completing the receipt"));
+        }
+    }
 
     // Roadmap 131: with neither a cost nor a selling price the receipt has no value (never an invented one).
     let unit_value = b.cost_price.or(p.cost_price).or(b.marked_price).or(p.marked_price).unwrap_or(Decimal::ZERO);
@@ -353,6 +378,7 @@ async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, ap
             .bind(b.cost_price)
             .fetch_one(&mut *conn)
             .await?;
+            super::barcodes::assign(conn, ctx.tenant_id, b.product_id, item_id, code).await?;
             let mut m = Movement::new(branch, b.product_id, kind, 1).item(Some(item_id)).cost(b.cost_price).price(marked).notes(&notes);
             m.supplier_id = b.supplier_id;
             m.occurred_on = b.date_received;
@@ -372,7 +398,14 @@ async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, ap
         Entry::new("stock", "receive", "product", b.product_id)
             .branch(branch)
             .before(json!({ "marked_price": p.marked_price, "cost_price": p.cost_price }))
-            .after(b)
+            .after({
+                // Roadmap 136: item barcodes appear masked in the audit trail too.
+                let mut shown = serde_json::to_value(b).unwrap_or_default();
+                if p.track_items {
+                    shown["barcodes"] = json!(b.barcodes.iter().map(|c| super::barcodes::mask(c)).collect::<Vec<_>>());
+                }
+                shown
+            })
             .approval(approval_id),
     )
     .await?;
@@ -418,7 +451,7 @@ async fn movements(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Move
     let (from, to) = q.period.resolve(ctx.today(), "month");
     let mut rows: Vec<Counted<MovementRow>> = sqlx::query_as(
         "SELECT COUNT(*) OVER() AS total_count, m.id, m.created_at, m.business_date, m.occurred_on, b.name AS branch_name, m.product_id,
-                p.name AS product_name, m.kind, m.quantity, m.unit_cost, m.unit_price, si.barcode, m.ref_type, m.ref_id,
+                p.name AS product_name, m.kind, m.quantity, m.unit_cost, m.unit_price, mask_item(si.barcode) AS barcode, m.ref_type, m.ref_id,
                 m.notes, u.name AS user_name
          FROM stock_movements m
          JOIN branches b ON b.id = m.branch_id JOIN products p ON p.id = m.product_id
@@ -471,7 +504,7 @@ async fn items(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ItemQuer
     ctx.require_any(&["stock.view", "sales.create"])?;
     let branches = ctx.branch_scope(q.branch_id)?;
     let mut rows: Vec<Counted<ItemRow>> = sqlx::query_as(
-        "SELECT COUNT(*) OVER() AS total_count, si.id, si.barcode, si.status, si.product_id, p.name AS product_name,
+        "SELECT COUNT(*) OVER() AS total_count, si.id, mask_item(si.barcode) AS barcode, si.status, si.product_id, p.name AS product_name,
                 si.branch_id, b.name AS branch_name, si.cost_price, si.created_at, si.updated_at
          FROM stock_items si JOIN products p ON p.id = si.product_id JOIN branches b ON b.id = si.branch_id
          WHERE si.tenant_id = $1 AND si.branch_id = ANY($2) AND ($3::uuid IS NULL OR si.product_id = $3)
@@ -493,23 +526,41 @@ async fn items(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ItemQuer
     Ok(Json(rows.into()))
 }
 
-/// Full audit trail of a barcode: every unit that carried it and every movement.
+/// Full audit trail of a scanned barcode: every unit that carried it (labels replaced since included) and every movement.
 async fn barcode_history(State(state): State<AppState>, ctx: Ctx, Path(code): Path<String>) -> AppResult<Json<Value>> {
     ctx.require("stock.view")?;
+    trace(&state, &ctx, code.trim()).await
+}
+
+/// Roadmap 136: the same trail from the item list, which only shows masked barcodes.
+async fn item_history(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+    ctx.require("stock.view")?;
+    let code: String = sqlx::query_scalar("SELECT barcode FROM stock_items WHERE id = $1 AND tenant_id = $2")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Item"))?;
+    trace(&state, &ctx, &code).await
+}
+
+async fn trace(state: &AppState, ctx: &Ctx, code: &str) -> AppResult<Json<Value>> {
     let mut items: Vec<ItemRow> = sqlx::query_as(
-        "SELECT si.id, si.barcode, si.status, si.product_id, p.name AS product_name, si.branch_id, b.name AS branch_name,
+        "SELECT si.id, mask_item(si.barcode) AS barcode, si.status, si.product_id, p.name AS product_name, si.branch_id, b.name AS branch_name,
                 si.cost_price, si.created_at, si.updated_at
          FROM stock_items si JOIN products p ON p.id = si.product_id JOIN branches b ON b.id = si.branch_id
-         WHERE si.tenant_id = $1 AND si.barcode = $2 ORDER BY si.created_at",
+         WHERE si.tenant_id = $1 AND (si.barcode = $2
+                OR si.id IN (SELECT stock_item_id FROM stock_item_barcode_history WHERE tenant_id = $1 AND barcode = $2))
+         ORDER BY si.created_at",
     )
     .bind(ctx.tenant_id)
-    .bind(code.trim())
+    .bind(code)
     .fetch_all(&state.db)
     .await?;
     let ids: Vec<Uuid> = items.iter().map(|i| i.id).collect();
     let mut history: Vec<MovementRow> = sqlx::query_as(
-        "SELECT m.id, m.created_at, m.occurred_on, b.name AS branch_name, m.product_id, p.name AS product_name, m.kind, m.quantity,
-                m.unit_cost, m.unit_price, si.barcode, m.ref_type, m.ref_id, m.notes, u.name AS user_name
+        "SELECT m.id, m.created_at, m.business_date, m.occurred_on, b.name AS branch_name, m.product_id, p.name AS product_name, m.kind, m.quantity,
+                m.unit_cost, m.unit_price, mask_item(si.barcode) AS barcode, m.ref_type, m.ref_id, m.notes, u.name AS user_name
          FROM stock_movements m JOIN branches b ON b.id = m.branch_id JOIN products p ON p.id = m.product_id
          LEFT JOIN stock_items si ON si.id = m.stock_item_id LEFT JOIN users u ON u.id = m.user_id
          WHERE m.stock_item_id = ANY($1) ORDER BY m.created_at",
@@ -517,17 +568,19 @@ async fn barcode_history(State(state): State<AppState>, ctx: Ctx, Path(code): Pa
     .bind(&ids)
     .fetch_all(&state.db)
     .await?;
-    if super::costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
+    if super::costs_hidden(&mut *state.db.acquire().await?, ctx).await? {
         items.iter_mut().for_each(|i| i.cost_price = None);
         history.iter_mut().for_each(|m| m.unit_cost = None);
     }
     let product: Option<(Uuid, String)> = sqlx::query_as("SELECT id, name FROM products WHERE tenant_id = $1 AND barcode = $2")
         .bind(ctx.tenant_id)
-        .bind(code.trim())
+        .bind(code)
         .fetch_optional(&state.db)
         .await?;
+    // A product's own (shared) barcode is printed on every pack — only item barcodes are concealed.
+    let shown = if items.is_empty() { code.to_string() } else { super::barcodes::mask(code) };
     Ok(Json(json!({
-        "barcode": code.trim(),
+        "barcode": shown,
         "items": items,
         "history": history,
         "product_barcode_of": product.map(|(id, name)| json!({ "id": id, "name": name })),
@@ -776,6 +829,23 @@ async fn stock_count(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Coun
             let Some(scans) = line.barcodes.clone() else {
                 return Err(refused("Scan each item", format!("{name} is tracked per item — count it by scanning each unit's barcode")));
             };
+            // Roadmap 135: stock from before individual tracking has no labels to scan — label it first, or the count
+            // would record it as lost.
+            let (on_hand, units): (i64, i64) = sqlx::query_as(
+                "SELECT COALESCE((SELECT on_hand FROM stock_levels WHERE tenant_id = $1 AND branch_id = $2 AND product_id = $3), 0)::bigint,
+                        (SELECT COUNT(*) FROM stock_items WHERE tenant_id = $1 AND branch_id = $2 AND product_id = $3 AND status = 'in_stock')",
+            )
+            .bind(ctx.tenant_id)
+            .bind(branch)
+            .bind(line.product_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if on_hand > units {
+                return Err(refused(
+                    "Label existing stock first",
+                    format!("{} {name} on hand have no barcode yet — open the product → Barcode labels → Label existing stock, then count", on_hand - units),
+                ));
+            }
             let mut found: Vec<String> = Vec::new();
             for c in scans {
                 let c = crate::util::clean_barcode(&c)?;
@@ -899,7 +969,7 @@ async fn list_adjustments(State(state): State<AppState>, ctx: Ctx, Query(q): Que
     let (from, to) = q.period.resolve(ctx.today(), "month");
     let (start, end) = local_range(from, to, ctx.tz);
     let rows: Vec<Counted<AdjustmentRow>> = sqlx::query_as(
-        "SELECT COUNT(*) OVER() AS total_count, a.id, a.created_at, b.name AS branch_name, p.name AS product_name, si.barcode,
+        "SELECT COUNT(*) OVER() AS total_count, a.id, a.created_at, b.name AS branch_name, p.name AS product_name, mask_item(si.barcode) AS barcode,
                 a.kind, a.previous_qty, a.delta, a.new_qty, a.reason, a.status, cu.name AS created_by_name, du.name AS decided_by_name
          FROM stock_adjustments a JOIN branches b ON b.id = a.branch_id JOIN products p ON p.id = a.product_id
          LEFT JOIN stock_items si ON si.id = a.stock_item_id

@@ -161,7 +161,7 @@ pub const REPORTS: &[Report] = &[
         columns: &[c("business_date", "Date", "date"), c("created_at", "Recorded at", "datetime"), c("branch", "Branch", "text"), c("product", "Product", "text"),
             c("kind", "Movement", "text"), c("quantity", "Qty", "int"), c("barcode", "Barcode", "text"), f("unit_cost", "Unit cost", "money"),
             c("unit_price", "Unit price", "money"), c("notes", "Notes", "text"), c("user", "User", "text")],
-        sql: "SELECT m.created_at, m.business_date, b.name AS branch, p.name AS product, m.kind, m.quantity, si.barcode, m.unit_cost, m.unit_price, m.notes, u.name AS user
+        sql: "SELECT m.created_at, m.business_date, b.name AS branch, p.name AS product, m.kind, m.quantity, mask_item(si.barcode) AS barcode, m.unit_cost, m.unit_price, m.notes, u.name AS user
               FROM stock_movements m JOIN branches b ON b.id = m.branch_id JOIN products p ON p.id = m.product_id
               LEFT JOIN stock_items si ON si.id = m.stock_item_id LEFT JOIN users u ON u.id = m.user_id, params
               WHERE m.tenant_id = params.tid AND m.branch_id = ANY(params.br) AND m.business_date BETWEEN params.fd AND params.td
@@ -215,7 +215,7 @@ pub const REPORTS: &[Report] = &[
         description: "Individually tracked items currently in stock, reserved or in transit",
         columns: &[c("barcode", "Barcode", "text"), c("product", "Product", "text"), c("branch", "Branch", "text"), c("status", "Status", "text"),
             c("received", "Received", "datetime"), f("cost_price", "Cost", "money")],
-        sql: "SELECT si.barcode, p.name AS product, b.name AS branch, si.status, si.created_at AS received, si.cost_price
+        sql: "SELECT mask_item(si.barcode) AS barcode, p.name AS product, b.name AS branch, si.status, si.created_at AS received, si.cost_price
               FROM stock_items si JOIN products p ON p.id = si.product_id JOIN branches b ON b.id = si.branch_id, params
               WHERE si.tenant_id = params.tid AND si.branch_id = ANY(params.br) AND si.status IN ('in_stock','reserved','in_transit')
                 AND (params.pid IS NULL OR si.product_id = params.pid) AND (params.cid IS NULL OR p.category_id = params.cid)

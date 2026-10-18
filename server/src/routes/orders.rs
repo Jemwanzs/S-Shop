@@ -396,6 +396,9 @@ struct StatusBody {
 struct ItemBarcodes {
     product_id: Uuid,
     barcodes: Vec<String>,
+    /// Roadmap 137: capture of each barcode (same order): scanner | camera | manual.
+    #[serde(default)]
+    sources: Vec<String>,
 }
 
 async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<StatusBody>) -> AppResult<Json<Value>> {
@@ -449,23 +452,23 @@ async fn change_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<U
                         .fetch_one(&mut *tx)
                         .await?;
                     if !tracked {
-                        lines.push(super::sales::LineInput { product_id: *pid, quantity: *qty, unit_price: *price, barcode: None, sale_date: None });
+                        lines.push(super::sales::LineInput { product_id: *pid, quantity: *qty, unit_price: *price, barcode: None, sale_date: None, scan_source: None });
                         continue;
                     }
-                    let mut codes: Vec<String> = b
+                    let mut codes: Vec<(String, Option<String>)> = b
                         .barcodes
                         .iter()
                         .filter(|x| x.product_id == *pid)
-                        .flat_map(|x| x.barcodes.iter().map(|c| c.trim().to_string()))
-                        .filter(|c| !c.is_empty())
+                        .flat_map(|x| x.barcodes.iter().enumerate().map(|(i, c)| (c.trim().to_string(), x.sources.get(i).cloned())))
+                        .filter(|c| !c.0.is_empty())
                         .collect();
                     codes.sort();
-                    codes.dedup();
+                    codes.dedup_by(|a, b| a.0 == b.0);
                     if codes.len() != *qty as usize {
                         return Err(rule(format!("Scan {qty} barcode(s) for {name} — {} scanned", codes.len())));
                     }
-                    for code in codes {
-                        lines.push(super::sales::LineInput { product_id: *pid, quantity: 1, unit_price: *price, barcode: Some(code), sale_date: None });
+                    for (code, source) in codes {
+                        lines.push(super::sales::LineInput { product_id: *pid, quantity: 1, unit_price: *price, barcode: Some(code), sale_date: None, scan_source: source });
                     }
                 }
                 // Orders are fulfilled at the order's branch on behalf of the user progressing it.

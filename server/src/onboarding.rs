@@ -116,7 +116,7 @@ static OPENING_STOCK: [Col; 7] = [
     Col { aliases: &["quantity", "qty", "opening qty", "stock", "on hand"], ..col("quantity", "Opening Quantity", Need::Required, Kind::Int, "Units physically at that branch on the as-of date (0 or more).", "20") },
     Col { aliases: &["cost", "unit cost", "cost price"], ..col("unit_cost", "Unit Cost", Need::Optional, Kind::Money, "Cost of one unit (values the opening stock).", "2100") },
     Col { aliases: &["date", "as of", "as-of date", "stock date"], ..col("as_of", "As-of Date", Need::Required, Kind::Date, "The date the quantity was counted — normally the migration cutover date.", "2026-10-01") },
-    Col { aliases: &["item barcodes", "serials", "serial numbers"], ..col("item_barcodes", "Item Barcodes", Need::Conditional, Kind::Text, "Individually tracked products only: each unit's barcode, separated by ; — as many as the quantity.", "") },
+    Col { aliases: &["item barcodes", "serials", "serial numbers"], ..col("item_barcodes", "Item Barcodes", Need::Conditional, Kind::Text, "Individually tracked products only: each unit's barcode, separated by ; — as many as the quantity. Leave blank and S'Shop generates a seven-digit barcode per unit (print the labels from the product).", "") },
     Col { aliases: &["remarks", "comment"], ..col("notes", "Notes", Need::Optional, Kind::Text, "", "Counted by Peter") },
 ];
 

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BarcodeScanner, type ScanHandler, type ScanOutcome } from "@/components/BarcodeScanner";
 import { SShopLoader } from "@/components/SShopLoader";
+import { TYPING_OFF, useKeyTiming, useManualBarcodes } from "@/lib/scan";
 
 export function useBarcodeSettings() {
   const { profile } = useSession();
@@ -22,15 +23,18 @@ export function useBarcodeSettings() {
   };
 }
 
-export function BarcodeInput({ onCode, placeholder, autoFocus, className, continuousCamera = true, cameraTitle = "Scan barcode" }: {
+export function BarcodeInput({ onCode, placeholder, autoFocus, className, continuousCamera = true, cameraTitle = "Scan barcode", context = "stock" }: {
   onCode: ScanHandler;
+  /** Roadmap 137: "sale" follows the till's barcode rule (typing off by default); "stock" the stock rule. */
+  context?: "sale" | "stock";
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
   continuousCamera?: boolean;
   cameraTitle?: string;
 }) {
-  const cfg = useBarcodeSettings();
+  const cfg = { ...useBarcodeSettings(), manual: useManualBarcodes(context) };
+  const timing = useKeyTiming();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ScanOutcome | null>(null);
@@ -40,9 +44,16 @@ export function BarcodeInput({ onCode, placeholder, autoFocus, className, contin
   const submit = async (raw: string) => {
     const code = raw.trim();
     if (!code || busy) return;
+    const source = timing.source(code);
+    if (source === "manual" && !cfg.manual) {
+      setValue("");
+      setResult({ tone: "error", title: TYPING_OFF });
+      toast.error(TYPING_OFF);
+      return;
+    }
     setBusy(true);
     try {
-      const r = (await onCode(code)) || null;
+      const r = (await onCode(code, source)) || null;
       setResult(r);
       if (r?.tone === "error") toast.error(r.title);
     } finally {
@@ -60,9 +71,9 @@ export function BarcodeInput({ onCode, placeholder, autoFocus, className, contin
           <ScanLine className="pointer-events-none absolute inset-s-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input ref={input} value={value} autoFocus={autoFocus} className="num ps-9" autoComplete="off" enterKeyHint="go"
             placeholder={t(placeholder ?? (cfg.manual ? "Enter or scan barcode" : "Scan barcode"))} aria-label={t("Enter or scan barcode")}
-            onPaste={(e) => { if (!cfg.manual) { e.preventDefault(); toast.error("Typing barcodes is switched off — scan the label"); } }}
+            onPaste={(e) => { timing.onPaste(); if (!cfg.manual) { e.preventDefault(); toast.error(TYPING_OFF); } }}
             onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void submit(value); } }} />
+            onKeyDown={(e) => { timing.onKeyDown(e); if (e.key === "Enter") { e.preventDefault(); void submit(value); } }} />
           {busy && <SShopLoader size="sm" className="absolute inset-e-3 top-1/2 -translate-y-1/2" />}
         </div>
         {cfg.camera && <Button type="button" variant="outline" size="icon" onClick={() => setCamera(true)} aria-label={t("Scan with camera")}><Camera /></Button>}
@@ -73,8 +84,8 @@ export function BarcodeInput({ onCode, placeholder, autoFocus, className, contin
         </p>
       )}
       {cfg.camera && (
-        <BarcodeScanner open={camera} onOpenChange={setCamera} continuous={continuousCamera} title={cameraTitle}
-          onDetected={async (code) => { const r = (await onCode(code)) || undefined; setResult(r ?? null); if (!continuousCamera) setCamera(false); return r; }} />
+        <BarcodeScanner open={camera} onOpenChange={setCamera} continuous={continuousCamera} title={cameraTitle} context={context}
+          onDetected={async (code, source) => { const r = (await onCode(code, source)) || undefined; setResult(r ?? null); if (!continuousCamera) setCamera(false); return r; }} />
       )}
     </div>
   );

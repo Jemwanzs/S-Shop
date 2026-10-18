@@ -6,7 +6,7 @@ import { api, ApiError, errorMessage } from "@/lib/api";
 import { enqueueSale, offlineBlocker, type QueuedSale } from "@/lib/offline";
 import { locationHeader } from "@/lib/location";
 import { useSession } from "@/lib/session";
-import { count, money, phone as fmtPhone, todayIso, toNum } from "@/lib/format";
+import { count, money, phone as fmtPhone, todayIso, toNum, maskCode } from "@/lib/format";
 import type { Customer, SaleDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ActionButton, REASONS } from "@/components/ActionButton";
@@ -63,7 +63,7 @@ export function CartLines({ lines, onEdit, onRemove, saleDate }: { lines: CartLi
               </div>
               <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
                 {l.saleDate && l.saleDate !== saleDate && <span className="num rounded bg-warning/15 px-1.5 py-0.5 text-warning">📅 {dayLabel(l.saleDate)}</span>}
-                {l.barcode && <span className="num rounded bg-success/10 px-1.5 py-0.5 text-success">✓ {l.barcode}</span>}
+                {l.barcode && <span className="num rounded bg-success/10 px-1.5 py-0.5 text-success">✓ {l.product.track_items ? maskCode(l.barcode) : l.barcode}</span>}
                 {pts > 0 && <span className="rounded bg-points/10 px-1.5 py-0.5 text-points">🌼 +{pts}</span>}
                 {exceedsMax(l) && <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning">needs approval</span>}
               </div>
@@ -244,7 +244,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   const saleBody = () => ({
           customer_id: customer?.id,
           customer: !customer && digits.length >= 9 ? { mobile: digits, first_name: firstName, nickname } : undefined,
-          items: lines.map((l) => ({ product_id: l.product.id, quantity: l.quantity, unit_price: l.unitPrice, barcode: l.barcode, sale_date: l.saleDate })),
+          items: lines.map((l) => ({ product_id: l.product.id, quantity: l.quantity, unit_price: l.unitPrice, barcode: l.barcode, scan_source: l.barcode ? l.barcodeSource : undefined, sale_date: l.saleDate })),
           sale_date: saleDate,
           payment: {
             method,

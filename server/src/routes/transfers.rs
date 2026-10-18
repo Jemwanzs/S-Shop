@@ -127,7 +127,7 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     let mut conn = state.db.acquire().await?;
     let t = load(&mut conn, &ctx, id, false).await?;
     let items: Vec<(Uuid, Uuid, String, String, i32, Option<String>, i32, i32)> = sqlx::query_as(
-        "SELECT ti.id, ti.product_id, p.name, p.code, ti.quantity, si.barcode, ti.short_qty, ti.damaged_qty FROM transfer_items ti
+        "SELECT ti.id, ti.product_id, p.name, p.code, ti.quantity, mask_item(si.barcode), ti.short_qty, ti.damaged_qty FROM transfer_items ti
          JOIN products p ON p.id = ti.product_id LEFT JOIN stock_items si ON si.id = ti.stock_item_id
          WHERE ti.transfer_id = $1 ORDER BY p.name",
     )

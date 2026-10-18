@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ImagePlus, Images, PackagePlus, ScanLine, X } from "lucide-react";
+import { CheckCircle2, ImagePlus, Images, PackagePlus, Printer, RotateCcw, ScanLine, ShieldCheck, Tags, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -19,7 +19,10 @@ import { BarcodeInput } from "@/components/BarcodeInput";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { AddPhotosDialog } from "@/components/PhotoPicker";
 import { Pill } from "@/components/Badges";
+import { LabelsDialog } from "@/components/LabelsDialog";
+import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
+import { useManualBarcodes, type ScanSource } from "@/lib/scan";
 
 interface ProductDetail {
   product: Product;
@@ -41,6 +44,9 @@ export default function ReceiveStock() {
   const [branchId, setBranchId] = useState(branch?.id ?? "");
   const [qty, setQty] = useState("1");
   const [barcodes, setBarcodes] = useState<string[]>([]);
+  // Roadmap 137: how each scanned code arrived (kept in step with `barcodes`).
+  const [sources, setSources] = useState<Record<string, ScanSource>>({});
+  const typingAllowed = useManualBarcodes("stock");
   const [cost, setCost] = useState("");
   const [price, setPrice] = useState("");
   const [maxDiscount, setMaxDiscount] = useState("");
@@ -49,7 +55,18 @@ export default function ReceiveStock() {
   const [received, setReceived] = useState(todayIso());
   const [activate, setActivate] = useState(true);
   const [opening, setOpening] = useState(false);
-  const [scan, setScan] = useState<"find" | "items" | null>(null);
+  const [scan, setScan] = useState<"find" | "items" | "verify" | null>(null);
+  // Roadmap 135: S'Shop generates one seven-digit barcode per unit → print → attach → (verify) → receive.
+  const canGenerate = s.stock.generate_item_barcodes && can("barcodes.generate");
+  const [mode, setMode] = useState<"generate" | "scan">(canGenerate ? "generate" : "scan");
+  const [genQty, setGenQty] = useState("1");
+  const [generated, setGenerated] = useState<{ codes: string[]; business: string; product: string } | null>(null);
+  const [printing, setPrinting] = useState(false);
+  const [attached, setAttached] = useState(false);
+  const [verified, setVerified] = useState<string[]>([]);
+  const verifiedRef = useRef(verified);
+  verifiedRef.current = verified;
+  const mustVerify = s.stock.require_label_verification;
   const [gallery, setGallery] = useState(false);
 
   const results = useQuery({ queryKey: ["products", "receive", term], queryFn: () => api<Paged<Product>>("/products", { query: { q: term, status: "all", limit: 10 } }), enabled: !!term && !productId });
@@ -66,6 +83,10 @@ export default function ReceiveStock() {
     setSupplier(p.supplier_id ?? "");
     setBarcodes([]);
     setQty("1");
+    setGenerated(null);
+    setAttached(false);
+    setVerified([]);
+    setGenQty("1");
   }, [p]);
 
   const barcodesRef = useRef(barcodes);
@@ -97,7 +118,7 @@ export default function ReceiveStock() {
     }
   };
   // Tracked products: every unit's own label, checked so a code can never be in stock twice.
-  const addItem = async (code: string): Promise<ScanOutcome> => {
+  const addItem = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
     if (barcodesRef.current.includes(code)) return { tone: "info", title: "Already scanned in this delivery" };
     const known = await api<{ product: Product; stock_item: { status: string; branch_name: string } | null }>("/products/lookup", { query: { code } }).catch(() => null);
     if (known?.stock_item && ["in_stock", "reserved", "in_transit"].includes(known.stock_item.status)) {
@@ -107,8 +128,29 @@ export default function ReceiveStock() {
       return { tone: "error", title: "That is a product barcode", detail: "Scan the label that identifies this individual item." };
     }
     setBarcodes((b) => [...b, code]);
+    if (source) setSources((s) => ({ ...s, [code]: source }));
     return { tone: "success", title: `Item ${barcodesRef.current.length + 1} captured` };
   };
+
+  const generate = async () => {
+    const n = Math.max(0, parseInt(genQty) || 0);
+    const r = await api<{ codes: string[]; label: { business: string; product: string } }>("/barcodes/generate", { body: { product_id: productId, quantity: n } });
+    setGenerated({ codes: r.codes, business: r.label.business, product: r.label.product });
+    setBarcodes(r.codes);
+    setAttached(false);
+    setVerified([]);
+    toast.success(`${r.codes.length} ${t("barcodes generated — print the labels")}`);
+  };
+  const startAgain = () => { setGenerated(null); setBarcodes([]); setAttached(false); setVerified([]); };
+  // Verification: every scanned label must be one of this delivery's new labels.
+  const verifyLabel = async (code: string): Promise<ScanOutcome> => {
+    if (!generated?.codes.includes(code)) return { tone: "error", title: "Not one of these labels", detail: "Scan the labels printed for this delivery." };
+    if (verifiedRef.current.includes(code)) return { tone: "info", title: "Already verified" };
+    setVerified((v) => [...v, code]);
+    const done = verifiedRef.current.length + 1;
+    return { tone: "success", title: `${done} / ${generated.codes.length} ${t("verified")}` };
+  };
+  const masked = (c: string) => `****${c.slice(-3)}`;
 
   const save = useMutation({
     mutationFn: () =>
@@ -126,6 +168,9 @@ export default function ReceiveStock() {
           date_received: received,
           activate: !!p && !p.is_active && activate,
           kind: opening ? "opening" : "received",
+          labels_attached: attached,
+          barcode_sources: barcodes.map((c) => sources[c] ?? "scanner"),
+          labels_verified: !!generated && verified.length === generated.codes.length,
         },
       }),
     onSuccess: (r) => {
@@ -137,11 +182,15 @@ export default function ReceiveStock() {
       setBarcodes([]);
       setQty("1");
       setReference("");
+      setGenerated(null);
+      setAttached(false);
+      setVerified([]);
     },
     onError: (e) => toast.error(e),
   });
 
   const valid = !!p && quantity > 0 && (!qtyLocked || quantity === 1) && (s.stock.barcode_requirement !== "required" || tracked || barcodes.length > 0 || !!p.barcode);
+  const labelsPending = tracked && !!generated && (!attached ? "Confirm the labels are attached" : mustVerify && verified.length < generated.codes.length ? "Scan each label to verify it" : false);
 
   return (
     <>
@@ -196,9 +245,49 @@ export default function ReceiveStock() {
 
           {p && (
             <Section title="Quantity & barcodes">
-              {tracked ? (
+              {tracked && canGenerate && (
+                <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-muted p-1" role="tablist">
+                  {([["generate", "Generate barcodes"], ["scan", "Scan / enter existing"]] as const).map(([k, l]) => (
+                    <button key={k} type="button" role="tab" aria-selected={mode === k} disabled={!!generated || barcodes.length > 0}
+                      onClick={() => setMode(k)} className={cn("h-9 rounded-lg text-sm font-medium disabled:opacity-60", mode === k ? "bg-card shadow-sm" : "text-muted-foreground")}>{t(l)}</button>
+                  ))}
+                </div>
+              )}
+              {tracked && canGenerate && mode === "generate" ? (
+                !generated ? (
+                  <div className="flex flex-wrap items-end gap-3">
+                    <Field label="Items received" hint="One seven-digit barcode per item">
+                      <Input inputMode="numeric" className="num h-12 w-32 text-lg" value={genQty} onChange={(e) => setGenQty(e.target.value.replace(/\D/g, "").slice(0, 3))} />
+                    </Field>
+                    <ActionButton size="lg" online blockedBy={[!(parseInt(genQty) > 0) && "Enter how many items arrived", parseInt(genQty) > 500 && "Up to 500 at a time"]} onAction={generate}>
+                      <Tags /> {t("Generate")} {parseInt(genQty) || 0} {t(parseInt(genQty) === 1 ? "barcode" : "barcodes")}
+                    </ActionButton>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-success/10 p-3">
+                      <p className="text-sm font-medium text-success">{generated.codes.length} {t("labels ready to print")}</p>
+                      <div className="flex gap-2">
+                        {can("barcodes.print") && <Button size="sm" onClick={() => setPrinting(true)}><Printer /> {t("Print labels")}</Button>}
+                        <Button size="sm" variant="ghost" onClick={startAgain}><RotateCcw /> {t("Start again")}</Button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {generated.codes.map((c) => (
+                        <span key={c} className={cn("num rounded-full px-2.5 py-1 text-xs", verified.includes(c) ? "bg-success/10 text-success" : "bg-muted text-muted-foreground")}>{masked(c)}</span>
+                      ))}
+                    </div>
+                    <ToggleRow label="I have attached a label to each item" hint="Printing a label is not attaching it — confirm each box has its sticker" checked={attached} onChange={setAttached} />
+                    {mustVerify && (
+                      <Button variant="ink" className="w-full" size="lg" disabled={!attached} onClick={() => setScan("verify")}>
+                        <ShieldCheck /> {t("Verify labels")} ({verified.length}/{generated.codes.length})
+                      </Button>
+                    )}
+                  </div>
+                )
+              ) : tracked ? (
                 <div className="space-y-3">
-                  <BarcodeInput onCode={(code) => addItem(code)} placeholder="Enter or scan each item's barcode" cameraTitle={`Scan each ${p.name}`} />
+                  <BarcodeInput onCode={(code, source) => addItem(code, source)} placeholder="Enter or scan each item's barcode" cameraTitle={`Scan each ${p.name}`} />
                   <Button className="w-full" variant="ink" size="lg" onClick={() => setScan("items")}><ScanLine /> {t("Scan items (")}{barcodes.length})</Button>
                   <p className="text-xs text-muted-foreground">{t("Each physical item gets its own barcode. Scanned:")} {barcodes.length}.</p>
                   <div className="flex flex-wrap gap-2">
@@ -217,7 +306,8 @@ export default function ReceiveStock() {
                   {barcodesOn && (
                     <Field label="Barcode / item code" optional={s.stock.barcode_requirement !== "required"} hint={p.barcode ? "Scan to confirm the product" : "Saved as the product barcode"}>
                       <div className="flex gap-2">
-                        <Input className="num" value={barcodes[0] ?? ""} onChange={(e) => setBarcodes(e.target.value ? [e.target.value] : [])} placeholder={p.barcode ?? ""} />
+                        <Input className="num" value={barcodes[0] ?? ""} readOnly={!typingAllowed} placeholder={p.barcode ?? (typingAllowed ? "" : t("Scan barcode"))}
+                          onChange={(e) => { setBarcodes(e.target.value ? [e.target.value] : []); setSources(e.target.value ? { [e.target.value]: "manual" } : {}); }} />
                         <Button variant="outline" onClick={() => setScan("items")} aria-label="Scan"><ScanLine /></Button>
                       </div>
                     </Field>
@@ -257,7 +347,7 @@ export default function ReceiveStock() {
               </div>
             </Section>
             <ActionButton size="lg" className="h-14 w-full text-base" online busy={save.isPending} busyLabel="Receiving…"
-              blockedBy={[quantity <= 0 && "Enter the quantity", !valid && REASONS.completeFields]} onAction={() => save.mutateAsync()}>
+              blockedBy={[quantity <= 0 && (tracked && mode === "generate" && canGenerate ? "Generate the barcodes first" : "Enter the quantity"), !valid && REASONS.completeFields, labelsPending]} onAction={() => save.mutateAsync()}>
               <PackagePlus /> {t("Receive")} {count(quantity)} item{quantity === 1 ? "" : "s"}
             </ActionButton>
             {save.isSuccess && !save.isPending && <p className="flex items-center justify-center gap-1.5 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> {t("Saved — ready for the next delivery")}</p>}
@@ -267,11 +357,15 @@ export default function ReceiveStock() {
       <BarcodeScanner
         open={scan !== null}
         onOpenChange={(o) => !o && setScan(null)}
-        onDetected={(code) => (scan === "find" ? findByCode(code) : tracked ? addItem(code) : setBarcodes([code]))}
-        hint={scan === "items" && tracked ? "Each item's own label" : undefined}
-        continuous={scan === "items" && tracked}
-        title={scan === "items" && tracked ? `Scan each ${p?.name}` : "Scan barcode"}
+        onDetected={(code, source) => (scan === "find" ? findByCode(code) : scan === "verify" ? verifyLabel(code) : tracked ? addItem(code, source) : (setBarcodes([code]), setSources(source ? { [code]: source } : {})))}
+        hint={scan === "verify" ? "Scan each label you attached" : scan === "items" && tracked ? "Each item's own label" : undefined}
+        continuous={(scan === "items" && tracked) || scan === "verify"}
+        title={scan === "verify" ? "Verify labels" : scan === "items" && tracked ? `Scan each ${p?.name}` : "Scan barcode"}
       />
+      {printing && generated && (
+        <LabelsDialog business={generated.business} labels={generated.codes.map((code) => ({ code, product: generated.product }))}
+          note={`Attach one label to each ${generated.product}`} onClose={() => setPrinting(false)} />
+      )}
       {p && (
         <AddPhotosDialog
           productId={p.id}

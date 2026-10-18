@@ -26,6 +26,7 @@ import { Receipt } from "@/components/Receipt";
 import type { ReceiptSnapshot } from "@/lib/receipt";
 import { redemptionBlocked } from "@/lib/loyalty";
 import { LANDING_PAGES } from "@/lib/landing";
+import { BarcodeHardwareCard } from "./BarcodeHardware";
 
 type Draft = ReturnType<typeof useSettingsDraft>;
 
@@ -159,6 +160,12 @@ export function SalesSettings() {
             </Row>
             <ToggleRow label="Require barcode clearance" hint="Products with a barcode must be scanned before they can be sold" checked={s.sales.require_barcode_clearance} onChange={(v) => d.update((x) => { x.sales.require_barcode_clearance = v; })} />
           </Card>
+          <Card title="Barcode controls">
+            <ToggleRow label="Allow manual barcode entry during sales"
+              hint="When disabled, sales agents must scan the physical barcode attached to the item. Typing barcode numbers manually is not permitted for barcode-controlled products. When on, only people with “Type barcodes at the till” may type them"
+              checked={s.sales.manual_barcode_entry} onChange={(v) => d.update((x) => { x.sales.manual_barcode_entry = v; })} />
+            <p className="pb-2 text-xs text-muted-foreground">{tr("Every cleared item records how its barcode arrived (scanner, camera or typed). Keyboard-style scanners cannot be told apart from very fast typing with certainty — camera scanning is the stronger option.")}</p>
+          </Card>
           <Card title="Product performance">
             <ToggleRow label="Show top-selling products first in Record Sale" hint="Gold ★★★★★, Silver ★★★ and Bronze ★★ mark the top three — sales performance, not reviews. Searching keeps search order"
               checked={top(s).enabled} onChange={(v) => d.update((x) => { x.sales.top_selling = { ...top(x), enabled: v }; })} />
@@ -241,6 +248,7 @@ export function StockSettings() {
       {(s) => (
         <>
         <BarcodeSettingsCard s={s} update={d.update} />
+        {s.stock.barcode_requirement !== "disabled" && <BarcodeHardwareCard s={s} update={d.update} />}
         <Card>
           <Row label="Quantity entry when receiving" hint="Locked = capture each physical item individually">
             <Select value={s.stock.quantity_entry} onChange={(v) => d.update((x) => { x.stock.quantity_entry = v as "editable"; })}>
@@ -678,8 +686,12 @@ function BarcodeSettingsCard({ s, update }: { s: Settings; update: (f: (x: Setti
         onChange={(v) => update((x) => { x.stock.barcode_requirement = v ? "optional" : "disabled"; })} />
       {on && (
         <>
-          <ToggleRow label="Allow manual barcode entry" hint="Type or paste barcode numbers; handheld scanners always work" checked={s.stock.manual_barcode_entry}
+          <ToggleRow label="Allow manual barcode entry during stock receiving" hint="Authorised stock users may type existing barcode numbers when receiving or registering stock (checked for format and duplicates). Handheld scanners always work" checked={s.stock.manual_barcode_entry}
             onChange={(v) => update((x) => { x.stock.manual_barcode_entry = v; })} />
+          <ToggleRow label="Generate unique barcodes automatically" hint="Individually tracked items get S'Shop's seven-digit barcodes when received — print the labels and attach them" checked={s.stock.generate_item_barcodes}
+            onChange={(v) => update((x) => { x.stock.generate_item_barcodes = v; })} />
+          <ToggleRow label="Require barcode verification before completing a receipt" hint="Each newly attached label is scanned before the items count as received" checked={s.stock.require_label_verification}
+            onChange={(v) => update((x) => { x.stock.require_label_verification = v; })} />
           <ToggleRow label="Enable camera scanning" hint="Scan with the phone or tablet camera" checked={s.stock.camera_scanning}
             onChange={(v) => update((x) => { x.stock.camera_scanning = v; })} />
           <ToggleRow label="Require barcode during stock-in" hint="Products must have or be given a barcode when stock is received" checked={s.stock.barcode_requirement === "required"}

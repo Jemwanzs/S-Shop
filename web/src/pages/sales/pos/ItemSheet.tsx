@@ -5,7 +5,7 @@ import { api, photoUrl } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { t } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
-import { count, money, signed, toNum } from "@/lib/format";
+import { count, money, signed, toNum, maskCode } from "@/lib/format";
 import type { PosProduct } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { StockIndicator } from "@/components/Badges";
 import type { CartLine } from "./cart";
 import { rankExplanation } from "./RankStars";
 import { SaleDateInput, dayLabel } from "./SaleDate";
+import { useManualBarcodes, type ScanSource } from "@/lib/scan";
 
 interface Availability {
   branch_id: string;
@@ -42,7 +43,7 @@ export function ItemSheet({
   onClose: () => void;
   onSave: (line: Omit<CartLine, "key"> & { key?: string }) => void;
   takenBarcodes: string[];
-  initialBarcode?: string;
+  initialBarcode?: { code: string; source?: ScanSource };
   /** Roadmap 115: the sale's date (yyyy-mm-dd) and today; a line may have its own date. */
   saleDate: string;
   today: string;
@@ -59,6 +60,8 @@ export function ItemSheet({
   const [price, setPrice] = useState("");
   const [discount, setDiscount] = useState("");
   const [barcode, setBarcode] = useState<string | undefined>();
+  const [barcodeSource, setBarcodeSource] = useState<ScanSource | undefined>();
+  const typingAllowed = useManualBarcodes("sale");
   const [scan, setScan] = useState(false);
   const [photos, setPhotos] = useState(false);
   const [showOther, setShowOther] = useState(false);
@@ -71,6 +74,7 @@ export function ItemSheet({
     setPrice(p == null ? "" : String(p));
     setDiscount(p != null && product.marked_price != null && markedPrice - p > 0 ? String(markedPrice - p) : "");
     setBarcode(editing?.barcode);
+    setBarcodeSource(editing?.barcodeSource);
     setShowOther(false);
     setLineDate(editing?.saleDate ?? saleDate);
   }, [product, editing, markedPrice, saleDate]);
@@ -79,8 +83,9 @@ export function ItemSheet({
   useEffect(() => {
     if (!product || editing || !initialBarcode) return;
     let live = true;
-    verify(initialBarcode)
-      .then(() => live && setBarcode(initialBarcode))
+    if (initialBarcode.source === "manual" && !typingAllowed) return;
+    verify(initialBarcode.code)
+      .then(() => { if (live) { setBarcode(initialBarcode.code); setBarcodeSource(initialBarcode.source); } })
       .catch((e) => live && toast.error(e));
     return () => {
       live = false;
@@ -112,7 +117,7 @@ export function ItemSheet({
   const maxQty = Math.max(product.available, 0);
   const valid = (noPrice ? unit > 0 : unit >= 0) && price !== "" && qty >= 1 && qty <= maxQty && barcodeOk && !belowMarkedBlocked;
 
-  const onScan = async (code: string): Promise<ScanOutcome | void> => {
+  const onScan = async (code: string, source?: ScanSource): Promise<ScanOutcome | void> => {
     if (product.track_items && takenBarcodes.includes(code) && code !== editing?.barcode) {
       setBarcode(undefined);
       return { tone: "error", title: t("Already in this sale"), detail: t("This item has already been added to the cart.") };
@@ -120,6 +125,7 @@ export function ItemSheet({
     setBarcode(undefined);
     await verify(code); // throws a titled error (mismatch, wrong branch, sold …) shown inside the scanner
     setBarcode(code);
+    setBarcodeSource(source);
   };
 
   return (
@@ -134,7 +140,7 @@ export function ItemSheet({
             size="lg"
             className="w-full"
             disabled={!valid}
-            onClick={() => onSave({ key: editing?.key, product, quantity: qty, unitPrice: unit, barcode, saleDate: lineDate !== saleDate ? lineDate : undefined })}
+            onClick={() => onSave({ key: editing?.key, product, quantity: qty, unitPrice: unit, barcode, barcodeSource, saleDate: lineDate !== saleDate ? lineDate : undefined })}
           >
             {editing ? "Update item" : "Add to cart"} · <span className="num">{money(unit * qty)}</span>
           </Button>
@@ -233,7 +239,7 @@ export function ItemSheet({
               <ScanLine className={cn("h-5 w-5 shrink-0", barcodeOk ? "text-success" : "text-primary")} />
               <div className="min-w-0 flex-1 text-sm">
                 <div className="font-medium">{barcodeOk ? "Item cleared" : product.track_items ? "Scan this item's barcode" : "Scan to confirm the product"}</div>
-                <div className="num truncate text-muted-foreground">{barcode ?? "Required before adding"}</div>
+                <div className="num truncate text-muted-foreground">{barcode ? (product.track_items ? maskCode(barcode) : barcode) : "Required before adding"}</div>
               </div>
               <Button variant={barcodeOk ? "outline" : "default"} size="sm" onClick={() => setScan(true)}>{barcodeOk ? "Rescan" : "Scan"}</Button>
             </div>
@@ -263,6 +269,7 @@ export function ItemSheet({
         open={scan}
         onOpenChange={setScan}
         onDetected={onScan}
+        context="sale"
         title={`Scan ${product.name}`}
         hint={takenBarcodes.length ? "Items already in the cart are ignored" : undefined}
       />

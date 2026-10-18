@@ -28,6 +28,7 @@ import { ReceiptPanel } from "@/components/ReceiptPanel";
 import { ProductGrid } from "./pos/ProductGrid";
 import { RankStars } from "./pos/RankStars";
 import { SaleDateBar, todayIn } from "./pos/SaleDate";
+import { TYPING_OFF, useKeyTiming, useManualBarcodes, type ScanSource } from "@/lib/scan";
 
 const DEFAULT_POS = { style: "compact" as const, show_images: false, tablet_columns: 2, desktop_columns: 4, show_prices: true };
 
@@ -67,7 +68,10 @@ export default function Pos() {
   };
   const [selected, setSelected] = useState<PosProduct | null>(null);
   const [editing, setEditing] = useState<CartLine | null>(null);
-  const [prefillBarcode, setPrefillBarcode] = useState<string | undefined>();
+  const [prefillBarcode, setPrefillBarcode] = useState<{ code: string; source?: ScanSource } | undefined>();
+  // Roadmap 137: typing barcodes at the till follows the sales rule (off by default) and the person's permission.
+  const typingAllowed = useManualBarcodes("sale");
+  const searchTiming = useKeyTiming();
   const [scan, setScan] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [done, setDone] = useState<SaleDetail | null>(null);
@@ -104,7 +108,7 @@ export default function Pos() {
   const inCart = (id: string) => cart.lines.filter((l) => l.product.id === id).reduce((a, l) => a + l.quantity, 0);
   const takenBarcodes = cart.lines.map((l) => l.barcode).filter(Boolean) as string[];
 
-  const open = (p: PosProduct, barcode?: string) => {
+  const open = (p: PosProduct, barcode?: { code: string; source?: ScanSource }) => {
     if (p.available - inCart(p.id) <= 0 && !p.track_items) {
       toast.error(`${p.name} is out of stock at ${branch?.name}`);
       return;
@@ -117,7 +121,7 @@ export default function Pos() {
   // Scans add straight to the cart (the scanner stays open); tap a line to change price or quantity.
   const cartRef = useRef(cart);
   cartRef.current = cart;
-  const onScan = async (code: string): Promise<ScanOutcome> => {
+  const onScan = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
     let r: Lookup;
     try {
       r = await api<Lookup>("/products/lookup", { query: { code } });
@@ -149,14 +153,15 @@ export default function Pos() {
       if (!item.in_current_branch) return { tone: "error", title: `This item is at ${item.branch_name}`, detail: "It cannot be sold from this branch — change branch or transfer it first." };
       if (item.status !== "in_stock") return { tone: "error", title: `This item is ${item.status.replace("_", " ")}` };
       if (lines.some((l) => l.barcode === code)) return { tone: "info", title: `${p.name} is already in the cart` };
-      setCart((c) => ({ ...c, lines: [...c.lines, { key: newRef(), product: p, quantity: 1, unitPrice: toNum(p.marked_price), barcode: code }] }));
+      if (source === "manual" && !typingAllowed) return { tone: "error", title: translate(TYPING_OFF) };
+      setCart((c) => ({ ...c, lines: [...c.lines, { key: newRef(), product: p, quantity: 1, unitPrice: toNum(p.marked_price), barcode: code, barcodeSource: source }] }));
       return { tone: "success", title: `${p.name} added` };
     }
 
     // Roadmap 131: no selling price yet — open it so the price is typed (never added at 0).
     if (p.marked_price == null) {
       setScan(false);
-      open(p, p.barcode === code ? code : undefined);
+      open(p, p.barcode === code ? { code, source } : undefined);
       return { tone: "info", title: `${p.name} has no price yet — enter the selling price` };
     }
     const already = lines.filter((l) => l.product.id === p.id).reduce((a, l) => a + l.quantity, 0);
@@ -164,13 +169,14 @@ export default function Pos() {
       return { tone: "error", title: `${p.name} — out of stock at ${branch?.name}`, detail: where };
     }
     // The product barcode clears it at the counter (Require barcode clearance).
-    const cleared = p.barcode === code ? code : undefined;
+    // A typed product barcode still finds the product, but clears it only where typing is allowed.
+    const cleared = p.barcode === code && !(source === "manual" && !typingAllowed && s.sales.require_barcode_clearance) ? code : undefined;
     const same = lines.find((l) => l.product.id === p.id && !l.product.track_items && l.unitPrice === toNum(p.marked_price) && !l.saleDate);
     setCart((c) => ({
       ...c,
       lines: same
-        ? c.lines.map((l) => (l.key === same.key ? { ...l, quantity: l.quantity + 1, barcode: l.barcode ?? cleared } : l))
-        : [...c.lines, { key: newRef(), product: p, quantity: 1, unitPrice: toNum(p.marked_price), barcode: cleared }],
+        ? c.lines.map((l) => (l.key === same.key ? { ...l, quantity: l.quantity + 1, barcode: l.barcode ?? cleared, barcodeSource: l.barcode ? l.barcodeSource : cleared ? source : undefined } : l))
+        : [...c.lines, { key: newRef(), product: p, quantity: 1, unitPrice: toNum(p.marked_price), barcode: cleared, barcodeSource: cleared ? source : undefined }],
     }));
     return { tone: "success", title: `${p.name} added · Qty ${already + 1}` };
   };
@@ -257,14 +263,16 @@ export default function Pos() {
             onChange={(d) => setCart((c) => ({ ...c, saleDate: d < today ? d : undefined }))} />
         </div>
         <div className="sticky top-14 z-20 -mx-3.5 space-y-2 bg-background/90 px-3.5 pb-3 pt-1 backdrop-blur-sm md:-mx-6 md:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
+          <div onKeyDownCapture={searchTiming.onKeyDown} onPasteCapture={searchTiming.onPaste}>
           <SearchInput value={q} onChange={setQ} placeholder="Search name, nickname, code or barcode" autoFocus={desktop}
             onEnter={s.stock.barcode_requirement === "disabled" ? undefined : async (code) => {
               // Roadmap 98: Enter with a barcode (handheld scanner or typed) adds it like a camera scan; anything else
-              // simply stays as the search.
-              const r = await onScan(code);
+              // simply stays as the search. Roadmap 137: the key timing tells a handheld scanner from typing.
+              const r = await onScan(code, searchTiming.source(code));
               if (r?.tone === "success") { toast.success(r.title, { duration: 1200 }); setQ(""); }
               else if (r?.tone === "error" && !/not found/i.test(r.title)) toast.error(r.title);
             }} />
+          </div>
           {categories.length > 1 && (
             // Roadmap 117: a warm-cream strip, one scrollable row, arrows where categories are hidden, the chosen one in view.
             <div className="rounded-xl bg-strip px-1.5 py-1.5">
@@ -324,7 +332,7 @@ export default function Pos() {
         onSave={save}
         takenBarcodes={takenBarcodes}
       />
-      <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={onScan} title="Scan to sell" continuous />
+      <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={onScan} title="Scan to sell" continuous context="sale" />
 
       <ResponsiveDialog
         open={!!queued}

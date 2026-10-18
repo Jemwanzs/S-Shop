@@ -310,3 +310,17 @@ returns:
   confirmation says *Order submitted — payment and delivery are confirmed by the shop*: submitting is not a payment.
 - **No selling price set** (roadmap 131): *Price on Request* — published if otherwise eligible, never ordered online at a
   price (the business's enquire / WhatsApp action instead); the orders engine refuses to price an order from nothing.
+
+## Light and dark mode (roadmap 139)
+
+Settings → Website → Design → **Theme**:
+
+| Option | Visitors get |
+|---|---|
+| Light | Always light; no toggle |
+| Dark | Always dark; no toggle |
+| Both (visitors choose) | A sun / moon button in the header, on phones and computers |
+
+With *Both*, a first visit follows the visitor's phone or computer setting (`prefers-color-scheme`). After they tap the
+button, their choice is remembered on that device. Both palettes (*Light theme colours*, *Dark theme colours*) are edited
+on the same tab. Like every design change, the theme reaches visitors only after **Publish**.

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useSession } from "@/lib/session";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { CameraOff, Check, Flashlight, FlashlightOff, Keyboard, RefreshCw, SwitchCamera, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,6 +9,7 @@ import { useIsDesktop } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SShopLoader } from "@/components/SShopLoader";
+import { TYPING_OFF, useKeyTiming, useManualBarcodes, type ScanSource } from "@/lib/scan";
 
 /** What a scan led to, shown inside the scanner so the user never has to leave it. */
 export interface ScanOutcome {
@@ -19,7 +19,8 @@ export interface ScanOutcome {
   /** Extra actions for errors (e.g. "Search product", "Assign barcode"). "Scan again" is always offered. */
   actions?: { label: string; onClick: () => void }[];
 }
-export type ScanHandler = (code: string) => void | ScanOutcome | Promise<void | ScanOutcome>;
+/** `source` (roadmap 137): how the code arrived — handheld scanner, camera or typed. */
+export type ScanHandler = (code: string, source?: ScanSource) => void | ScanOutcome | Promise<void | ScanOutcome>;
 
 /**
  * The one barcode scanner used across S'Shop: phone camera (full screen on phones), handheld scanners
@@ -38,6 +39,7 @@ export function BarcodeScanner({
   title = "Scan barcode",
   continuous = false,
   hint,
+  context = "stock",
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -45,6 +47,8 @@ export function BarcodeScanner({
   title?: string;
   continuous?: boolean;
   hint?: string;
+  /** Roadmap 137: "sale" follows the till's barcode rule (typing off by default); "stock" the stock rule. */
+  context?: "sale" | "stock";
 }) {
   const desktop = useIsDesktop();
   // The dialog mounts its content after opening, so the video element arrives as state, not a ref read too early.
@@ -58,8 +62,9 @@ export function BarcodeScanner({
   const [detected, setDetected] = useState(false);
   const [outcome, setOutcome] = useState<(ScanOutcome & { code: string }) | null>(null);
   const [manual, setManual] = useState("");
-  // Roadmap 98: the business may switch typed / pasted barcodes off (handheld scanners still work in this field).
-  const manualAllowed = useSession().profile?.settings.stock.manual_barcode_entry ?? true;
+  // Roadmap 98 / 137: the business may switch typed / pasted barcodes off (handheld scanners still work in this field).
+  const manualAllowed = useManualBarcodes(context);
+  const timing = useKeyTiming();
   const paused = useRef(false);
   const last = useRef({ code: "", at: 0 });
   const handler = useRef(onDetected);
@@ -69,7 +74,8 @@ export function BarcodeScanner({
 
   // One path for camera, handheld and typed codes.
   const process = useCallback(
-    async (raw: string, fromCamera: boolean) => {
+    async (raw: string, source: ScanSource) => {
+      const fromCamera = source === "camera";
       const code = raw.trim();
       if (!code || paused.current) return;
       const now = Date.now();
@@ -85,7 +91,7 @@ export function BarcodeScanner({
       scanFeedback(true);
       let result: void | ScanOutcome;
       try {
-        result = await handler.current(code);
+        result = await handler.current(code, source);
       } catch (e) {
         result =
           e instanceof ApiError && e.title
@@ -136,7 +142,7 @@ export function BarcodeScanner({
     let cancelled = false;
     setCamera({ state: "starting" });
     if (!video) return;
-    startScanning(video, (code) => process(code, true), deviceId)
+    startScanning(video, (code) => process(code, "camera"), deviceId)
       .then((s) => {
         if (cancelled) return s.stop();
         session.current = s;
@@ -186,7 +192,13 @@ export function BarcodeScanner({
     last.current = { code: "", at: 0 };
     paused.current = false;
     setOutcome(null);
-    void process(code, false);
+    const source = timing.source(code.trim());
+    if (source === "manual" && !manualAllowed) {
+      scanFeedback(false);
+      setOutcome({ tone: "error", title: t(TYPING_OFF), code: code.trim() });
+      return;
+    }
+    void process(code, source);
   };
 
   const frameState = outcome?.tone === "error" ? "error" : detected ? "ok" : "scanning";
@@ -300,7 +312,8 @@ export function BarcodeScanner({
                 <Input
                   value={manual}
                   onChange={(e) => setManual(e.target.value)}
-                  onPaste={(e) => { if (!manualAllowed) e.preventDefault(); }}
+                  onPaste={(e) => { timing.onPaste(); if (!manualAllowed) e.preventDefault(); }}
+                  onKeyDown={timing.onKeyDown}
                   autoFocus={desktop}
                   placeholder={t(manualAllowed ? "Type or use a handheld scanner" : "Use a handheld scanner")}
                   aria-label={t("Barcode")}

@@ -30,6 +30,15 @@ export function moneyDoc(v: Num, currency = "KSh", decimals = false): string {
   return `${currency} ${(decimals ? two : whole).format(toNum(v))}`;
 }
 
+/** Roadmap 136: an item barcode as screens show it — the last three characters only (`****047`). Labels and the
+ * server keep the full code; scanning still compares the full code on the server. */
+export function maskCode(code: string | null | undefined): string {
+  const c = (code ?? "").trim();
+  if (!c) return "";
+  if (c.startsWith("****") || c === "***") return c;
+  return c.length <= 3 ? "***" : `****${c.slice(-3)}`;
+}
+
 export function amount(v: Num, decimals = false): string {
   return (decimals ? two : whole).format(toNum(v));
 }

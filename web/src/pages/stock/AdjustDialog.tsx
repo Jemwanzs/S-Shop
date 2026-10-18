@@ -16,6 +16,7 @@ import { SearchInput } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { t } from "@/lib/i18n";
+import { useManualBarcodes } from "@/lib/scan";
 
 const KINDS = [
   ["damage", "Damaged"],
@@ -37,6 +38,7 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
   const [kind, setKind] = useState<string>("damage");
   const [qty, setQty] = useState("");
   const [barcode, setBarcode] = useState("");
+  const typingAllowed = useManualBarcodes("stock");
   const [reason, setReason] = useState("");
   const [scan, setScan] = useState(false);
   const results = useQuery({ queryKey: ["products", "adjust", term], queryFn: () => api<Paged<Product>>("/products", { query: { q: term, limit: 8 } }), enabled: open && !!term && !product });
@@ -111,7 +113,8 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
           {tracked ? (
             <Field label="Item barcode">
               <div className="flex gap-2">
-                <Input className="num" value={barcode} onChange={(e) => setBarcode(e.target.value)} />
+                {/* Roadmap 137: typing follows Settings → Stock (manual barcode entry); scanning always works. */}
+                <Input className="num" value={barcode} readOnly={!typingAllowed} placeholder={typingAllowed ? "" : t("Scan barcode")} onChange={(e) => setBarcode(e.target.value)} />
                 <Button variant="outline" onClick={() => setScan(true)}><ScanLine /> {t("Scan")}</Button>
               </div>
             </Field>

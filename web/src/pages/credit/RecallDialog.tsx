@@ -3,7 +3,7 @@ import { CheckCircle2, RotateCcw, ScanLine, Store } from "lucide-react";
 import { api, type ApiError } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useSession } from "@/lib/session";
-import { count, money, toNum } from "@/lib/format";
+import { count, money, toNum, maskCode } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { CreditRow, Money, Outcome } from "@/lib/types";
@@ -199,7 +199,8 @@ export function RecallDialog({ open, onOpenChange, credit, items, onDone }: {
         title={scanFor ? `${t("Scan")} ${scanFor.product_name}` : ""}
         onDetected={(code) => {
           if (!scanFor) return;
-          if (code.trim() !== scanFor.barcode) {
+          // The sold unit is shown masked; the server compares the full code when the recall is saved.
+          if (maskCode(code) !== scanFor.barcode) {
             return { tone: "error", title: t("Barcode mismatch"), detail: t("This is not the unit sold on this credit sale. Scan the returned item's own barcode.") };
           }
           setScanned((s) => ({ ...s, [scanFor.id]: code.trim() }));

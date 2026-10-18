@@ -1,5 +1,6 @@
 import type { PosProduct, Settings } from "@/lib/types";
 import { toNum } from "@/lib/format";
+import type { ScanSource } from "@/lib/scan";
 
 /**
  * One pricing model: the selling price is the truth; the discount is derived
@@ -12,6 +13,8 @@ export interface CartLine {
   quantity: number;
   unitPrice: number;
   barcode?: string;
+  /** Roadmap 137: how the barcode was captured (scanner / camera / typed). */
+  barcodeSource?: ScanSource;
   /** Roadmap 115: this line's own sale date (yyyy-mm-dd); unset = the sale's date. */
   saleDate?: string;
 }

@@ -57,6 +57,13 @@ pub const CATALOGUE: &[PermGroup] = &[
         ("stock.transfer", "Create & dispatch transfers"),
         ("stock.receive_transfer", "Receive transfers"),
     ]},
+    PermGroup { module: "barcodes", label: "Item barcodes", permissions: &[
+        ("barcodes.generate", "Generate item barcodes"),
+        ("barcodes.print", "Print & reprint barcode labels"),
+        ("barcodes.reveal", "Reveal full item barcodes"),
+        ("barcodes.replace", "Replace item barcodes"),
+        ("barcodes.manual_sale", "Type barcodes at the till (when the business allows it)"),
+    ]},
     PermGroup { module: "customers", label: "Customers", permissions: &[
         ("customers.view", "View customers"),
         ("customers.create", "Create customers"),
@@ -157,7 +164,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
         "customers.view", "customers.create", "customers.edit", "customers.view_loyalty", "customers.redeem_points",
         "customers.view_credit", "loyalty.manage", "expenses.view", "expenses.create", "reports.view", "reports.export",
         "approvals.approve", "audit.view", "staff.view_others", "sales.print", "sales.outside_hours", "location.bypass",
-        "sales.assign_owner", "sales.request_owner_change", "sales.backdate",
+        "sales.assign_owner", "sales.request_owner_change", "sales.backdate", "barcodes.generate", "barcodes.print", "barcodes.reveal", "barcodes.replace", "barcodes.manual_sale",
     ]},
     RoleTemplate { name: "Director", description: "Oversees the whole business: figures, approvals and reports", permissions: &[
         "dashboard.view", "staff.view_others", "sales.view", "sales.print", "sales.view_financials", "credit.view", "orders.view",
@@ -168,7 +175,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
         "dashboard.view", "staff.view_others", "sales.view", "sales.create", "sales.print", "sales.discount", "sales.discount_override",
         "sales.return", "credit.recall", "sales.cancel", "credit.view", "credit.collect", "orders.view", "orders.manage", "products.view", "stock.view",
         "customers.view", "customers.create", "customers.edit", "customers.view_loyalty", "customers.redeem_points", "approvals.approve",
-        "sales.outside_hours", "sales.assign_owner", "sales.request_owner_change", "sales.backdate",
+        "sales.outside_hours", "sales.assign_owner", "sales.request_owner_change", "sales.backdate", "barcodes.manual_sale",
     ]},
     RoleTemplate { name: "Branch Manager", description: "Manages one or more branches", permissions: &[
         "dashboard.view", "sales.view", "sales.create", "sales.discount", "sales.discount_override", "sales.return", "credit.recall",
@@ -176,7 +183,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
         "stock.adjust", "stock.transfer", "stock.receive_transfer", "customers.view", "customers.create", "customers.edit",
         "customers.view_loyalty", "customers.redeem_points", "customers.view_credit", "expenses.view", "expenses.create",
         "reports.view", "reports.export", "approvals.approve", "staff.view_others", "sales.print", "sales.outside_hours",
-        "location.bypass", "sales.assign_owner", "sales.request_owner_change", "sales.backdate",
+        "location.bypass", "sales.assign_owner", "sales.request_owner_change", "sales.backdate", "barcodes.generate", "barcodes.print",
     ]},
     RoleTemplate { name: "Salesperson", description: "Records sales at the counter", permissions: &[
         "sales.view", "sales.create", "sales.discount", "credit.view", "credit.collect", "products.view", "stock.view",
@@ -185,7 +192,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
     ]},
     RoleTemplate { name: "Storekeeper", description: "Receives, counts and moves stock", permissions: &[
         "products.view", "products.create", "products.edit", "stock.view", "stock.add", "stock.adjust",
-        "stock.transfer", "stock.receive_transfer",
+        "stock.transfer", "stock.receive_transfer", "barcodes.generate", "barcodes.print",
     ]},
     RoleTemplate { name: "Order Manager", description: "Processes customer orders", permissions: &[
         "orders.view", "orders.manage", "products.view", "stock.view", "customers.view", "customers.create",

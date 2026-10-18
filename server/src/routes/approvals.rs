@@ -181,6 +181,10 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
                 Vec::new()
             };
             let levels = row.total();
+            // Roadmap 136: item barcodes inside a request (receipts, transfers, adjustments) leave the server masked; the
+            // stored payload keeps the full codes the approved action needs.
+            let mut row = row;
+            super::barcodes::mask_payload(&mut row.payload);
             items.push(Item { row, can_decide, levels, next_approvers });
         }
     }

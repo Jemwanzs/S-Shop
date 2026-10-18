@@ -3333,7 +3333,8 @@ check("roadmap 142: the template is prefilled with the business's own products a
 check("…with an Item Barcode Details sheet for individually tracked units (full codes for those who may reveal them)", "Item Barcode Details" in wbx and "****" in shared and f"BW{suffix}1" in shared)
 check("…and hidden technical references (product and branch ids)", sb_tee in shared and BRANCH in shared)
 SBH = ["Product Code", "Branch", "Available Stock / QTY", "Unit Cost", "Date As Of", "Notes", "System QTY"]
-today_sb = datetime.date.today().isoformat()
+# Date As Of left blank = the business's own today (its time zone — not the test machine's UTC date).
+today_sb = ""
 future = (datetime.date.today() + datetime.timedelta(days=3)).isoformat()
 bad_book = make_xlsx(SBH, [
     [codes[sb_tee], main_code_sb, 15, 100, today_sb, "", 12],
@@ -3371,7 +3372,7 @@ adjs = [a for a in call("GET", "/stock/adjustments?period=today&limit=100")["ite
 check("each change is an auditable count adjustment with the upload in its reason", len(adjs) >= 2 and all("Stock balance upload" in (a.get("reason") or "") for a in adjs), [a.get("reason") for a in adjs][:3])
 aud = [a for a in call("GET", "/audit?period=today&limit=100&module=stock")["items"] if a["action"] == "balance_upload"]
 check("audit: old balance, new balance, difference, effective date and the upload", any((a.get("before") or {}).get("quantity") == 12 and (a.get("after") or {}).get("quantity") == 15
-      and (a.get("after") or {}).get("delta") == 3 and (a.get("after") or {}).get("effective_date") == today_sb and (a.get("after") or {}).get("import_batch_id") == up["batch"]["id"] for a in aud), aud[:1])
+      and (a.get("after") or {}).get("delta") == 3 and (a.get("after") or {}).get("effective_date") == rows[sb_tee]["data"]["as_of"] and (a.get("after") or {}).get("import_batch_id") == up["batch"]["id"] for a in aud), aud[:1])
 r = upload_xlsx("stock_balances", good, name=f"bal-good-{suffix}.xlsx", expect=422)
 check("the same workbook is never applied twice", r["error"]["title"] == "Already imported", r)
 # An old sheet never overwrites newer movements

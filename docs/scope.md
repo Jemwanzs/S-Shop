@@ -671,7 +671,7 @@ Product Import Enhancements*):
 Integration & Scan-to-Clear*, 2026-10-18). Builds on the existing individual-item tracking (`stock_items`, roadmap 98):
 units already carry their own barcode through receiving, sales, transfers, stock takes, returns and write-offs, and the
 server already refuses a unit sold twice, from another branch or another product.
-- ⏳ **133. Seven-digit item barcodes & platform registry** — S'Shop-generated item barcodes: 7 digits `1000000–9999999`
+- ✅ **133. Seven-digit item barcodes & platform registry** — S'Shop-generated item barcodes: 7 digits `1000000–9999999`
   from a cryptographically secure generator (never sequential), allocated through a platform-wide registry (unique
   across every business, branch and status; never recycled — sold, returned, written-off or replaced codes stay
   retired). Manually entered item codes can never take a code that S'Shop issued to another business, and an item code
@@ -679,35 +679,35 @@ server already refuses a unit sold twice, from another branch or another product
   warning at 70 %, documented move to longer codes). Permissions *Generate item barcodes*, *Print & reprint labels*,
   *Reveal full item barcodes*, *Replace item barcodes*, *Enter barcodes manually at the till*; audit for each.
   Product-level (shared / manufacturer) barcodes unchanged.
-- ⏳ **134. Barcode stickers (Code 128)** — the standard S'Shop sticker: business name (never the branch) · Code 128 bars
+- ✅ **134. Barcode stickers (Code 128)** — the standard S'Shop sticker: business name (never the branch) · Code 128 bars
   with quiet zones · the 7-digit number · the product name small (truncated to fit); white background, black bars, no
   price, no internal ids. Sizes 40×25, 50×30, 60×40 mm or custom; default size in Settings → Stock. Preview, Print
   (browser / system printer, one label per page or A4 sheets), Download PDF, Download PNG; single labels and batches.
   Label printers that speak ZPL or TSPL get a file to send. Scanner-readable output verified in tests.
-- ⏳ **135. Receiving with generated barcodes** — Stock → Receive, individually tracked product: *Generate barcodes* (one
+- ✅ **135. Receiving with generated barcodes** — Stock → Receive, individually tracked product: *Generate barcodes* (one
   per unit) or *Scan / enter existing* (per the stock settings) → labels ready → print → *I have attached the labels*
   → optional verification scan of every label (*Require barcode verification before completing a receipt*) → the
   existing receive / approval flow. Product details → Barcode Management: print or reprint labels of units in stock,
   replace a damaged label (new code, old one retired), *Label existing stock* when a product switches to individual
   items with stock already on hand. Opening-stock import can generate the item barcodes.
-- ⏳ **136. Concealed item barcodes** — after receiving, an item barcode shows as `****047` in products, stock, stock takes,
+- ✅ **136. Concealed item barcodes** — after receiving, an item barcode shows as `****047` in products, stock, stock takes,
   transfers, sales, Record Sale, search, reports and exports — masked by the server, not only on screen. Full values
   only through audited actions: printing / reprinting labels and *Reveal* (permission). The printed sticker keeps the
   full code. Scanning still works everywhere (the server compares the scanned code).
-- ⏳ **137. Scan-to-clear at the till** — Settings → Sales & Payments → Barcode controls: *Allow manual barcode entry during
+- ✅ **137. Scan-to-clear at the till** — Settings → Sales & Payments → Barcode controls: *Allow manual barcode entry during
   sales* (default **off**): barcode-controlled items are cleared only by scanning (handheld / camera); typing is refused
   by the server on every route that clears stock (sales, credit sales, exchanges, order completion). Each cleared line
   records how its barcode was captured (scanner / camera / typed). Settings → Stock → Barcode controls: *Allow manual
   barcode entry during stock receiving* (default on), *Generate unique barcodes automatically*, *Require barcode
   verification before completing a receipt*. Keyboard-style scanners cannot be told apart from fast typing with
   certainty — the capture source is recorded as information, not proof; camera scanning is the stronger option.
-- ⏳ **138. Barcode hardware** — Settings → Stock → Barcode hardware: label printer type (system / browser printing,
+- ✅ **138. Barcode hardware** — Settings → Stock → Barcode hardware: label printer type (system / browser printing,
   ZPL, TSPL), default label size, *Print a test label*, *Test your scanner* (shows what arrived and how), connection
   guidance for USB / Bluetooth / Wi-Fi printers and scanners and phone cameras; honest limits (no direct printer access
   from iPhone or most browsers — printing goes through the system print dialog or the printer's own app).
 
 **Website light / dark mode** (customer question, 2026-10-18):
-- ⏳ **139. Theme follows the visitor's device** — with Theme = *Both (visitors choose)*, a first visit opens in the
+- ✅ **139. Theme follows the visitor's device** — with Theme = *Both (visitors choose)*, a first visit opens in the
   visitor's own light / dark setting; the sun / moon toggle then remembers their choice. The Theme setting explains where
   the toggle appears and that it needs Publish.
 

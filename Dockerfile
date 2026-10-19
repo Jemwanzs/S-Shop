@@ -1,5 +1,5 @@
 # S'Shop — one image: Rust API + built web app.
-# Railway builds this automatically (see railway.json).
+# Railway builds this automatically (a root Dockerfile is detected; settings in .railway/railway.ts).
 
 # ── 1. Web app ────────────────────────────────────────────────
 FROM node:22-alpine AS web

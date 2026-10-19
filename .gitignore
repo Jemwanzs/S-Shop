@@ -18,3 +18,5 @@ web/node_modules
 .vscode/*
 !.vscode/extensions.json
 tsconfig.tsbuildinfo
+
+.railway/node_modules

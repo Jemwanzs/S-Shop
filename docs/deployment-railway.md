@@ -6,15 +6,37 @@ S'Shop runs as **one service** (built from the repository `Dockerfile`) plus **o
 |---|---|
 | GitHub repository | `https://github.com/Jemwanzs/S-Shop` (branch `main`) |
 | Railway project | `c7f30712-2adc-403b-bf4b-42c83d5f8dae` |
-| Build | `Dockerfile` (selected by `railway.json`) |
+| Build | `Dockerfile` (Railway uses a root `Dockerfile` automatically) |
+| Railway settings | `.railway/railway.ts` (Infrastructure as Code, roadmap 94) — GitHub source, health check, variable names |
 | Health check | `GET /healthz` — `ok` only when the database answers within 3 s (503 otherwise) |
 
 ## 1. Services
 
 1. In the Railway project add **PostgreSQL** (Database → PostgreSQL).
-2. Add a service from **GitHub repo → Jemwanzs/S-Shop**. Railway detects `railway.json` and builds the Dockerfile.
+2. Add a service from **GitHub repo → Jemwanzs/S-Shop**. Railway detects the root `Dockerfile` and builds it.
    Every push to `main` redeploys.
 3. Settings → Networking → **Generate Domain** (or attach your own domain).
+
+## Railway settings as code (`.railway/railway.ts`)
+
+Since 2026-10-19 the service's Railway settings are kept in `.railway/railway.ts` (Railway Infrastructure as Code; the
+older `railway.json` stopped being read on 2026-12-01). Railway does not read it during deploys — it is applied with the
+Railway CLI:
+
+```powershell
+cd .railway; npm install; cd ..           # once: the `railway` SDK the file imports
+railway link                              # project S'Shop, environment production, service sshop
+railway config plan                       # read-only preview — read it
+railway config apply                      # asks for confirmation
+```
+
+- **Anything the file leaves out is removed from Railway.** It declares the GitHub source and every variable as
+  `preserve()` (keep the value already on Railway — values never go in the file). When a variable is added on
+  Railway, add its name here as `preserve()` too, or the next apply deletes it. Never apply a plan that shows
+  `destroy` unless that is intended.
+- Windows with the npm-installed CLI: the SDK's CLI-version check fails unless `$env:_` points at the real
+  `railway.exe` (`%APPDATA%/npm/node_modules/@railway/cli/bin/railway.exe`) and the command is run through it:
+  `$env:_ = "<that path>"; & $env:_ config plan`.
 
 ## 2. Variables (service → Variables)
 

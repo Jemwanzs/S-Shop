@@ -37,7 +37,7 @@ S-Shop/
 ├── web/                    React web app (staff app + public ordering portal)
 ├── scripts/smoke_test.py   end-to-end test against a running server
 ├── docs/                   documentation (start at docs/README.md)
-├── Dockerfile · railway.json · .env.example
+├── Dockerfile · .railway/railway.ts (Railway settings) · .env.example
 └── _archive/               backup of the legacy Pablo Loyalty code (not deployed)
 ```
 

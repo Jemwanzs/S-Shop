@@ -81,7 +81,8 @@
         "Control over which branches stock a product and whether it appears online",
         "Low-stock alert levels and loyalty rules per product",
         "Item barcodes stay concealed (****047) on screens, reports and exports; printing, reprinting, replacing and revealing them are permission-controlled and recorded",
-        "Filter the catalogue by price status (price set or missing) to find products that still need a selling price"
+        "Filter the catalogue by price status (price set or missing) to find products that still need a selling price",
+        "Your filters, search, page and scroll position are kept while you open and edit products — fix missing prices one after another without choosing the filters again"
       ]
     },
     {

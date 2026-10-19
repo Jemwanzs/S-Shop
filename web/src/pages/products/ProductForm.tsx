@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, ScanLine, X, Wand2 } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loading, PageHeader, Section } from "@/components/Page";
+import { useCatalogueHref } from "@/lib/catalogue";
 import { Field, Select, ToggleRow } from "@/components/Form";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { useBarcodeSettings } from "@/components/BarcodeInput";
@@ -56,6 +57,8 @@ const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
 export default function ProductForm() {
   const { id } = useParams();
   const editing = !!id;
+  const catalogue = useCatalogueHref();
+  const fromDetail = !!(useLocation().state as { fromDetail?: boolean } | null)?.fromDetail;
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { profile, can } = useSession();
@@ -148,7 +151,11 @@ export default function ProductForm() {
       } else {
         toast.success(editing ? "Product updated" : upload?.saved ? `Product created with ${upload.saved} photo(s)` : "Product created");
       }
-      navigate(r.pending_approval ? "/products" : `/products/${productId}`);
+      // Roadmap 143: saving returns to where the person came from — the product page they opened Edit on (its
+      // history entry, refreshed), or the product — and the catalogue keeps its filters.
+      if (r.pending_approval) navigate(catalogue);
+      else if (fromDetail) navigate(-1);
+      else navigate(`/products/${productId}`, { replace: true });
     },
     onError: (e) => toast.error(e),
   });
@@ -158,7 +165,7 @@ export default function ProductForm() {
 
   return (
     <>
-      <PageHeader back={editing ? `/products/${id}` : "/products"} eyebrow="Catalogue" title={editing ? `Edit ${f.name}` : "New product"} />
+      <PageHeader back={editing ? `/products/${id}` : catalogue} eyebrow="Catalogue" title={editing ? `Edit ${f.name}` : "New product"} />
       <form
         className="grid gap-5 pb-24 xl:grid-cols-[minmax(0,1fr)_400px]"
         onSubmit={(e) => {

@@ -35,6 +35,16 @@ imported blank or never set). The filters combine; the product count and pages f
 catalogue. Open a product with a missing price and set it with *Edit* (or while receiving stock). While *Missing price*
 is chosen, the price column shows *Not set* even when prices are hidden from the list.
 
+### Browsing context (roadmap 143)
+The catalogue keeps its filters in the address — `/products?status=inactive&category=…&price=missing&q=…&page=2`
+(*Active* is the default and not written) — so refreshing, sharing the link, the browser's Back and the page's
+**Back** all return to the same view. Opening a product, editing it and saving (or cancelling) returns to the same
+filters, search, page and scroll position: after giving a product its price under *Missing price*, Back shows the
+remaining products without it and the count drops by one. If an edit empties the current page, the list moves to
+the nearest page with results. Only the catalogue address to return to and its scroll position are remembered,
+for the browser tab and per business — another business's catalogue context is never used. (The catalogue has
+no separate sort control; its order is fixed: active first, then by name.)
+
 ## Product page
 Price, stock here, stock across branches, photo manager, recent stock movements, details, buttons for
 *Performance* (dashboard filtered to the product), *Receive stock*, *Edit*, *Activate/Deactivate*, barcoded items.

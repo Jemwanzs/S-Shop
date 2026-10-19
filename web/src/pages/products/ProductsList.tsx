@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Images, Package, Plus, ScanBarcode } from "lucide-react";
@@ -15,22 +15,53 @@ import { Select } from "@/components/Form";
 import { ProductThumb } from "@/pages/sales/pos/ProductGrid";
 import { Pill, StockIndicator } from "@/components/Badges";
 import { t } from "@/lib/i18n";
+import { useRememberCatalogue } from "@/lib/catalogue";
 
 const LIMIT = 50;
 
 export default function ProductsList() {
   const { can, profile } = useSession();
   const navigate = useNavigate();
+  // Roadmap 143: the filters live in the URL (refresh-safe, shareable, kept by Back): status, category, price, q, page.
   // Arrived from a scanner's "Assign barcode": pick the product that should carry this code.
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const assign = can("products.edit") ? params.get("assign") : null;
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState<"active" | "inactive" | "all">("active");
-  const [category, setCategory] = useState("");
+  const statusParam = params.get("status");
+  const status: "active" | "inactive" | "all" = statusParam === "inactive" || statusParam === "all" ? statusParam : "active";
+  const category = params.get("category") ?? "";
   // Roadmap 140: products with or without a selling price (a real 0 counts as set).
-  const [price, setPrice] = useState<"" | "set" | "missing">("");
-  const [offset, setOffset] = useState(0);
+  const priceParam = params.get("price");
+  const price: "" | "set" | "missing" = priceParam === "set" || priceParam === "missing" ? priceParam : "";
+  const page = Math.max(1, Math.floor(Number(params.get("page")) || 1));
+  const offset = (page - 1) * LIMIT;
+  const qParam = params.get("q") ?? "";
+  const [q, setQ] = useState(qParam);
   const term = useDebounced(q);
+  // One change of filters → one URL change (replacing the entry, so Back leaves the catalogue rather than undoing filters).
+  const update = (patch: Record<string, string | null>, keepPage = false) =>
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null || v === "") next.delete(k);
+        else next.set(k, v);
+      }
+      if (!keepPage) next.delete("page");
+      if (next.get("status") === "active") next.delete("status");
+      return next;
+    }, { replace: true });
+  const setStatus = (v: string) => update({ status: v });
+  const setCategory = (v: string) => update({ category: v });
+  const setPrice = (v: string) => update({ price: v });
+  const setOffset = (o: number) => update({ page: o > 0 ? String(Math.floor(o / LIMIT) + 1) : null }, true);
+  // The search box writes to the URL once typing settles; the URL (Back, refresh) fills the box.
+  useEffect(() => {
+    if (term !== qParam) update({ q: term.trim() || null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the settled search changes
+  }, [term]);
+  useEffect(() => {
+    if (qParam !== term) setQ(qParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- follow the URL (Back / refresh)
+  }, [qParam]);
   const query = { q: term, status, category_id: category, price: price || undefined, limit: LIMIT, offset };
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["products", query],
@@ -38,6 +69,17 @@ export default function ProductsList() {
     placeholderData: (p) => p,
   });
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => api<Category[]>("/categories") });
+  // Back from a product returns here — same filters, page and scroll position (per business, this tab only).
+  const search = params.toString() ? `?${params.toString()}` : "";
+  useRememberCatalogue(search, !!data && !isLoading);
+  // Edits can empty this page (e.g. the last product here got its price under Missing price): go to the nearest page left.
+  useEffect(() => {
+    if (data && data.items.length === 0 && page > 1) {
+      const last = Math.max(1, Math.ceil(data.total / LIMIT));
+      if (last < page) setOffset((last - 1) * LIMIT);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to the loaded page only
+  }, [data, page]);
   const low = profile?.settings.stock.low_stock_threshold ?? 3;
   // Roadmap 109: product list display preferences.
   const showImages = !!profile?.settings.product.list_show_images;
@@ -63,14 +105,14 @@ export default function ProductsList() {
         </div>
       )}
       <div className="mb-4 space-y-3">
-        <Segments value={status} onChange={(v) => { setStatus(v); setOffset(0); }} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }, { value: "all", label: "All" }]} />
+        <Segments value={status} onChange={(v) => setStatus(v)} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }, { value: "all", label: "All" }]} />
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 md:flex">
-          <SearchInput value={q} onChange={(v) => { setQ(v); setOffset(0); }} placeholder="Name, nickname, code or barcode" className="md:w-80" />
-          <Select value={category} label="Category" onChange={(v) => { setCategory(v); setOffset(0); }} className="md:w-52">
+          <SearchInput value={q} onChange={setQ} placeholder="Name, nickname, code or barcode" className="md:w-80" />
+          <Select value={category} label="Category" onChange={(v) => setCategory(v)} className="md:w-52">
             <option value="">{t("All categories")}</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
-          <Select value={price} label="Price status" onChange={(v) => { setPrice(v as "" | "set" | "missing"); setOffset(0); }} className="md:w-44">
+          <Select value={price} label="Price status" onChange={(v) => setPrice(v)} className="md:w-44">
             <option value="">{t("All prices")}</option>
             <option value="set">{t("Price set")}</option>
             <option value="missing">{t("Missing price")}</option>

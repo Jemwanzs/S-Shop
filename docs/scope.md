@@ -729,6 +729,12 @@ server already refuses a unit sold twice, from another branch or another product
   tracked products that do not match their labelled items; applies as audited count adjustments with the effective
   date, linked to the upload; approval when adjustments need it; never applied twice.
 
+**Product browsing context** (brief *Preserve Product Filters & Browsing Position After Editing*):
+- ⏳ **143. Catalogue remembers its filters and position** — status, category, price status, search and page in the
+  URL (refresh-safe, shareable); product page and edit screen return to it (app Back, browser Back, save, cancel) with
+  the scroll position; the list refreshes after edits (an edited product leaves filters it no longer matches) and an
+  emptied page moves to the nearest page with results; remembered per business, for the browser tab only.
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

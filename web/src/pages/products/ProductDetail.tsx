@@ -11,6 +11,7 @@ import type { Outcome, Paged, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page";
+import { useCatalogueHref } from "@/lib/catalogue";
 import { Pill, StockIndicator } from "@/components/Badges";
 import { ConfirmDialog } from "@/components/Form";
 import { PhotoGallery } from "@/components/PhotoGallery";
@@ -39,6 +40,8 @@ interface Movement {
 
 export default function ProductDetail() {
   const { id } = useParams();
+  // Roadmap 143: Back returns to the catalogue as it was (filters, page, scroll).
+  const catalogue = useCatalogueHref();
   const { can, profile } = useSession();
   const qc = useQueryClient();
   const [gallery, setGallery] = useState(false);
@@ -83,7 +86,7 @@ export default function ProductDetail() {
   return (
     <>
       <PageHeader
-        back="/products"
+        back={catalogue}
         eyebrow={`${p.code}${p.category_name ? ` · ${p.category_name}` : ""}`}
         title={p.name}
         description={p.nickname && `“${p.nickname}”`}
@@ -91,7 +94,7 @@ export default function ProductDetail() {
           <>
             {can("dashboard.view") && <Button variant="outline" asChild><Link to={`/?product=${p.id}`}><BarChart3 /> {t("Performance")}</Link></Button>}
             {can("stock.add") && <Button variant="outline" asChild><Link to={`/stock/receive?product=${p.id}`}><PackagePlus /> {t("Receive stock")}</Link></Button>}
-            {can("products.edit") && <Button asChild><Link to={`/products/${p.id}/edit`}><Pencil /> {t("Edit")}</Link></Button>}
+            {can("products.edit") && <Button asChild><Link to={`/products/${p.id}/edit`} state={{ fromDetail: true }}><Pencil /> {t("Edit")}</Link></Button>}
           </>
         }
       />

@@ -477,6 +477,13 @@ Health check 2026-10-11 (owner request: *health check of the S'Shop app; detect 
   production, service sshop) → `railway config migrate --service sshop --apply` (writes `.railway/railway.ts`,
   clears the service's Config File setting) → `railway config plan` (expect only healthcheck settings) → `railway
   config apply` → delete `railway.json`, commit, and confirm the next deploy uses the Dockerfile and passes `/healthz`.
+  **Evidence (checked 2026-10-19):** docs.railway.com/config-as-code — "Existing `railway.json` / `railway.toml` files
+  continue to work for services that already use them until **2026-12-01** (hard cutoff)"; docs.railway.com/
+  infrastructure-as-code — "Existing Config as Code files stop being read on 2026-12-01 (hard cutoff)". The live
+  service settings (Railway API, read-only) hold none of what `railway.json` sets: builder **RAILPACK**, no health check,
+  no restart policy. So after the cutoff, deploys would go live **without the `/healthz` gate** (a broken build could
+  replace the working one). The root `Dockerfile` is still used (Railway uses a root `Dockerfile` automatically:
+  docs.railway.com/builds/dockerfiles). Railway CLI 5.57.2 has `railway config migrate` (dry run by default).
 - ✅ **95. Front-end dependency majors** — React Router 6.30 → **7.18** (advisory cleared; every link is absolute, so v7's
   relative-path change does not apply) and Tailwind 3 → **4.3** (configuration in CSS `@theme`). The upgrade tool's
   renames inside non-styling text were reverted (translation keys, the `outline` button variant, the website's

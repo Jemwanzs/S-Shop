@@ -131,5 +131,7 @@ unfinished import remains; the date is shown on the centre afterwards.
 - **Browser** (Playwright): progress screen on a 1,874-row file, partial and full summaries, report download.
 - **Unit**: templates read back, header aliases, value conversion.
 
-**Stock balances** (roadmap 142) use the same engine for day-to-day reconciliation — a prefilled sheet of today's
+**Stock balances** (roadmap 142; on this page since roadmap 144 as the third card — the same panel as Stock → Stock
+balances: Download template · Upload stock balances · Download current balances · recent uploads; *Opening stock
+balances* is kept, at the end of the list) use the same engine for day-to-day reconciliation — a prefilled sheet of today's
 balances, uploaded quantities as target balances. See [module 07](07-stock.md#stock-balances-from-excel-roadmap-142).

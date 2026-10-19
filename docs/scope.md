@@ -735,6 +735,11 @@ server already refuses a unit sold twice, from another branch or another product
   the scroll position; the list refreshes after edits (an edited product leaves filters it no longer matches) and an
   emptied page moves to the nearest page with results; remembered per business, for the browser tab only.
 
+- ⏳ **144. Stock balances card in Onboarding** — Settings → Onboarding shows the Stock balances panel (identical to
+  Stock → Stock balances: Download template · Upload stock balances · Download current balances · recent uploads, same
+  preview and progress) in the place of *Opening stock balances*, which stays available at the end of the list (owner
+  choice 2026-10-19: it still creates barcode-tracked opening items and feeds the migration reconciliation).
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

@@ -22,6 +22,7 @@ import { Pill, type Tone } from "@/components/Badges";
 import { Loading } from "@/components/Page";
 import { ImportProgress } from "@/components/ImportProgress";
 import { Card, SettingsPage } from "./shared";
+import { StockBalanceScreens, StockBalancesPanel } from "@/pages/stock/StockBalancesDialog";
 
 interface Column { key: string; header: string; required: boolean; help?: string }
 export interface Dataset { key: string; label: string; columns: Column[]; may_skip_invalid: boolean }
@@ -73,6 +74,9 @@ export function OnboardingSettings() {
   const [open, setOpen] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [cutover, setCutover] = useState<string | null>(null);
+  // Roadmap 144: the Stock balances card (same panel as Stock → Stock balances) has its own preview / progress screens.
+  const [sbOpen, setSbOpen] = useState<string | null>(null);
+  const [sbProgress, setSbProgress] = useState<string | null>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ["onboarding"] });
   // An import still running (e.g. after a refresh) opens its progress again — once.
   const running = q.data?.batches.find((b) => b.status === "posting")?.id;
@@ -121,8 +125,16 @@ export function OnboardingSettings() {
         {o.branches === 0 && <p className="text-xs text-destructive">{t("Add your branches first (Settings → Branches): stock and expenses refer to their codes.")}</p>}
       </Card>
       <div className="grid gap-3 md:grid-cols-2">
-        {o.datasets.map((d) => {
+        {ordered(o.datasets).filter((d) => d.key !== "stock_balances" || can("stock.adjust")).map((d) => {
           const last = o.batches.find((b) => b.dataset === d.key);
+          if (d.key === "stock_balances") {
+            return (
+              <section key={d.key} className="surface card-body space-y-3">
+                <h3 className="flex items-center gap-2 font-semibold"><FileSpreadsheet className="h-4 w-4 text-primary" /> {t("Stock balances")}</h3>
+                <StockBalancesPanel onOpen={setSbOpen} onProgress={setSbProgress} />
+              </section>
+            );
+          }
           return (
             <section key={d.key} className="surface card-body space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -157,6 +169,7 @@ export function OnboardingSettings() {
           {!o.batches.length && <li className="py-3 text-muted-foreground">{t("No imports yet.")}</li>}
         </ul>
       </Card>
+      <StockBalanceScreens open={sbOpen} progress={sbProgress} setOpen={setSbOpen} setProgress={setSbProgress} />
       {open && <BatchDialog id={open} datasets={o.datasets} onClose={() => { setOpen(null); refresh(); }} onProgress={(id) => { setOpen(null); setProgress(id); refresh(); }} />}
       {progress && (() => {
         const b = o.batches.find((x) => x.id === progress);
@@ -169,6 +182,16 @@ export function OnboardingSettings() {
       })()}
     </SettingsPage>
   );
+}
+
+/** Roadmap 144: Stock balances takes Opening stock balances' place in the grid; Opening stock moves to the end. */
+function ordered(ds: Dataset[]): Dataset[] {
+  const sb = ds.find((d) => d.key === "stock_balances");
+  const os = ds.find((d) => d.key === "opening_stock");
+  if (!sb || !os) return ds;
+  const rest = ds.filter((d) => d !== sb && d !== os);
+  const at = ds.indexOf(os);
+  return [...rest.slice(0, at), sb, ...rest.slice(at), os];
 }
 
 const MEASURE: Record<string, string> = { records: "Records", units: "Units", amount: "Amount", balance: "Balance", points: "Points" };

@@ -466,7 +466,7 @@ Health check 2026-10-11 (owner request: *health check of the S'Shop app; detect 
   CSP, HSTS, framing denied; no errors in the service logs); M-Pesa release live (new routes answer, forged callbacks
   refused); full smoke suite 653/653 and 54 unit tests. Fixed: **jsPDF 3.0.4 → 4.2.1** (critical/high advisories incl.
   HTML injection in new-window output and image-decoding denial of service; receipt and report PDFs verified).
-- ⏳ **94. Railway config migration (before 2026-12-01)** — `railway.json` (Config as Code) is deprecated and stops on
+- ✅ **94. Railway config migration (before 2026-12-01)** — `railway.json` (Config as Code) is deprecated and stops on
   2026-12-01. Railway's automatic migration drops the Dockerfile builder and restart policy and renames the service,
   so it is done by hand with the owner: write `.railway/railway.ts` (Dockerfile build, `/healthz` with 120 s,
   restart on failure × 5), `railway config plan`, then apply.
@@ -490,6 +490,8 @@ Health check 2026-10-11 (owner request: *health check of the S'Shop app; detect 
   (names only) and the health check; the applied plan was *0 add, 1 change (healthcheck → `/healthz`, 120 s), 0
   destroy*; a fresh plan reports *already up to date*. `railway.json` removed. How to change settings from now on:
   [deployment-railway.md](deployment-railway.md#railway-settings-as-code-railwayrailwayts).
+  **Verified live** (deployment of c75e839, first without `railway.json`): built from the repository `Dockerfile`
+  (stages `server` rust:1-bookworm, `web` node:22-alpine, final debian:bookworm-slim), *Healthcheck succeeded*, CI green.
 - ✅ **95. Front-end dependency majors** — React Router 6.30 → **7.18** (advisory cleared; every link is absolute, so v7's
   relative-path change does not apply) and Tailwind 3 → **4.3** (configuration in CSS `@theme`). The upgrade tool's
   renames inside non-styling text were reverted (translation keys, the `outline` button variant, the website's

@@ -735,7 +735,7 @@ server already refuses a unit sold twice, from another branch or another product
   the scroll position; the list refreshes after edits (an edited product leaves filters it no longer matches) and an
   emptied page moves to the nearest page with results; remembered per business, for the browser tab only.
 
-- ⏳ **144. Stock balances card in Onboarding** — Settings → Onboarding shows the Stock balances panel (identical to
+- ✅ **144. Stock balances card in Onboarding** — Settings → Onboarding shows the Stock balances panel (identical to
   Stock → Stock balances: Download template · Upload stock balances · Download current balances · recent uploads, same
   preview and progress) in the place of *Opening stock balances*, which stays available at the end of the list (owner
   choice 2026-10-19: it still creates barcode-tracked opening items and feeds the migration reconciliation).

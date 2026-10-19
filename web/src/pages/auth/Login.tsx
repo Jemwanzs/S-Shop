@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useState, useRef } from "react";
+import { Link, Navigate, slugsOf, takeNext, useNavigate, useParams, useSearchParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Mail, ScanFace, TimerReset } from "lucide-react";
 import { api, ApiError, errorMessage, SESSION_EXPIRED } from "@/lib/api";
@@ -58,6 +58,7 @@ export default function LoginPage() {
   });
   // Roadmap 113: the business is known only from trusted context — its own sign-in address (/login/{business}), this
   // trusted Quick PIN device, or a session of it that just expired in this tab. Never from what someone types.
+  const left = useRef(false);
   const own = useParams().business;
   const trusted = own ?? (mode === "quick" ? device?.slug : undefined) ?? (expired ? expiredBusiness() ?? undefined : undefined);
   const brand = useQuery({
@@ -74,14 +75,18 @@ export default function LoginPage() {
     </p>
   );
 
-  if (profile) return <Navigate to="/" replace />;
+  // Already signed in: home. Not after this page's own sign-in — it has just sent the person on (their landing page or
+  // the address they opened), and the session update can render here before that navigation does.
+  if (profile) return left.current ? null : <Navigate to="/" replace />;
 
   const enter = (res: { token: string; profile: Profile }) => {
     try { sessionStorage.removeItem(SESSION_EXPIRED); } catch { /* nothing kept */ }
+    left.current = true;
     signIn(res.token, res.profile);
     const preset = res.profile.branches.some((b) => b.id === res.profile.user.default_branch_id);
     // Roadmap 108: pick the branch first when there are several, then the chosen landing page.
-    navigate(res.profile.branches.length > 1 && !preset ? "/select-branch" : landingPath(res.profile), { replace: true });
+    // Roadmap 145: a workspace address opened before signing in (bookmark, shared link) is where they go next.
+    navigate(res.profile.branches.length > 1 && !preset ? "/select-branch" : takeNext(slugsOf(res.profile)) ?? landingPath(res.profile), { replace: true });
   };
   const quickLogin = async (pin: string) => {
     if (!device || busy) return;

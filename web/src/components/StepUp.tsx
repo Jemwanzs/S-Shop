@@ -6,7 +6,7 @@
  * Also the once-only Quick PIN offer after a person set up their account.
  */
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@/lib/router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fingerprint, ShieldCheck } from "lucide-react";
 import { api, errorMessage, onStepUp } from "@/lib/api";

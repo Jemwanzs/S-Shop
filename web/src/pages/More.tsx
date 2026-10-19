@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@/lib/router";
 import { ExternalLink, KeyRound, LogOut, Moon, Sun } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { initials } from "@/lib/format";

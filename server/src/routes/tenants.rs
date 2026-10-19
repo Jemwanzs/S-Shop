@@ -8,6 +8,7 @@
 //!   it at any time; every step is audited in both businesses. The platform owner never uses a tenant's PIN.
 //! - **Several businesses, one sign-in**: a person's access to another business of the same tenant is a linked user
 //!   row there; *Switch business* moves between them without signing in again, never into another tenant.
+use std::collections::HashMap;
 
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post, put};
@@ -314,16 +315,30 @@ async fn account_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<
 }
 
 /// Next free ordering-link slug for a business name.
+/// Roadmap 145: also the business's workspace address (`s-shop.store/{slug}`) — never a reserved word, never a slug in
+/// use or once used by any business.
 pub async fn unique_slug(conn: &mut sqlx::PgConnection, name: &str) -> AppResult<String> {
-    let base = crate::util::slugify(name);
-    let base = if base.is_empty() { "shop".to_string() } else { base };
+    let base: String = crate::util::slugify(name).chars().take(50).collect::<String>().trim_end_matches('-').to_string();
+    let base = if base.len() < 3 || crate::util::RESERVED_SLUGS.contains(&base.as_str()) { format!("{}-shop", if base.is_empty() { "my" } else { &base }) } else { base };
     let mut slug = base.clone();
     let mut n = 2;
-    while sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM tenants WHERE slug = $1)").bind(&slug).fetch_one(&mut *conn).await? {
+    while !crate::util::valid_business_slug(&slug) || slug_taken(conn, &slug, None).await? {
         slug = format!("{base}-{n}");
         n += 1;
     }
     Ok(slug)
+}
+
+/// A slug some business has now or had before (other than `except`).
+pub async fn slug_taken(conn: &mut sqlx::PgConnection, slug: &str, except: Option<Uuid>) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM tenants WHERE slug = $1 AND ($2::uuid IS NULL OR id <> $2))
+             OR EXISTS (SELECT 1 FROM tenant_slug_history WHERE slug = $1 AND ($2::uuid IS NULL OR tenant_id <> $2))",
+    )
+    .bind(slug)
+    .bind(except)
+    .fetch_one(&mut *conn)
+    .await?)
 }
 
 #[derive(Deserialize)]
@@ -722,7 +737,13 @@ pub async fn businesses_of(state: &AppState, user_id: Uuid, current: Uuid) -> Ap
     .bind(user_id)
     .fetch_all(&state.db)
     .await?;
-    Ok(rows.into_iter().map(|(id, name, _)| json!({ "id": id, "name": name, "current": id == current })).collect())
+    let slugs: HashMap<Uuid, String> = sqlx::query_as::<_, (Uuid, String)>("SELECT id, slug FROM tenants WHERE id = ANY($1)")
+        .bind(rows.iter().map(|r| r.0).collect::<Vec<_>>())
+        .fetch_all(&state.db)
+        .await?
+        .into_iter()
+        .collect();
+    Ok(rows.into_iter().map(|(id, name, _)| json!({ "id": id, "name": name, "slug": slugs.get(&id), "current": id == current })).collect())
 }
 
 #[derive(Deserialize)]

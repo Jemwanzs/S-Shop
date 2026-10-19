@@ -221,6 +221,8 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
         tenant: serde_json::json!({
             "id": tenant_id, "name": tname, "slug": slug, "tagline": tagline, "currency": currency,
             "logo_url": has_logo.then(|| crate::settings::logo_url(&slug, logo_etag.as_deref())), "is_demo": is_demo, "timezone": timezone,
+            // Roadmap 145: addresses this business had before — an old workspace bookmark is sent to the current one.
+            "previous_slugs": sqlx::query_scalar::<_, String>("SELECT slug FROM tenant_slug_history WHERE tenant_id = $1").bind(tenant_id).fetch_all(&state.db).await?,
         }),
         // Package and billing access (roadmap 41–45): modules = null means every module. The platform owner acting
         // inside a business is not restricted.

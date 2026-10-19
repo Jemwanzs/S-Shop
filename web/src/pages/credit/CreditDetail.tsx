@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Banknote, MessageCircle, RotateCcw } from "lucide-react";
 import { RecallDialog, type SoldItem } from "./RecallDialog";

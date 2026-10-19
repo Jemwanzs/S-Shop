@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@/lib/router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ClipboardList, Package, Receipt, User } from "lucide-react";

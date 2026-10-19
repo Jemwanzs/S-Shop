@@ -1,7 +1,7 @@
 /** Self-service account recovery (roadmap 60–61): Forgot PIN, set a PIN from an emailed link, applicant status,
  * and the first sign-in with a one-time PIN. Links carry their token in the URL fragment (#t=…), never sent to servers. */
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "@/lib/router";
 import { CheckCircle2, Clock, Mail, MessageCircle, Phone, ShieldCheck, XCircle } from "lucide-react";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { cn } from "@/lib/utils";

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, ImagePlus, PackagePlus, Pencil, Power, Star, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";

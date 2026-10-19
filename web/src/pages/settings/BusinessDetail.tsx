@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRightLeft, Ban, Copy, Download, FilePlus2, KeyRound, MapPin, Pencil, Power, RefreshCw, Wallet, XCircle } from "lucide-react";
 import { toast } from "@/lib/toast";

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { Trophy } from "lucide-react";
 import { api } from "@/lib/api";

@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, FileSpreadsheet } from "lucide-react";
 import { api } from "@/lib/api";

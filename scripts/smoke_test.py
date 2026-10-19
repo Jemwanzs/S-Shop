@@ -3965,6 +3965,37 @@ call("GET", "/auth/me", **SQ, expect=401)
 made = call("POST", "/users", body_, **SU)
 check("the same request then succeeds once (no duplicate)", made["status"] == "invitation" and sum(1 for u in call("GET", "/users") if u["email"] == body_["email"]) == 1)
 
+step("Roadmap 145: business workspace addresses (slug) — permanent, controlled change, old addresses kept")
+prof145 = call("GET", "/settings")["profile"]
+s145 = prof145["slug"]
+body145 = {k: prof145[k] for k in ("name", "slug", "tagline", "phone", "email", "address", "currency", "timezone")}
+me145 = call("GET", "/auth/me")
+check("profile names the workspace slug and its previous addresses", me145["tenant"]["slug"] == s145 and me145["tenant"]["previous_slugs"] == [], me145["tenant"])
+check("businesses listed with their slugs", all(b.get("slug") for b in me145.get("businesses") or [{"slug": s145}]), me145.get("businesses"))
+call("PUT", "/settings/profile", {**body145, "name": f"{prof145['name']} Renamed"})
+check("renaming the business keeps its address", call("GET", "/settings")["profile"]["slug"] == s145)
+for bad_ in ["products", "login", "api", "settings", "s", "order", "ab"]:
+    r = call("PUT", "/settings/profile", {**body145, "slug": bad_}, expect=400)
+    check(f"reserved or invalid address refused: {bad_}", "can't be used" in r["error"]["message"] or "required" in r["error"]["message"], r)
+r = call("PUT", "/settings/profile", {**body145, "slug": dk_slug}, expect=400)
+check("another business's address refused", "already taken" in r["error"]["message"], r)
+new145 = f"moved-{suffix.lower()}"
+call("PUT", "/settings/profile", {**body145, "slug": new145})
+me145 = call("GET", "/auth/me")
+check("address changed; the old one kept for redirects", me145["tenant"]["slug"] == new145 and s145 in me145["tenant"]["previous_slugs"], me145["tenant"])
+check("old ordering link still reaches the business", call("GET", f"/portal/{s145}", token="none")["name"] == call("GET", f"/portal/{new145}", token="none")["name"])
+check("old sign-in page branding still resolves", "name" in call("GET", f"/public/{s145}/branding", token="none", branch="none"))
+dk145 = call("POST", "/auth/login", {"email": dk_email, "pin": DK_PIN})
+dkp145 = call("GET", "/settings", token=dk145["token"], branch="none")["profile"]
+r = call("PUT", "/settings/profile", {**{k: dkp145[k] for k in body145}, "slug": s145}, token=dk145["token"], branch="none", expect=400)
+check("an old address is never given to another business", "already taken" in r["error"]["message"], r)
+aud145 = call("GET", "/audit?period=today&limit=300&module=settings")["items"]
+check("address change audited with before and after", any(a["action"] == "change_address" for a in aud145))
+call("PUT", "/settings/profile", body145)
+me145 = call("GET", "/auth/me")
+check("a business can take back its own old address", me145["tenant"]["slug"] == s145 and new145 in me145["tenant"]["previous_slugs"] and s145 not in me145["tenant"]["previous_slugs"], me145["tenant"])
+check("the workspace screen address is served by the app (refresh / direct link)", urllib.request.urlopen(f"{BASE}/{s145}/products?status=active").status == 200)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ScrollRow } from "@/components/ScrollRow";
-import { Link } from "react-router-dom";
+import { Link } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Ban, CalendarClock, CheckCircle2, ChevronRight, CircleDollarSign, Clock, Globe, Wrench } from "lucide-react";
 import { toast } from "@/lib/toast";

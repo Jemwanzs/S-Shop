@@ -53,7 +53,7 @@ pub(crate) async fn tenant_by_id(state: &AppState, id: Uuid) -> AppResult<Tenant
 }
 
 async fn tenant(state: &AppState, slug: &str) -> AppResult<Tenant> {
-    let row: Option<(Uuid, String, Value, String)> = sqlx::query_as("SELECT id, name, settings, status FROM tenants WHERE slug = $1")
+    let row: Option<(Uuid, String, Value, String)> = sqlx::query_as("SELECT id, name, settings, status FROM tenants WHERE slug = current_slug($1)")
         .bind(slug)
         .fetch_optional(&state.db)
         .await?;

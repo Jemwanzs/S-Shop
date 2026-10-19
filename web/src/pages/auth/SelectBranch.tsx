@@ -1,4 +1,4 @@
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, slugsOf, takeNext, useNavigate } from "@/lib/router";
 import { ChevronRight, LogOut, MapPin, Store } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ export default function SelectBranchPage() {
             key={b.id}
             onClick={() => {
               selectBranch(b.id);
-              navigate(landingPath(profile), { replace: true });
+              navigate(takeNext(slugsOf(profile)) ?? landingPath(profile), { replace: true });
             }}
             className={`surface flex items-center gap-3 p-4 text-start transition hover:border-primary/50 hover:shadow-lift animate-fade-up ${branch?.id === b.id ? "border-primary" : ""}`}
           >

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ImagePlus, Images, PackagePlus, Printer, RotateCcw, ScanLine, ShieldCheck, Tags, X } from "lucide-react";
 import { toast } from "@/lib/toast";

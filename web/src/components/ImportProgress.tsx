@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link } from "@/lib/router";
 import { AlertTriangle, Check, CheckCircle2, Clock, Download, RefreshCw } from "lucide-react";
 import { api, session } from "@/lib/api";
 import { download } from "@/lib/receipt";

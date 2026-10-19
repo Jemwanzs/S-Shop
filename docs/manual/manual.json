@@ -166,7 +166,8 @@
         "A branch manager for each branch, used in approval workflows",
         "Business or branch-specific trading hours, with sales outside hours allowed or blocked",
         "Optional location rules so staff work only from the branch area",
-        "A clear Current Branch switcher for people who work at several branches"
+        "A clear Current Branch switcher for people who work at several branches",
+        "Your business has its own workspace address — s-shop.store/your-business — shown with Copy link in Settings → Business profile; bookmark it or share it with staff (they still sign in, and see only what their role allows)"
       ]
     },
     {

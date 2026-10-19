@@ -5,6 +5,7 @@ import type { Branch, Profile } from "./types";
 import { setDisplayCurrency } from "./format";
 import { applyFont, DEFAULT_PREFERENCES, type Fx, type Preferences } from "./prefs";
 import { profileCan } from "./landing";
+import { workspace } from "./router";
 import { deviceLanguage, dictionaryReady, onDictionary, rememberDeviceLanguage, setLanguage } from "./i18n";
 
 interface SessionValue {
@@ -113,6 +114,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     qc.clear();
   }, [qc]);
 
+  // Roadmap 145: the business workspace address follows the business the session is in.
+  workspace.set(token && profile ? profile.tenant.slug : null);
   const branches = useMemo(() => profile?.branches ?? [], [profile]);
   const branch = branches.find((b) => b.id === branchId) ?? (branches.length === 1 ? branches[0] : null);
 
@@ -169,6 +172,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setDeviceLang(code);
       },
       signIn: (t, p) => {
+        workspace.set(p.tenant.slug);
         session.setToken(t);
         qc.setQueryData(["me", t], p);
         setToken(t);
@@ -186,6 +190,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setToken(t);
       },
       switchBusiness: (t, p) => {
+        workspace.set(p.tenant.slug);
         qc.clear();
         session.setBranch(null);
         setBranchId(null);

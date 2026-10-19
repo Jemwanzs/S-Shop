@@ -1,9 +1,14 @@
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { ArrowLeftRight } from "lucide-react";
+import { BrowserRouter, Navigate, rememberNext, Route, Routes, SCREENS, useNavigate, useParams, useRawLocation } from "@/lib/router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { AlertHost } from "@/lib/toast";
-import { ApiError } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
+import { t } from "@/lib/i18n";
+import { toast } from "@/lib/toast";
+import type { Profile } from "@/lib/types";
+import { Button } from "@/components/ui/button";
 import { SessionProvider, useSession } from "@/lib/session";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/AppShell";
@@ -90,6 +95,83 @@ function RequireStaff({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Roadmap 145: `/` goes to the signed-in business's workspace (`/{slug}`), or to sign-in. */
+function Root() {
+  const { profile, loading } = useSession();
+  if (loading) return <Loading size="lg" className="min-h-screen" />;
+  return <Navigate to={profile ? "/" : "/login"} replace />;
+}
+
+/** Roadmap 145: the first segment of every workspace address is the business slug (`/pablo-niche/products`). The
+ * session decides the business — never the address: a slug that isn't the current business is an old address of it
+ * (redirected), an old unprefixed bookmark (`/products`, redirected), another business this person may switch to
+ * (asked, never switched silently), or nothing of theirs (sent back to their own workspace). */
+function WorkspaceGate() {
+  const { profile, loading } = useSession();
+  const biz = useParams().biz ?? "";
+  const raw = useRawLocation();
+  if (loading) return <Loading size="lg" className="min-h-screen" />;
+  const here = `${raw.pathname}${raw.search}${raw.hash}`;
+  if (!profile) {
+    // Signed out (or the session ended): sign in — on the business's own sign-in page — then come back here.
+    rememberNext(here);
+    return <Navigate to={SCREENS.has(biz) ? "/login" : `/login/${encodeURIComponent(biz)}`} replace />;
+  }
+  const slug = profile.tenant.slug;
+  if (biz === slug) return <RequireStaff><AppShell /></RequireStaff>;
+  const rest = `${raw.pathname.slice(biz.length + 1)}${raw.search}${raw.hash}`;
+  if (SCREENS.has(biz)) return <Navigate to={`/${slug}${raw.pathname}${raw.search}${raw.hash}`} replace />;
+  if (profile.tenant.previous_slugs?.includes(biz)) return <Navigate to={`/${slug}${rest}`} replace />;
+  const other = profile.businesses?.find((b) => !b.current && b.slug === biz);
+  if (other) return <SwitchPrompt profile={profile} target={other} rest={rest} />;
+  return <NotYours />;
+}
+
+function NotYours() {
+  useEffect(() => {
+    toast.error(t("That address isn't one of your businesses — you're back in your own workspace."));
+  }, []);
+  return <Navigate to="/" replace />;
+}
+
+/** A link to another business of this person's tenant: switch only when they choose to. */
+function SwitchPrompt({ profile, target, rest }: { profile: Profile; target: { id: string; name: string; slug?: string }; rest: string }) {
+  const { switchBusiness } = useSession();
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    try {
+      const r = await api<{ token: string; profile: Profile }>("/auth/switch-business", { body: { tenant_id: target.id } });
+      switchBusiness(r.token, r.profile);
+      const to = `/${r.profile.tenant.slug}${rest}`;
+      toast.success(`${t("Now in")} ${r.profile.tenant.name}`);
+      if (r.profile.branches.length > 1 && !r.profile.user.default_branch_id) {
+        rememberNext(to);
+        navigate("/select-branch", { replace: true });
+      } else navigate(to, { replace: true });
+    } catch (e) {
+      toast.error(e);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <div className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 text-center shadow-sm">
+        <ArrowLeftRight className="mx-auto h-8 w-8 text-primary" />
+        <h1 className="text-lg font-semibold">{t("Switch business?")}</h1>
+        <p className="text-sm text-muted-foreground">
+          {t("This link is for")} <b className="text-foreground">{target.name}</b>. {t("You're working in")} <b className="text-foreground">{profile.tenant.name}</b>.
+        </p>
+        <div className="flex flex-col gap-2">
+          <Button onClick={go} disabled={busy}>{t("Switch to")} {target.name}</Button>
+          <Button variant="outline" onClick={() => navigate("/", { replace: true })} disabled={busy}>{t("Stay in")} {profile.tenant.name}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -108,7 +190,8 @@ export default function App() {
                 <Route path="/order/:slug/*" element={<Portal />} />
                 <Route path="/track/:token" element={<Track />} />
                 <Route path="/r/:token" element={<ReceiptView />} />
-                <Route element={<RequireStaff><AppShell /></RequireStaff>}>
+                <Route path="/" element={<Root />} />
+                <Route path="/:biz" element={<WorkspaceGate />}>
                   <Route index element={<Dashboard />} />
                   <Route path="my" element={<MyDashboard />} />
                   <Route path="leaderboards" element={<Leaderboards />} />

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, Inbox } from "lucide-react";
 import { SShopLoader, type LoaderSize } from "@/components/SShopLoader";
-import { Link } from "react-router-dom";
+import { Link } from "@/lib/router";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "@/lib/api";

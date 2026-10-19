@@ -2,7 +2,7 @@
  * activity and access — managed without entering any business. Entering one is a separate, audited step
  * (administrator sign-in or support access). */
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRightLeft, Building2, ChevronRight, CircleOff, Globe, LifeBuoy, Plus, Power, Receipt, Users2 } from "lucide-react";
 import { api } from "@/lib/api";

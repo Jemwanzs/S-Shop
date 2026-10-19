@@ -9,7 +9,7 @@
  * - **Warning** a configurable number of seconds before logout: *Stay logged in* (renews the session) or *Log out now*.
  *   Unsaved changes are mentioned; nothing is submitted. While it shows, only its buttons count. */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@/lib/router";
 import { TimerReset } from "lucide-react";
 import { api, session, SESSION_EXPIRED } from "@/lib/api";
 import { LOGOUT_SIGNAL as OUT, useSession } from "@/lib/session";

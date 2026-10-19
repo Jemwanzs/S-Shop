@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, XCircle } from "lucide-react";
 import { api } from "@/lib/api";

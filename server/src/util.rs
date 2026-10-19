@@ -21,6 +21,26 @@ pub fn slugify(s: &str) -> String {
     out.trim_end_matches('-').to_string()
 }
 
+/// Roadmap 145: words a business slug can never be — the app's own first path segments (public pages, workspace
+/// screens, API, website) and a few that would mislead (`admin`, `support`…). Business addresses are
+/// `s-shop.store/{slug}/…`, so these must stay free.
+pub const RESERVED_SLUGS: &[&str] = &[
+    "api", "s", "order", "track", "r", "login", "logout", "select-branch", "request-access", "forgot", "set-pin", "access-status",
+    "my", "leaderboards", "more", "notifications", "pos", "sales", "credit", "orders", "products", "stock", "transfers",
+    "customers", "loyalty", "expenses", "reports", "approvals", "settings", "audit", "dashboard", "platform", "admin", "app",
+    "www", "help", "support", "static", "assets", "public", "health", "healthz", "manual", "new", "sshop", "s-shop",
+];
+
+/// A business slug that may be used: 3–60 characters of a–z, 0–9 and single dashes, not reserved.
+pub fn valid_business_slug(slug: &str) -> bool {
+    (3..=60).contains(&slug.len())
+        && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && !slug.starts_with('-')
+        && !slug.ends_with('-')
+        && !slug.contains("--")
+        && !RESERVED_SLUGS.contains(&slug)
+}
+
 /// Normalise Kenyan mobile numbers to 2547XXXXXXXX / 2541XXXXXXXX.
 /// Other international numbers (+CC…) are kept as digits only.
 /// A barcode as stored (roadmap 98): trimmed text, so leading zeros survive; 3–64 characters of letters, digits and
@@ -144,6 +164,9 @@ mod tests {
     fn slugs() {
         assert_eq!(slugify("Mali-Safi  Kibandaski!"), "mali-safi-kibandaski");
         assert_eq!(slugify("  Pablo Niche "), "pablo-niche");
+        assert!(valid_business_slug("pablo-niche") && valid_business_slug("abc-retail-2"));
+        assert!(!valid_business_slug("products") && !valid_business_slug("login") && !valid_business_slug("api"), "reserved");
+        assert!(!valid_business_slug("ab") && !valid_business_slug("-x-y") && !valid_business_slug("a--b") && !valid_business_slug("Pablo"));
     }
 
     #[test]

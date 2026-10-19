@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { ScrollRow } from "@/components/ScrollRow";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@/lib/router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock, CloudOff, PackageSearch, Printer, ScanLine, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";

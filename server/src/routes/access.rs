@@ -490,15 +490,8 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) 
         return Err(rule("A user with this email already exists — reject this request or ask them to sign in"));
     }
 
-    // Unique slug for the business's ordering link.
-    let base = crate::util::slugify(&business);
-    let base = if base.is_empty() { "shop".to_string() } else { base };
-    let mut slug = base.clone();
-    let mut n = 2;
-    while sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM tenants WHERE slug = $1)").bind(&slug).fetch_one(&mut *tx).await? {
-        slug = format!("{base}-{n}");
-        n += 1;
-    }
+    // Unique slug: the business's workspace address, ordering link and website (roadmap 145).
+    let slug = super::tenants::unique_slug(&mut tx, &business).await?;
 
     let tenant_id = crate::bootstrap::seed_tenant(&mut tx, &business, &slug).await.map_err(AppError::Other)?;
     sqlx::query("UPDATE tenants SET phone = $2, email = $3, address = $4 WHERE id = $1")

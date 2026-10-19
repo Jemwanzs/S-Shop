@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeftRight, Bell, CheckCheck, ClipboardList, HandCoins, PackageX, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";

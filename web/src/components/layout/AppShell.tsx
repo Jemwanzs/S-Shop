@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { IdleGuard } from "@/components/IdleGuard";
-import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRightLeft, Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, LogOut, Menu, Moon, Search, ShoppingCart, Store, Sun } from "lucide-react";
 import { toast } from "@/lib/toast";

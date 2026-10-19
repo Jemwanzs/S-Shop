@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, ImageOff, Minus, Plus, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";

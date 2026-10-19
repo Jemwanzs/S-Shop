@@ -1,5 +1,5 @@
 /** Public receipt by secure link (/r/{token}) — what a customer opens from WhatsApp or email (roadmap 65). */
-import { useParams } from "react-router-dom";
+import { useParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Printer } from "lucide-react";
 import { api } from "@/lib/api";

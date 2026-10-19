@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, Check, PackageCheck, Send, Truck, X } from "lucide-react";
 import { toast } from "@/lib/toast";

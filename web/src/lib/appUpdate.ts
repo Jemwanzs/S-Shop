@@ -5,7 +5,7 @@
  * unsaved (carts and offline sales are kept on the device, so nothing is lost).
  */
 import { useEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "@/lib/router";
 import { hasUnsaved } from "./unsaved";
 
 declare const __APP_VERSION__: string;

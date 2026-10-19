@@ -65,10 +65,11 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 |---|---|
 | GET | `/api/settings` |
 | PUT | `/api/settings` — `workspace: {hours: {days, open, close}, outside_hours: allow\|block}` among the sections; `branding: {enabled, login, login_marketing, sidebar, dashboard, pos, documents, customer, website, favicon}` (`settings.business`) |
-| PUT | `/api/settings/profile` |
+| PUT | `/api/settings/profile` — `slug` is the business address (workspace `/{slug}`, `/order/{slug}`, `/s/{slug}`): a change needs a full sign-in, a valid unreserved slug no other business has or had (400 otherwise); the old slug is kept and still resolves; audited `change_address` |
 | POST | `/api/settings/logo` — multipart `file`; PNG, JPEG or WebP by its bytes, ≤ 2 MB; audited `logo_updated` (`settings.business`) |
 | DELETE | `/api/settings/logo` — S'Shop branding is used instead; audited `logo_removed` |
 | PUT | `/api/settings/workflows/{action}` |
+| — | Every `{slug}` in public addresses (`/api/public/{slug}/…`, `/api/portal/{slug}/…`, `/api/site?slug=`) also accepts a business's earlier slug (roadmap 145) |
 | GET | `/api/public/{slug}/branding` — sign-in branding for a business known from trusted context: `{name, logo_url, marketing}` (`logo_url` only with branding and *Login* on; rate-limited; 404 for unknown or inactive businesses) |
 | GET | `/api/public/{slug}/manifest.webmanifest` — installed-app manifest with the business logo, only with branding and *favicon* on (404 otherwise) |
 | GET | `/api/public/{slug}/logo` — `ETag` + `Cache-Control: public, no-cache` (304 on `If-None-Match`), `nosniff` |

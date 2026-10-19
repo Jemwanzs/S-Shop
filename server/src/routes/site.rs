@@ -154,7 +154,7 @@ pub async fn resolve(state: &AppState, headers: &HeaderMap, slug: Option<&str>, 
                 w.draft, w.published, w.version, w.published_at, d.domain
          FROM tenants t LEFT JOIN websites w ON w.tenant_id = t.id
          LEFT JOIN website_domains d ON d.tenant_id = t.id AND d.status = 'active' AND d.is_primary
-         WHERE ($1::uuid IS NOT NULL AND t.id = $1) OR ($1::uuid IS NULL AND t.slug = $2)", crate::settings::logo_kept_sql("t", "website")),
+         WHERE ($1::uuid IS NOT NULL AND t.id = $1) OR ($1::uuid IS NULL AND t.slug = current_slug($2))", crate::settings::logo_kept_sql("t", "website")),
     )
     .bind(by_domain)
     .bind(slug.unwrap_or_default())
@@ -954,7 +954,7 @@ pub async fn host_pages(
         // The business's own domain is its main address: the S'Shop address forwards there (previews stay here).
         if !query.contains("preview=") {
             let primary: Option<String> = sqlx::query_scalar(
-                "SELECT d.domain FROM website_domains d JOIN tenants t ON t.id = d.tenant_id WHERE t.slug = $1 AND d.status = 'active' AND d.is_primary",
+                "SELECT d.domain FROM website_domains d JOIN tenants t ON t.id = d.tenant_id WHERE t.slug = current_slug($1) AND d.status = 'active' AND d.is_primary",
             )
             .bind(slug)
             .fetch_optional(&state.db)

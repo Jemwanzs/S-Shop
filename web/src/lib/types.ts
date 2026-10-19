@@ -138,7 +138,7 @@ export interface Profile {
     quick_pin_offer?: boolean;
     /** Current Branch after sign-in when the user works at several branches. */
     default_branch_id?: Id | null };
-  tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null; is_demo: boolean; timezone: string };
+  tenant: { id: Id; name: string; slug: string; tagline: string; currency: string; logo_url: string | null; is_demo: boolean; timezone: string; previous_slugs?: string[] };
   branches: Branch[];
   permissions: string[];
   settings: Settings;
@@ -161,7 +161,7 @@ export interface Profile {
     support: { id: Id; reason: string; scope: "view" | "full"; expires_at: string } | null;
   } | null;
   /** Roadmap 72: businesses of the same tenant this person can switch to (with the current one). */
-  businesses?: { id: Id; name: string; current: boolean }[];
+  businesses?: { id: Id; name: string; slug?: string; current: boolean }[];
   /** Signs in through their account in this other business of the tenant. */
   linked_from?: string | null;
   /** Roadmap 83: this session was opened with a Quick PIN (sensitive actions need a full sign-in). */

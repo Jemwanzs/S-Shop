@@ -740,6 +740,15 @@ server already refuses a unit sold twice, from another branch or another product
   preview and progress) in the place of *Opening stock balances*, which stays available at the end of the list (owner
   choice 2026-10-19: it still creates barcode-tracked opening items and feeds the migration reconciliation).
 
+**Business workspace addresses** (brief *Tenant-Specific URL Paths & Persistent Workspace Navigation*):
+- ✅ **145. `s-shop.store/{business-slug}/…`** — every signed-in screen under the business's slug; sign-in (all methods)
+  opens it, a bookmark opened before sign-in is honoured; links, refresh, direct links and Back/Forward keep it; old
+  unprefixed addresses redirect. The slug is generated at creation, unique (also against former slugs), never a reserved
+  word, and permanent (renaming keeps it); an administrator may change it with a full sign-in and confirmation; old
+  slugs are kept and keep resolving (workspace, ordering link, sign-in page, logo, website). The address is never
+  access: another business's slug sends the person back to their own workspace, a business of the same tenant asks to
+  switch. Business profile: *S'Shop Workspace URL* with Copy link. [modules/39](modules/39-workspace-addresses.md).
+
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.
 - ◐ **29. Email sender & public URL** — `PUBLIC_URL=https://s-shop.store` ✅ (2026-10-07). Pending: verify `s-shop.store` as

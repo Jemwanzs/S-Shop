@@ -1,6 +1,6 @@
 import { t } from "@/lib/i18n";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardList, Minus, Plus, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";

@@ -245,6 +245,27 @@ async fn put_profile(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<
         return Err(bad("Unknown time zone"));
     }
     let mut tx = state.db.begin().await?;
+    // Roadmap 145: the slug is the business's workspace address, ordering link and website — permanent unless an
+    // administrator changes it here (renaming the business never does). A change needs a full sign-in, a free and
+    // allowed slug, and keeps the old one so old bookmarks and links still reach this business.
+    let old_slug: String = sqlx::query_scalar("SELECT slug FROM tenants WHERE id = $1 FOR UPDATE").bind(ctx.tenant_id).fetch_one(&mut *tx).await?;
+    if b.slug != old_slug {
+        ctx.require_full()?;
+        if !crate::util::valid_business_slug(&b.slug) {
+            return Err(bad("That address can't be used — use 3–60 letters, numbers and dashes, and not a word S'Shop uses itself (like products or login)"));
+        }
+        if super::tenants::slug_taken(&mut tx, &b.slug, Some(ctx.tenant_id)).await? {
+            return Err(bad("That address is already taken by another business — choose another"));
+        }
+        sqlx::query("DELETE FROM tenant_slug_history WHERE slug = $1 AND tenant_id = $2").bind(&b.slug).bind(ctx.tenant_id).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO tenant_slug_history (slug, tenant_id, changed_by) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING")
+            .bind(&old_slug)
+            .bind(ctx.tenant_id)
+            .bind(ctx.user_id)
+            .execute(&mut *tx)
+            .await?;
+        audit::record(&mut tx, &ctx, Entry::new("settings", "change_address", "tenant", ctx.tenant_id).before(json!({ "slug": old_slug })).after(json!({ "slug": b.slug }))).await?;
+    }
     sqlx::query(
         "UPDATE tenants SET name=$2, slug=$3, tagline=$4, phone=$5, email=$6, address=$7, currency=$8, timezone=$9 WHERE id=$1",
     )
@@ -319,7 +340,7 @@ async fn remove_logo(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<
 async fn public_branding(State(state): State<AppState>, headers: axum::http::HeaderMap, Path(slug): Path<String>) -> AppResult<Json<Value>> {
     state.limits.check(&crate::auth::client_meta(&headers).0, "public_branding", 120, std::time::Duration::from_secs(600))?;
     let row: Option<(String, bool, Option<String>, Value)> =
-        sqlx::query_as("SELECT name, logo IS NOT NULL, logo_etag, settings FROM tenants WHERE slug = $1 AND status = 'active'")
+        sqlx::query_as("SELECT name, logo IS NOT NULL, logo_etag, settings FROM tenants WHERE slug = current_slug($1) AND status = 'active'")
             .bind(&slug)
             .fetch_optional(&state.db)
             .await?;
@@ -337,7 +358,7 @@ async fn public_branding(State(state): State<AppState>, headers: axum::http::Hea
 /// on customer pages (roadmap 113), opening on its ordering page.
 async fn order_manifest(State(state): State<AppState>, Path(slug): Path<String>) -> AppResult<axum::response::Response> {
     let row: Option<(String, bool, Option<String>, Option<String>, Value)> =
-        sqlx::query_as("SELECT name, logo IS NOT NULL, logo_etag, logo_mime, settings FROM tenants WHERE slug = $1 AND status = 'active'")
+        sqlx::query_as("SELECT name, logo IS NOT NULL, logo_etag, logo_mime, settings FROM tenants WHERE slug = current_slug($1) AND status = 'active'")
             .bind(&slug)
             .fetch_optional(&state.db)
             .await?;
@@ -364,7 +385,7 @@ async fn order_manifest(State(state): State<AppState>, Path(slug): Path<String>)
 /// iOS uses for home-screen icons) and shown on customer pages, otherwise S'Shop's icon.
 async fn touch_icon(State(state): State<AppState>, Path(slug): Path<String>) -> AppResult<axum::response::Response> {
     let row: Option<(Option<Vec<u8>>, Value)> =
-        sqlx::query_as("SELECT logo, settings FROM tenants WHERE slug = $1 AND status = 'active'").bind(&slug).fetch_optional(&state.db).await?;
+        sqlx::query_as("SELECT logo, settings FROM tenants WHERE slug = current_slug($1) AND status = 'active'").bind(&slug).fetch_optional(&state.db).await?;
     let (logo, raw) = row.ok_or(AppError::NotFound("Business"))?;
     let b = serde_json::from_value::<TenantSettings>(raw).unwrap_or_default().branding;
     if let Some(data) = logo.filter(|_| b.keeps(b.customer)) {
@@ -378,7 +399,7 @@ async fn touch_icon(State(state): State<AppState>, Path(slug): Path<String>) -> 
 /// Roadmap 113 (advanced): the installed-app manifest with the business logo, only when the business chose it.
 async fn manifest(State(state): State<AppState>, Path(slug): Path<String>) -> AppResult<axum::response::Response> {
     let row: Option<(String, bool, Option<String>, Option<String>, Value)> =
-        sqlx::query_as("SELECT name, logo IS NOT NULL, logo_etag, logo_mime, settings FROM tenants WHERE slug = $1 AND status = 'active'")
+        sqlx::query_as("SELECT name, logo IS NOT NULL, logo_etag, logo_mime, settings FROM tenants WHERE slug = current_slug($1) AND status = 'active'")
             .bind(&slug)
             .fetch_optional(&state.db)
             .await?;
@@ -400,7 +421,7 @@ async fn manifest(State(state): State<AppState>, Path(slug): Path<String>) -> Ap
 /// The business logo. Browsers keep it and re-check it with its fingerprint (304 when unchanged), so a new logo shows at
 /// once and an unchanged one is never downloaded again. Served strictly as an image.
 async fn logo(State(state): State<AppState>, Path(slug): Path<String>, headers: axum::http::HeaderMap) -> AppResult<axum::response::Response> {
-    let etag: Option<Option<String>> = sqlx::query_scalar("SELECT logo_etag FROM tenants WHERE slug = $1 AND logo IS NOT NULL")
+    let etag: Option<Option<String>> = sqlx::query_scalar("SELECT logo_etag FROM tenants WHERE slug = current_slug($1) AND logo IS NOT NULL")
         .bind(&slug)
         .fetch_optional(&state.db)
         .await?;
@@ -414,7 +435,7 @@ async fn logo(State(state): State<AppState>, Path(slug): Path<String>, headers: 
     if headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()).is_some_and(|v| v.split(',').any(|x| x.trim() == tag)) {
         return Ok((axum::http::StatusCode::NOT_MODIFIED, common).into_response());
     }
-    let (data, mime): (Vec<u8>, Option<String>) = sqlx::query_as("SELECT logo, logo_mime FROM tenants WHERE slug = $1 AND logo IS NOT NULL")
+    let (data, mime): (Vec<u8>, Option<String>) = sqlx::query_as("SELECT logo, logo_mime FROM tenants WHERE slug = current_slug($1) AND logo IS NOT NULL")
         .bind(&slug)
         .fetch_one(&state.db)
         .await?;

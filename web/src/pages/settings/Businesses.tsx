@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRightLeft, Building2, ChevronRight, FlaskConical, RotateCcw } from "lucide-react";
 import { toast } from "@/lib/toast";

@@ -3,7 +3,7 @@
 import { useUnsaved } from "@/lib/unsaved";
 import { CampaignsTab } from "./CampaignsTab";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, ExternalLink, Eye, Globe, History, Lock, Monitor, Smartphone, Tablet, Undo2 } from "lucide-react";
 import { api } from "@/lib/api";

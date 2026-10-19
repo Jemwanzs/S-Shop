@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@/lib/router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Minus, Plus, ScanLine, Trash2, X } from "lucide-react";
 import { toast } from "@/lib/toast";

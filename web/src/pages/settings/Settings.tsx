@@ -1,4 +1,4 @@
-import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation } from "@/lib/router";
 import {
   Activity,
   Award,

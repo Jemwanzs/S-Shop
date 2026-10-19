@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { Boxes, ClipboardCheck, FileSpreadsheet, PackagePlus, ScanSearch, SlidersHorizontal } from "lucide-react";
 import { api } from "@/lib/api";

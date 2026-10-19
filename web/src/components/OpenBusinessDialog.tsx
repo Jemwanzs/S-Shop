@@ -2,7 +2,7 @@
  * A. the tenant's administrator signs in with their own PIN (typed by them; S'Shop never sees or keeps it), or
  * B. platform support access: your PIN again, a reason, a scope and a time limit, under the business's own policy. */
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@/lib/router";
 import { KeyRound, LifeBuoy, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";

@@ -730,7 +730,7 @@ server already refuses a unit sold twice, from another branch or another product
   date, linked to the upload; approval when adjustments need it; never applied twice.
 
 **Product browsing context** (brief *Preserve Product Filters & Browsing Position After Editing*):
-- ⏳ **143. Catalogue remembers its filters and position** — status, category, price status, search and page in the
+- ✅ **143. Catalogue remembers its filters and position** — status, category, price status, search and page in the
   URL (refresh-safe, shareable); product page and edit screen return to it (app Back, browser Back, save, cancel) with
   the scroll position; the list refreshes after edits (an edited product leaves filters it no longer matches) and an
   emptied page moves to the nearest page with results; remembered per business, for the browser tab only.

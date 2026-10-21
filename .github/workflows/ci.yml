@@ -54,6 +54,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ── Documentation is part of done (roadmap 146): index, links, user guide, architecture ──
+      - name: Docs — check
+        run: python3 scripts/docs_check.py
+
       # ── Web app: types, lint, production build (the server serves web/dist) ──
       - uses: actions/setup-node@v4
         with:

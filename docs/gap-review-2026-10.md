@@ -1,5 +1,8 @@
 # Gap review — analytics, access control & operations (2026-10-05)
 
+> **Snapshot from 2026-10-05** — kept as a record and not updated. Every gap here has since been handled; current status
+> is in [scope.md](scope.md#status-board) and the [release notes](release-notes.md).
+
 Reviewed against the code, database and roadmap before building. ✅ complete · 🟡 partial · 🔴 missing.
 
 | # | Feature | Status | Existing implementation | Gap | Action |

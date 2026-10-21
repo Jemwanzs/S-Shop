@@ -1,7 +1,7 @@
 {
   "title": "S'Shop — Smart Retail & Business Management",
   "subtitle": "Product Features & Capabilities Manual",
-  "version": "Version 1.7 · October 2026",
+  "version": "Version 1.8 · October 2026",
   "intro": "S'Shop runs a retail business end to end, from the till and stock room to the customer's phone and the business's own website. It works on phones, tablets and computers, across branches, online and offline. Each module below describes features available today.",
   "modules": [
     {
@@ -288,6 +288,317 @@
         "Billing models, tenant-specific pricing, trials and the platform billing dashboard",
         "Platform-wide limits for sign-in, sessions, websites and campaigns",
         "Support access to a business only through audited, time-limited sessions"
+      ]
+    }
+  ],
+  "guides_intro": "Step-by-step instructions for the everyday work of each role. What you see depends on your role and branches: if a button or menu named here is missing, your administrator has not given you that permission. Sensitive actions may wait for approval before they take effect (Approvals).",
+  "guides": [
+    {
+      "role": "Everyone",
+      "summary": "Signing in, choosing your branch and keeping your account secure.",
+      "tasks": [
+        {
+          "title": "Sign in",
+          "steps": [
+            "Open your business's workspace address (for example s-shop.store/your-business) or s-shop.store.",
+            "Enter your Email and PIN, then tap Sign in.",
+            "If you work at several branches, choose the branch under \"Where are you working today?\".",
+            "You land on your chosen first page. Bookmark the address — it always leads to your business."
+          ]
+        },
+        {
+          "title": "Set up a Quick PIN on your own device",
+          "steps": [
+            "Open your name / avatar menu and choose Preferences.",
+            "Under Quick Login PIN & Face ID, tap Create Quick PIN.",
+            "Enter your current full PIN, choose a Quick PIN, repeat it and give the device a name (e.g. My phone), then Save.",
+            "Next time on this device, sign in with the keypad. Use password instead returns to the full sign-in."
+          ],
+          "note": "Only on a device you alone use. Your administrator decides whether Quick PIN is available."
+        },
+        {
+          "title": "Turn on Face ID or fingerprint sign-in",
+          "steps": [
+            "Open Preferences and find Face ID & Biometric Login.",
+            "Tap Set up this device, enter your current PIN and tap Continue.",
+            "Confirm with your face or fingerprint when the device asks.",
+            "Next time, tap Sign in with Face ID / Biometrics on the sign-in page."
+          ]
+        },
+        {
+          "title": "Change your PIN, forgotten PIN, sign out",
+          "steps": [
+            "Open your name / avatar menu.",
+            "Change PIN: enter your current PIN, the new PIN twice, then Save PIN.",
+            "Forgot your PIN? On the sign-in page tap Forgot PIN / Password? and follow the email link, or ask your administrator to Reset PIN (Settings → Users).",
+            "Sign out ends the session on this device. Sessions also end by themselves after a period without activity."
+          ]
+        }
+      ]
+    },
+    {
+      "role": "Cashier / Salesperson",
+      "summary": "Recording sales, payments, receipts, returns, credit and customer orders.",
+      "tasks": [
+        {
+          "title": "Record a sale",
+          "steps": [
+            "Open New Sale (phone: the Sales tab or the floating Record sale button).",
+            "Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner.",
+            "Tap the product, set the Quantity (and the Selling price if you give a discount), then Add to cart.",
+            "Optional: enter the Customer phone number so the customer earns loyalty points (first name for a new customer).",
+            "Choose the payment: Cash, M-Pesa, Credit Sale or Split payment.",
+            "Cash: enter Cash received to see the change. Tap Complete sale."
+          ],
+          "note": "A discount above the product's maximum needs a supervisor's email and PIN at the counter."
+        },
+        {
+          "title": "Take an M-Pesa payment",
+          "steps": [
+            "Choose M-Pesa as the payment.",
+            "STK Push: enter the customer's M-Pesa number and tap Send STK Push. The customer enters their M-Pesa PIN on their phone; the sale completes by itself when Safaricom confirms.",
+            "If the prompt fails or times out, tap Retry, or use Manual M-PESA: enter the M-Pesa confirmation code from the customer's message and tap Complete sale."
+          ]
+        },
+        {
+          "title": "Send or print the receipt",
+          "steps": [
+            "After Sale complete, choose how to send the receipt: WhatsApp, Email, Print, or copy the secure Link.",
+            "Tap New sale to start the next customer."
+          ]
+        },
+        {
+          "title": "Sell on credit",
+          "steps": [
+            "Add the items and the customer (credit needs a customer).",
+            "Choose Credit Sale, set the Due date and, if the customer pays part now, the deposit (Deposit now).",
+            "Tap Complete sale. The balance appears under Credit Sales."
+          ]
+        },
+        {
+          "title": "Record a credit repayment",
+          "steps": [
+            "Open Credit Sales and the customer's credit sale.",
+            "Tap Record payment, enter the Amount received and the method (M-Pesa needs the confirmation code).",
+            "Tap Save payment. The outstanding balance updates at once."
+          ]
+        },
+        {
+          "title": "Return items or exchange them",
+          "steps": [
+            "Open Sales and the sale.",
+            "Return: tap Return items / refund, choose what is coming back and how many, keep Return to stock on (off for damaged goods), choose Refund via, give the Reason, then Process return.",
+            "Exchange: tap Exchange items, choose what is coming back, add what the customer takes instead, then Complete exchange — only the difference is paid or refunded."
+          ]
+        },
+        {
+          "title": "Handle a customer order",
+          "steps": [
+            "Open Orders (phone: More → Orders). New orders show a counter.",
+            "Open the order and, under Next step, tap the next status as you prepare, dispatch and deliver it.",
+            "For individually tracked items, scan each item handed over when asked.",
+            "At the configured stage the order becomes a sale automatically. Phone orders: New phone order."
+          ]
+        }
+      ]
+    },
+    {
+      "role": "Branch manager / Supervisor",
+      "summary": "Stock, transfers, approvals, expenses, customers and reports for your branches.",
+      "tasks": [
+        {
+          "title": "Receive a delivery",
+          "steps": [
+            "Open Stock and tap Receive stock.",
+            "Find or scan the product and enter the quantity received.",
+            "Individually tracked products: tap Generate barcodes, Print labels, stick one label on each item, tick I have attached a label to each item, then Verify labels by scanning them.",
+            "Enter the Cost / purchase price, Marked selling price, Supplier and the delivery note in Reference / notes; change Date received if needed.",
+            "Tap Receive. The stock and its value update immediately (or after approval when required)."
+          ]
+        },
+        {
+          "title": "Count stock (stock take)",
+          "steps": [
+            "Open Stock and tap Stock take.",
+            "Enter the Reason for the count, then scan or type what is on the shelf for each product.",
+            "Check Expected, Counted and Variance, then Submit count. Variances wait for approval where required."
+          ]
+        },
+        {
+          "title": "Correct stock for damage, loss or returns",
+          "steps": [
+            "Open Stock and tap Adjust.",
+            "Find the product, choose the Type (Damaged, Lost / missing, Write-off, Customer return, Returned to supplier or Recount), the quantity and the Reason.",
+            "Tap Save adjustment. Nothing is overwritten — every adjustment is kept with who, when and why."
+          ]
+        },
+        {
+          "title": "Update stock balances from Excel",
+          "steps": [
+            "Open Stock and tap Stock balances, then Download template — it lists every product and branch with today's balance.",
+            "Count, and type the counted balance in the sheet (not the difference).",
+            "Upload stock balances and review Current, Uploaded and Difference for every row.",
+            "Tap Import to apply. Approval applies when stock adjustments need it."
+          ]
+        },
+        {
+          "title": "Move stock to another branch",
+          "steps": [
+            "Open Transfers and tap New transfer. Add products and quantities (or scan them).",
+            "Choose the To branch, the Transfer date and a reason, then Submit for approval (or Save draft).",
+            "After approval the sending branch taps Dispatch; the receiving branch taps Confirm receipt, or Receive with discrepancies to record anything short or damaged."
+          ]
+        },
+        {
+          "title": "Approve or reject requests",
+          "steps": [
+            "Open Approvals. Waiting lists what needs your decision.",
+            "Tap View to see the details, then Approve or Reject (add a Comment).",
+            "You can never approve your own request; My requests shows what you asked for."
+          ]
+        },
+        {
+          "title": "Record an expense",
+          "steps": [
+            "Open Expenses and tap Record expense.",
+            "Choose the Category, enter the Amount and Description, the Supplier / payee, and attach the receipt photo.",
+            "Tap Save expense. Large or sensitive expenses wait for approval."
+          ]
+        },
+        {
+          "title": "Look after customers and loyalty",
+          "steps": [
+            "Customers: search by name, nickname or mobile; open a customer for purchases, points, credit and Statement.",
+            "Redeem points: on the customer, tap Redeem points and enter the points and what was given.",
+            "Award periods: in Loyalty & Rewards → Awards, Open award period, and Close & award at the end to recognise Gold, Silver and Bronze customers."
+          ]
+        },
+        {
+          "title": "Run a report",
+          "steps": [
+            "Open Reports and choose a report.",
+            "Set the period and filters (branch, category, product, user).",
+            "Download PDF or Excel."
+          ]
+        }
+      ]
+    },
+    {
+      "role": "Business administrator",
+      "summary": "Setting up the business, people, rules, payments and the website.",
+      "tasks": [
+        {
+          "title": "Business profile and workspace address",
+          "steps": [
+            "Settings → Business profile: name, logo, tagline, phone, email, address, currency and time zone; Save changes.",
+            "S'Shop Workspace URL: tap Copy link to share your team's address. Staff still sign in and see only what their role allows.",
+            "The business address (in the workspace URL, ordering link and website) is permanent; Change it only when necessary — old links keep working."
+          ]
+        },
+        {
+          "title": "Add a user",
+          "steps": [
+            "Settings → Users → Add user.",
+            "Enter the Full name, Email address, Mobile number, Role and branches (or All branches).",
+            "Tap Create & invite, then send the invitation by email or Share via WhatsApp, or Copy activation link. The link is valid for 10 minutes; Send email again if it expires.",
+            "Later: Reset PIN, Reset Quick PIN or Disable user from the user's row."
+          ]
+        },
+        {
+          "title": "Roles, permissions and branches",
+          "steps": [
+            "Settings → Roles & permissions: adjust a role or create a New role; tick what it may see and do.",
+            "Settings → Branches → Add branch: name, code, location, phone and Branch manager; optionally its own trading hours and geofencing (only at the branch)."
+          ]
+        },
+        {
+          "title": "Approval rules",
+          "steps": [
+            "Settings → Workflow engine: choose an action (e.g. stock adjustment, expense, discount).",
+            "Turn on Require approval, add Approval levels (administrator, role, specific user or branch manager) with Add level.",
+            "Optionally limit when it applies (Amount is at least, branches, requester's role, expense categories), then Save."
+          ]
+        },
+        {
+          "title": "Connect M-Pesa (STK Push)",
+          "steps": [
+            "Settings → M-Pesa & WhatsApp → Add account.",
+            "Choose the Type (Buy Goods Till or Paybill), enter the numbers, the Environment and the Daraja Consumer key, Consumer secret and Passkey (encrypted when saved), then Save.",
+            "Tap Test OAuth connection, then Test STK Push with a small amount to your own phone.",
+            "When it shows Verified, switch STK Push on — cashiers can now send payment prompts."
+          ]
+        },
+        {
+          "title": "Security and sign-in rules",
+          "steps": [
+            "Settings → Security: allow or switch off Quick PIN and Face ID for chosen roles, set the automatic logout time, and decide whether S'Shop support needs your approval before opening your business.",
+            "Settings → Closing the books: set Books closed up to so finished periods can no longer change."
+          ]
+        },
+        {
+          "title": "Branding",
+          "steps": [
+            "Settings → Branding & White Labelling → Enable business branding.",
+            "Upload logo (PNG, SVG, WebP or JPEG, up to 2 MB) and choose where it shows: sign-in, sidebar, POS, receipts, customer pages, website, app icon.",
+            "Preview branding, then Save changes."
+          ]
+        },
+        {
+          "title": "Import your existing data",
+          "steps": [
+            "Settings → Onboarding: follow the Recommended order (branches, products, customers, history, credit, loyalty, stock).",
+            "For each dataset, download the Template, fill it in Excel and Upload Excel.",
+            "Fix any invalid rows shown, then Import the rows (approval may apply).",
+            "Check Migration reconciliation, then Complete onboarding."
+          ]
+        },
+        {
+          "title": "Website",
+          "steps": [
+            "Settings → Website → Request Website Service (S'Shop sets it up and contacts you).",
+            "Once active: edit Content, Design, Products and the other sections, Save draft and Preview.",
+            "Tap Publish, say What changed?, then Publish now — visitors see the new version straight away."
+          ]
+        },
+        {
+          "title": "Billing",
+          "steps": [
+            "Settings → Billing shows your plan, what is due and your invoices.",
+            "Pay now (through Paystack) or Pay by bank using the invoice number as the reference; download receipts there."
+          ]
+        }
+      ]
+    },
+    {
+      "role": "Platform owner",
+      "audience": "platform",
+      "summary": "Approving new businesses, supporting tenants and platform billing.",
+      "tasks": [
+        {
+          "title": "Approve a new business",
+          "steps": [
+            "Settings → Access requests → Pending.",
+            "Open a request and tap Approve & create — the business, its administrator and a one-time PIN are created.",
+            "The welcome email is sent automatically; Resend Welcome Email or Copy Message (WhatsApp) if needed. Reject sends a courteous email with your reason."
+          ]
+        },
+        {
+          "title": "Support a tenant",
+          "steps": [
+            "Settings → Tenants → open the tenant.",
+            "Next to the business, tap Open business and choose Platform support access.",
+            "Give the Reason, choose View only or Full access, enter Your PIN and tap Start support access. If the tenant requires approval, their administrator approves first; then Start approved support session.",
+            "A banner shows the business, access level and time left while you work. Tap End session when done. Everything is audited."
+          ]
+        },
+        {
+          "title": "Billing, status and activity",
+          "steps": [
+            "Settings → Platform billing: plans, invoices and payments across tenants.",
+            "Settings → Tenants → a tenant → Access & status: Deactivate or Reactivate (platform-owned tenants are never deactivated).",
+            "Settings → Activity and Security & features: platform-wide activity and sign-in rules (businesses can only make them stricter)."
+          ]
+        }
       ]
     }
   ]

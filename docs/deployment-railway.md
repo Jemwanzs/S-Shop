@@ -40,6 +40,9 @@ railway config apply                      # asks for confirmation
 
 ## 2. Variables (service → Variables)
 
+**Adding a variable:** set it on Railway, then add its name to `.railway/railway.ts` as `preserve()` and commit — otherwise
+the next `railway config apply` deletes it (see above).
+
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (reference variable) |
@@ -58,6 +61,8 @@ railway config apply                      # asks for confirmation
 | `RAILWAY_API_TOKEN` | Optional; lets S'Shop attach businesses' verified website domains to this service automatically ([module 23](modules/23-website.md#56--custom-domains)). An account or team token; Railway supplies the project, environment and service ids itself. Without it, the platform owner adds each verified domain in Railway and records its CNAME target on the business page. Railway plans limit custom domains per service (Pro: 20 by default). |
 | `PEXELS_API_KEY` | Optional; product photos for the demo business ([module 20](modules/20-platform-and-demo.md)) |
 | `ACCESS_REQUEST_NOTIFY_EMAILS` | Optional; who is emailed about requests (default: the platform admins) |
+| `WEBAUTHN_RP_ID` | Optional; the domain Face ID / biometric passkeys belong to (default: the host of `PUBLIC_URL`). Changing it makes existing passkeys stop working ([module 37](modules/37-face-id-biometric-login.md)) |
+| `FX_URL`, `PAYSTACK_BASE_URL`, `RESEND_BASE_URL`, `MPESA_SANDBOX_URL`, `MPESA_PRODUCTION_URL` | **Test runs only**: point the exchange rates, Paystack, Resend and Daraja at the test suite's stand-in. Never set them in production |
 
 Bootstrap runs only when the database is empty; the variables can be removed afterwards (set `PLATFORM_ADMIN_EMAILS` first). Optional M-Pesa and WhatsApp
 variables are listed in [`.env.example`](../.env.example) and explained in
@@ -67,7 +72,8 @@ variables are listed in [`.env.example`](../.env.example) and explained in
 
 - [ ] Deploy succeeds and `/healthz` returns `ok`.
 - [ ] Sign in with the bootstrap administrator; change the PIN (avatar → Change PIN).
-- [ ] Settings → Business profile: name, logo, ordering-link slug, phone.
+- [ ] Settings → Business profile: name, logo, phone; the business address (slug) is set at creation and is the
+  workspace URL, ordering link and website address ([module 39](modules/39-workspace-addresses.md)).
 - [ ] Settings → Branches, Users, Roles; Stock / Sales / Loyalty options.
 - [ ] Create products, receive opening stock (Stock → Receive stock → *Opening stock*).
 - [ ] Optional: `import-legacy` (see [migration](migration-from-pablo-loyalty.md)) — run from a Railway shell:

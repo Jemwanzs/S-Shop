@@ -2,9 +2,11 @@
 
 | Document | What it covers |
 |---|---|
-| [scope.md](scope.md) | The living product scope — every requirement with its implementation status and design decisions. **Update it whenever the scope changes.** |
+| [scope.md](scope.md) | The roadmap and living product scope — the **Status board** (what is live, in progress and open, with priority, owner and next action), every requirement and roadmap item with its status, and design decisions. **Update it whenever the scope changes.** |
+| [release-notes.md](release-notes.md) | What changed, newest first — only changes verified live |
+| [user-guide.md](user-guide.md) | The Product User Manual: features by module and **step-by-step guides by role** (everyone, cashier, manager, administrator, platform owner). Generated from [manual/manual.json](manual/manual.json); the same content is the PDF linked on the sign-in page |
 | [architecture.md](architecture.md) | Stack, components, data model, inventory ledger, transactions, security, real-time, background jobs |
-| [development.md](development.md) | Local setup, project conventions, testing, adding a module |
+| [development.md](development.md) | Local setup, conventions, testing, adding a module and the **Definition of done** (which docs to update for every change) |
 | [deployment-railway.md](deployment-railway.md) | Deploying to Railway (service, database, variables, domains, webhooks) |
 | [api.md](api.md) | HTTP API reference |
 | [ui.md](ui.md) | Design system and responsive layout rules |

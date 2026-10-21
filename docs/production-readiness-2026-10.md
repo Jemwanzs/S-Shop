@@ -1,5 +1,9 @@
 # Production readiness — full stack, multi-tenancy, Railway (2026-10-06)
 
+> **Snapshot from 2026-10-06** — kept as a record and not updated. Still open from it (tracked on the
+> [status board](scope.md#status-board)): backups, the email sender, the EU region, error alerting, the one-replica
+> limit and photo storage. Offline selling, CI and the domain were done later ([release notes](release-notes.md)).
+
 Audited against the code, the database and the live Railway project (S'Shop: services `sshop` + `Postgres`,
 environment *production*). ✅ complete · 🟡 partial · 🔴 missing.
 
@@ -11,7 +15,7 @@ environment *production*). ✅ complete · 🟡 partial · 🔴 missing.
 | Backend | ✅ | Rust (Axum + SQLx); all business rules on the server: prices/discounts, stock ledger, barcode clearance, loyalty, approvals, credit, business date, geofencing. The browser never decides. | — |
 | PostgreSQL schema | ✅ | 10 append-only migrations run at start-up (`sqlx::migrate!`); foreign keys, CHECK constraints (statuses, quantities, coordinates), unique keys (document numbers, active barcodes), 40+ indexes, DB triggers for the business date. | Cross-tenant foreign keys are not enforced by the DB (see *Hardening*). |
 | Data integrity | ✅ | Every write in one transaction with its audit row; row locks on stock items, transfers, credit, settings; idempotent sale submit (`client_ref`); concurrent sale of one unit verified (one wins). | — |
-| Railway — app | ✅ | Built from the root `Dockerfile`; settings in `.railway/railway.ts` (health check `/healthz`, restart on failure), non-root container, auto-deploy from `main`. | No CI gate before deploy (see below). |
+| Railway — app | ✅ | Built from `Dockerfile` via `railway.json` (health check `/healthz`, restart on failure), non-root container, auto-deploy from `main`. | No CI gate before deploy (see below). |
 | Railway — database | 🟡 | Postgres 18 on a 5 GB volume, private network only (no public TCP proxy). | **No backups visible** — enable scheduled backups. Local dev uses Postgres 16. |
 | Railway — variables | 🟡 | `DATABASE_URL`, `JWT_SECRET`, `PLATFORM_ADMIN_EMAILS`, `RESEND_API_KEY`, bootstrap vars set; secrets never stored in the database or shown in Settings. | `PUBLIC_URL` and `MAIL_FROM` not set: links use `sshop-live.up.railway.app`, and email goes from Resend's test sender (`onboarding@resend.dev`), which only delivers to the Resend account's own address. |
 | Domain | 🟡 | `sshop-live.up.railway.app` live with TLS. | `sshop.io` is attached but has **no DNS records** (CNAME + TXT verification pending). |

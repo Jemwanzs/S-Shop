@@ -6,6 +6,27 @@ section by section, with how S'Shop implements it. When the scope changes, updat
 
 Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 
+## Status board
+
+*Kept current with every shipped item — last updated 2026-10-21.* History stays below; this table is only what is
+open now. Release history: [release-notes.md](release-notes.md).
+
+**Latest live:** 145 workspace addresses and 94 Railway settings as code (2026-10-19, verified on s-shop.store).
+**In progress:** 146 documentation as part of the workflow — built; live verification pending.
+
+| # | Open item | Priority | Owner | Depends on | Next action |
+|---|---|---|---|---|---|
+| 28 | Database backups | High | Owner | Railway plan with backups | Turn on scheduled Postgres backups (daily, keep 7+), then restore one into a scratch database to prove it |
+| 29 | Email sender (`MAIL_FROM`) | High — invitations and applicant emails | Owner | `s-shop.store` verified in Resend (DNS records at the registrar) | `MAIL_FROM` exists on Railway; confirm the domain shows *Verified* in Resend and send a test invitation to an outside address |
+| — | Real production M-Pesa payment | Medium | Owner | The business's own Till / Paybill credentials | Settings → M-Pesa → *Test STK Push* (KSh 1) in Production |
+| — | Real-device checks | Medium | Owner | iPhone, label printer, scanner | Face ID sign-in (132), iPhone home screen (128), print and scan item labels (133–138) |
+| 30 | `www.s-shop.store` | Low | Owner | DNS | Add it on Railway with a CNAME, or redirect at the registrar |
+| — | *Discard changes?* on screens' own Cancel buttons | Low — decision | Owner | — | Decide yes / no |
+| 31 | EU region | Low — deferred by owner | Owner | 28 (tested backup and restore) | Choose a maintenance window |
+| — | Error alerting | Medium | Platform | — | Alert the owner when the service logs errors or restarts (Railway alerts or a webhook) — today errors are only in the logs |
+| — | More than one app instance | Low — not needed yet | Platform | Live events on PostgreSQL `LISTEN/NOTIFY`; one runner for background jobs | Only when traffic needs a second replica; keep one replica until then |
+| — | Photo storage | Low | Platform | — | Move product photos and logos from the database to a Railway bucket when their volume grows |
+
 | § | Requirement | Status | Where / notes |
 |---|---|---|---|
 | 1 | Product vision — Pablo Loyalty becomes one module of a full retail platform (15 core modules) | ✅ | Product name is **S'Shop**. All 15 modules exist; see [modules](README.md#modules). |
@@ -642,7 +663,7 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
 - ✅ **126. Statement lines in the reader's language** — each statement line also carries its parts (payment method
   and reference, return kind and the sale it was for), so the screen words it in Kiswahili, French or Arabic; the PDF
   keeps English wording (its built-in font cannot draw Arabic script).
-- ⏳ **127. Test suite independent of outside services** — the exchange-rate address is configurable (`FX_URL`,
+- ✅ **127. Test suite independent of outside services** — the exchange-rate address is configurable (`FX_URL`,
   default the provider); CI and the local runner point it at the suite's own stand-in (as for Paystack, Resend and
   Daraja), so an internet blip at open.er-api.com can no longer stop a full run (it did three times); test sessions get the longest idle time and session so a slow machine cannot expire them.
 - ✅ **128. iPhone home screen (Progressive Web App)** — staff install S'Shop from Safari (Share → *Add to Home
@@ -763,6 +784,28 @@ server already refuses a unit sold twice, from another branch or another product
   slugs are kept and keep resolving (workspace, ordering link, sign-in page, logo, website). The address is never
   access: another business's slug sends the person back to their own workspace, a business of the same tenant asks to
   switch. Business profile: *S'Shop Workspace URL* with Copy link. [modules/39](modules/39-workspace-addresses.md).
+
+**Documentation as part of the workflow** (brief *Continuous documentation, roadmap, scoping and user manuals*):
+- ◐ **146. Documentation kept current with every change** — purpose: the roadmap, technical docs and manuals always
+  describe the working system. Scope:
+  - **Status board** at the top of this file (live, in progress, open items with priority, owner, dependency, next
+    action); stale marks corrected (127 ✅).
+  - **Release notes** ([release-notes.md](release-notes.md)), newest first, only verified-live changes, from the
+    commit history since 2026-10-03.
+  - **Step-by-step guides by role** in the Product User Manual (Everyone, Cashier / Salesperson, Branch manager /
+    Supervisor, Business administrator, Platform owner — 33 tasks using the screens' own labels), PDF 1.8 and a
+    generated Markdown copy ([user-guide.md](user-guide.md)) from the same `manual.json`.
+  - **Accuracy pass:** architecture (all 37 route modules, all 66 tables, sessions, sign-in methods, encryption,
+    webhooks, integrations), deployment (undocumented variables, Railway settings as code), development
+    (conventions); dated reports marked as snapshots with what is still open.
+  - **Permanent workflow:** *Definition of done* in [development.md](development.md#definition-of-done-every-feature-fix-or-removal),
+    `CLAUDE.md` for every session, and `scripts/docs_check.py` in CI (fails on an unindexed module doc, a broken
+    link, a user guide older than its source, or architecture not checked against the latest migration).
+
+  Acceptance criteria: CI fails when a module doc is not indexed or a docs link is broken (checked by adding a test
+  file); the PDF opens with a directory whose page numbers match, and no guide task is cut at a page edge (the build
+  refuses); every guide step names a screen or button that exists in the code; the Status board lists every open ⏳ /
+  ◐ item.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

@@ -478,6 +478,17 @@ async fn set_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
         .await?
         .ok_or(AppError::NotFound("Product"))?;
     if !b.is_active && workflow::needs_approval(&mut tx, &ctx, "product.deactivate", workflow::Gate::default()).await? {
+        // Roadmap 148: one deactivation request per product at a time (a second would only clutter Approvals).
+        let waiting: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM approvals WHERE tenant_id = $1 AND action = 'product.deactivate' AND entity_id = $2 AND status = 'pending')",
+        )
+        .bind(ctx.tenant_id)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if waiting {
+            return Err(crate::error::refused("Already waiting for approval", format!("A request to deactivate {name} is already waiting in Approvals")));
+        }
         let approval = workflow::submit(
             &mut tx,
             &ctx,

@@ -204,6 +204,7 @@ Give every person exactly the access they need, with maker-checker approval for 
 - Approval conditions by amount, branch, requester role or expense category
 - Sale ownership changes handled through approvals
 - New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes
+- Every waiting request shows who must approve it and, if you cannot, why; requests nobody can approve are flagged at once with the way forward
 
 <a id="module-15"></a>
 
@@ -454,9 +455,11 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 
 #### Approve or reject requests
 
-1. Open Approvals. Waiting lists what needs your decision.
-2. Tap View to see the details, then Approve or Reject (add a Comment).
-3. You can never approve your own request; My requests shows what you asked for.
+1. Open Approvals. Waiting lists what needs a decision; each card shows who it is Assigned to.
+2. Tap View for the details (requester, level, history), then Approve or Reject (add a Comment).
+3. If you cannot decide it, the card says why — for example you made the request, or it is assigned to another approver.
+
+> If a card says Nobody can approve this request yet, an administrator chooses another approver for that step in Settings → Workflow engine (the request follows the change), or the requester withdraws it.
 
 #### Record an expense
 

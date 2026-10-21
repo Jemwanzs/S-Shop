@@ -4021,6 +4021,70 @@ call("GET", "/platform/errors", token=dk147["token"], branch="none", expect=403)
 call("POST", "/platform/errors/test", {}, token=clerk, expect=403)
 check("business administrators and staff never see platform errors", True)
 
+step("Roadmap 148: approval eligibility explained; requests nobody can approve")
+# The reported case: a business whose only full-access person (its administrator) asks to deactivate a product while
+# Product deactivation needs an Administrator. Nobody else qualifies, so it must say so — never approve automatically.
+D148 = call("POST", "/auth/login", {"email": dk_email, "pin": DK_PIN})
+d_branch = call("GET", "/branches", token=D148["token"], branch="none")[0]["id"]
+DA = {"token": D148["token"], "branch": d_branch}
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
+check("settings say only one person has full access", call("GET", "/settings", **DA)["full_access_people"] == 1)
+p148 = call("POST", "/products", {"name": f"Amouage {suffix}", "marked_price": 900, "cost_price": 500}, **DA)["result"]["id"]
+r = call("POST", f"/products/{p148}/status", {"is_active": False}, **DA)
+a148 = r["approval_id"]
+check("deactivation waits for approval; the product is still active", r["pending_approval"] is True
+      and call("GET", f"/products/{p148}", **DA)["product"]["is_active"] is True, r)
+r = call("POST", f"/products/{p148}/status", {"is_active": False}, **DA, expect=422)
+check("a second request for the same product is refused", r["error"]["title"] == "Already waiting for approval", r)
+it = next(x for x in call("GET", "/approvals?status=pending", **DA)["items"] if x["id"] == a148)
+check("the requester sees why: own request", it["can_decide"] is False and it["why"] == "own_request" and "someone else" in it["why_message"], it)
+check("the request says nobody can approve it, and who the step is for", it["stuck"] == "only_requester"
+      and it["assigned_to"] == "Administrator" and it["next_approvers"] == [], it)
+r = call("POST", f"/approvals/{a148}/approve", {"comments": "self"}, **DA, expect=403)
+check("approving one's own request is refused with the reason", "made this request" in r["error"]["message"], r)
+check("the requester and workflow managers are told at once", any("Nobody can approve" in n["title"] for n in call("GET", "/notifications?limit=30", **DA)["items"]))
+# Controlled way forward: assign the step to a role (the pending request follows the change, audited).
+sup148 = call("POST", "/roles", {"name": f"Supervisor {suffix}", "permissions": ["approvals.approve", "products.view"]}, **DA)["id"]
+mail_s1, mail_s2, mail_c = (f"{w}{suffix.lower()}@sshop.test" for w in ("sup148a", "sup148b", "clerk148"))
+for nm, mail, rid in [("Sup One", mail_s1, sup148), ("Sup Two", mail_s2, sup148)]:
+    call("POST", "/users", {"name": f"{nm} {suffix}", "email": mail, "pin": "4321", "role_id": rid, "all_branches": True, "branch_ids": []}, **DA)
+sales148 = next(x["id"] for x in call("GET", "/roles", **DA) if x["name"] == "Salesperson")
+c148 = call("POST", "/users", {"name": f"Clerk148 {suffix}", "email": mail_c, "pin": "4321", "role_id": sales148, "all_branches": True, "branch_ids": []}, **DA)["id"]
+S1 = {"token": call("POST", "/auth/login", {"email": mail_s1, "pin": "4321"})["token"], "branch": d_branch}
+S2 = {"token": call("POST", "/auth/login", {"email": mail_s2, "pin": "4321"})["token"], "branch": d_branch}
+C1 = {"token": call("POST", "/auth/login", {"email": mail_c, "pin": "4321"})["token"], "branch": d_branch}
+saved = call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "levels": [{"approver_type": "role", "approver_role_id": sup148}], "min_amount": None}, **DA)
+it = next(x for x in call("GET", "/approvals?status=pending", **S1)["items"] if x["id"] == a148)
+check("after the workflow change the waiting request is assigned to the role and can be approved",
+      it["can_decide"] is True and it["stuck"] is None and it["assigned_to"].startswith("Role:") and len(it["next_approvers"]) == 2, it)
+r = call("POST", f"/approvals/{a148}/approve", {"comments": "-"}, token=C1["token"], branch=d_branch, expect=403)
+check("a salesperson cannot approve, with the reason", "assigned to another approver" in r["error"]["message"] or "permission" in r["error"]["message"], r)
+call("POST", f"/approvals/{a148}/approve", {"comments": "ok"}, **S1)
+check("approved: the product is deactivated once, after approval", call("GET", f"/products/{p148}", **DA)["product"]["is_active"] is False)
+r = call("POST", f"/approvals/{a148}/approve", {"comments": "again"}, **S2, expect=422)
+check("a second approval of the same request is refused", "already" in r["error"]["message"], r)
+aud148 = call("GET", "/audit?period=today&limit=100&module=products", **DA)["items"]
+check("deactivation audited with its approval", any(a["action"] == "deactivate" and a.get("entity_id") == p148 for a in aud148))
+# Rejection leaves the product unchanged.
+call("POST", f"/products/{p148}/status", {"is_active": True}, **DA)
+r = call("POST", f"/products/{p148}/status", {"is_active": False}, **DA)
+call("POST", f"/approvals/{r['approval_id']}/reject", {"comments": "keep selling"}, **S1)
+check("rejected: the product stays active", call("GET", f"/products/{p148}", **DA)["product"]["is_active"] is True)
+# Two levels: nobody decides both.
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [
+    {"approver_type": "role", "approver_role_id": sup148}, {"approver_type": "role", "approver_role_id": sup148}]}, **DA)
+r = call("POST", f"/products/{p148}/status", {"is_active": False}, **DA)
+call("POST", f"/approvals/{r['approval_id']}/approve", {"comments": "level 1"}, **S1)
+it = next(x for x in call("GET", "/approvals?status=pending", **S1)["items"] if x["id"] == r["approval_id"])
+check("the level-1 approver sees why they cannot decide level 2", it["why"] == "decided_earlier_level" and it["can_decide"] is False, it)
+call("POST", f"/approvals/{r['approval_id']}/approve", {"comments": "level 2"}, **S1, expect=403)
+call("POST", f"/approvals/{r['approval_id']}/approve", {"comments": "level 2"}, **S2)
+check("another eligible person approves level 2; the product is deactivated", call("GET", f"/products/{p148}", **DA)["product"]["is_active"] is False)
+# Personal access exceptions cannot grant approval rights (only reports, dashboard, sale ownership, staff view).
+r = call("PUT", f"/users/{c148}/access", {"overrides": ["approvals.approve"]}, **DA, expect=400)
+check("approval rights cannot be given as a personal exception", "Not an access exception" in r["error"]["message"], r)
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

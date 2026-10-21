@@ -221,6 +221,38 @@ pub async fn can_decide(
     can_decide_step(conn, tenant_id, step.as_ref(), branch_id, requested_by, d.approver, d.decided_by).await
 }
 
+/// Why a person may or may not decide a request's current step (roadmap 148). The screen shows the reason instead of a
+/// silently missing Approve button; the decision endpoints answer with the same reason.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Why {
+    Eligible,
+    /// Makers never check their own requests.
+    OwnRequest,
+    /// Nobody decides two levels of the same request.
+    DecidedEarlierLevel,
+    /// Not an active person of this business (e.g. a platform support session).
+    NotInBusiness,
+    /// The step is for someone else: another role or person, the branch manager, or an administrator (full access).
+    NotDesignated,
+    /// A request without a configured step needs the *Approve requests* permission.
+    NoPermission,
+}
+
+impl Why {
+    /// The explanation shown to the person (and returned by approve / reject).
+    pub fn message(self) -> &'static str {
+        match self {
+            Why::Eligible => "",
+            Why::OwnRequest => "You made this request, so someone else must approve it",
+            Why::DecidedEarlierLevel => "You already decided an earlier level of this request — the next level needs another person",
+            Why::NotInBusiness => "Only people of this business can approve its requests",
+            Why::NotDesignated => "This step is assigned to another approver",
+            Why::NoPermission => "Your role does not have permission to approve requests",
+        }
+    }
+}
+
 /// Can `approver` decide `step` of a request raised in `branch_id` by `requested_by`? No step = a request without a
 /// configured chain: anyone holding `approvals.approve`. Makers never check their own requests, and nobody decides two
 /// levels of the same request.
@@ -233,35 +265,66 @@ pub async fn can_decide_step(
     approver: Uuid,
     decided_by: &[Uuid],
 ) -> AppResult<bool> {
-    let d = Decider { approver, level: 0, decided_by };
-    if requested_by == Some(d.approver) || d.decided_by.contains(&d.approver) {
-        return Ok(false);
+    Ok(eligibility(conn, tenant_id, step, branch_id, requested_by, approver, decided_by).await? == Why::Eligible)
+}
+
+/// [`can_decide_step`] with the reason. Permissions are the person's **effective** permissions (role plus personal
+/// grants, minus personal removals) — the same ones every other check uses, so the Approvals screen and the decision
+/// agree with what the person may do elsewhere. An administrator step is decided by full access (`*`).
+pub async fn eligibility(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    step: Option<&Level>,
+    branch_id: Option<Uuid>,
+    requested_by: Option<Uuid>,
+    approver: Uuid,
+    decided_by: &[Uuid],
+) -> AppResult<Why> {
+    if requested_by == Some(approver) {
+        return Ok(Why::OwnRequest);
+    }
+    if decided_by.contains(&approver) {
+        return Ok(Why::DecidedEarlierLevel);
     }
     let row: Option<(Vec<String>, Uuid, bool)> = sqlx::query_as(
-        "SELECT r.permissions, r.id, u.all_branches FROM users u JOIN roles r ON r.id = u.role_id
+        "SELECT effective_permissions(r.permissions, u.extra_permissions), r.id, u.all_branches FROM users u JOIN roles r ON r.id = u.role_id
          WHERE u.id = $1 AND u.tenant_id = $2 AND u.is_active",
     )
-    .bind(d.approver)
+    .bind(approver)
     .bind(tenant_id)
     .fetch_optional(&mut *conn)
     .await?;
-    let Some((perms, role_id, all_branches)) = row else { return Ok(false) };
+    let Some((perms, role_id, all_branches)) = row else { return Ok(Why::NotInBusiness) };
     if perms.iter().any(|p| p == "*") {
-        return Ok(true);
+        return Ok(Why::Eligible);
     }
     let may_approve = perms.iter().any(|p| p == "approvals.approve");
-    let Some(level) = step else { return Ok(may_approve) };
+    let yes = |ok: bool| if ok { Why::Eligible } else { Why::NotDesignated };
+    let Some(level) = step else { return Ok(if may_approve { Why::Eligible } else { Why::NoPermission }) };
     Ok(match level.approver_type.as_str() {
-        "user" => level.approver_user_id == Some(d.approver),
-        "role" => level.approver_role_id == Some(role_id),
+        "user" => yes(level.approver_user_id == Some(approver)),
+        "role" => yes(level.approver_role_id == Some(role_id)),
         "branch_manager" => match branch_id {
             Some(b) => {
                 let mgr: Option<Uuid> = sqlx::query_scalar("SELECT manager_id FROM branches WHERE id = $1").bind(b).fetch_one(&mut *conn).await?;
-                mgr == Some(d.approver) || (all_branches && may_approve)
+                yes(mgr == Some(approver) || (all_branches && may_approve))
             }
-            None => may_approve,
+            None => if may_approve { Why::Eligible } else { Why::NoPermission },
         },
-        _ => false, // "admin" — handled above
+        _ => Why::NotDesignated, // "admin" — full access only (handled above)
+    })
+}
+
+/// Who a step is assigned to, in words: "Administrator", the role's or person's name, "Branch manager".
+pub async fn step_label(conn: &mut PgConnection, step: Option<&Level>) -> AppResult<String> {
+    let Some(s) = step else { return Ok("Anyone who may approve requests".into()) };
+    Ok(match s.approver_type.as_str() {
+        "role" => sqlx::query_scalar::<_, String>("SELECT name FROM roles WHERE id = $1").bind(s.approver_role_id).fetch_optional(&mut *conn).await?
+            .map_or_else(|| "A role that no longer exists".into(), |n| format!("Role: {n}")),
+        "user" => sqlx::query_scalar::<_, String>("SELECT name FROM users WHERE id = $1").bind(s.approver_user_id).fetch_optional(&mut *conn).await?
+            .map_or_else(|| "A person who no longer exists".into(), |n| format!("Person: {n}")),
+        "branch_manager" => "Branch manager".into(),
+        _ => "Administrator".into(),
     })
 }
 

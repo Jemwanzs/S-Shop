@@ -32,6 +32,8 @@ export interface SettingsResponse {
   profile: { name: string; slug: string; tagline: string; phone: string; email: string; address: string; currency: string; timezone: string; logo_url: string | null; portal_url: string };
   settings: Settings;
   workflows: WorkflowRow[];
+  /** Roadmap 148: active people with full access — an Administrator step needs one besides the requester. */
+  full_access_people?: number;
   integrations: { mpesa_stk: boolean; mpesa_environment: string | null; whatsapp: boolean; whatsapp_webhook_url: string };
 }
 

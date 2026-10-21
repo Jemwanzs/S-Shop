@@ -122,6 +122,13 @@ struct Item {
     levels: i32,
     /// Who approves next (pending requests).
     next_approvers: Vec<String>,
+    /// Roadmap 148: who the current step is assigned to ("Administrator", "Role: Manager", …).
+    assigned_to: String,
+    /// Why the viewer cannot decide it (pending requests they cannot decide), with the explanation.
+    why: Option<workflow::Why>,
+    why_message: String,
+    /// Nobody can decide the current step: "only_requester" (the only eligible person made the request) or "no_one".
+    stuck: Option<&'static str>,
 }
 
 /// The people a step designates — "who approves next". Administrators may decide any step, so they are listed only for
@@ -131,7 +138,7 @@ async fn responsible(conn: &mut sqlx::PgConnection, step: Option<&Level>, ids: &
         return Ok(ids.to_vec());
     }
     let named: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ANY($1) AND NOT ('*' = ANY(r.permissions))",
+        "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ANY($1) AND NOT ('*' = ANY(effective_permissions(r.permissions, u.extra_permissions)))",
     )
     .bind(ids)
     .fetch_all(&mut *conn)
@@ -169,23 +176,42 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     for row in rows {
         let decided = row.decided_by();
         let pending = row.status == "pending";
-        let can_decide =
-            pending && workflow::can_decide_step(&mut conn, ctx.tenant_id, row.step(), row.branch_id, row.requested_by, ctx.user_id, &decided).await?;
+        let why = if !pending {
+            None
+        } else if ctx.acting_from.is_some() {
+            // Roadmap 148: a platform support session is not a person of this business (never decides its requests).
+            Some(workflow::Why::NotInBusiness)
+        } else {
+            Some(workflow::eligibility(&mut conn, ctx.tenant_id, row.step(), row.branch_id, row.requested_by, ctx.user_id, &decided).await?)
+        };
+        let can_decide = why == Some(workflow::Why::Eligible);
         // Users only see requests they raised or can decide, unless they hold audit visibility.
         if can_decide || row.requested_by == Some(ctx.user_id) || ctx.can("audit.view") || ctx.can("approvals.approve") {
-            let next_approvers = if pending {
+            let (next_approvers, stuck) = if pending {
                 let ids = workflow::approvers_for(&mut conn, ctx.tenant_id, row.step(), row.branch_id, row.requested_by, &decided).await?;
+                // Nobody may decide this step: say so (and why) instead of leaving it waiting silently.
+                let stuck = if !ids.is_empty() {
+                    None
+                } else if let Some(requester) = row.requested_by {
+                    let alone = workflow::eligibility(&mut conn, ctx.tenant_id, row.step(), row.branch_id, None, requester, &decided).await?;
+                    Some(if alone == workflow::Why::Eligible { "only_requester" } else { "no_one" })
+                } else {
+                    Some("no_one")
+                };
                 let ids = responsible(&mut conn, row.step(), &ids).await?;
-                names(&mut conn, &ids).await?
+                (names(&mut conn, &ids).await?, stuck)
             } else {
-                Vec::new()
+                (Vec::new(), None)
             };
+            let assigned_to = if pending { workflow::step_label(&mut conn, row.step()).await? } else { String::new() };
+            let why = why.filter(|w| *w != workflow::Why::Eligible);
+            let why_message = why.map(|w| w.message().to_string()).unwrap_or_default();
             let levels = row.total();
             // Roadmap 136: item barcodes inside a request (receipts, transfers, adjustments) leave the server masked; the
             // stored payload keeps the full codes the approved action needs.
             let mut row = row;
             super::barcodes::mask_payload(&mut row.payload);
-            items.push(Item { row, can_decide, levels, next_approvers });
+            items.push(Item { row, can_decide, levels, next_approvers, assigned_to, why, why_message, stuck });
         }
     }
     let total = items.len() as i64;
@@ -213,11 +239,14 @@ async fn load_pending(conn: &mut sqlx::PgConnection, ctx: &Ctx, id: Uuid) -> App
 
 async fn ensure_can_decide(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &ApprovalRow) -> AppResult<()> {
     let decided = a.decided_by();
-    let ok = workflow::can_decide_step(conn, ctx.tenant_id, a.step(), a.branch_id, a.requested_by, ctx.user_id, &decided).await?;
-    if ok {
-        Ok(())
+    let why = if ctx.acting_from.is_some() {
+        workflow::Why::NotInBusiness
     } else {
-        Err(AppError::Forbidden("You cannot decide this request (or you already decided an earlier level)".into()))
+        workflow::eligibility(conn, ctx.tenant_id, a.step(), a.branch_id, a.requested_by, ctx.user_id, &decided).await?
+    };
+    match why {
+        workflow::Why::Eligible => Ok(()),
+        w => Err(AppError::Forbidden(w.message().into())),
     }
 }
 
@@ -407,6 +436,31 @@ async fn notify_requester(state: &AppState, ctx: &Ctx, a: &ApprovalRow, approved
 async fn notify_level(state: &AppState, tenant_id: Uuid, a: &ApprovalRow, decided_by: &[Uuid], why: &str) {
     let Ok(mut conn) = state.db.acquire().await else { return };
     match workflow::approvers_for(&mut conn, tenant_id, a.step(), a.branch_id, a.requested_by, decided_by).await {
+        Ok(users) if users.is_empty() => {
+            // Roadmap 148: nobody may decide this step (e.g. the only administrator made the request). Say so at once
+            // to the requester and to whoever manages workflows — never leave it waiting silently.
+            let label = workflow::step_label(&mut conn, a.step()).await.unwrap_or_default();
+            let note = Note::new(
+                "approval_stuck",
+                "Nobody can approve this request",
+                format!("{} — the step is for: {label}. Change the approver in Settings → Workflow engine (the request follows the change) or withdraw the request.", a.summary),
+                "/approvals",
+            )
+            .dedupe(format!("approval_stuck:{}:{}", a.id, a.level));
+            let mut people: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
+                  WHERE u.tenant_id = $1 AND u.is_active
+                    AND effective_permissions(r.permissions, u.extra_permissions) && ARRAY['*', 'settings.workflows']",
+            )
+            .bind(tenant_id)
+            .fetch_all(&mut *conn)
+            .await
+            .unwrap_or_default();
+            people.extend(a.requested_by);
+            people.sort();
+            people.dedup();
+            notify::to_users(state, tenant_id, &people, note).await;
+        }
         Ok(users) => notify_users(state, tenant_id, a, &users, why).await,
         Err(e) => tracing::warn!(error = %e, "approver lookup failed"),
     }

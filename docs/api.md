@@ -70,6 +70,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | DELETE | `/api/settings/logo` — S'Shop branding is used instead; audited `logo_removed` |
 | PUT | `/api/settings/workflows/{action}` |
 | — | Every `{slug}` in public addresses (`/api/public/{slug}/…`, `/api/portal/{slug}/…`, `/api/site?slug=`) also accepts a business's earlier slug (roadmap 145) |
+| — | `GET /api/approvals` items also carry `assigned_to`, `why` (`own_request` · `decided_earlier_level` · `not_designated` · `no_permission` · `not_in_business`), `why_message` and `stuck` (`only_requester` · `no_one`) — roadmap 148; approve / reject answer 403 with the same reason. `GET /api/settings` adds `full_access_people` |
 | GET | `/api/platform/errors?status=open\|resolved\|all` — platform error alerts (platform admins only; [module 40](modules/40-error-alerting.md)) |
 | POST | `/api/platform/errors/test` · `/api/platform/errors/{id}/resolve` — send a test alert · mark resolved |
 | GET | `/api/public/{slug}/branding` — sign-in branding for a business known from trusted context: `{name, logo_url, marketing}` (`logo_url` only with branding and *Login* on; rate-limited; 404 for unknown or inactive businesses) |

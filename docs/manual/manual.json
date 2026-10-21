@@ -180,7 +180,8 @@
         "Requesters never approve their own requests, and nobody approves two levels",
         "Approval conditions by amount, branch, requester role or expense category",
         "Sale ownership changes handled through approvals",
-        "New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes"
+        "New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes",
+        "Every waiting request shows who must approve it and, if you cannot, why; requests nobody can approve are flagged at once with the way forward"
       ]
     },
     {
@@ -453,10 +454,11 @@
         {
           "title": "Approve or reject requests",
           "steps": [
-            "Open Approvals. Waiting lists what needs your decision.",
-            "Tap View to see the details, then Approve or Reject (add a Comment).",
-            "You can never approve your own request; My requests shows what you asked for."
-          ]
+            "Open Approvals. Waiting lists what needs a decision; each card shows who it is Assigned to.",
+            "Tap View for the details (requester, level, history), then Approve or Reject (add a Comment).",
+            "If you cannot decide it, the card says why — for example you made the request, or it is assigned to another approver."
+          ],
+          "note": "If a card says Nobody can approve this request yet, an administrator chooses another approver for that step in Settings → Workflow engine (the request follows the change), or the requester withdraws it."
         },
         {
           "title": "Record an expense",

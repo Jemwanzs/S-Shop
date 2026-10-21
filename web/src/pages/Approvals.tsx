@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ShieldCheck, Undo2, X } from "lucide-react";
+import { AlertTriangle, Check, Info, ShieldCheck, Undo2, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { ago, dateTime, money } from "@/lib/format";
@@ -28,8 +28,39 @@ const ACTION_LABEL: Record<string, string> = {
   "sale.return": "Return",
   "sale.cancel": "Cancellation",
   "credit.write_off": "Credit write-off",
+  "sale.owner_change": "Sale ownership change",
+  "credit.recall": "Credit recall",
   expense: "Expense",
+  "data.import": "Data import",
 };
+
+/** Roadmap 148: a request nobody can decide — why, and the controlled ways forward (never approved automatically). */
+function StuckNote({ a }: { a: Approval }) {
+  if (a.status !== "pending" || !a.stuck) return null;
+  const who = t(a.assigned_to);
+  return (
+    <div className="flex gap-2 rounded-lg bg-warning/10 p-2.5 text-xs text-warning">
+      <AlertTriangle className="h-4 w-4 shrink-0" />
+      <span>
+        <b>{t("Nobody can approve this request yet.")}</b>{" "}
+        {a.stuck === "only_requester"
+          ? t("This step is for {who}, and the only person who qualifies made the request — nobody approves their own request.").replace("{who}", who)
+          : t("This step is for {who}, and no active person qualifies.").replace("{who}", who)}{" "}
+        {t("An administrator can choose another approver in Settings → Workflow engine (this request follows the change, recorded in the audit trail), or the requester can withdraw it.")}
+      </span>
+    </div>
+  );
+}
+
+/** Why the signed-in person cannot decide a pending request (instead of a silently missing Approve button). */
+function WhyNote({ a }: { a: Approval }) {
+  if (a.status !== "pending" || a.can_decide || !a.why_message) return null;
+  return (
+    <p className="flex gap-1.5 text-xs text-muted-foreground">
+      <Info className="mt-px h-3.5 w-3.5 shrink-0" /> {t(a.why_message)}
+    </p>
+  );
+}
 
 function entityLink(a: Approval) {
   switch (a.entity_type) {
@@ -62,6 +93,7 @@ export default function Approvals() {
   const qc = useQueryClient();
   const [status, setStatus] = useState<"pending" | "mine" | "approved" | "rejected">("pending");
   const [deciding, setDeciding] = useState<{ approval: Approval; approve: boolean } | null>(null);
+  const [details, setDetails] = useState<Approval | null>(null);
   const [comments, setComments] = useState("");
   const query = status === "mine" ? { status: "all", mine: true } : { status };
   const { data, isLoading } = useQuery({ queryKey: ["approvals", query], queryFn: () => api<Paged<Approval>>("/approvals", { query }) });
@@ -117,11 +149,14 @@ export default function Approvals() {
                   {a.requested_by_name} · {ago(a.created_at)}{a.branch_name && ` · ${a.branch_name}`}
                   {a.decided_by_name && <><br />{a.status} by {a.decided_by_name} · {dateTime(a.decided_at)}{a.comments && ` — “${a.comments}”`}</>}
                 </p>
-                {a.status === "pending" && a.next_approvers.length > 0 && (
+                {a.status === "pending" && (
                   <p className="text-xs">
-                    <span className="text-muted-foreground">{t("Next approver")}:</span> <span className="font-medium">{a.next_approvers.join(", ")}</span>
+                    <span className="text-muted-foreground">{t("Assigned to")}:</span> <span className="font-medium">{t(a.assigned_to)}</span>
+                    {a.next_approvers.length > 0 && <><span className="text-muted-foreground"> · {t("Next approver")}:</span> <span className="font-medium">{a.next_approvers.join(", ")}</span></>}
                   </p>
                 )}
+                <StuckNote a={a} />
+                <WhyNote a={a} />
                 {a.status === "pending" && a.sync_note && (
                   <p className="rounded-lg bg-warning/10 p-2 text-xs text-warning">{t("Workflow changed")}: {t(a.sync_note)}</p>
                 )}
@@ -135,7 +170,8 @@ export default function Approvals() {
                   </ol>
                 )}
                 <div className="mt-auto flex flex-wrap gap-2">
-                  {link && <Button variant="ghost" size="sm" asChild><Link to={link}>{t("View")}</Link></Button>}
+                  <Button variant="ghost" size="sm" onClick={() => setDetails(a)}>{t("View")}</Button>
+                  {link && <Button variant="ghost" size="sm" asChild><Link to={link}>{t("Open")}</Link></Button>}
                   {a.can_decide && (
                     <>
                       <Button size="sm" variant="outline" className="ms-auto text-destructive" onClick={() => setDeciding({ approval: a, approve: false })}><X /> {t("Reject")}</Button>
@@ -152,6 +188,51 @@ export default function Approvals() {
           })}
         </div>
       )}
+      <ResponsiveDialog
+        open={!!details}
+        onOpenChange={(o) => !o && setDetails(null)}
+        title={details ? t(ACTION_LABEL[details.action] ?? details.action) : ""}
+        description={details?.summary}
+        footer={details?.can_decide ? (
+          <div className="flex w-full gap-2 md:w-auto">
+            <Button variant="outline" className="flex-1 text-destructive md:flex-none" onClick={() => { setDeciding({ approval: details, approve: false }); setDetails(null); }}><X /> {t("Reject")}</Button>
+            <Button variant="success" className="flex-1 md:flex-none" onClick={() => { setDeciding({ approval: details, approve: true }); setDetails(null); }}><Check /> {t("Approve")}</Button>
+          </div>
+        ) : undefined}
+      >
+        {details && (
+          <div className="space-y-3 text-sm">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+              <dt className="text-muted-foreground">{t("Request")}</dt><dd>{t(ACTION_LABEL[details.action] ?? details.action)}</dd>
+              <dt className="text-muted-foreground">{t("Requested by")}</dt><dd>{details.requested_by_name ?? "—"}</dd>
+              <dt className="text-muted-foreground">{t("Submitted")}</dt><dd>{dateTime(details.created_at)}</dd>
+              {details.branch_name && <><dt className="text-muted-foreground">{t("Branch")}</dt><dd>{details.branch_name}</dd></>}
+              {details.amount !== null && <><dt className="text-muted-foreground">{t("Amount")}</dt><dd className="num">{money(details.amount)}</dd></>}
+              <dt className="text-muted-foreground">{t("Status")}</dt><dd><StatusBadge status={details.status} /></dd>
+              {details.status === "pending" && <>
+                <dt className="text-muted-foreground">{t("Current level")}</dt><dd>{details.level} {t("of")} {details.levels}</dd>
+                <dt className="text-muted-foreground">{t("Assigned to")}</dt><dd>{t(details.assigned_to)}{details.next_approvers.length > 0 && ` — ${details.next_approvers.join(", ")}`}</dd>
+              </>}
+              {details.decided_by_name && <><dt className="text-muted-foreground">{t("Decided by")}</dt><dd>{details.decided_by_name} · {dateTime(details.decided_at)}</dd></>}
+            </dl>
+            <StuckNote a={details} />
+            <WhyNote a={details} />
+            <div>
+              <p className="label-caps mb-1">{t("Approval history")}</p>
+              {details.decisions.length ? (
+                <ol className="space-y-1 border-s-2 ps-3 text-xs">
+                  {details.decisions.map((d, n) => (
+                    <li key={n} className={d.decision === "approved" ? "text-success" : "text-destructive"}>
+                      {decisionStep(details, d)} {t(d.decision)} {t("by")} {d.user_name} · {dateTime(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
+                    </li>
+                  ))}
+                </ol>
+              ) : <p className="text-xs text-muted-foreground">{t("No decisions yet.")}</p>}
+            </div>
+            {entityLink(details) && <Button variant="outline" size="sm" asChild><Link to={entityLink(details)!}>{t("Open record")}</Link></Button>}
+          </div>
+        )}
+      </ResponsiveDialog>
       <ResponsiveDialog
         open={!!deciding}
         onOpenChange={(o) => !o && setDeciding(null)}

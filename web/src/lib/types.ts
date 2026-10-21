@@ -444,6 +444,13 @@ export interface Approval {
   can_decide: boolean;
   /** Who approves next (pending requests). */
   next_approvers: string[];
+  /** Roadmap 148: who the current step is assigned to ("Administrator", "Role: Manager", …). */
+  assigned_to: string;
+  /** Why the viewer cannot decide it (pending only), with the explanation. */
+  why: "own_request" | "decided_earlier_level" | "not_in_business" | "not_designated" | "no_permission" | null;
+  why_message: string;
+  /** Nobody can decide the current step. */
+  stuck: "only_requester" | "no_one" | null;
   /** Set when a workflow change needed an exception for this request (roadmap 49). */
   sync_note: string;
   synced_at: string | null;

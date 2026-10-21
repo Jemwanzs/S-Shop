@@ -56,6 +56,9 @@ export function WorkflowSettings() {
     l.approver_type === "role" ? roles.data?.find((r) => r.id === l.approver_role_id)?.name ?? "Role"
     : l.approver_type === "user" ? users.data?.find((u) => u.id === l.approver_user_id)?.name ?? "User"
     : t(APPROVER[l.approver_type]);
+  // Roadmap 148: an Administrator step with a single full-access person can never be approved when that person asks.
+  const loneAdmin = (data?.full_access_people ?? 2) <= 1;
+  const loneAdminWarning = t("Only one person has full access, and nobody approves their own request — requests they make at this step can never be approved. Choose a role or a specific person here, or give a second person full access.");
   const conditionText = (w: WorkflowRow) => {
     const parts = [];
     if (w.min_amount !== null && w.min_amount !== "") parts.push(`from ${money(w.min_amount)}`);
@@ -86,6 +89,9 @@ export function WorkflowSettings() {
               <div className="text-xs text-muted-foreground">
                 {w.enabled ? <>{w.levels.map(levelName).join(" → ")}{conditionText(w)}</> : "No approval needed"}
               </div>
+              {w.enabled && loneAdmin && w.levels.some((l) => l.approver_type === "admin") && (
+                <div className="mt-1 text-xs text-warning">{t("Only one person can approve the Administrator step")}</div>
+              )}
             </button>
             {w.enabled && <Pill tone="warning">{w.levels.length > 1 ? `${w.levels.length} levels` : "On"}</Pill>}
             <Switch checked={w.enabled} onCheckedChange={(v) => save.mutate({ ...w, enabled: v })} aria-label={`Toggle ${w.label}`} />
@@ -116,6 +122,9 @@ export function WorkflowSettings() {
                         {Object.entries(APPROVER).map(([k, n]) => <option key={k} value={k}>{t(n)}</option>)}
                       </Select>
                     </Field>
+                    {l.approver_type === "admin" && loneAdmin && (
+                      <p className="basis-full rounded-lg bg-warning/10 p-2 text-xs text-warning">{loneAdminWarning}</p>
+                    )}
                     {l.approver_type === "role" && (
                       <Field label="Role" className="min-w-40 flex-1">
                         <Select value={l.approver_role_id ?? ""} onChange={(v) => setLevel(i, { approver_role_id: v || null })}>

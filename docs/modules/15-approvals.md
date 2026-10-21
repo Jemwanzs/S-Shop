@@ -9,7 +9,14 @@ level when the current one approves; the action is executed only when the **last
 level ends the request.
 
 - A requester can **never** approve their own request, and **nobody approves two levels** of the same request.
-- An Administrator may decide at any level.
+- An Administrator may decide at any level. *Administrator* means a person whose **effective** permissions include full
+  access (`*`); a *role* step means people with that role; *branch manager* means the request branch's manager (or,
+  for people at all branches, anyone holding *Approve requests*). The engine reads **effective** permissions (the role's
+  plus the person's access exceptions) — the same source as every other check (roadmap 148). Access exceptions cannot
+  grant approval rights, so approval rights come from the role.
+- **Eligibility is decided per person, per request, every time**, from the request's own chain of steps, its current
+  step, the person's identity, business, permissions and branch, the requester and the request's decisions so far.
+  Having approved another request of the same kind never makes someone eligible for this one.
 - Each decision (level, approve/reject, person, time, comment) is kept on the request as a decision trail and in the
   audit log (`approve_level` for intermediate levels).
 - When a level approves, the next level's approvers and the requester are notified (“Level 1 of 2 approved by …”).
@@ -52,6 +59,44 @@ Tabs: Waiting · My requests · Approved · Rejected. Cards show the action, sum
 “Level X of Y” for multi-level requests, the decision trail, and *View*, *Approve* / *Reject* (optional comment) or
 *Withdraw*. Only people who may decide the **current** level see Approve / Reject. Approval decisions are written to the audit trail
 together with the executed action.
+
+### Why you cannot approve, and requests nobody can approve (roadmap 148)
+
+Every waiting card shows **Assigned to** (Administrator, *Role: …*, *Person: …*, Branch manager) and the next
+approvers' names. When the signed-in person cannot decide it, the card says why instead of hiding the buttons:
+
+| Reason | Shown |
+|---|---|
+| They made the request | *You made this request, so someone else must approve it* |
+| They decided an earlier level | *You already decided an earlier level of this request — the next level needs another person* |
+| The step is for someone else | *This step is assigned to another approver* |
+| No approval permission (a request without a step) | *Your role does not have permission to approve requests* |
+| Not a person of this business (e.g. a platform support session) | *Only people of this business can approve its requests* |
+
+Approve / Reject answer with the same reason (403) if someone tries anyway.
+
+**Requests nobody can approve.** When no active person may decide the current step, the card says *Nobody can approve
+this request yet* and why: either the only person who qualifies made the request (for example the business's single
+full-access administrator asking for a step assigned to *Administrator*), or no active person qualifies (a role with
+no active members, a person who left). The requester and everyone who manages workflows are notified the moment it
+happens (*Nobody can approve this request*). Nothing is approved, rejected or reassigned automatically. The ways
+forward are controlled and audited:
+
+1. an administrator chooses another approver for that step in Settings → Workflow engine — waiting requests follow
+   the change step by step (roadmap 49, *pending requests updated*), keeping their requester, history and decisions; or
+2. the requester withdraws it (My requests → *Withdraw*) and asks again once someone can approve.
+
+Settings → Workflow engine warns on every Administrator step while only **one** person has full access (*Only one
+person can approve the Administrator step*).
+
+**View** opens the request: type, summary, requester, submitted date, branch, amount, status, current level of total,
+who it is assigned to, the approval history, the reason (if you cannot decide) and Approve / Reject for those who may.
+*Open* goes to the product, sale, transfer or other record.
+
+**Product deactivation:** the product stays active while the request waits; it is deactivated once, when the last
+level approves (the request row is locked and its status re-checked, so a second or simultaneous approval is refused
+with *already approved*); a rejection leaves it unchanged. Only one deactivation request per product can wait at a
+time (*Already waiting for approval*).
 
 ## Workflow changes and pending requests (roadmap 49)
 

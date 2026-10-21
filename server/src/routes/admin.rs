@@ -83,6 +83,14 @@ async fn get_settings(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
         },
         "settings": settings,
         "workflows": actions,
+        // Roadmap 148: an Administrator step needs a second person with full access (makers never approve their own).
+        "full_access_people": sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM users u JOIN roles r ON r.id = u.role_id
+              WHERE u.tenant_id = $1 AND u.is_active AND '*' = ANY(effective_permissions(r.permissions, u.extra_permissions))",
+        )
+        .bind(ctx.tenant_id)
+        .fetch_one(&mut *conn)
+        .await?,
         "integrations": {
             "mpesa_stk": crate::integrations::mpesa::stk_branches(&state, ctx.tenant_id).await?.0,
             "whatsapp": state.cfg.whatsapp.is_some(),

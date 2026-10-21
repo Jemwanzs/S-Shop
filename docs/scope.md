@@ -12,7 +12,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 open now. Release history: [release-notes.md](release-notes.md).
 
 **Latest live:** 145 workspace addresses and 94 Railway settings as code (2026-10-19, verified on s-shop.store).
-**In progress:** 146 documentation workflow and 147 error alerting — built and tested; going live with the security
+**In progress:** 148 approval eligibility (built), 146 documentation workflow and 147 error alerting — built and tested; going live with the security
 update below (146's deploy was held by a failing security audit: two new TLS advisories, now fixed).
 
 | # | Open item | Priority | Owner | Depends on | Next action |
@@ -828,6 +828,33 @@ server already refuses a unit sold twice, from another branch or another product
   one notification; a resolved event that happens again reopens and alerts; a panic inside a request answers 500
   (not a dropped connection) and creates an event; a business administrator gets 403 on the errors API; a restart
   with the same deployment id creates *Service restarted*.
+
+**Approval eligibility** (brief *Fix Inconsistent Workflow Approvals & Administrator Authorization*, 2026-10-21):
+- ◐ **148. Approvals explain who can decide; requests nobody can approve are caught** — reported: Pablo Niche, *Deactivate
+  product: AMOUAGE SUNSHINE EDP 100ML* waiting with only *View*, Product deactivation → Administrator.
+  **Root cause** (from the code and the screen; reading production data was not permitted from this machine): the card
+  showed no *Next approver*, which appears whenever at least one person may decide the step — so **nobody** could:
+  the step is *Administrator* (full access), the request was made by its only full-access person (*Pablo*), and makers
+  never approve their own requests. The earlier deactivation was approved because someone else had requested it.
+  The screen hid the buttons without saying why, and nothing told anyone the request could never move.
+  Consistency hardening (no behaviour change today): the engine judged approvers by their role's permissions while
+  every other check uses **effective** permissions (role + personal exceptions); personal exceptions cannot include
+  approval rights today, so both gave the same answer — the engine now uses the same source, so a future exception
+  cannot make the Approvals screen and the decision disagree.
+  Scope: one eligibility function with reasons (requester, earlier level, assigned to another approver, no
+  permission, not of this business) used by the list, the details and approve / reject; *Assigned to* and the
+  reason on every card; **View** details (type, requester, date, level, assigned to, status, history); requests nobody
+  can approve flagged with why and the controlled ways forward (change the step's approver — waiting requests follow,
+  audited — or withdraw), and the requester and workflow managers notified at once; Workflow engine warns while only
+  one person has full access; one waiting deactivation request per product. Maker-checker unchanged: requesters never
+  approve their own requests, nobody decides two levels, nothing is approved or reassigned automatically.
+
+  Acceptance criteria (smoke 148): the sole administrator's own request shows *own request* and *nobody can approve*,
+  approving it is refused with the reason, and they are notified; a second request for the same product is refused;
+  after assigning the step to a role the waiting request is decidable by its members; a salesperson is refused with
+  the reason; approval deactivates the product once and a second approval is refused; rejection leaves it active; a
+  level-1 approver sees why they cannot decide level 2 and another person can; approval rights cannot be given as a
+  personal exception.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

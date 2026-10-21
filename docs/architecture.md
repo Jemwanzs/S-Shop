@@ -166,8 +166,8 @@ Schema changes are numbered migrations in `server/migrations` (applied at start-
 - Duplicate-submission guard on every write (`Idempotency-Key`).
 - Strict CSP, HSTS and no framing.
 - Cost prices and item barcodes are masked for roles without the right permission.
-- CI runs `cargo audit` and `npm audit` on every push and weekly. Railway deploys only when every CI check passes, so a
-  newly published advisory stops deploys until it is fixed.
+- CI runs `cargo audit` and `npm audit` on every push and weekly (reported, not gating deploys; advisories are fixed
+  as their own change).
 
 **Operations**
 - Faults, failed background jobs, restarts and an unreachable database alert the platform owner in-app and by email,

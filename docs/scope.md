@@ -12,8 +12,11 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 open now. Release history: [release-notes.md](release-notes.md).
 
 **Latest live:** 145 workspace addresses and 94 Railway settings as code (2026-10-19, verified on s-shop.store).
-**In progress:** 148 approval eligibility (built), 146 documentation workflow and 147 error alerting — built and tested; going live with the security
-update below (146's deploy was held by a failing security audit: two new TLS advisories, now fixed).
+**Not yet live — deploys stopped:** 146 documentation workflow, 147 error alerting and 148 approval eligibility are
+built, tested and CI-green (last commit `47cc4b4`), but Railway has created **no deployment since 2026-10-19 17:02**
+(`ce93808`): its GitHub trigger (main, wait for CI) is configured, yet Railway no longer reacts to pushes. The owner
+deploys the latest commit from the Railway dashboard and reconnects the GitHub source (see deployment-railway.md →
+*Deploys not starting*).
 
 | # | Open item | Priority | Owner | Depends on | Next action |
 |---|---|---|---|---|---|
@@ -647,9 +650,9 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   cut-over.
 - ✅ **122. Dependency security scanning** — CI runs `cargo audit` (RustSec) and `npm audit --audit-level=high` on every
   push and weekly (Monday 06:00 UTC); reported as its own job; scheduled runs never cancel a push's run.
-  **Correction 2026-10-21:** Railway's *wait for CI* waits for every check, so a failing audit **does** stop deploys —
-  it stopped 146 until two new advisories were fixed (RUSTSEC-2026-0381 `webpki-roots`, RUSTSEC-2026-0382
-  `rustls-webpki`: TLS certificate checks for outgoing calls → updated to 1.0.10 / 0.103.16).
+  The audit job is `continue-on-error`: it never gates deploys. On 2026-10-21 it reported two new Rust advisories
+  (RUSTSEC-2026-0381 `webpki-roots`, RUSTSEC-2026-0382 `rustls-webpki`: TLS certificate checks for outgoing calls →
+  updated to 1.0.10 / 0.103.16) and one npm advisory (`vite` / `launch-editor` → 7.3.7); all fixed the same day.
 - ✅ **123. Smaller first download** — the translation dictionary (464 KB source, the largest part of the main script)
   is downloaded only for Kiswahili, French or Arabic; English needs none of it. Text shows in English until it
   arrives; the service worker keeps it for offline use.

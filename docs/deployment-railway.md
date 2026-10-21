@@ -88,13 +88,12 @@ variables are listed in [`.env.example`](../.env.example) and explained in
   detection uses `RAILWAY_DEPLOYMENT_ID`, which Railway injects.
 - **Deploys wait for CI:** Railway deploys a push to `main` after GitHub Actions' *test* job passes. The *audit* job
   (cargo / npm advisories) is `continue-on-error` and never blocks a deploy — a red audit is fixed as its own change.
-- **Deploys not starting** (seen 2026-10-21: pushes since 2026-10-19 17:02 created no Railway deployment while CI was
-  green and the trigger was configured): on GitHub the `railway-app` check stays *queued* and no GitHub deployment is
-  created for the commit. Fix: Railway → sshop → **Deployments → Deploy latest commit** (or Ctrl/⌘ K → *Deploy
-  Latest Commit*) to ship now; then Settings → Source → disconnect and reconnect `Jemwanzs/S-Shop` (branch `main`,
-  *Wait for CI* on), and check github.com → Settings → Applications → Railway → repository access includes
-  `S-Shop`. Push a docs-only commit to confirm a deployment appears by itself. Never change `.railway/railway.ts` for
-  this — the source there is unchanged.
+- **Deploys not starting:** check https://status.railway.com first. On 2026-10-21 Railway's incident *Dashboard and
+  API unavailable, builds paused* (from 07:24 UTC) stopped every build: pushes created no deployment and the
+  `railway-app` check stayed *queued*, while the running release stayed up. Nothing to change on S'Shop's side — wait
+  for the incident to end, then Railway → **sshop** (not Postgres) → Deployments → *Deploy latest commit* if the
+  queued pushes do not deploy by themselves. Never restart, redeploy or remove the **Postgres** service for a deploy
+  problem, and never change `.railway/railway.ts` for it.
 - **Backups:** enable Railway PostgreSQL backups; the database is the only stateful component (photos and
   attachments are stored in it).
 - **Admin recovery:** Railway shell → `sshop reset-pin <email> <new-pin>`.

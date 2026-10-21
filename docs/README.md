@@ -57,6 +57,7 @@
 | 37 | Face ID & biometric login (passkeys) | [modules/37-face-id-biometric-login.md](modules/37-face-id-biometric-login.md) |
 | 38 | Item barcodes, labels, concealment & scan-to-clear | [modules/38-item-barcodes-labels.md](modules/38-item-barcodes-labels.md) |
 | 39 | Business workspace addresses (`s-shop.store/{slug}`) | [modules/39-workspace-addresses.md](modules/39-workspace-addresses.md) |
+| 40 | Error alerting for the platform owner | [modules/40-error-alerting.md](modules/40-error-alerting.md) |
 
 ## Glossary
 

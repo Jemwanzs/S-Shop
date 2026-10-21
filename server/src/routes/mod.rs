@@ -83,6 +83,7 @@ pub fn api() -> Router<AppState> {
         .merge(webhooks::routes())
         .merge(website::routes())
         .merge(site::routes())
+        .merge(crate::alerts::routes())
 }
 
 /// Date filter shared by lists, dashboard and reports.

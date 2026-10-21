@@ -83,6 +83,11 @@ variables are listed in [`.env.example`](../.env.example) and explained in
 ## Operations
 
 - **Logs:** Railway → service → Deployments → Logs (structured `tracing` output).
+- **Error alerts:** faults, failed jobs and restarts reach `PLATFORM_ADMIN_EMAILS` in the bell and by email; see
+  Settings → Platform → *Errors & alerts* and *Send test alert* ([module 40](modules/40-error-alerting.md)). Restart
+  detection uses `RAILWAY_DEPLOYMENT_ID`, which Railway injects.
+- **Deploys wait for CI:** every check must pass, including the security audit — a newly published advisory blocks
+  deploys until the dependency is updated (as on 2026-10-21: `rustls-webpki`, `webpki-roots`).
 - **Backups:** enable Railway PostgreSQL backups; the database is the only stateful component (photos and
   attachments are stored in it).
 - **Admin recovery:** Railway shell → `sshop reset-pin <email> <new-pin>`.

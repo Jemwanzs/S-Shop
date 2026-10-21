@@ -3996,6 +3996,31 @@ me145 = call("GET", "/auth/me")
 check("a business can take back its own old address", me145["tenant"]["slug"] == s145 and new145 in me145["tenant"]["previous_slugs"] and s145 not in me145["tenant"]["previous_slugs"], me145["tenant"])
 check("the workspace screen address is served by the app (refresh / direct link)", urllib.request.urlopen(f"{BASE}/{s145}/products?status=active").status == 200)
 
+step("Roadmap 147: error alerting for the platform owner")
+time.sleep(1.5)  # reports are stored by a background writer
+open147 = call("GET", "/platform/errors?status=open")["open"]
+call("POST", "/categories", {"name": ""}, expect=400)
+call("GET", f"/sales/{uuid.uuid4()}", expect=404)
+time.sleep(1.5)
+check("business answers (4xx) never create an error", call("GET", "/platform/errors?status=open")["open"] == open147)
+ta = call("POST", "/platform/errors/test", {})
+check("test alert: emailed to the platform admins through Resend", (ta.get("email") or {}).get("status") == "sent", ta)
+check("test alert: bell notification for the platform admin", any("Test alert" in n["title"] for n in call("GET", "/notifications?limit=20")["items"]))
+tb = call("POST", "/platform/errors/test", {})
+ev147 = next(e for e in call("GET", "/platform/errors?status=open")["items"] if e["id"] == ta["id"])
+check("the same error twice is one entry, counted", tb["id"] == ta["id"] and ev147["count"] >= 2 and ev147["source"] == "test", ev147)
+call("POST", f"/platform/errors/{ta['id']}/resolve", {})
+check("Resolve moves it to the resolved list", any(e["id"] == ta["id"] for e in call("GET", "/platform/errors?status=resolved")["items"]))
+call("POST", f"/platform/errors/{ta['id']}/resolve", {}, expect=404)
+tc = call("POST", "/platform/errors/test", {})
+check("back after Resolve: reopened and alerted again", tc["id"] == ta["id"] and (tc.get("email") or {}).get("status") == "sent"
+      and any(e["id"] == ta["id"] for e in call("GET", "/platform/errors?status=open")["items"]))
+call("POST", f"/platform/errors/{ta['id']}/resolve", {})
+dk147 = call("POST", "/auth/login", {"email": dk_email, "pin": DK_PIN})
+call("GET", "/platform/errors", token=dk147["token"], branch="none", expect=403)
+call("POST", "/platform/errors/test", {}, token=clerk, expect=403)
+check("business administrators and staff never see platform errors", True)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

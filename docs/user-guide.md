@@ -318,6 +318,7 @@ For the S'Shop platform owner only: manage tenants and businesses centrally and 
 - Billing models, tenant-specific pricing, trials and the platform billing dashboard
 - Platform-wide limits for sign-in, sessions, websites and campaigns
 - Support access to a business only through audited, time-limited sessions
+- Error alerts: server faults, failing outside services, failed background jobs and restarts reach the owner in the app and by email, grouped, with a test alert
 
 ## Part 2 — Step-by-step guides
 
@@ -565,3 +566,10 @@ Approving new businesses, supporting tenants and platform billing.
 1. Settings → Platform billing: plans, invoices and payments across tenants.
 2. Settings → Tenants → a tenant → Access & status: Deactivate or Reactivate (platform-owned tenants are never deactivated).
 3. Settings → Activity and Security & features: platform-wide activity and sign-in rules (businesses can only make them stricter).
+
+#### Errors and alerts
+
+1. When an alert arrives (bell or email), open Settings → Errors & alerts.
+2. Each entry shows what failed, where, how often and when; repeats are counted rather than sent again.
+3. Fix the cause (e.g. free a Railway domain slot, renew a credential), then tap Resolve. If it happens again you are alerted again.
+4. Send test alert checks that the bell and your email both receive alerts.

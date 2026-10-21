@@ -1,6 +1,6 @@
 # Architecture
 
-*Checked against the code on 2026-10-21 (migrations 0001–0041). Update this page when a component, table, integration
+*Checked against the code on 2026-10-21 (migrations 0001–0042). Update this page when a component, table, integration
 or security rule changes.*
 
 ## Overview
@@ -47,7 +47,8 @@ Deployment and Railway settings: [deployment-railway.md](deployment-railway.md).
 | `secrets.rs` | Encryption at rest for credentials businesses give S'Shop (M-Pesa) |
 | `dedupe.rs` · `ratelimit.rs` | Duplicate-submission guard for every write · rate limits on unauthenticated endpoints |
 | `geo.rs` | Geofencing: selected actions only from devices at the Current Branch |
-| `jobs.rs` | STK sweep every minute; every 15 min: billing jobs, points expiry, overdue-credit alerts, M-Pesa timeouts, old portal codes |
+| `jobs.rs` | STK sweep every minute; every 15 min: billing jobs, points expiry, overdue-credit alerts, M-Pesa timeouts, old portal codes, alert retention |
+| `alerts.rs` | Error alerting for the platform owner: faults, failed jobs, restarts → grouped `error_events`, bell + email ([module 40](modules/40-error-alerting.md)) |
 | `demo.rs` · `legacy.rs` · `bootstrap.rs` | Pablo Niche demo business · Pablo Loyalty importer · first business on an empty database |
 | `integrations/` | `mpesa.rs` (Daraja), `paystack.rs`, `email.rs` (Resend), `whatsapp.rs` (Cloud API) |
 | `routes/` | One module per functional area (37); each exposes its routes and, where approvals apply, `on_approved()` |
@@ -123,6 +124,7 @@ supplier_return, damage, loss, write_off, adjustment, count_variance`. Individua
 | Websites | `websites`, `website_versions`, `website_media`, `website_domains`, `website_campaigns`, `website_events` |
 | Onboarding | `import_batches`, `import_rows`, `import_progress` |
 | Control | `workflows`, `approvals`, `audit_log`, `notifications`, `whatsapp_messages`, `email_log`, `doc_counters` |
+| Operations | `error_events`, `service_starts` |
 
 Document numbers (`RCP-2026-000001`, `ORD-…`, `TRF-…`, `RTN-…`) come from `doc_counters` per business and year.
 Schema changes are numbered migrations in `server/migrations` (applied at start-up, never edited once released).
@@ -164,7 +166,13 @@ Schema changes are numbered migrations in `server/migrations` (applied at start-
 - Duplicate-submission guard on every write (`Idempotency-Key`).
 - Strict CSP, HSTS and no framing.
 - Cost prices and item barcodes are masked for roles without the right permission.
-- CI runs `cargo audit` and `npm audit` on every push and weekly.
+- CI runs `cargo audit` and `npm audit` on every push and weekly. Railway deploys only when every CI check passes, so a
+  newly published advisory stops deploys until it is fixed.
+
+**Operations**
+- Faults, failed background jobs, restarts and an unreachable database alert the platform owner in-app and by email,
+  grouped ([module 40](modules/40-error-alerting.md)). A panic inside a request answers 500 instead of dropping the
+  connection.
 
 ## Real-time
 

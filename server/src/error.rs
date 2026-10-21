@@ -86,7 +86,18 @@ impl IntoResponse for AppError {
             AppError::RateLimited(_) => Some("Too many attempts".to_string()),
             _ => None,
         };
-        (status, Json(json!({ "error": { "code": code, "message": message, "title": title } }))).into_response()
+        // Roadmap 147: faults someone must act on alert the platform owner; business answers (4xx) never do.
+        let alert = match &self {
+            AppError::Db(e) if status == StatusCode::INTERNAL_SERVER_ERROR => Some(("Database error", e.to_string())),
+            AppError::Other(e) => Some(("Internal error", format!("{e:#}"))),
+            AppError::Upstream(m) => Some(("An outside service refused", m.clone())),
+            _ => None,
+        };
+        let mut res = (status, Json(json!({ "error": { "code": code, "message": message, "title": title } }))).into_response();
+        if let Some((kind, message)) = alert {
+            res.extensions_mut().insert(crate::alerts::Alert { kind, message });
+        }
+        res
     }
 }
 

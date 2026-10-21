@@ -1,6 +1,7 @@
 import { NavLink, Navigate, Route, Routes, useLocation } from "@/lib/router";
 import {
   Activity,
+  Siren,
   Award,
   Banknote,
   Building2,
@@ -50,6 +51,7 @@ import { SupportAccessSettings } from "./SupportAccess";
 import { PlatformSecuritySettings } from "./QuickPin";
 import { BillingSettings } from "./Billing";
 import { PlatformActivity } from "./PlatformActivity";
+import { ErrorsSettings } from "./Errors";
 import { PlatformBilling } from "./PlatformBilling";
 import { WebsiteSettings } from "./website/Website";
 import { t } from "@/lib/i18n";
@@ -98,6 +100,7 @@ const SECTIONS: SectionDef[] = [
   { path: "businesses", label: "Businesses", group: "Platform", icon: Network, perm: "platform", element: <BusinessesSettings /> },
   { path: "platform-billing", label: "Platform billing", group: "Platform", icon: Banknote, perm: "platform", element: <PlatformBilling /> },
   { path: "activity", label: "Activity", group: "Platform", icon: Activity, perm: "platform", element: <PlatformActivity /> },
+  { path: "errors", label: "Errors & alerts", group: "Platform", icon: Siren, perm: "platform", element: <ErrorsSettings /> },
   { path: "access-requests", label: "Access requests", group: "Platform", icon: Inbox, perm: "platform", element: <AccessRequests /> },
 ];
 

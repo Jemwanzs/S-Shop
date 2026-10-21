@@ -26,6 +26,7 @@ pub fn spawn(state: AppState) {
             tick.tick().await;
             if let Err(e) = crate::routes::stk_sales::sweep(&sweeper).await {
                 tracing::warn!(error = %e, "stk sales sweep");
+                crate::alerts::report("job", "M-Pesa payment check failed", format!("{e:#}"), "", "STK sales sweep (every minute)");
             }
         }
     });
@@ -36,6 +37,7 @@ pub fn spawn(state: AppState) {
             tick.tick().await;
             if let Err(e) = run_once(&state).await {
                 tracing::error!(error = ?e, "background job failed");
+                crate::alerts::report("job", "Background job failed", format!("{e:#}"), "", "Housekeeping (every 15 min)");
             }
         }
     });
@@ -44,6 +46,7 @@ pub fn spawn(state: AppState) {
 async fn run_once(state: &AppState) -> anyhow::Result<()> {
     if let Err(e) = crate::billing::run_jobs(state).await {
         tracing::warn!(error = %format!("{e:#}"), "billing jobs");
+        crate::alerts::report("job", "Billing job failed", format!("{e:#}"), "", "Billing renewals, trials and reminders");
     }
     sqlx::query(
         "UPDATE mpesa_requests SET status = 'timeout', result_desc = 'No response from M-Pesa', updated_at = now()
@@ -52,6 +55,9 @@ async fn run_once(state: &AppState) -> anyhow::Result<()> {
     .execute(&state.db)
     .await?;
     sqlx::query("DELETE FROM portal_otps WHERE created_at < now() - interval '1 day'").execute(&state.db).await?;
+    // Roadmap 147: resolved errors and old start records are kept for 90 days.
+    sqlx::query("DELETE FROM error_events WHERE resolved_at < now() - interval '90 days'").execute(&state.db).await?;
+    sqlx::query("DELETE FROM service_starts WHERE started_at < now() - interval '90 days'").execute(&state.db).await?;
 
     let tenants: Vec<(Uuid, String, String, serde_json::Value)> = sqlx::query_as("SELECT id, name, timezone, settings FROM tenants")
         .fetch_all(&state.db)

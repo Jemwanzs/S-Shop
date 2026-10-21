@@ -12,7 +12,8 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 open now. Release history: [release-notes.md](release-notes.md).
 
 **Latest live:** 145 workspace addresses and 94 Railway settings as code (2026-10-19, verified on s-shop.store).
-**In progress:** 146 documentation as part of the workflow — built; live verification pending.
+**In progress:** 146 documentation workflow and 147 error alerting — built and tested; going live with the security
+update below (146's deploy was held by a failing security audit: two new TLS advisories, now fixed).
 
 | # | Open item | Priority | Owner | Depends on | Next action |
 |---|---|---|---|---|---|
@@ -20,10 +21,10 @@ open now. Release history: [release-notes.md](release-notes.md).
 | 29 | Email sender (`MAIL_FROM`) | High — invitations and applicant emails | Owner | `s-shop.store` verified in Resend (DNS records at the registrar) | `MAIL_FROM` exists on Railway; confirm the domain shows *Verified* in Resend and send a test invitation to an outside address |
 | — | Real production M-Pesa payment | Medium | Owner | The business's own Till / Paybill credentials | Settings → M-Pesa → *Test STK Push* (KSh 1) in Production |
 | — | Real-device checks | Medium | Owner | iPhone, label printer, scanner | Face ID sign-in (132), iPhone home screen (128), print and scan item labels (133–138) |
-| 30 | `www.s-shop.store` | Low | Owner | DNS | Add it on Railway with a CNAME, or redirect at the registrar |
+| 30 | `www.s-shop.store` | Low | Owner | DNS; **Railway's custom-domain limit** — the service has 3 (`s-shop.store`, `s-shop.click`, `www.pablo-niche.com`) and Railway refused another on 2026-10-16 | Free a slot (e.g. remove `s-shop.click` if unused) or upgrade the plan, then add it with a CNAME — or redirect `www` at the registrar instead |
 | — | *Discard changes?* on screens' own Cancel buttons | Low — decision | Owner | — | Decide yes / no |
 | 31 | EU region | Low — deferred by owner | Owner | 28 (tested backup and restore) | Choose a maintenance window |
-| — | Error alerting | Medium | Platform | — | Alert the owner when the service logs errors or restarts (Railway alerts or a webhook) — today errors are only in the logs |
+| 147 | Error alerting | Medium — built | Platform | Resend sender for emails beyond the Resend account owner (29) | Verify live: *Send test alert* reaches the bell and your email |
 | — | More than one app instance | Low — not needed yet | Platform | Live events on PostgreSQL `LISTEN/NOTIFY`; one runner for background jobs | Only when traffic needs a second replica; keep one replica until then |
 | — | Photo storage | Low | Platform | — | Move product photos and logos from the database to a Railway bucket when their volume grows |
 
@@ -645,8 +646,10 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   an earlier date, expenses recorded or voided. Today's trading is never blocked. Onboarding history keeps its own
   cut-over.
 - ✅ **122. Dependency security scanning** — CI runs `cargo audit` (RustSec) and `npm audit --audit-level=high` on every
-  push and weekly (Monday 06:00 UTC); reported as its own job, not gating deploys; scheduled runs never cancel a
-  push's run.
+  push and weekly (Monday 06:00 UTC); reported as its own job; scheduled runs never cancel a push's run.
+  **Correction 2026-10-21:** Railway's *wait for CI* waits for every check, so a failing audit **does** stop deploys —
+  it stopped 146 until two new advisories were fixed (RUSTSEC-2026-0381 `webpki-roots`, RUSTSEC-2026-0382
+  `rustls-webpki`: TLS certificate checks for outgoing calls → updated to 1.0.10 / 0.103.16).
 - ✅ **123. Smaller first download** — the translation dictionary (464 KB source, the largest part of the main script)
   is downloaded only for Kiswahili, French or Arabic; English needs none of it. Text shows in English until it
   arrives; the service worker keeps it for offline use.
@@ -806,6 +809,25 @@ server already refuses a unit sold twice, from another branch or another product
   file); the PDF opens with a directory whose page numbers match, and no guide task is cut at a page edge (the build
   refuses); every guide step names a screen or button that exists in the code; the Status board lists every open ⏳ /
   ◐ item.
+
+**Error alerting** (owner question 2026-10-21; owner chose in-app + email):
+- ◐ **147. Error alerting for the platform owner** — built and tested ([module 40](modules/40-error-alerting.md)); live verification pending. — purpose: failures that need action reach the owner instead of
+  sitting in the logs (evidence: on 2026-10-16 Railway refused a website domain — *custom domain limit for the plan*
+  — and only the person on screen saw an error). Scope: server faults (database / internal errors, crashes inside a
+  request), integrations refusing (Railway, Paystack, Daraja… — the 502 *upstream* errors), failed background jobs,
+  the service restarting without a new deploy, the database not answering. Not alerted: normal business answers
+  (4xx: wrong PIN, validation, permissions) and a website shown as *temporarily unavailable* (a deliberate 503).
+  Grouped by fingerprint (same error, same place): the first occurrence alerts, repeats only count, a repeat alerts
+  again after 6 h or after it was marked resolved. Delivery: in-app notification to the platform admins and an email
+  to `PLATFORM_ADMIN_EMAILS` (email log). Settings → Platform → *Errors & alerts*: open / resolved list with count,
+  first / last seen, where; *Resolve*; *Send test alert*. Messages are shortened and long tokens removed; request
+  bodies and headers are never stored.
+
+  Acceptance criteria: *Send test alert* creates an event, a bell notification for the platform admin and an email
+  log row (sent through Resend); a 4xx answer creates no event; the same error twice is one event with count 2 and
+  one notification; a resolved event that happens again reopens and alerts; a panic inside a request answers 500
+  (not a dropped connection) and creates an event; a business administrator gets 403 on the errors API; a restart
+  with the same deployment id creates *Service restarted*.
 
 Towards the end (owner decision 2026-10-06 — deferred, not dropped):
 - ⏳ **28. Database backups** — Railway scheduled backups (daily, keep 7+) and a tested restore.

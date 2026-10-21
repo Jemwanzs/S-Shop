@@ -1,3 +1,4 @@
+mod alerts;
 mod audit;
 mod auth;
 mod billing;
@@ -113,7 +114,11 @@ async fn healthz(axum::extract::State(state): axum::extract::State<state::AppSta
     let ping = tokio::time::timeout(Duration::from_secs(3), sqlx::query("SELECT 1").execute(&state.db)).await;
     match ping {
         Ok(Ok(_)) => (axum::http::StatusCode::OK, "ok"),
-        _ => (axum::http::StatusCode::SERVICE_UNAVAILABLE, "database unavailable"),
+        _ => {
+            // Roadmap 147: kept in memory and stored (alerting the owner) once the database answers again.
+            alerts::report("health", "Database not answering", "The health check could not reach the database within 3 seconds.", "GET", "/healthz");
+            (axum::http::StatusCode::SERVICE_UNAVAILABLE, "database unavailable")
+        }
     }
 }
 
@@ -153,6 +158,7 @@ async fn serve() -> anyhow::Result<()> {
     );
 
     let state = state::AppState::new(db, cfg);
+    alerts::start(state.clone());
     jobs::spawn(state.clone());
 
     // Single-page app: unknown paths fall back to index.html; hashed assets are cached forever.
@@ -179,6 +185,9 @@ async fn serve() -> anyhow::Result<()> {
         .fallback_service(spa)
         // Business websites (custom domains, /s/{slug}) are answered before the S'Shop app (roadmap 53).
         .layer(axum::middleware::from_fn_with_state(state.clone(), routes::site::host_pages))
+        // Roadmap 147: a panic answers 500 and alerts; every response carrying an alert is reported.
+        .layer(tower_http::catch_panic::CatchPanicLayer::custom(alerts::panic_response))
+        .layer(axum::middleware::from_fn(alerts::capture))
         .with_state(state)
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http());

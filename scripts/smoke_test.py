@@ -3126,7 +3126,10 @@ check("expenses: day-first dates and a new category understood", exp["batch"]["i
 call("PUT", "/settings/workflows/data.import", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
 pend = import_now(exp['batch']['id'], {})
 check("with the Data import workflow on, the batch waits for approval", pend["status"] == "pending_approval", pend)
+# Roadmap 150: with Tenant Administrator self-approval switched off, a second administrator is needed.
+call("PUT", "/settings/approval-policy", {"admin_self_approval": False})
 call("POST", f"/approvals/{pend['approval_id']}/approve", {"comments": "self"}, expect=403)
+call("PUT", "/settings/approval-policy", {"admin_self_approval": True})
 admin_role = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Tenant Administrator")
 a2 = f"importapprover{ob}@sshop.test"
 call("POST", "/users", {"name": "Import Approver", "email": a2, "pin": "4321", "role_id": admin_role, "all_branches": True, "branch_ids": []})

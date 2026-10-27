@@ -159,6 +159,25 @@ async fn serve() -> anyhow::Result<()> {
 
     let state = state::AppState::new(db, cfg);
     alerts::start(state.clone());
+    // Roadmap 149: re-encrypt stored credentials after a `DATA_ENCRYPTION_KEY` rotation (and report unreadable ones).
+    {
+        let cfg = &state.cfg;
+        match secrets::rotate_stored(&state.db, &cfg.data_key.0, cfg.data_key_previous.as_ref().map(|k| &k.0)).await {
+            Ok((readable, rotated, unreadable)) => {
+                tracing::info!(readable, rotated, unreadable, previous_key = cfg.data_key_previous.is_some(), "stored credentials checked");
+                if unreadable > 0 {
+                    alerts::report(
+                        "health",
+                        "Stored credentials unreadable",
+                        format!("{unreadable} stored M-Pesa credential value(s) cannot be read with DATA_ENCRYPTION_KEY (or DATA_ENCRYPTION_KEY_PREVIOUS). Set the previous key while rotating, or have the business enter them again in Settings → M-Pesa."),
+                        "",
+                        "",
+                    );
+                }
+            }
+            Err(e) => tracing::error!(error = %e, "stored credential check failed"),
+        }
+    }
     jobs::spawn(state.clone());
 
     // Single-page app: unknown paths fall back to index.html; hashed assets are cached forever.

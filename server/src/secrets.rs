@@ -61,6 +61,62 @@ pub fn decrypt(key: &[u8; 32], stored: &str) -> AppResult<String> {
     String::from_utf8(plain).map_err(|_| unreadable())
 }
 
+/// One stored value under key rotation: `Ok(None)` when the current key already reads it, `Ok(Some(new))` when only
+/// the previous key does (the value re-encrypted with the current key), `Err` when neither does.
+pub fn reencrypt(current: &[u8; 32], previous: Option<&[u8; 32]>, stored: &str) -> Result<Option<String>, ()> {
+    if decrypt(current, stored).is_ok() {
+        return Ok(None);
+    }
+    let plain = previous.and_then(|k| decrypt(k, stored).ok()).ok_or(())?;
+    encrypt(current, &plain).map(Some).map_err(|_| ())
+}
+
+/// Roadmap 149 — rotating `DATA_ENCRYPTION_KEY`: at start-up, every stored credential (M-Pesa consumer secret, passkey,
+/// callback token) is checked; values only the previous key (`DATA_ENCRYPTION_KEY_PREVIOUS`) reads are re-encrypted
+/// with the current key, row by row. Counts are logged (never values); unreadable values alert the platform owner.
+/// Safe to run on every start: values already under the current key are left alone.
+pub async fn rotate_stored(db: &sqlx::PgPool, current: &[u8; 32], previous: Option<&[u8; 32]>) -> anyhow::Result<(usize, usize, usize)> {
+    let rows: Vec<(uuid::Uuid, String, String, String)> =
+        sqlx::query_as("SELECT id, consumer_secret_enc, passkey_enc, callback_token_enc FROM mpesa_accounts").fetch_all(db).await?;
+    let (mut readable, mut rotated, mut unreadable) = (0, 0, 0);
+    for (id, secret, passkey, token) in rows {
+        let mut new = Vec::new();
+        for v in [&secret, &passkey, &token] {
+            if v.is_empty() {
+                new.push(None); // not entered (e.g. no passkey) — nothing to rotate
+                continue;
+            }
+            match reencrypt(current, previous, v) {
+                Ok(None) => {
+                    readable += 1;
+                    new.push(None);
+                }
+                Ok(Some(n)) => {
+                    rotated += 1;
+                    new.push(Some(n));
+                }
+                Err(()) => {
+                    unreadable += 1;
+                    new.push(None);
+                }
+            }
+        }
+        if new.iter().any(Option::is_some) {
+            sqlx::query(
+                "UPDATE mpesa_accounts SET consumer_secret_enc = COALESCE($2, consumer_secret_enc),
+                        passkey_enc = COALESCE($3, passkey_enc), callback_token_enc = COALESCE($4, callback_token_enc) WHERE id = $1",
+            )
+            .bind(id)
+            .bind(&new[0])
+            .bind(&new[1])
+            .bind(&new[2])
+            .execute(db)
+            .await?;
+        }
+    }
+    Ok((readable, rotated, unreadable))
+}
+
 /// SHA-256 hex, for looking up a secret without storing it in the clear.
 pub fn digest(s: &str) -> String {
     Sha256::digest(s.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
@@ -81,6 +137,22 @@ pub fn random_token() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rotation_reencrypts_only_what_the_previous_key_reads() {
+        let (old, new, other) = ([1u8; 32], [2u8; 32], [3u8; 32]);
+        let under_old = encrypt(&old, "consumer-secret").unwrap();
+        let under_new = encrypt(&new, "passkey").unwrap();
+        // Already under the current key: left alone.
+        assert_eq!(reencrypt(&new, Some(&old), &under_new), Ok(None));
+        // Only the previous key reads it: re-encrypted, and the current key now reads the same value.
+        let moved = reencrypt(&new, Some(&old), &under_old).unwrap().expect("re-encrypted");
+        assert_eq!(decrypt(&new, &moved).unwrap(), "consumer-secret");
+        assert!(decrypt(&old, &moved).is_err(), "no longer readable with the old key");
+        // Neither key (or no previous key given): reported, never guessed.
+        assert_eq!(reencrypt(&new, Some(&other), &under_old), Err(()));
+        assert_eq!(reencrypt(&new, None, &under_old), Err(()));
+    }
 
     #[test]
     fn round_trip_and_tamper_detection() {

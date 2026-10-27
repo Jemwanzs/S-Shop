@@ -47,6 +47,8 @@ the next `railway config apply` deletes it (see above).
 |---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (reference variable) |
 | `JWT_SECRET` | 48+ random characters (keep it stable — changing it signs everyone out) |
+| `DATA_ENCRYPTION_KEY` | 32 random bytes as 64 hex characters (`openssl rand -hex 32`): encrypts the credentials businesses store in S'Shop (M-Pesa). Required in production; change it only as in *Rotating credentials* |
+| `DATA_ENCRYPTION_KEY_PREVIOUS` | Only while rotating `DATA_ENCRYPTION_KEY`: the old value, so stored credentials are re-encrypted at start-up; delete it afterwards |
 | `BOOTSTRAP_BUSINESS_NAME` | Your business name (first start only) |
 | `BOOTSTRAP_ADMIN_EMAIL` | First administrator email |
 | `BOOTSTRAP_ADMIN_PIN` | First administrator PIN — **set it yourself**, then change it in the app after first sign-in |
@@ -67,6 +69,43 @@ the next `railway config apply` deletes it (see above).
 Bootstrap runs only when the database is empty; the variables can be removed afterwards (set `PLATFORM_ADMIN_EMAILS` first). Optional M-Pesa and WhatsApp
 variables are listed in [`.env.example`](../.env.example) and explained in
 [integrations/mpesa.md](integrations/mpesa.md) and [integrations/whatsapp.md](integrations/whatsapp.md).
+
+## Rotating credentials
+
+Railway's security incident of 20–22 October 2026 (attackers decrypted a subset of customers' environment
+variables; [Railway's report](https://blog.railway.com/p/preliminary-report-october-security-incident)) means every
+sensitive variable stored before 21 October is rotated. Values are generated and pasted by the owner only — never in
+chat, code, commits or logs. Generate random values locally, e.g. `openssl rand -base64 48` (JWT) and
+`openssl rand -hex 32` (data key).
+
+Order (the app code for step 3 must be live first — roadmap 149):
+
+1. **Deploys working again.** Railway → sshop → Settings → Source: reconnect `Jemwanzs/S-Shop` (branch `main`, *Wait
+   for CI* on) — Railway handed GitHub every stored GitHub key for revocation. GitHub → Settings → Applications:
+   review authorised apps and the security log. Then Deployments → *Deploy latest commit* and confirm the release
+   is live (healthz, the version on the sign-in page).
+2. **Provider keys** — create a new key at the provider, set it on Railway, deploy, check, then revoke the old one:
+   - `PAYSTACK_SECRET_KEY` — Paystack dashboard → Settings → API keys; check Settings → Billing → *Pay now* opens.
+   - `RESEND_API_KEY` — Resend → API keys; check Platform → Errors & alerts → *Send test alert* (email *sent*).
+   - `MPESA_CONSUMER_KEY` / `_SECRET` and `MPESA_PROD_CONSUMER_KEY` / `_SECRET` — Daraja portal → the app → regenerate;
+     the STK passkeys (`MPESA_STK_PASSKEY`, `MPESA_PROD_STK_PASSKEY`) are issued by Safaricom — ask Safaricom for a new
+     production passkey; check Settings → M-Pesa → *Test OAuth connection*.
+   - `RAILWAY_API_TOKEN` — Railway → Account → Tokens: create a new one, delete the old one.
+3. **`DATA_ENCRYPTION_KEY`** (encrypts the businesses' M-Pesa credentials in the database):
+   set `DATA_ENCRYPTION_KEY_PREVIOUS` = the current value and `DATA_ENCRYPTION_KEY` = a new 64-hex value **in the same
+   change**, deploy. At start the app re-encrypts every stored credential and logs
+   `stored credentials checked readable=… rotated=… unreadable=0`; after the next start it shows `rotated=0`.
+   Then delete `DATA_ENCRYPTION_KEY_PREVIOUS` and deploy once more (`readable=…, unreadable=0`). If `unreadable` is
+   above 0 the owner is alerted (Errors & alerts) — keep the previous key set until it is 0.
+4. **`JWT_SECRET`** — a new value of 48+ characters. Everyone is signed out and signs in again (Quick PIN devices and
+   Face ID keep working after a full sign-in). Stored credentials are unaffected because `DATA_ENCRYPTION_KEY` is set.
+5. **Database password** — Railway's guide *Rotate API Keys and Database Credentials Without Downtime*: a new database
+   user and password on the **Postgres** service (`PGUSER` / `PGPASSWORD`); the app's `DATABASE_URL` is the reference
+   `${{Postgres.DATABASE_URL}}`, so it follows. The database has no public network access (no TCP proxy) — keep it so.
+6. **Businesses' own M-Pesa credentials** (stored in the database, encrypted): not stored as Railway variables;
+   rotating them is recommended for the platform-owned business (Pablo Niche) and optional for others.
+7. Every new variable is also added to `.railway/railway.ts` as `preserve()` (e.g. `DATA_ENCRYPTION_KEY_PREVIOUS`
+   while it exists, removed again afterwards) — otherwise a later `railway config apply` deletes it.
 
 ## 3. First deploy checklist
 

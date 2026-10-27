@@ -12,14 +12,16 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 open now. Release history: [release-notes.md](release-notes.md).
 
 **Latest live:** 145 workspace addresses and 94 Railway settings as code (2026-10-19, verified on s-shop.store).
-**Not yet live — Railway outage:** 146 documentation workflow, 147 error alerting and 148 approval eligibility are
-built, tested and CI-green, but every push since 2026-10-21 08:15 UTC landed during Railway's platform incident
-*Dashboard and API unavailable, builds paused* (QH8L8B3E, from 07:24 UTC; builds paused in all regions). Nothing in
-S'Shop's account or settings is wrong; the live release (`ce93808`) keeps running. When Railway resumes builds:
-*Deploy latest commit* on the **sshop** service if the queued pushes do not deploy by themselves, then verify.
+**Not yet live:** 146 documentation workflow, 147 error alerting, 148 approval eligibility and 149 credential rotation
+support are built, tested and CI-green but not deployed. Railway's outage of 21 October was a **security incident**
+(attackers decrypted a subset of customers' environment variables; builds restored 22 October). No push since then has
+started a deployment — Railway handed GitHub every stored GitHub key for revocation, so the GitHub link on Railway is
+reconnected by the owner, then *Deploy latest commit* on **sshop**. Then the credential rotation (149) follows its
+runbook.
 
 | # | Open item | Priority | Owner | Depends on | Next action |
 |---|---|---|---|---|---|
+| 149 | **Rotate credentials** (Railway security incident) | **Critical** | Owner (code part built) | Deploys working (reconnect GitHub on Railway) | Follow the runbook in deployment-railway.md → *Rotating credentials*, in order |
 | 28 | Database backups | High | Owner | Railway plan with backups | Turn on scheduled Postgres backups (daily, keep 7+), then restore one into a scratch database to prove it |
 | 29 | Email sender (`MAIL_FROM`) | High — invitations and applicant emails | Owner | `s-shop.store` verified in Resend (DNS records at the registrar) | `MAIL_FROM` exists on Railway; confirm the domain shows *Verified* in Resend and send a test invitation to an outside address |
 | — | Real production M-Pesa payment | Medium | Owner | The business's own Till / Paybill credentials | Settings → M-Pesa → *Test STK Push* (KSh 1) in Production |
@@ -812,6 +814,18 @@ server already refuses a unit sold twice, from another branch or another product
   file); the PDF opens with a directory whose page numbers match, and no guide task is cut at a page edge (the build
   refuses); every guide step names a screen or button that exists in the code; the Status board lists every open ⏳ /
   ◐ item.
+
+**Credential rotation after Railway's security incident** (Railway report 2026-10-22, updated 2026-10-26):
+- ◐ **149. Rotating every stored credential safely** — purpose: Railway recommends that every customer rotate the
+  sensitive variables stored before 21 October (attackers decrypted a subset of customers' environment variables).
+  `DATA_ENCRYPTION_KEY` protects the businesses' M-Pesa credentials in S'Shop's database, and changing it used to make
+  them unreadable. Scope: `DATA_ENCRYPTION_KEY_PREVIOUS` — at start-up every stored credential that only the previous
+  key reads is re-encrypted with the new key (row by row, counts logged, never values); unreadable values alert the
+  owner; empty fields are skipped. Runbook for every variable, in order, with checks:
+  [deployment-railway.md → Rotating credentials](deployment-railway.md#rotating-credentials).
+  Acceptance criteria: unit test (only previous-key values are re-encrypted, current-key values untouched, neither key
+  → reported); end to end on a scratch database: a credential stored under key A is *unreadable* with key B alone,
+  *rotated* with B + previous A, *readable* with B alone afterwards, and no key or secret appears in the logs.
 
 **Error alerting** (owner question 2026-10-21; owner chose in-app + email):
 - ◐ **147. Error alerting for the platform owner** — built and tested ([module 40](modules/40-error-alerting.md)); live verification pending. — purpose: failures that need action reach the owner instead of

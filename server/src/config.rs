@@ -7,6 +7,9 @@ pub struct Config {
     pub jwt_secret: String,
     /// Roadmap 91: key for credentials stored at rest (`DATA_ENCRYPTION_KEY`, else derived from `JWT_SECRET`).
     pub data_key: crate::secrets::DataKey,
+    /// Roadmap 149: the key being replaced (`DATA_ENCRYPTION_KEY_PREVIOUS`, set only while rotating): stored
+    /// credentials it can read are re-encrypted with `data_key` at start-up.
+    pub data_key_previous: Option<crate::secrets::DataKey>,
     /// Daraja base URLs (`MPESA_SANDBOX_URL` / `MPESA_PRODUCTION_URL` override them, e.g. for the test stand-in).
     pub daraja_sandbox_url: String,
     pub daraja_production_url: String,
@@ -329,6 +332,10 @@ impl Config {
         Ok(Self {
             port: var("PORT").and_then(|p| p.parse().ok()).unwrap_or(8080),
             data_key: crate::secrets::DataKey(crate::secrets::key_from_env(var("DATA_ENCRYPTION_KEY").as_deref(), &jwt_secret)?),
+            data_key_previous: match var("DATA_ENCRYPTION_KEY_PREVIOUS").filter(|k| !k.trim().is_empty()) {
+                Some(k) => Some(crate::secrets::DataKey(crate::secrets::key_from_env(Some(&k), "")?)),
+                None => None,
+            },
             daraja_sandbox_url: var("MPESA_SANDBOX_URL").unwrap_or_else(|| "https://sandbox.safaricom.co.ke".into()).trim_end_matches('/').to_string(),
             daraja_production_url: var("MPESA_PRODUCTION_URL").unwrap_or_else(|| "https://api.safaricom.co.ke".into()).trim_end_matches('/').to_string(),
             jwt_secret,

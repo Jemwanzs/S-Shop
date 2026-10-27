@@ -15,7 +15,8 @@ open now. Release history: [release-notes.md](release-notes.md).
 and the 2026-10-21/27 security updates — deployed 2026-10-27 12:58 UTC (`b50c77c`): built from the Dockerfile, health
 check passed, start-up clean (`stored credentials checked readable=6 rotated=0 unreadable=0`), new routes answering.
 Railway's 20–22 October **security incident** had held every push since 2026-10-19 (builds paused, then Railway's
-GitHub App installations were reset; the owner deployed). **Next (critical, owner):** rotate credentials — runbook in
+GitHub App installations were reset; the owner deployed). **In progress:** 150 several approvers per level & Tenant Administrator self-approval — built and tested, deploying.
+**Next (critical, owner):** rotate credentials — runbook in
 [deployment-railway.md → Rotating credentials](deployment-railway.md#rotating-credentials).
 
 | # | Open item | Priority | Owner | Depends on | Next action |
@@ -814,6 +815,30 @@ server already refuses a unit sold twice, from another branch or another product
   file); the PDF opens with a directory whose page numbers match, and no guide task is cut at a page edge (the build
   refuses); every guide step names a screen or button that exists in the code; the Status board lists every open ⏳ /
   ◐ item.
+
+**Several approvers per level & Tenant Administrator self-approval** (brief 2026-10-27):
+- ◐ **150. Any one of several approvers decides a level; Tenant Administrators may approve their own requests** —
+  purpose: a level can name several roles / people (Administrator, Manager, Supervisor, a person…); the first decision
+  finalises it and the others are told; a business's Tenant Administrator may explicitly approve their own request
+  (policy on by default, can be switched off), so a business with one administrator is never stuck. Scope:
+  approvers list per level (stored in the level, older levels unchanged — no migration); first-decision-wins enforced
+  on the server (the level the person saw; refused as *Already handled* with who and when; never applied to the next
+  level; row lock); the other approvers notified (who, when, what happens next — intermediate level vs completed vs
+  rejected); self-approval only for the verified system Tenant Administrator role, only by an explicit Approve,
+  recorded on the decision and in the audit trail, never for refunds, cancellations, credit write-offs / recalls,
+  expenses or counter discounts; policy changed only by a Tenant Administrator (full sign-in, audited); approvers
+  must belong to the business (another business's role or person refused); audit of each decision with requester,
+  approver and role, level, other approvers, self-approval, session and request branch, outcome. Existing waiting
+  requests keep their chain and history and follow a workflow change through the audited reconciliation (roadmap 49);
+  under the policy their Tenant Administrator requester may now approve them explicitly.
+
+  Acceptance criteria (smoke 150, 23 checks; unit tests): two approvers in one level saved; both may act; the first
+  approval deactivates once, a second approval or a late rejection is *Already handled* naming who decided; the other
+  approver is notified; a stale level-1 click never decides level 2; the Tenant Administrator approves their own
+  request (recorded *self-approved*), cannot when the policy is off, and never for an expense; an ordinary maker never
+  approves their own request even when their role is an approver; another business's role and duplicate approvers
+  are refused; a workflow manager who is not a Tenant Administrator cannot change the policy; full access cannot be
+  given to another role; the audit entry carries the decision context.
 
 **Credential rotation after Railway's security incident** (Railway report 2026-10-22, updated 2026-10-26):
 - ✅ **149. Rotating every stored credential safely** (support live 2026-10-27; the rotation itself is the owner's — Status board) — purpose: Railway recommends that every customer rotate the

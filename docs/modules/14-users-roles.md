@@ -26,6 +26,13 @@ administrator must remain.
 | Reports | view, export |
 | Administration | approvals.approve, branches.manage, users.manage, roles.manage, settings.manage, audit.view |
 
+## Tenant Administrator and approvals (roadmap 150)
+
+The Tenant Administrator role is the business's system role: the only role with full access (`*`); its name and
+permissions cannot be changed and full access cannot be given to another role. It is the only role that can use the
+self-approval exception of the workflow engine ([module 15](15-approvals.md#tenant-administrator-self-approval-roadmap-150)),
+and only a Tenant Administrator changes that policy.
+
 ## Default roles
 Tenant Administrator (everything, cannot be edited) · Manager · Branch Manager · Salesperson · Storekeeper ·
 Order Manager · Finance · Auditor · View Only. Create your own roles by ticking permissions per module.

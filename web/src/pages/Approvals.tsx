@@ -102,7 +102,8 @@ export default function Approvals() {
     qc.invalidateQueries({ queryKey: ["notifications"] });
   };
   const decide = useMutation({
-    mutationFn: () => api<unknown>(`/approvals/${deciding!.approval.id}/${deciding!.approve ? "approve" : "reject"}`, { body: { comments } }),
+    // Roadmap 150: the level this person saw — if another approver decided it first, the server answers "Already handled".
+    mutationFn: () => api<unknown>(`/approvals/${deciding!.approval.id}/${deciding!.approve ? "approve" : "reject"}`, { body: { comments, level: deciding!.approval.level } }),
     onSuccess: (res) => {
       const r = res as { status?: string; level?: number; levels?: number };
       toast.success(!deciding!.approve ? "Rejected" : r.status === "pending" ? `Approved — passed to level ${r.level} of ${r.levels}` : "Approved — action carried out");
@@ -110,7 +111,7 @@ export default function Approvals() {
       setComments("");
       refresh();
     },
-    onError: (e) => toast.error(e),
+    onError: (e) => { toast.error(e); setDeciding(null); refresh(); },
   });
   const withdraw = useMutation({
     mutationFn: (id: string) => api(`/approvals/${id}/withdraw`, { method: "POST" }),
@@ -164,7 +165,7 @@ export default function Approvals() {
                   <ol className="space-y-1 border-s-2 ps-3 text-xs">
                     {a.decisions.map((d, n) => (
                       <li key={n} className={d.decision === "approved" ? "text-success" : "text-destructive"}>
-                        {decisionStep(a, d)} {d.decision} by {d.user_name} · {ago(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
+                        {decisionStep(a, d)} {d.decision} by {d.user_name}{d.self_approved && ` · ${t("self-approved (Tenant Administrator)")}`} · {ago(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
                       </li>
                     ))}
                   </ol>
@@ -223,7 +224,7 @@ export default function Approvals() {
                 <ol className="space-y-1 border-s-2 ps-3 text-xs">
                   {details.decisions.map((d, n) => (
                     <li key={n} className={d.decision === "approved" ? "text-success" : "text-destructive"}>
-                      {decisionStep(details, d)} {t(d.decision)} {t("by")} {d.user_name} · {dateTime(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
+                      {decisionStep(details, d)} {t(d.decision)} {t("by")} {d.user_name}{d.self_approved && ` · ${t("self-approved (Tenant Administrator)")}`} · {dateTime(d.at)}{d.comments && <span className="text-muted-foreground"> — “{d.comments}”</span>}
                     </li>
                   ))}
                 </ol>

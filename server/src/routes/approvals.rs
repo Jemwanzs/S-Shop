@@ -18,7 +18,7 @@ use uuid::Uuid;
 use super::{Page, Paged};
 use crate::audit::{self, Entry};
 use crate::auth::Ctx;
-use crate::error::{rule, AppError, AppResult};
+use crate::error::{AppError, AppResult};
 use crate::notify::{self, Note};
 use crate::state::AppState;
 use crate::workflow::{self, Level};
@@ -182,18 +182,18 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
             // Roadmap 148: a platform support session is not a person of this business (never decides its requests).
             Some(workflow::Why::NotInBusiness)
         } else {
-            Some(workflow::eligibility(&mut conn, ctx.tenant_id, row.step(), row.branch_id, row.requested_by, ctx.user_id, &decided).await?)
+            Some(workflow::eligibility_for(&mut conn, ctx.tenant_id, Some(&row.action), row.step(), row.branch_id, row.requested_by, ctx.user_id, &decided).await?)
         };
-        let can_decide = why == Some(workflow::Why::Eligible);
+        let can_decide = why.is_some_and(|w| w.may_decide());
         // Users only see requests they raised or can decide, unless they hold audit visibility.
         if can_decide || row.requested_by == Some(ctx.user_id) || ctx.can("audit.view") || ctx.can("approvals.approve") {
             let (next_approvers, stuck) = if pending {
-                let ids = workflow::approvers_for(&mut conn, ctx.tenant_id, row.step(), row.branch_id, row.requested_by, &decided).await?;
+                let ids = workflow::approvers_for(&mut conn, ctx.tenant_id, Some(&row.action), row.step(), row.branch_id, row.requested_by, &decided).await?;
                 // Nobody may decide this step: say so (and why) instead of leaving it waiting silently.
                 let stuck = if !ids.is_empty() {
                     None
                 } else if let Some(requester) = row.requested_by {
-                    let alone = workflow::eligibility(&mut conn, ctx.tenant_id, row.step(), row.branch_id, None, requester, &decided).await?;
+                    let alone = workflow::eligibility_for(&mut conn, ctx.tenant_id, None, row.step(), row.branch_id, None, requester, &decided).await?;
                     Some(if alone == workflow::Why::Eligible { "only_requester" } else { "no_one" })
                 } else {
                     Some("no_one")
@@ -204,7 +204,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
                 (Vec::new(), None)
             };
             let assigned_to = if pending { workflow::step_label(&mut conn, row.step()).await? } else { String::new() };
-            let why = why.filter(|w| *w != workflow::Why::Eligible);
+            let why = why.filter(|w| !w.may_decide());
             let why_message = why.map(|w| w.message().to_string()).unwrap_or_default();
             let levels = row.total();
             // Roadmap 136: item barcodes inside a request (receipts, transfers, adjustments) leave the server masked; the
@@ -222,6 +222,11 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
 struct DecisionBody {
     #[serde(default)]
     comments: String,
+    /// Roadmap 150: the level the approver was looking at. Several people may decide one level and the first decision
+    /// finalises it: a decision for a level that has since moved on is refused (*Already handled*), never applied to
+    /// the next level.
+    #[serde(default)]
+    level: Option<i32>,
 }
 
 async fn load_pending(conn: &mut sqlx::PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<ApprovalRow> {
@@ -232,36 +237,109 @@ async fn load_pending(conn: &mut sqlx::PgConnection, ctx: &Ctx, id: Uuid) -> App
         .await?
         .ok_or(AppError::NotFound("Approval"))?;
     if row.status != "pending" {
-        return Err(rule(format!("This request was already {}", row.status)));
+        let by = row.decided_by_name.clone().unwrap_or_else(|| "someone".into());
+        let when = row.decided_at.map(|d| d.format("%d %b %Y %H:%M UTC").to_string()).unwrap_or_default();
+        let what = match row.status.as_str() {
+            "cancelled" => "withdrawn".to_string(),
+            s => s.to_string(),
+        };
+        return Err(crate::error::refused("Already handled", format!("This request was already {what} by {by} {when} — no action is needed")));
     }
     Ok(row)
 }
 
-async fn ensure_can_decide(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &ApprovalRow) -> AppResult<()> {
+/// Roadmap 150: first action wins — refuse a decision for a level that another approver already decided.
+fn ensure_same_level(a: &ApprovalRow, seen: Option<i32>) -> AppResult<()> {
+    match seen {
+        Some(level) if level != a.level => {
+            let last = a.decisions.as_array().and_then(|d| d.iter().rev().find(|x| x["level"].as_i64() == Some(level as i64)));
+            let who = last.and_then(|d| d["user_name"].as_str()).unwrap_or("another approver");
+            let when = last.and_then(|d| d["at"].as_str()).map(|s| s.chars().take(16).collect::<String>().replace('T', " ")).unwrap_or_default();
+            Err(crate::error::refused(
+                "Already handled",
+                format!("Level {level} was already approved by {who} {when} UTC — the request now waits for level {} of {}", a.level, a.total()),
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
+async fn ensure_can_decide(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &ApprovalRow) -> AppResult<workflow::Why> {
     let decided = a.decided_by();
     let why = if ctx.acting_from.is_some() {
         workflow::Why::NotInBusiness
     } else {
-        workflow::eligibility(conn, ctx.tenant_id, a.step(), a.branch_id, a.requested_by, ctx.user_id, &decided).await?
+        workflow::eligibility_for(conn, ctx.tenant_id, Some(&a.action), a.step(), a.branch_id, a.requested_by, ctx.user_id, &decided).await?
     };
-    match why {
-        workflow::Why::Eligible => Ok(()),
-        w => Err(AppError::Forbidden(w.message().into())),
+    if why.may_decide() {
+        Ok(why)
+    } else {
+        Err(AppError::Forbidden(why.message().into()))
     }
 }
 
-fn decision(ctx: &Ctx, a: &ApprovalRow, verdict: &str, comments: &str) -> Value {
+fn decision(ctx: &Ctx, a: &ApprovalRow, verdict: &str, comments: &str, why: workflow::Why) -> Value {
     json!([{
         "level": a.level, "step_id": a.step().and_then(|s| s.id), "user_id": ctx.user_id, "user_name": ctx.name,
         "decision": verdict, "comments": comments, "at": Utc::now(),
+        "self_approved": why == workflow::Why::SelfApproval,
     }])
 }
 
+/// Roadmap 150: what the audit trail keeps for a decision — requester, approver and role, level, the other approvers
+/// of that level, self-approval, the session's and the request's branch, and the outcome.
+async fn decision_context(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &ApprovalRow, why: workflow::Why, others: &[Uuid], outcome: &str) -> AppResult<Value> {
+    let role: Option<String> = sqlx::query_scalar("SELECT r.name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1")
+        .bind(ctx.user_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    Ok(json!({
+        "request": a.summary, "requester": a.requested_by_name, "approver": ctx.name, "approver_role": role,
+        "level": a.level, "of": a.total(), "assigned_to": workflow::step_label(conn, a.step()).await?,
+        "other_approvers": names(conn, others).await?,
+        "self_approved": why == workflow::Why::SelfApproval,
+        "session_branch": ctx.branch_id, "request_branch": a.branch_id, "outcome": outcome,
+    }))
+}
+
+/// Roadmap 150: the other approvers of a level are told it was handled — by whom, when, and what happens next.
+async fn notify_handled(state: &AppState, tenant_id: Uuid, a: &ApprovalRow, others: &[Uuid], by: &str, outcome: &str) {
+    if others.is_empty() {
+        return;
+    }
+    let label = action_label(&a.action);
+    let title = match outcome {
+        "rejected" => format!("{label} rejected — no action needed"),
+        "approved" => format!("{label} approved — no action needed"),
+        _ => format!("{label}: level {} of {} approved — no action needed", a.level, a.total()),
+    };
+    let next = match outcome {
+        "rejected" => "The request is closed.".to_string(),
+        "approved" => "The request is fully approved and carried out.".to_string(),
+        _ => format!("It now waits for level {} of {}.", a.level + 1, a.total()),
+    };
+    let verdict = if outcome == "rejected" { "rejected" } else { "approved" };
+    let body = format!("{} — {verdict} by {by} at {} UTC. {next} No further action is required from you.", a.summary, Utc::now().format("%d %b %H:%M"));
+    notify::to_users(state, tenant_id, others, Note::new("approval_handled", title, body, "/approvals").dedupe(format!("handled:{}:{}", a.id, a.level))).await;
+}
+
+fn action_label(action: &str) -> &'static str {
+    workflow::ACTIONS.iter().find(|x| x.key == action).map(|x| x.label).unwrap_or("Request")
+}
+
 async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, body: Option<Json<DecisionBody>>) -> AppResult<Json<Value>> {
-    let comments = body.map(|b| b.0.comments).unwrap_or_default();
+    let body = body.map(|b| b.0).unwrap_or_default();
+    let comments = body.comments;
     let mut tx = state.db.begin().await?;
     let a = load_pending(&mut tx, &ctx, id).await?;
-    ensure_can_decide(&mut tx, &ctx, &a).await?;
+    ensure_same_level(&a, body.level)?;
+    let why = ensure_can_decide(&mut tx, &ctx, &a).await?;
+    // The other people this level was assigned to (told it was handled; never asked again).
+    let others: Vec<Uuid> = workflow::approvers_for(&mut tx, ctx.tenant_id, Some(&a.action), a.step(), a.branch_id, a.requested_by, &a.decided_by())
+        .await?
+        .into_iter()
+        .filter(|u| *u != ctx.user_id)
+        .collect();
     let total = a.total();
     // The next step still needing a decision (steps approved earlier out of order are not asked again).
     let mut completed = a.completed_steps();
@@ -274,21 +352,21 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
     if let Some(next) = next {
         sqlx::query("UPDATE approvals SET level = $4, decisions = decisions || $2 WHERE id = $1 AND tenant_id = $3")
             .bind(id)
-            .bind(decision(&ctx, &a, "approved", &comments))
+            .bind(decision(&ctx, &a, "approved", &comments, why))
             .bind(ctx.tenant_id)
             .bind(next)
             .execute(&mut *tx)
             .await?;
+        let mut detail = decision_context(&mut tx, &ctx, &a, why, &others, &format!("passed to level {next} of {total}")).await?;
+        detail["next"] = json!(next);
         audit::record(
             &mut tx,
             &ctx,
-            Entry::new("approvals", "approve_level", &a.entity_type, a.entity_id)
-                .approval(Some(id))
-                .after(json!({ "level": a.level, "of": total, "next": next }))
-                .comments(&comments),
+            Entry::new("approvals", "approve_level", &a.entity_type, a.entity_id).approval(Some(id)).after(detail).comments(&comments),
         )
         .await?;
         tx.commit().await?;
+        notify_handled(&state, ctx.tenant_id, &a, &others, &ctx.name, "level").await;
         let mut decided = a.decided_by();
         decided.push(ctx.user_id);
         let mut moved = a.clone();
@@ -322,45 +400,56 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
         .bind(id)
         .bind(ctx.user_id)
         .bind(&comments)
-        .bind(decision(&ctx, &a, "approved", &comments))
+        .bind(decision(&ctx, &a, "approved", &comments, why))
         .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
+    let detail = decision_context(&mut tx, &ctx, &a, why, &others, "approved and carried out").await?;
     audit::record(
         &mut tx,
         &ctx,
-        Entry::new("approvals", "approve", &a.entity_type, a.entity_id).approval(Some(id)).comments(&comments),
+        Entry::new("approvals", "approve", &a.entity_type, a.entity_id).approval(Some(id)).after(detail).comments(&comments),
     )
     .await?;
     tx.commit().await?;
 
     notify_requester(&state, &ctx, &a, true, &comments).await;
+    notify_handled(&state, ctx.tenant_id, &a, &others, &ctx.name, "approved").await;
     state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "approved" }));
     Ok(Json(json!({ "ok": true, "status": "approved" })))
 }
 
 async fn reject(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, body: Option<Json<DecisionBody>>) -> AppResult<Json<Value>> {
-    let comments = body.map(|b| b.0.comments).unwrap_or_default();
+    let body = body.map(|b| b.0).unwrap_or_default();
+    let comments = body.comments;
     let mut tx = state.db.begin().await?;
     let a = load_pending(&mut tx, &ctx, id).await?;
-    ensure_can_decide(&mut tx, &ctx, &a).await?;
+    ensure_same_level(&a, body.level)?;
+    let why = ensure_can_decide(&mut tx, &ctx, &a).await?;
+    let others: Vec<Uuid> = workflow::approvers_for(&mut tx, ctx.tenant_id, Some(&a.action), a.step(), a.branch_id, a.requested_by, &a.decided_by())
+        .await?
+        .into_iter()
+        .filter(|u| *u != ctx.user_id)
+        .collect();
     on_closed_without_approval(&mut tx, &ctx, &a, "rejected").await?;
     sqlx::query("UPDATE approvals SET status='rejected', decided_by=$2, decided_at=now(), comments=$3, decisions = decisions || $4 WHERE id=$1 AND tenant_id = $5")
         .bind(id)
         .bind(ctx.user_id)
         .bind(&comments)
-        .bind(decision(&ctx, &a, "rejected", &comments))
+        .bind(decision(&ctx, &a, "rejected", &comments, why))
         .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
+    let detail = decision_context(&mut tx, &ctx, &a, why, &others, "rejected — nothing changed").await?;
     audit::record(
         &mut tx,
         &ctx,
-        Entry::new("approvals", "reject", &a.entity_type, a.entity_id).approval(Some(id)).comments(&comments),
+        Entry::new("approvals", "reject", &a.entity_type, a.entity_id).approval(Some(id)).after(detail).comments(&comments),
     )
     .await?;
     tx.commit().await?;
     notify_requester(&state, &ctx, &a, false, &comments).await;
+    notify_handled(&state, ctx.tenant_id, &a, &others, &ctx.name, "rejected").await;
     state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "rejected" }));
     Ok(Json(json!({ "ok": true, "status": "rejected" })))
 }
@@ -435,7 +524,7 @@ async fn notify_requester(state: &AppState, ctx: &Ctx, a: &ApprovalRow, approved
 /// Tell the approvers of the request's current step that it is waiting for them (`only` limits it to some users).
 async fn notify_level(state: &AppState, tenant_id: Uuid, a: &ApprovalRow, decided_by: &[Uuid], why: &str) {
     let Ok(mut conn) = state.db.acquire().await else { return };
-    match workflow::approvers_for(&mut conn, tenant_id, a.step(), a.branch_id, a.requested_by, decided_by).await {
+    match workflow::approvers_for(&mut conn, tenant_id, Some(&a.action), a.step(), a.branch_id, a.requested_by, decided_by).await {
         Ok(users) if users.is_empty() => {
             // Roadmap 148: nobody may decide this step (e.g. the only administrator made the request). Say so at once
             // to the requester and to whoever manages workflows — never leave it waiting silently.
@@ -522,12 +611,12 @@ pub async fn sync_pending(tx: &mut sqlx::PgConnection, ctx: &Ctx, action: &str, 
     for a in rows {
         let decided = a.decided_by();
         let position = workflow::reconcile(new_steps, &a.completed_steps());
-        let before_ids = workflow::approvers_for(tx, ctx.tenant_id, a.step(), a.branch_id, a.requested_by, &decided).await?;
+        let before_ids = workflow::approvers_for(tx, ctx.tenant_id, Some(&a.action), a.step(), a.branch_id, a.requested_by, &decided).await?;
         let mut moved = a.clone();
         moved.steps = DbJson(position.steps.clone());
         moved.level = position.level;
         moved.sync_note = position.note.clone();
-        let after_ids = workflow::approvers_for(tx, ctx.tenant_id, moved.step(), a.branch_id, a.requested_by, &decided).await?;
+        let after_ids = workflow::approvers_for(tx, ctx.tenant_id, Some(&a.action), moved.step(), a.branch_id, a.requested_by, &decided).await?;
         if a.steps.0 == position.steps && a.level == position.level && before_ids == after_ids && a.sync_note == position.note {
             continue; // not affected
         }

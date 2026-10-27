@@ -8,7 +8,17 @@ approver is the Administrator (default), a role, a specific user, or the branch 
 level when the current one approves; the action is executed only when the **last** level approves. A rejection at any
 level ends the request.
 
-- A requester can **never** approve their own request, and **nobody approves two levels** of the same request.
+- **Several approvers per level (roadmap 150).** A level names one or more approvers — roles, specific people, the
+  Administrator, the branch manager (up to 10). **Any one of them decides the level; the first approval or rejection
+  finalises it.** The others can no longer act on it (*Already handled — approved by … at …*), are told who decided,
+  when and what happens next (*… approved — no action needed*; *it now waits for level 2 of 3*), and keep read-only
+  sight of it in the history. Add level / remove level keep sequential multi-level approval.
+- **First decision wins, on the server.** The screen sends the level the person was looking at; the request row is
+  locked for the decision, so of two simultaneous clicks one decides and the other is refused. A decision for a level
+  that has moved on is refused — it is never applied to the next level. The business action (deactivation, stock,
+  transfer, refund…) runs once, in the same transaction as the final approval.
+- A requester can **never** approve their own request — **except a Tenant Administrator under the self-approval
+  policy** (below) — and **nobody approves two levels** of the same request.
 - An Administrator may decide at any level. *Administrator* means a person whose **effective** permissions include full
   access (`*`); a *role* step means people with that role; *branch manager* means the request branch's manager (or,
   for people at all branches, anyone holding *Approve requests*). The engine reads **effective** permissions (the role's
@@ -59,6 +69,23 @@ Tabs: Waiting · My requests · Approved · Rejected. Cards show the action, sum
 “Level X of Y” for multi-level requests, the decision trail, and *View*, *Approve* / *Reject* (optional comment) or
 *Withdraw*. Only people who may decide the **current** level see Approve / Reject. Approval decisions are written to the audit trail
 together with the executed action.
+
+### Tenant Administrator self-approval (roadmap 150)
+
+Settings → Workflow engine → **Allow Tenant Administrator self-approval** — **on** unless the business switches it off
+for strict separation of duties. While on, a **Tenant Administrator** may approve their own request when they are among
+its approvers (administrators may decide any level):
+
+- only the verified Tenant Administrator role — the business's system role, the only role with full access, whose name
+  and permissions cannot be edited. A role merely named *Administrator* never qualifies, and full access cannot be
+  given to any other role;
+- only by pressing **Approve** — submitting never approves anything;
+- recorded on the decision and in the audit trail as *self-approved (Tenant Administrator)*;
+- **never** for money leaving or owed to the business: refunds (sale returns), sale cancellations, credit write-offs
+  and recalls, expenses and counter discounts — these always need a second person;
+- other people never approve their own requests, whatever their role.
+
+Only a Tenant Administrator, fully signed in, changes the policy (audited `approval_policy`, before / after).
 
 ### Why you cannot approve, and requests nobody can approve (roadmap 148)
 

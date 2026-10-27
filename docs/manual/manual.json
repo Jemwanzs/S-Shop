@@ -181,7 +181,7 @@
         "Approval conditions by amount, branch, requester role or expense category",
         "Sale ownership changes handled through approvals",
         "New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes",
-        "Every waiting request shows who must approve it and, if you cannot, why; requests nobody can approve are flagged at once with the way forward"
+        "Several approvers per level — the first decision counts and the others are told; Tenant Administrators may approve their own requests (switchable), never refunds, expenses or write-offs"
       ]
     },
     {
@@ -517,9 +517,10 @@
         {
           "title": "Approval rules",
           "steps": [
-            "Settings → Workflow engine: choose an action (e.g. stock adjustment, expense, discount).",
-            "Turn on Require approval, add Approval levels (administrator, role, specific user or branch manager) with Add level.",
-            "Optionally limit when it applies (Amount is at least, branches, requester's role, expense categories), then Save."
+            "Settings → Workflow engine: choose an action (e.g. product deactivation, stock adjustment, expense).",
+            "Turn on Require approval. In each level, Add approver… for every role or person who may decide it (Administrator, Branch manager, a role, a person) — any one of them decides the level; the first decision counts.",
+            "Add level for a second or third approval in order; optionally limit when it applies (amount, branches, requester's role, categories), then Save.",
+            "Allow Tenant Administrator self-approval (top of the page): on, you can approve your own requests by pressing Approve; switch it off for strict separation of duties. Refunds, cancellations, credit write-offs, expenses and discounts always need a second person."
           ]
         },
         {

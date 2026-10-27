@@ -27,6 +27,7 @@ pub fn routes() -> Router<AppState> {
         .route("/settings/profile", put(put_profile))
         .route("/settings/logo", post(upload_logo).delete(remove_logo))
         .route("/settings/workflows/{action}", put(put_workflow))
+        .route("/settings/approval-policy", put(put_approval_policy))
         .route("/public/{slug}/logo", get(logo))
         .route("/public/{slug}/branding", get(public_branding))
         .route("/public/{slug}/manifest.webmanifest", get(manifest))
@@ -66,6 +67,7 @@ async fn get_settings(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json
             let rule = workflows.iter().find(|w| w.action == a.key);
             json!({
                 "action": a.key, "label": a.label, "uses_amount": a.uses_amount, "uses_category": a.uses_category,
+                "self_approval_protected": workflow::PROTECTED_FROM_SELF_APPROVAL.contains(&a.key),
                 "enabled": rule.map(|r| r.enabled).unwrap_or(false),
                 "levels": rule.map(|r| json!(r.levels)).unwrap_or_else(|| json!([{ "approver_type": "admin" }])),
                 "conditions": rule.map(|r| json!(r.conditions)).unwrap_or_else(|| json!({})),
@@ -463,6 +465,50 @@ struct WorkflowBody {
 }
 
 const MAX_LEVELS: usize = 5;
+const MAX_APPROVERS_PER_LEVEL: usize = 10;
+
+#[derive(Deserialize)]
+struct ApprovalPolicyBody {
+    admin_self_approval: bool,
+}
+
+/// Roadmap 150: Settings → Workflow engine → *Allow Tenant Administrator self-approval*. Only a verified Tenant
+/// Administrator (the business's system full-access role), fully signed in, changes it; audited before and after.
+async fn put_approval_policy(State(state): State<AppState>, ctx: Ctx, Json(b): Json<ApprovalPolicyBody>) -> AppResult<Json<Value>> {
+    ctx.require("settings.workflows")?;
+    ctx.require_full()?;
+    let mut tx = state.db.begin().await?;
+    let admin: bool = sqlx::query_scalar(
+        "SELECT r.is_system AND '*' = ANY(r.permissions) FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1 AND u.tenant_id = $2",
+    )
+    .bind(ctx.user_id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(false);
+    if !admin {
+        return Err(AppError::Forbidden("Only a Tenant Administrator of this business changes the self-approval policy".into()));
+    }
+    let raw: Value = sqlx::query_scalar("SELECT settings FROM tenants WHERE id = $1 FOR UPDATE").bind(ctx.tenant_id).fetch_one(&mut *tx).await?;
+    let mut s: TenantSettings = serde_json::from_value(raw).unwrap_or_default();
+    let before = s.security.admin_self_approval;
+    s.security.admin_self_approval = b.admin_self_approval;
+    sqlx::query("UPDATE tenants SET settings = $2 WHERE id = $1")
+        .bind(ctx.tenant_id)
+        .bind(serde_json::to_value(&s).map_err(|e| AppError::Other(e.into()))?)
+        .execute(&mut *tx)
+        .await?;
+    audit::record(
+        &mut tx,
+        &ctx,
+        Entry::new("settings", "approval_policy", "tenant", ctx.tenant_id)
+            .before(json!({ "admin_self_approval": before }))
+            .after(json!({ "admin_self_approval": b.admin_self_approval })),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(json!({ "ok": true, "admin_self_approval": b.admin_self_approval })))
+}
 
 async fn put_workflow(State(state): State<AppState>, ctx: Ctx, Path(action): Path<String>, Json(mut b): Json<WorkflowBody>) -> AppResult<Json<Value>> {
     ctx.require("settings.workflows")?;
@@ -470,14 +516,27 @@ async fn put_workflow(State(state): State<AppState>, ctx: Ctx, Path(action): Pat
     if b.levels.is_empty() || b.levels.len() > MAX_LEVELS {
         return Err(bad(format!("A workflow needs 1 to {MAX_LEVELS} approval levels")));
     }
-    for (i, l) in b.levels.iter().enumerate() {
+    // Roadmap 150: a level may name several approvers (any one decides it). Each must be known and of this business.
+    let mut role_refs: Vec<Uuid> = Vec::new();
+    let mut user_refs: Vec<Uuid> = Vec::new();
+    for (i, l) in b.levels.iter_mut().enumerate() {
         let n = i + 1;
-        match l.approver_type.as_str() {
-            "role" if l.approver_role_id.is_none() => return Err(bad(format!("Level {n}: choose the approving role"))),
-            "user" if l.approver_user_id.is_none() => return Err(bad(format!("Level {n}: choose the approving user"))),
-            "role" | "user" | "branch_manager" | "admin" => {}
-            _ => return Err(bad(format!("Level {n}: unknown approver type"))),
+        let list = l.any_of();
+        if list.is_empty() || list.len() > MAX_APPROVERS_PER_LEVEL {
+            return Err(bad(format!("Level {n}: choose 1 to {MAX_APPROVERS_PER_LEVEL} approvers")));
         }
+        for (j, a) in list.iter().enumerate() {
+            match a.approver_type.as_str() {
+                "role" => role_refs.push(a.approver_role_id.ok_or_else(|| bad(format!("Level {n}: choose the approving role")))?),
+                "user" => user_refs.push(a.approver_user_id.ok_or_else(|| bad(format!("Level {n}: choose the approving user")))?),
+                "branch_manager" | "admin" => {}
+                _ => return Err(bad(format!("Level {n}: unknown approver type"))),
+            }
+            if list[..j].contains(a) {
+                return Err(bad(format!("Level {n}: the same approver is chosen twice")));
+            }
+        }
+        l.normalise();
     }
     if action == "sale.discount" && b.levels.len() > 1 {
         return Err(bad("Counter discount approval uses one supervisor — set a single level"));
@@ -486,6 +545,15 @@ async fn put_workflow(State(state): State<AppState>, ctx: Ctx, Path(action): Pat
         return Err(bad("Category conditions apply to expense rules only"));
     }
     let mut tx = state.db.begin().await?;
+    role_refs.sort();
+    role_refs.dedup();
+    user_refs.sort();
+    user_refs.dedup();
+    let own_roles: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM roles WHERE tenant_id = $1 AND id = ANY($2)").bind(ctx.tenant_id).bind(&role_refs).fetch_one(&mut *tx).await?;
+    let own_users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND id = ANY($2)").bind(ctx.tenant_id).bind(&user_refs).fetch_one(&mut *tx).await?;
+    if own_roles as usize != role_refs.len() || own_users as usize != user_refs.len() {
+        return Err(bad("An approver refers to a role or person that is not part of this business"));
+    }
     let known_roles: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM roles WHERE tenant_id = $1 AND id = ANY($2)")
         .bind(ctx.tenant_id)
         .bind(&b.conditions.role_ids)

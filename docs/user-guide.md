@@ -204,7 +204,7 @@ Give every person exactly the access they need, with maker-checker approval for 
 - Approval conditions by amount, branch, requester role or expense category
 - Sale ownership changes handled through approvals
 - New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes
-- Every waiting request shows who must approve it and, if you cannot, why; requests nobody can approve are flagged at once with the way forward
+- Several approvers per level — the first decision counts and the others are told; Tenant Administrators may approve their own requests (switchable), never refunds, expenses or write-offs
 
 <a id="module-15"></a>
 
@@ -505,9 +505,10 @@ Setting up the business, people, rules, payments and the website.
 
 #### Approval rules
 
-1. Settings → Workflow engine: choose an action (e.g. stock adjustment, expense, discount).
-2. Turn on Require approval, add Approval levels (administrator, role, specific user or branch manager) with Add level.
-3. Optionally limit when it applies (Amount is at least, branches, requester's role, expense categories), then Save.
+1. Settings → Workflow engine: choose an action (e.g. product deactivation, stock adjustment, expense).
+2. Turn on Require approval. In each level, Add approver… for every role or person who may decide it (Administrator, Branch manager, a role, a person) — any one of them decides the level; the first decision counts.
+3. Add level for a second or third approval in order; optionally limit when it applies (amount, branches, requester's role, categories), then Save.
+4. Allow Tenant Administrator self-approval (top of the page): on, you can approve your own requests by pressing Approve; switch it off for strict separation of duties. Refunds, cancellations, credit write-offs, expenses and discounts always need a second person.
 
 #### Connect M-Pesa (STK Push)
 

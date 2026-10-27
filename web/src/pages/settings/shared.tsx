@@ -11,10 +11,15 @@ import { Loading } from "@/components/Page";
 import { tx } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
 
-export interface WorkflowLevel {
+export interface WorkflowApprover {
   approver_type: "admin" | "role" | "user" | "branch_manager";
   approver_role_id?: string | null;
   approver_user_id?: string | null;
+}
+
+/** One approval level. Roadmap 150: `approvers` names several people / roles — any one of them decides the level. */
+export interface WorkflowLevel extends WorkflowApprover {
+  approvers?: WorkflowApprover[];
 }
 
 export interface WorkflowRow {
@@ -24,6 +29,8 @@ export interface WorkflowRow {
   uses_category: boolean;
   enabled: boolean;
   levels: WorkflowLevel[];
+  /** Roadmap 150: money-related actions a Tenant Administrator never approves themselves. */
+  self_approval_protected?: boolean;
   conditions: { branch_ids?: string[]; role_ids?: string[]; category_ids?: string[] };
   min_amount: Money | null;
 }

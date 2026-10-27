@@ -4027,6 +4027,7 @@ step("Roadmap 148: approval eligibility explained; requests nobody can approve")
 D148 = call("POST", "/auth/login", {"email": dk_email, "pin": DK_PIN})
 d_branch = call("GET", "/branches", token=D148["token"], branch="none")[0]["id"]
 DA = {"token": D148["token"], "branch": d_branch}
+call("PUT", "/settings/approval-policy", {"admin_self_approval": False}, **DA)  # strict maker-checker for 148 (150 covers the policy)
 call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
 check("settings say only one person has full access", call("GET", "/settings", **DA)["full_access_people"] == 1)
 p148 = call("POST", "/products", {"name": f"Amouage {suffix}", "marked_price": 900, "cost_price": 500}, **DA)["result"]["id"]
@@ -4083,6 +4084,94 @@ check("another eligible person approves level 2; the product is deactivated", ca
 # Personal access exceptions cannot grant approval rights (only reports, dashboard, sale ownership, staff view).
 r = call("PUT", f"/users/{c148}/access", {"overrides": ["approvals.approve"]}, **DA, expect=400)
 check("approval rights cannot be given as a personal exception", "Not an access exception" in r["error"]["message"], r)
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
+
+step("Roadmap 150: several approvers per level, first decision wins, Tenant Administrator self-approval")
+# Policy: only a verified Tenant Administrator changes it; it is audited.
+call("PUT", "/settings/approval-policy", {"admin_self_approval": True}, **S1, expect=403)  # no workflow permission
+wfm150 = call("POST", "/roles", {"name": f"Workflow manager {suffix}", "permissions": ["settings.workflows"]}, **DA)["id"]
+mail_w = f"wfm150{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": f"WFM150 {suffix}", "email": mail_w, "pin": "4321", "role_id": wfm150, "all_branches": True, "branch_ids": []}, **DA)
+WM = {"token": call("POST", "/auth/login", {"email": mail_w, "pin": "4321"})["token"], "branch": d_branch}
+r = call("PUT", "/settings/approval-policy", {"admin_self_approval": True}, **WM, expect=403)
+check("only a Tenant Administrator changes the self-approval policy (workflow managers cannot)", "Tenant Administrator" in r["error"]["message"], r)
+r = call("POST", "/roles", {"name": f"Tenant Administrator {suffix}", "permissions": ["*"]}, **DA, expect=400)
+check("full access cannot be given to another role (the exception cannot be copied by a name)", "reserved" in r["error"]["message"], r)
+call("PUT", "/settings/approval-policy", {"admin_self_approval": True}, **DA)
+check("self-approval policy on, audited", any(a["action"] == "approval_policy" for a in call("GET", "/audit?period=today&limit=50&module=settings", **DA)["items"]))
+# A maker who may deactivate products (not an administrator).
+maker150 = call("POST", "/roles", {"name": f"Maker {suffix}", "permissions": ["products.view", "products.deactivate", "approvals.approve"]}, **DA)["id"]
+mail_m = f"maker150{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": f"Maker150 {suffix}", "email": mail_m, "pin": "4321", "role_id": maker150, "all_branches": True, "branch_ids": []}, **DA)
+M = {"token": call("POST", "/auth/login", {"email": mail_m, "pin": "4321"})["token"], "branch": d_branch}
+S1 = {"token": call("POST", "/auth/login", {"email": mail_s1, "pin": "4321"})["token"], "branch": d_branch}
+S2 = {"token": call("POST", "/auth/login", {"email": mail_s2, "pin": "4321"})["token"], "branch": d_branch}
+# Several approvers in one level; validation.
+main_role = call("GET", "/roles")[0]["id"]  # a role of another business
+r = call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [{"approver_type": "role", "approver_role_id": main_role}]}, **DA, expect=400)
+check("an approver from another business is refused", "not part of this business" in r["error"]["message"], r)
+dup = {"approver_type": "role", "approver_role_id": sup148}
+r = call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [{**dup, "approvers": [dup, dup]}]}, **DA, expect=400)
+check("the same approver twice in a level is refused", "twice" in r["error"]["message"], r)
+L1 = {"approver_type": "role", "approver_role_id": sup148, "approvers": [{"approver_type": "role", "approver_role_id": sup148}, {"approver_type": "role", "approver_role_id": maker150}]}
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [L1]}, **DA)
+wf = next(w for w in call("GET", "/settings", **DA)["workflows"] if w["action"] == "product.deactivate")
+check("one level with two approvers saved", len(wf["levels"]) == 1 and len(wf["levels"][0]["approvers"]) == 2, wf["levels"])
+call("POST", f"/products/{p148}/status", {"is_active": True}, **DA)
+r = call("POST", f"/products/{p148}/status", {"is_active": False}, **M)
+x150 = r["approval_id"]
+it = next(x for x in call("GET", "/approvals?status=pending", **M)["items"] if x["id"] == x150)
+check("an ordinary maker never approves their own request (even when their role is an approver)", it["why"] == "own_request" and it["can_decide"] is False, it)
+check("the level is assigned to both roles", " · " in it["assigned_to"], it["assigned_to"])
+both = [next(x for x in call("GET", "/approvals?status=pending", **who)["items"] if x["id"] == x150)["can_decide"] for who in (S1, S2)]
+check("any eligible approver of the level may act", both == [True, True], both)
+call("POST", f"/approvals/{x150}/approve", {"comments": "first", "level": 1}, **S1)
+r = call("POST", f"/approvals/{x150}/approve", {"comments": "second", "level": 1}, **S2, expect=422)
+check("the second approver gets Already handled, with who decided", r["error"]["title"] == "Already handled" and "Sup One" in r["error"]["message"], r)
+r = call("POST", f"/approvals/{x150}/reject", {"comments": "late", "level": 1}, **S2, expect=422)
+check("a late rejection is refused too", r["error"]["title"] == "Already handled", r)
+check("the product was deactivated once", call("GET", f"/products/{p148}", **DA)["product"]["is_active"] is False)
+check("the other approver is told who handled it", any("no action needed" in n["title"] and "Sup One" in n["body"] for n in call("GET", "/notifications?limit=30", **S2)["items"]))
+aud = next(a for a in call("GET", "/audit?period=today&limit=100&module=approvals", **DA)["items"] if a.get("approval_id") == x150 or (a.get("after") or {}).get("request", "").startswith("Deactivate"))
+check("audit keeps approver, role, level, other approvers and outcome", all(k in (aud.get("after") or {}) for k in ("approver", "approver_role", "level", "other_approvers", "self_approved", "session_branch", "outcome")), aud.get("after"))
+# Two levels: a late decision for level 1 is never applied to level 2.
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [L1, {"approver_type": "admin"}]}, **DA)
+call("POST", f"/products/{p148}/status", {"is_active": True}, **DA)
+y150 = call("POST", f"/products/{p148}/status", {"is_active": False}, **M)["approval_id"]
+call("POST", f"/approvals/{y150}/approve", {"comments": "level 1", "level": 1}, **S1)
+r = call("POST", f"/approvals/{y150}/approve", {"comments": "stale", "level": 1}, **S2, expect=422)
+it = next(x for x in call("GET", "/approvals?status=pending", **DA)["items"] if x["id"] == y150)
+check("a stale level-1 click is refused and never decides level 2", r["error"]["title"] == "Already handled" and it["level"] == 2 and len(it["decisions"]) == 1, it)
+call("POST", f"/approvals/{y150}/approve", {"comments": "level 2", "level": 2}, **DA)
+check("level 2 by the administrator completes it", call("GET", f"/products/{p148}", **DA)["product"]["is_active"] is False)
+# Tenant Administrator self-approval (on): explicit, recorded.
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [{"approver_type": "admin"}]}, **DA)
+call("POST", f"/products/{p148}/status", {"is_active": True}, **DA)
+z150 = call("POST", f"/products/{p148}/status", {"is_active": False}, **DA)["approval_id"]
+check("submitting is not approving: still active", call("GET", f"/products/{p148}", **DA)["product"]["is_active"] is True)
+it = next(x for x in call("GET", "/approvals?status=pending", **DA)["items"] if x["id"] == z150)
+check("the Tenant Administrator may approve their own request", it["can_decide"] is True and it["stuck"] is None, it)
+call("POST", f"/approvals/{z150}/approve", {"comments": "self", "level": 1}, **DA)
+done = next(x for x in call("GET", "/approvals?status=approved", **DA)["items"] if x["id"] == z150)
+check("recorded as self-approved", done["decisions"][-1].get("self_approved") is True, done["decisions"])
+check("the product is deactivated", call("GET", f"/products/{p148}", **DA)["product"]["is_active"] is False)
+# Off: maker-checker again.
+call("PUT", "/settings/approval-policy", {"admin_self_approval": False}, **DA)
+call("POST", f"/products/{p148}/status", {"is_active": True}, **DA)
+w150 = call("POST", f"/products/{p148}/status", {"is_active": False}, **DA)["approval_id"]
+r = call("POST", f"/approvals/{w150}/approve", {"comments": "self", "level": 1}, **DA, expect=403)
+check("policy off: the Tenant Administrator cannot approve their own request", "made this request" in r["error"]["message"], r)
+call("POST", f"/approvals/{w150}/withdraw", {}, **DA)
+# Money actions are never self-approved.
+call("PUT", "/settings/approval-policy", {"admin_self_approval": True}, **DA)
+call("PUT", "/settings/workflows/expense", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None, "conditions": {}}, **DA)
+cat150 = call("GET", "/expense-categories", **DA)[0]["id"]
+e150 = call("POST", "/expenses", {"category_id": cat150, "amount": 1500, "description": "Self-approval check"}, **DA)
+eid = e150.get("approval_id")
+r = call("POST", f"/approvals/{eid}/approve", {"comments": "self", "level": 1}, **DA, expect=403)
+check("an expense is never self-approved, even with the policy on", "made this request" in r["error"]["message"], r)
+call("POST", f"/approvals/{eid}/withdraw", {}, **DA)
+call("PUT", "/settings/workflows/expense", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None, "conditions": {}}, **DA)
 call("PUT", "/settings/workflows/product.deactivate", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
 
 step("Roadmap 47: duplicate submissions refused by the server")

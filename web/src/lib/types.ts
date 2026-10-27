@@ -46,6 +46,8 @@ export interface Tier {
 }
 
 export interface Settings {
+  /** Roadmap 150: only the self-approval policy is read here (changed through its own endpoint). */
+  security?: { admin_self_approval?: boolean };
   product: { max_photos: number; auto_code_prefix: string; /** Roadmap 109 */ list_show_images?: boolean; list_show_prices?: boolean };
   stock: {
     barcode_requirement: "required" | "optional" | "disabled";
@@ -456,7 +458,7 @@ export interface Approval {
   synced_at: string | null;
   level: number;
   levels: number;
-  decisions: { level: number; step_id?: string | null; user_name: string; decision: "approved" | "rejected"; comments: string; at: string }[];
+  decisions: { level: number; step_id?: string | null; user_name: string; decision: "approved" | "rejected"; comments: string; at: string; /** Roadmap 150 */ self_approved?: boolean }[];
   /** The chain of steps the request follows (ids are stable across workflow edits). */
   steps: { id?: string | null }[];
 }

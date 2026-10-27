@@ -9,6 +9,14 @@ Covered: sign-ins, PIN changes, products, stock receipts/adjustments, transfers,
 repayments/write-offs, customers, loyalty adjustments/redemptions/referrals/awards, expenses, users, roles, branches,
 settings, workflows, approvals. Filters: period, module. Tap a row for the before/after comparison.
 
+### Approval decisions (roadmap 150)
+
+Every approval decision (`approvals / approve_level`, `approve`, `reject`) records, besides the request and the
+action it carried out: the requester, the acting approver and their role, the level (of how many), who the level was
+assigned to, the other approvers of that level, whether it was a Tenant Administrator self-approval, the session's
+branch and the request's branch, and the outcome (*passed to level 2 of 3*, *approved and carried out*, *rejected —
+nothing changed*).
+
 ## Notifications
 In-app, per user, pushed live (Server-Sent Events) with a toast, and listed under the bell (unread badge) /
 `/notifications`:

@@ -141,10 +141,14 @@ pub struct SecuritySettings {
     /// applies); saving other settings must never write a timeout nobody chose.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<crate::sessions::SessionPolicy>,
+    /// Roadmap 150: a verified Tenant Administrator may approve their own request when they are among the step's
+    /// approvers (never for protected actions — `workflow::PROTECTED_FROM_SELF_APPROVAL`). On unless the business
+    /// switches it off for strict separation of duties.
+    pub admin_self_approval: bool,
 }
 impl Default for SecuritySettings {
     fn default() -> Self {
-        Self { support_access: "notify".into(), quick_pin: QuickPinPolicy::default(), session: None }
+        Self { support_access: "notify".into(), quick_pin: QuickPinPolicy::default(), session: None, admin_self_approval: true }
     }
 }
 

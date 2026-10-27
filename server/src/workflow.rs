@@ -47,7 +47,20 @@ pub const ACTIONS: &[Action] = &[
     Action { key: "data.import", label: "Data import (onboarding)", uses_amount: false, uses_category: false },
 ];
 
-/// One approval level: who may decide at this step.
+/// One approver of a step: the Administrator (full access), a role, a person or the branch manager.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Approver {
+    /// admin | role | user | branch_manager
+    pub approver_type: String,
+    #[serde(default)]
+    pub approver_role_id: Option<Uuid>,
+    #[serde(default)]
+    pub approver_user_id: Option<Uuid>,
+}
+
+/// One approval level: who may decide at this step. Roadmap 150: a step may name several approvers (`approvers`) —
+/// any one of them decides it, and the first decision finalises the step. Steps saved before keep their single approver
+/// in the `approver_*` fields (also filled with the first approver of a list, for older readers).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Level {
     /// Stable identity of the step across workflow edits (assigned when the step is created).
@@ -59,7 +72,40 @@ pub struct Level {
     pub approver_role_id: Option<Uuid>,
     #[serde(default)]
     pub approver_user_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub approvers: Vec<Approver>,
 }
+
+impl Level {
+    /// A step with one approver.
+    pub fn single(approver_type: &str) -> Self {
+        Self { id: Some(Uuid::new_v4()), approver_type: approver_type.into(), approver_role_id: None, approver_user_id: None, approvers: Vec::new() }
+    }
+    /// Everyone the step names (any one of them may decide it).
+    pub fn any_of(&self) -> Vec<Approver> {
+        if self.approvers.is_empty() {
+            vec![Approver { approver_type: self.approver_type.clone(), approver_role_id: self.approver_role_id, approver_user_id: self.approver_user_id }]
+        } else {
+            self.approvers.clone()
+        }
+    }
+    /// Keeps the single-approver fields equal to the first approver (older readers, step matching).
+    pub fn normalise(&mut self) {
+        if let Some(first) = self.approvers.first().cloned() {
+            self.approver_type = first.approver_type;
+            self.approver_role_id = first.approver_role_id;
+            self.approver_user_id = first.approver_user_id;
+        }
+        if self.approvers.len() == 1 {
+            self.approvers.clear();
+        }
+    }
+}
+
+/// Roadmap 150: requests a Tenant Administrator may never approve themselves, whatever the business's policy —
+/// money leaving the business or owed to it (refunds, cancellations, credit write-offs and recalls, expenses,
+/// counter discounts).
+pub const PROTECTED_FROM_SELF_APPROVAL: &[&str] = &["expense", "credit.write_off", "credit.recall", "sale.return", "sale.cancel", "sale.discount"];
 
 /// When a rule applies. Empty lists mean “any”.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -227,6 +273,9 @@ pub async fn can_decide(
 #[serde(rename_all = "snake_case")]
 pub enum Why {
     Eligible,
+    /// Roadmap 150: eligible as the request's own maker — a verified Tenant Administrator under the business's
+    /// self-approval policy (recorded on the decision and in the audit trail).
+    SelfApproval,
     /// Makers never check their own requests.
     OwnRequest,
     /// Nobody decides two levels of the same request.
@@ -243,7 +292,7 @@ impl Why {
     /// The explanation shown to the person (and returned by approve / reject).
     pub fn message(self) -> &'static str {
         match self {
-            Why::Eligible => "",
+            Why::Eligible | Why::SelfApproval => "",
             Why::OwnRequest => "You made this request, so someone else must approve it",
             Why::DecidedEarlierLevel => "You already decided an earlier level of this request — the next level needs another person",
             Why::NotInBusiness => "Only people of this business can approve its requests",
@@ -265,7 +314,13 @@ pub async fn can_decide_step(
     approver: Uuid,
     decided_by: &[Uuid],
 ) -> AppResult<bool> {
-    Ok(eligibility(conn, tenant_id, step, branch_id, requested_by, approver, decided_by).await? == Why::Eligible)
+    Ok(eligibility(conn, tenant_id, step, branch_id, requested_by, approver, decided_by).await?.may_decide())
+}
+
+impl Why {
+    pub fn may_decide(self) -> bool {
+        matches!(self, Why::Eligible | Why::SelfApproval)
+    }
 }
 
 /// [`can_decide_step`] with the reason. Permissions are the person's **effective** permissions (role plus personal
@@ -280,44 +335,93 @@ pub async fn eligibility(
     approver: Uuid,
     decided_by: &[Uuid],
 ) -> AppResult<Why> {
-    if requested_by == Some(approver) {
-        return Ok(Why::OwnRequest);
-    }
+    eligibility_for(conn, tenant_id, None, step, branch_id, requested_by, approver, decided_by).await
+}
+
+/// [`eligibility`] for a stored request's `action`: a verified Tenant Administrator (the business's system role with
+/// full access — never a role merely named so) may decide their own request when the business allows it
+/// (`security.admin_self_approval`) and the action is not protected. Without an action, makers never decide their own.
+#[allow(clippy::too_many_arguments)]
+pub async fn eligibility_for(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    action: Option<&str>,
+    step: Option<&Level>,
+    branch_id: Option<Uuid>,
+    requested_by: Option<Uuid>,
+    approver: Uuid,
+    decided_by: &[Uuid],
+) -> AppResult<Why> {
     if decided_by.contains(&approver) {
         return Ok(Why::DecidedEarlierLevel);
     }
-    let row: Option<(Vec<String>, Uuid, bool)> = sqlx::query_as(
-        "SELECT effective_permissions(r.permissions, u.extra_permissions), r.id, u.all_branches FROM users u JOIN roles r ON r.id = u.role_id
-         WHERE u.id = $1 AND u.tenant_id = $2 AND u.is_active",
+    let row: Option<(Vec<String>, Uuid, bool, bool)> = sqlx::query_as(
+        "SELECT effective_permissions(r.permissions, u.extra_permissions), r.id, u.all_branches,
+                (r.is_system AND '*' = ANY(r.permissions)) AS tenant_admin
+           FROM users u JOIN roles r ON r.id = u.role_id
+          WHERE u.id = $1 AND u.tenant_id = $2 AND u.is_active AND r.tenant_id = $2",
     )
     .bind(approver)
     .bind(tenant_id)
     .fetch_optional(&mut *conn)
     .await?;
-    let Some((perms, role_id, all_branches)) = row else { return Ok(Why::NotInBusiness) };
+    let own = requested_by == Some(approver);
+    let Some((perms, role_id, all_branches, tenant_admin)) = row else {
+        return Ok(if own { Why::OwnRequest } else { Why::NotInBusiness });
+    };
+    if own {
+        let allowed = match action {
+            Some(a) if tenant_admin && !PROTECTED_FROM_SELF_APPROVAL.contains(&a) => {
+                let s: Option<serde_json::Value> = sqlx::query_scalar("SELECT settings FROM tenants WHERE id = $1").bind(tenant_id).fetch_optional(&mut *conn).await?;
+                s.and_then(|v| serde_json::from_value::<crate::settings::TenantSettings>(v).ok()).unwrap_or_default().security.admin_self_approval
+            }
+            _ => false,
+        };
+        if !allowed {
+            return Ok(Why::OwnRequest);
+        }
+    }
+    let yes = if own { Why::SelfApproval } else { Why::Eligible };
     if perms.iter().any(|p| p == "*") {
-        return Ok(Why::Eligible);
+        return Ok(yes);
     }
     let may_approve = perms.iter().any(|p| p == "approvals.approve");
-    let yes = |ok: bool| if ok { Why::Eligible } else { Why::NotDesignated };
-    let Some(level) = step else { return Ok(if may_approve { Why::Eligible } else { Why::NoPermission }) };
-    Ok(match level.approver_type.as_str() {
-        "user" => yes(level.approver_user_id == Some(approver)),
-        "role" => yes(level.approver_role_id == Some(role_id)),
-        "branch_manager" => match branch_id {
-            Some(b) => {
-                let mgr: Option<Uuid> = sqlx::query_scalar("SELECT manager_id FROM branches WHERE id = $1").bind(b).fetch_one(&mut *conn).await?;
-                yes(mgr == Some(approver) || (all_branches && may_approve))
-            }
-            None => if may_approve { Why::Eligible } else { Why::NoPermission },
-        },
-        _ => Why::NotDesignated, // "admin" — full access only (handled above)
-    })
+    let Some(level) = step else { return Ok(if may_approve { yes } else { Why::NoPermission }) };
+    let mut manager: Option<Option<Uuid>> = None;
+    for a in level.any_of() {
+        let ok = match a.approver_type.as_str() {
+            "user" => a.approver_user_id == Some(approver),
+            "role" => a.approver_role_id == Some(role_id),
+            "branch_manager" => match branch_id {
+                Some(b) => {
+                    if manager.is_none() {
+                        manager = Some(sqlx::query_scalar("SELECT manager_id FROM branches WHERE id = $1").bind(b).fetch_one(&mut *conn).await?);
+                    }
+                    manager.flatten() == Some(approver) || (all_branches && may_approve)
+                }
+                None => may_approve,
+            },
+            _ => false, // "admin" — full access only (handled above)
+        };
+        if ok {
+            return Ok(yes);
+        }
+    }
+    Ok(if level.any_of().iter().all(|a| a.approver_type == "branch_manager") && branch_id.is_none() { Why::NoPermission } else { Why::NotDesignated })
 }
 
 /// Who a step is assigned to, in words: "Administrator", the role's or person's name, "Branch manager".
 pub async fn step_label(conn: &mut PgConnection, step: Option<&Level>) -> AppResult<String> {
     let Some(s) = step else { return Ok("Anyone who may approve requests".into()) };
+    let mut parts = Vec::new();
+    for a in s.any_of() {
+        parts.push(approver_label(conn, &a).await?);
+    }
+    Ok(parts.join(" · "))
+}
+
+/// One approver in words.
+pub async fn approver_label(conn: &mut PgConnection, s: &Approver) -> AppResult<String> {
     Ok(match s.approver_type.as_str() {
         "role" => sqlx::query_scalar::<_, String>("SELECT name FROM roles WHERE id = $1").bind(s.approver_role_id).fetch_optional(&mut *conn).await?
             .map_or_else(|| "A role that no longer exists".into(), |n| format!("Role: {n}")),
@@ -332,6 +436,7 @@ pub async fn step_label(conn: &mut PgConnection, step: Option<&Level>) -> AppRes
 pub async fn approvers_for(
     conn: &mut PgConnection,
     tenant_id: Uuid,
+    action: Option<&str>,
     step: Option<&Level>,
     branch_id: Option<Uuid>,
     requested_by: Option<Uuid>,
@@ -343,7 +448,7 @@ pub async fn approvers_for(
         .await?;
     let mut out = Vec::new();
     for u in candidates {
-        if can_decide_step(conn, tenant_id, step, branch_id, requested_by, u, decided_by).await? {
+        if eligibility_for(conn, tenant_id, action, step, branch_id, requested_by, u, decided_by).await?.may_decide() {
             out.push(u);
         }
     }
@@ -357,9 +462,7 @@ pub fn inherit_ids(levels: &mut [Level], previous: &[Level]) {
     for l in levels.iter_mut().filter(|l| l.id.is_none()) {
         if let Some(old) = previous.iter().find(|o| {
             o.id.is_some_and(|id| !taken.contains(&id))
-                && o.approver_type == l.approver_type
-                && o.approver_role_id == l.approver_role_id
-                && o.approver_user_id == l.approver_user_id
+                && o.any_of() == l.any_of()
         }) {
             l.id = old.id;
             taken.extend(old.id);
@@ -412,7 +515,7 @@ pub fn reconcile(steps: &[Level], completed: &[Uuid]) -> Position {
         }
         None => {
             let mut chain = steps.to_vec();
-            chain.push(Level { id: Some(Uuid::new_v4()), approver_type: "admin".into(), approver_role_id: None, approver_user_id: None });
+            chain.push(Level::single("admin"));
             Position { level: chain.len() as i32, steps: chain, note: NOTE_ALL_DONE.into() }
         }
     }
@@ -433,8 +536,56 @@ pub fn next_level(steps: &[Level], level: i32, completed: &[Uuid]) -> Option<i32
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_step_names_one_or_several_approvers() {
+        let mut l = step(1, "admin");
+        assert_eq!(l.any_of().len(), 1, "older steps keep their single approver");
+        let role = Uuid::from_u128(77);
+        l.approvers = vec![
+            Approver { approver_type: "role".into(), approver_role_id: Some(role), approver_user_id: None },
+            Approver { approver_type: "branch_manager".into(), approver_role_id: None, approver_user_id: None },
+        ];
+        l.normalise();
+        assert_eq!(l.any_of().len(), 2);
+        assert_eq!((l.approver_type.as_str(), l.approver_role_id), ("role", Some(role)), "first approver mirrored for older readers");
+        let mut one = step(2, "admin");
+        one.approvers = vec![Approver { approver_type: "user".into(), approver_role_id: None, approver_user_id: Some(role) }];
+        one.normalise();
+        assert!(one.approvers.is_empty() && one.approver_type == "user", "a list of one is stored the old way");
+    }
+
+    #[test]
+    fn saving_the_same_multi_approver_step_keeps_its_identity() {
+        let mut old = step(5, "admin");
+        old.approvers = vec![
+            Approver { approver_type: "admin".into(), approver_role_id: None, approver_user_id: None },
+            Approver { approver_type: "branch_manager".into(), approver_role_id: None, approver_user_id: None },
+        ];
+        let mut again = old.clone();
+        again.id = None;
+        let mut levels = vec![again];
+        inherit_ids(&mut levels, &[old.clone()]);
+        assert_eq!(levels[0].id, old.id);
+        let mut changed = old.clone();
+        changed.id = None;
+        changed.approvers.pop();
+        let mut levels = vec![changed];
+        inherit_ids(&mut levels, &[old]);
+        assert_eq!(levels[0].id, None, "a different set of approvers is a new step");
+    }
+
+    #[test]
+    fn money_actions_are_never_self_approved() {
+        for a in ["expense", "credit.write_off", "sale.return", "sale.cancel", "credit.recall", "sale.discount"] {
+            assert!(PROTECTED_FROM_SELF_APPROVAL.contains(&a));
+        }
+        for a in ["product.deactivate", "stock.adjust", "stock.add"] {
+            assert!(!PROTECTED_FROM_SELF_APPROVAL.contains(&a));
+        }
+    }
+
     fn step(n: u128, kind: &str) -> Level {
-        Level { id: Some(Uuid::from_u128(n)), approver_type: kind.into(), approver_role_id: None, approver_user_id: None }
+        Level { id: Some(Uuid::from_u128(n)), approver_type: kind.into(), approver_role_id: None, approver_user_id: None, approvers: Vec::new() }
     }
 
     #[test]
@@ -474,9 +625,9 @@ mod tests {
     fn same_steps_without_ids_keep_their_identity() {
         let old = vec![step(1, "role"), step(2, "admin")];
         let mut new = vec![
-            Level { id: None, approver_type: "admin".into(), approver_role_id: None, approver_user_id: None },
-            Level { id: None, approver_type: "role".into(), approver_role_id: None, approver_user_id: None },
-            Level { id: None, approver_type: "admin".into(), approver_role_id: None, approver_user_id: None },
+            Level { id: None, approver_type: "admin".into(), approver_role_id: None, approver_user_id: None, approvers: Vec::new() },
+            Level { id: None, approver_type: "role".into(), approver_role_id: None, approver_user_id: None, approvers: Vec::new() },
+            Level { id: None, approver_type: "admin".into(), approver_role_id: None, approver_user_id: None, approvers: Vec::new() },
         ];
         inherit_ids(&mut new, &old);
         with_ids(&mut new);
@@ -487,7 +638,7 @@ mod tests {
 
     #[test]
     fn ids_assigned_once() {
-        let mut l = vec![step(1, "admin"), Level { id: None, approver_type: "admin".into(), approver_role_id: None, approver_user_id: None }, step(1, "role")];
+        let mut l = vec![step(1, "admin"), Level { id: None, approver_type: "admin".into(), approver_role_id: None, approver_user_id: None, approvers: Vec::new() }, step(1, "role")];
         with_ids(&mut l);
         assert_eq!(l[0].id, Some(Uuid::from_u128(1)));
         assert!(l[1].id.is_some() && l[2].id.is_some() && l[2].id != Some(Uuid::from_u128(1)));

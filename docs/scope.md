@@ -11,17 +11,16 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 *Kept current with every shipped item — last updated 2026-10-21.* History stays below; this table is only what is
 open now. Release history: [release-notes.md](release-notes.md).
 
-**Latest live:** 145 workspace addresses and 94 Railway settings as code (2026-10-19, verified on s-shop.store).
-**Not yet live:** 146 documentation workflow, 147 error alerting, 148 approval eligibility and 149 credential rotation
-support are built, tested and CI-green but not deployed. Railway's outage of 21 October was a **security incident**
-(attackers decrypted a subset of customers' environment variables; builds restored 22 October). No push since then has
-started a deployment — Railway handed GitHub every stored GitHub key for revocation, so the GitHub link on Railway is
-reconnected by the owner, then *Deploy latest commit* on **sshop**. Then the credential rotation (149) follows its
-runbook.
+**Latest live:** 146 documentation workflow, 147 error alerting, 148 approval eligibility, 149 credential-rotation support
+and the 2026-10-21/27 security updates — deployed 2026-10-27 12:58 UTC (`b50c77c`): built from the Dockerfile, health
+check passed, start-up clean (`stored credentials checked readable=6 rotated=0 unreadable=0`), new routes answering.
+Railway's 20–22 October **security incident** had held every push since 2026-10-19 (builds paused, then Railway's
+GitHub App installations were reset; the owner deployed). **Next (critical, owner):** rotate credentials — runbook in
+[deployment-railway.md → Rotating credentials](deployment-railway.md#rotating-credentials).
 
 | # | Open item | Priority | Owner | Depends on | Next action |
 |---|---|---|---|---|---|
-| 149 | **Rotate credentials** (Railway security incident) | **Critical** | Owner (code part built) | Deploys working (reconnect GitHub on Railway) | Follow the runbook in deployment-railway.md → *Rotating credentials*, in order |
+| 149 | **Rotate credentials** (Railway security incident) | **Critical** | Owner (app support live) | — | Follow the runbook in deployment-railway.md → *Rotating credentials*, in order |
 | 28 | Database backups | High | Owner | Railway plan with backups | Turn on scheduled Postgres backups (daily, keep 7+), then restore one into a scratch database to prove it |
 | 29 | Email sender (`MAIL_FROM`) | High — invitations and applicant emails | Owner | `s-shop.store` verified in Resend (DNS records at the registrar) | `MAIL_FROM` exists on Railway; confirm the domain shows *Verified* in Resend and send a test invitation to an outside address |
 | — | Real production M-Pesa payment | Medium | Owner | The business's own Till / Paybill credentials | Settings → M-Pesa → *Test STK Push* (KSh 1) in Production |
@@ -29,7 +28,7 @@ runbook.
 | 30 | `www.s-shop.store` | Low | Owner | DNS; **Railway's custom-domain limit** — the service has 3 (`s-shop.store`, `s-shop.click`, `www.pablo-niche.com`) and Railway refused another on 2026-10-16 | Free a slot (e.g. remove `s-shop.click` if unused) or upgrade the plan, then add it with a CNAME — or redirect `www` at the registrar instead |
 | — | *Discard changes?* on screens' own Cancel buttons | Low — decision | Owner | — | Decide yes / no |
 | 31 | EU region | Low — deferred by owner | Owner | 28 (tested backup and restore) | Choose a maintenance window |
-| 147 | Error alerting | Medium — built | Platform | Resend sender for emails beyond the Resend account owner (29) | Verify live: *Send test alert* reaches the bell and your email |
+| 147 | Error alerting — confirm email | Low | Owner | Resend sender (29) | Settings → Errors & alerts → *Send test alert*: the bell and your email receive it |
 | — | More than one app instance | Low — not needed yet | Platform | Live events on PostgreSQL `LISTEN/NOTIFY`; one runner for background jobs | Only when traffic needs a second replica; keep one replica until then |
 | — | Photo storage | Low | Platform | — | Move product photos and logos from the database to a Railway bucket when their volume grows |
 
@@ -795,7 +794,7 @@ server already refuses a unit sold twice, from another branch or another product
   switch. Business profile: *S'Shop Workspace URL* with Copy link. [modules/39](modules/39-workspace-addresses.md).
 
 **Documentation as part of the workflow** (brief *Continuous documentation, roadmap, scoping and user manuals*):
-- ◐ **146. Documentation kept current with every change** — purpose: the roadmap, technical docs and manuals always
+- ✅ **146. Documentation kept current with every change** — purpose: the roadmap, technical docs and manuals always
   describe the working system. Scope:
   - **Status board** at the top of this file (live, in progress, open items with priority, owner, dependency, next
     action); stale marks corrected (127 ✅).
@@ -817,7 +816,7 @@ server already refuses a unit sold twice, from another branch or another product
   ◐ item.
 
 **Credential rotation after Railway's security incident** (Railway report 2026-10-22, updated 2026-10-26):
-- ◐ **149. Rotating every stored credential safely** — purpose: Railway recommends that every customer rotate the
+- ✅ **149. Rotating every stored credential safely** (support live 2026-10-27; the rotation itself is the owner's — Status board) — purpose: Railway recommends that every customer rotate the
   sensitive variables stored before 21 October (attackers decrypted a subset of customers' environment variables).
   `DATA_ENCRYPTION_KEY` protects the businesses' M-Pesa credentials in S'Shop's database, and changing it used to make
   them unreadable. Scope: `DATA_ENCRYPTION_KEY_PREVIOUS` — at start-up every stored credential that only the previous
@@ -829,7 +828,7 @@ server already refuses a unit sold twice, from another branch or another product
   *rotated* with B + previous A, *readable* with B alone afterwards, and no key or secret appears in the logs.
 
 **Error alerting** (owner question 2026-10-21; owner chose in-app + email):
-- ◐ **147. Error alerting for the platform owner** — built and tested ([module 40](modules/40-error-alerting.md)); live verification pending. — purpose: failures that need action reach the owner instead of
+- ✅ **147. Error alerting for the platform owner** — live 2026-10-27 ([module 40](modules/40-error-alerting.md)); the owner's *Send test alert* confirms email delivery from production. — purpose: failures that need action reach the owner instead of
   sitting in the logs (evidence: on 2026-10-16 Railway refused a website domain — *custom domain limit for the plan*
   — and only the person on screen saw an error). Scope: server faults (database / internal errors, crashes inside a
   request), integrations refusing (Railway, Paystack, Daraja… — the 502 *upstream* errors), failed background jobs,
@@ -848,7 +847,7 @@ server already refuses a unit sold twice, from another branch or another product
   with the same deployment id creates *Service restarted*.
 
 **Approval eligibility** (brief *Fix Inconsistent Workflow Approvals & Administrator Authorization*, 2026-10-21):
-- ◐ **148. Approvals explain who can decide; requests nobody can approve are caught** — reported: Pablo Niche, *Deactivate
+- ✅ **148. Approvals explain who can decide; requests nobody can approve are caught** (live 2026-10-27) — reported: Pablo Niche, *Deactivate
   product: AMOUAGE SUNSHINE EDP 100ML* waiting with only *View*, Product deactivation → Administrator.
   **Root cause** (from the code and the screen; reading production data was not permitted from this machine): the card
   showed no *Next approver*, which appears whenever at least one person may decide the step — so **nobody** could:

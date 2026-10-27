@@ -9,6 +9,29 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-10-27
+
+Deployed together (Railway's security incident of 20–22 October had paused every build; nothing from 21 October
+reached production until now).
+
+- **Credential rotation, safely** — `DATA_ENCRYPTION_KEY` can now be changed: with the old key kept as
+  `DATA_ENCRYPTION_KEY_PREVIOUS`, every stored M-Pesa credential is re-encrypted at start-up; unreadable ones alert the
+  owner. Runbook for rotating every credential after Railway's incident. (149,
+  [deployment](deployment-railway.md#rotating-credentials))
+- **Approvals say who can decide and why** — every waiting request shows who it is assigned to and, if you cannot
+  decide it, why (your own request, an earlier level you decided, assigned to another approver); requests nobody can
+  approve are flagged at once with the way forward; **View** shows the full request and its history; Workflow engine
+  warns when only one person has full access; one waiting deactivation request per product. (148,
+  [module 15](modules/15-approvals.md))
+- **Error alerts for the platform owner** — server faults, outside services refusing, failed background jobs and
+  restarts reach the owner in the bell and by email, grouped; Settings → Platform → *Errors & alerts* with *Send test
+  alert*. A crash inside a request now answers with an error instead of a dropped connection. (147,
+  [module 40](modules/40-error-alerting.md))
+- **Product User Manual 1.8** — step-by-step guides for everyone, cashiers, managers, administrators and the platform
+  owner; release notes; roadmap status board. (146, [user guide](user-guide.md))
+- **Security:** TLS certificate checks on outgoing calls (`rustls-webpki`, `webpki-roots`), `tokio` (RUSTSEC-2026-0386),
+  `dompurify` (critical, via the PDF library), `vite` (developer tooling).
+
 ## 2026-10-19
 
 - **Business workspace addresses** — every signed-in screen lives under the business's own address,

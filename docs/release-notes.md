@@ -9,6 +9,18 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-10-27 (evening)
+
+- **Several approvers per approval level** — each level of a workflow can name several roles and people (Administrator,
+  Manager, Supervisor, a person…); any one of them decides it and the first decision counts. The others see it is
+  handled (*Already handled — approved by … at …*) and are told who decided and what happens next. Add level still
+  builds approvals in sequence. (150, [module 15](modules/15-approvals.md))
+- **Tenant Administrators may approve their own requests** — on by default, switchable in Settings → Workflow engine;
+  always by pressing Approve, recorded as self-approved; never for refunds, cancellations, credit write-offs or
+  recalls, expenses or counter discounts. Everyone else still needs a second person. (150)
+- Every approval decision in the audit trail now records the requester, approver and role, level, other approvers,
+  self-approval, branches and outcome. (150, [module 17](modules/17-audit-notifications-search.md))
+
 ## 2026-10-27
 
 Deployed together (Railway's security incident of 20–22 October had paused every build; nothing from 21 October

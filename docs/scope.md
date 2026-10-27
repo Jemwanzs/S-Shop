@@ -15,7 +15,7 @@ open now. Release history: [release-notes.md](release-notes.md).
 and the 2026-10-21/27 security updates — deployed 2026-10-27 12:58 UTC (`b50c77c`): built from the Dockerfile, health
 check passed, start-up clean (`stored credentials checked readable=6 rotated=0 unreadable=0`), new routes answering.
 Railway's 20–22 October **security incident** had held every push since 2026-10-19 (builds paused, then Railway's
-GitHub App installations were reset; the owner deployed). **In progress:** 150 several approvers per level & Tenant Administrator self-approval — built and tested, deploying.
+GitHub App installations were reset; the owner deployed). **Also live:** 150 several approvers per level & Tenant Administrator self-approval (2026-10-27 21:44 UTC, `cab1eb7`; full CI suite — 1,060 checks — passed on `f5f6f0f`, deployed automatically 22:07).
 **Next (critical, owner):** rotate credentials — runbook in
 [deployment-railway.md → Rotating credentials](deployment-railway.md#rotating-credentials).
 
@@ -817,7 +817,7 @@ server already refuses a unit sold twice, from another branch or another product
   ◐ item.
 
 **Several approvers per level & Tenant Administrator self-approval** (brief 2026-10-27):
-- ◐ **150. Any one of several approvers decides a level; Tenant Administrators may approve their own requests** —
+- ✅ **150. Any one of several approvers decides a level; Tenant Administrators may approve their own requests** —
   purpose: a level can name several roles / people (Administrator, Manager, Supervisor, a person…); the first decision
   finalises it and the others are told; a business's Tenant Administrator may explicitly approve their own request
   (policy on by default, can be switched off), so a business with one administrator is never stuck. Scope:

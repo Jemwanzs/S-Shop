@@ -654,7 +654,8 @@ Historical Data Migration*; [module 33](modules/33-onboarding.md)). Delivered in
   push and weekly (Monday 06:00 UTC); reported as its own job; scheduled runs never cancel a push's run.
   The audit job is `continue-on-error`: it never gates deploys. On 2026-10-21 it reported two new Rust advisories
   (RUSTSEC-2026-0381 `webpki-roots`, RUSTSEC-2026-0382 `rustls-webpki`: TLS certificate checks for outgoing calls →
-  updated to 1.0.10 / 0.103.16) and one npm advisory (`vite` / `launch-editor` → 7.3.7); all fixed the same day.
+  updated to 1.0.10 / 0.103.16) and one npm advisory (`vite` / `launch-editor` → 7.3.7); all fixed the same day. On 2026-10-27: RUSTSEC-2026-0386 (`tokio` `AsyncFd` I/O safety → 1.54.1) and a critical
+  `dompurify` advisory (via jsPDF → 3.4.17); fixed the same day.
 - ✅ **123. Smaller first download** — the translation dictionary (464 KB source, the largest part of the main script)
   is downloaded only for Kiswahili, French or Arabic; English needs none of it. Text shows in English until it
   arrives; the service worker keeps it for offline use.

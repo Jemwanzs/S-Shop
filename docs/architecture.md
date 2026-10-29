@@ -1,6 +1,6 @@
 # Architecture
 
-*Checked against the code on 2026-10-21 (migrations 0001–0042). Update this page when a component, table, integration
+*Checked against the code on 2026-10-29 (migrations 0001–0043). Update this page when a component, table, integration
 or security rule changes.*
 
 ## Overview
@@ -125,6 +125,8 @@ supplier_return, damage, loss, write_off, adjustment, count_variance`. Individua
 | Onboarding | `import_batches`, `import_rows`, `import_progress` |
 | Control | `workflows`, `approvals`, `audit_log`, `notifications`, `whatsapp_messages`, `email_log`, `doc_counters` |
 | Operations | `error_events`, `service_starts` |
+
+Approval requests carry the requester's reason (`note`) and, when created together, a shared `bulk_ref` (migration 0043).
 
 Document numbers (`RCP-2026-000001`, `ORD-…`, `TRF-…`, `RTN-…`) come from `doc_counters` per business and year.
 Schema changes are numbered migrations in `server/migrations` (applied at start-up, never edited once released).

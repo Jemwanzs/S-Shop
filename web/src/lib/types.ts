@@ -453,12 +453,15 @@ export interface Approval {
   why_message: string;
   /** Nobody can decide the current step. */
   stuck: "only_requester" | "no_one" | null;
+  /** Roadmap 151: the requester's reason, and the bulk submission the request belongs to. */
+  note?: string;
+  bulk_ref?: string | null;
   /** Set when a workflow change needed an exception for this request (roadmap 49). */
   sync_note: string;
   synced_at: string | null;
   level: number;
   levels: number;
-  decisions: { level: number; step_id?: string | null; user_name: string; decision: "approved" | "rejected"; comments: string; at: string; /** Roadmap 150 */ self_approved?: boolean }[];
+  decisions: { level: number; step_id?: string | null; user_name: string; decision: "approved" | "rejected"; comments: string; at: string; /** Roadmap 150 */ self_approved?: boolean; /** Roadmap 151 */ bulk_ref?: string | null }[];
   /** The chain of steps the request follows (ids are stable across workflow edits). */
   steps: { id?: string | null }[];
 }

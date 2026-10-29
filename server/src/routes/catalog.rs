@@ -30,6 +30,9 @@ pub fn routes() -> Router<AppState> {
         .route("/products/barcode-conflicts", get(barcode_conflicts))
         .route("/products/{id}", get(detail).put(update))
         .route("/products/{id}/status", post(set_status))
+        .route("/products/matching-ids", get(matching_ids))
+        .route("/products/bulk-preview", post(bulk_preview))
+        .route("/products/bulk-deactivate", post(bulk_deactivate))
         .route("/products/{id}/photos", post(upload_photo).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
         .route("/products/{id}/photos/{photo_id}", axum::routing::delete(delete_photo))
         .route("/products/{id}/photos/{photo_id}/primary", post(set_primary))
@@ -96,7 +99,8 @@ struct ListQuery {
     category_id: Option<Uuid>,
     status: Option<String>,
     branch_id: Option<Uuid>,
-    /// Roadmap 140: all | set (a selling price, 0 included) | missing (no selling price yet).
+    /// Roadmap 140/151: all | set (a selling price, 0 included) | missing (no selling price yet, NULL) | zero (exactly 0)
+    /// | zero_or_missing | above_zero. A price of 0 and no price are different things and stay different.
     price: Option<String>,
     #[serde(flatten)]
     page: Page,
@@ -105,16 +109,14 @@ struct ListQuery {
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Paged<ProductRow>>> {
     ctx.require_any(&["products.view", "stock.view", "sales.create"])?;
     let branch = ctx.branch_or_current(q.branch_id)?;
-    if !matches!(q.price.as_deref(), None | Some("all" | "set" | "missing")) {
-        return Err(bad("Price status: all, set or missing"));
-    }
+    check_price_filter(&q.price)?;
     let select = PRODUCT_SELECT.replacen("SELECT", "SELECT COUNT(*) OVER() AS total_count,", 1);
     let mut rows: Vec<Counted<ProductRow>> = sqlx::query_as(&format!(
         "{select} WHERE p.tenant_id = $1
            AND ($3::text IS NULL OR p.name ILIKE $3 OR p.nickname ILIKE $3 OR p.code ILIKE $3 OR p.barcode ILIKE $3)
            AND ($4::uuid IS NULL OR p.category_id = $4)
            AND ($5::text IS NULL OR $5 = 'all' OR ($5 = 'active' AND p.is_active) OR ($5 = 'inactive' AND NOT p.is_active))
-           AND ($8::text IS NULL OR $8 = 'all' OR ($8 = 'set' AND p.marked_price IS NOT NULL) OR ($8 = 'missing' AND p.marked_price IS NULL))
+           AND {PRICE_FILTER}
          ORDER BY p.is_active DESC, p.name LIMIT $6 OFFSET $7"
     ))
     .bind(ctx.tenant_id)
@@ -131,6 +133,221 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
         rows.iter_mut().for_each(|r| r.row.cost_price = None);
     }
     Ok(Json(rows.into()))
+}
+
+/// Roadmap 151: the price-status filter, shared by the list and "select all matching" (`$8`).
+const PRICE_FILTER: &str = "($8::text IS NULL OR $8 = 'all'
+            OR ($8 = 'set' AND p.marked_price IS NOT NULL) OR ($8 = 'missing' AND p.marked_price IS NULL)
+            OR ($8 = 'zero' AND p.marked_price = 0) OR ($8 = 'zero_or_missing' AND (p.marked_price IS NULL OR p.marked_price = 0))
+            OR ($8 = 'above_zero' AND p.marked_price > 0))";
+
+fn check_price_filter(price: &Option<String>) -> AppResult<()> {
+    if matches!(price.as_deref(), None | Some("all" | "set" | "missing" | "zero" | "zero_or_missing" | "above_zero")) {
+        Ok(())
+    } else {
+        Err(bad("Price status: all, set, missing, zero, zero_or_missing or above_zero"))
+    }
+}
+
+/// The most products one bulk action takes.
+const BULK_PRODUCTS_MAX: usize = 500;
+
+/// Roadmap 151: *Select all matching results* — the ids of every product matching the catalogue's filters (not only
+/// the page shown), up to the bulk limit; `total` says how many match.
+async fn matching_ids(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Value>> {
+    ctx.require("products.view")?;
+    check_price_filter(&q.price)?;
+    let rows: Vec<(Uuid, i64)> = sqlx::query_as(&format!(
+        "SELECT p.id, COUNT(*) OVER() FROM products p WHERE p.tenant_id = $1 AND $2::uuid IS NOT DISTINCT FROM $2
+           AND ($3::text IS NULL OR p.name ILIKE $3 OR p.nickname ILIKE $3 OR p.code ILIKE $3 OR p.barcode ILIKE $3)
+           AND ($4::uuid IS NULL OR p.category_id = $4)
+           AND ($5::text IS NULL OR $5 = 'all' OR ($5 = 'active' AND p.is_active) OR ($5 = 'inactive' AND NOT p.is_active))
+           AND {PRICE_FILTER}
+         ORDER BY p.is_active DESC, p.name LIMIT $6 OFFSET $7"
+    ))
+    .bind(ctx.tenant_id)
+    .bind(Option::<Uuid>::None)
+    .bind(like(&q.q))
+    .bind(q.category_id)
+    .bind(&q.status)
+    .bind(BULK_PRODUCTS_MAX as i64)
+    .bind(0i64)
+    .bind(&q.price)
+    .fetch_all(&state.db)
+    .await?;
+    let total = rows.first().map(|r| r.1).unwrap_or(0);
+    Ok(Json(json!({ "ids": rows.iter().map(|r| r.0).collect::<Vec<_>>(), "total": total, "capped": total as usize > BULK_PRODUCTS_MAX })))
+}
+
+#[derive(Deserialize)]
+struct BulkIds {
+    ids: Vec<Uuid>,
+    #[serde(default)]
+    reason: String,
+}
+
+fn bulk_ids(ids: &[Uuid]) -> AppResult<Vec<Uuid>> {
+    let mut ids = ids.to_vec();
+    ids.sort();
+    ids.dedup();
+    if ids.is_empty() || ids.len() > BULK_PRODUCTS_MAX {
+        return Err(bad(format!("Choose 1 to {BULK_PRODUCTS_MAX} products")));
+    }
+    Ok(ids)
+}
+
+/// Roadmap 151: what a bulk deactivation would do, product by product — shown before it is confirmed.
+async fn bulk_preview(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkIds>) -> AppResult<Json<Value>> {
+    ctx.require("products.deactivate")?;
+    let ids = bulk_ids(&b.ids)?;
+    let rows: Vec<(Uuid, String, bool, bool)> = sqlx::query_as(
+        "SELECT p.id, p.name, p.is_active,
+                EXISTS (SELECT 1 FROM approvals a WHERE a.tenant_id = p.tenant_id AND a.action = 'product.deactivate'
+                          AND a.entity_id = p.id AND a.status = 'pending')
+           FROM products p WHERE p.tenant_id = $1 AND p.id = ANY($2) ORDER BY p.name",
+    )
+    .bind(ctx.tenant_id)
+    .bind(&ids)
+    .fetch_all(&state.db)
+    .await?;
+    let approval = workflow::needs_approval(&mut *state.db.acquire().await?, &ctx, "product.deactivate", workflow::Gate::default()).await?;
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|(id, name, active, waiting)| {
+            let status = if !active { "already_inactive" } else if *waiting { "already_waiting" } else { "eligible" };
+            json!({ "id": id, "name": name, "status": status })
+        })
+        .collect();
+    let missing = ids.len() - rows.len();
+    Ok(Json(json!({ "items": items, "not_found": missing, "needs_approval": approval })))
+}
+
+/// Roadmap 151: deactivate several products in one submission. Each product goes through the same single-product
+/// path in its own transaction (approval when the workflow asks for it — products stay active until approved; one
+/// waiting request per product); nothing is skipped silently — every product gets an outcome. All requests share one
+/// bulk reference. A retry is safe: already inactive / already waiting products are reported, never doubled.
+async fn bulk_deactivate(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkIds>) -> AppResult<Json<Value>> {
+    ctx.require("products.deactivate")?;
+    let ids = bulk_ids(&b.ids)?;
+    let bulk_ref = Uuid::new_v4();
+    let reason = b.reason.trim().to_string();
+    let mut items = Vec::new();
+    let mut approvals: Vec<Uuid> = Vec::new();
+    let (mut done, mut pending, mut inactive, mut waiting, mut failed) = (0, 0, 0, 0, 0);
+    for id in ids {
+        let row: Option<(String, bool)> = sqlx::query_as("SELECT name, is_active FROM products WHERE id = $1 AND tenant_id = $2")
+            .bind(id)
+            .bind(ctx.tenant_id)
+            .fetch_optional(&state.db)
+            .await?;
+        let Some((name, active)) = row else {
+            failed += 1;
+            items.push(json!({ "id": id, "name": null, "outcome": "failed", "message": "Product not found" }));
+            continue;
+        };
+        if !active {
+            inactive += 1;
+            items.push(json!({ "id": id, "name": name, "outcome": "already_inactive" }));
+            continue;
+        }
+        match deactivate_one(&state, &ctx, id, &reason, Some(bulk_ref)).await {
+            Ok(None) => {
+                done += 1;
+                items.push(json!({ "id": id, "name": name, "outcome": "deactivated" }));
+            }
+            Ok(Some(approval)) => {
+                pending += 1;
+                approvals.push(approval);
+                items.push(json!({ "id": id, "name": name, "outcome": "pending_approval", "approval_id": approval }));
+            }
+            Err(AppError::Refused { title, message }) if title == "Already waiting for approval" => {
+                waiting += 1;
+                items.push(json!({ "id": id, "name": name, "outcome": "already_waiting", "message": message }));
+            }
+            Err(e) => {
+                failed += 1;
+                items.push(json!({ "id": id, "name": name, "outcome": "failed", "message": e.to_string() }));
+            }
+        }
+    }
+    let mut tx = state.db.begin().await?;
+    audit::record(
+        &mut tx,
+        &ctx,
+        Entry::new("products", "bulk_deactivate", "product", bulk_ref)
+            .after(json!({
+                "bulk_ref": bulk_ref, "selected": items.len(), "deactivated": done, "pending_approval": pending,
+                "already_inactive": inactive, "already_waiting": waiting, "failed": failed, "session_branch": ctx.branch_id,
+                "items": items.iter().map(|i| json!({ "id": i["id"], "name": i["name"], "outcome": i["outcome"] })).collect::<Vec<_>>(),
+            }))
+            .comments(&reason),
+    )
+    .await?;
+    tx.commit().await?;
+    // Approvers are told once for the whole submission (not once per product).
+    if !approvals.is_empty() {
+        super::approvals::notify_approvers_bulk(&state, &ctx, &approvals, "Bulk product deactivation").await;
+    }
+    if done > 0 {
+        crate::notify::to_permission(
+            &state,
+            ctx.tenant_id,
+            None,
+            "products.view",
+            crate::notify::Note::new("product_deactivated", format!("{done} product(s) deactivated"), format!("Deactivated together by {}", ctx.name), "/products?status=inactive"),
+        )
+        .await;
+    }
+    Ok(Json(json!({
+        "bulk_ref": bulk_ref,
+        "summary": { "selected": items.len(), "deactivated": done, "pending_approval": pending, "already_inactive": inactive,
+                     "already_waiting": waiting, "failed": failed },
+        "items": items,
+    })))
+}
+
+/// Deactivate one product, or ask for approval when the workflow requires it (Some(approval id)). Shared by the
+/// single-product action and bulk deactivation; refuses a second waiting request for the same product.
+async fn deactivate_one(state: &AppState, ctx: &Ctx, id: Uuid, reason: &str, bulk_ref: Option<Uuid>) -> AppResult<Option<Uuid>> {
+    let mut tx = state.db.begin().await?;
+    let name: String = sqlx::query_scalar("SELECT name FROM products WHERE id=$1 AND tenant_id=$2 FOR UPDATE")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound("Product"))?;
+    if workflow::needs_approval(&mut tx, ctx, "product.deactivate", workflow::Gate::default()).await? {
+        let waiting: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM approvals WHERE tenant_id = $1 AND action = 'product.deactivate' AND entity_id = $2 AND status = 'pending')",
+        )
+        .bind(ctx.tenant_id)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if waiting {
+            return Err(crate::error::refused("Already waiting for approval", format!("A request to deactivate {name} is already waiting in Approvals")));
+        }
+        let approval = workflow::submit(
+            &mut tx,
+            ctx,
+            workflow::Request {
+                action: "product.deactivate",
+                entity_type: "product",
+                entity_id: id,
+                branch_id: None,
+                summary: format!("Deactivate product: {name}"),
+                amount: None,
+                payload: json!({ "is_active": false }),
+            },
+        )
+        .await?;
+        sqlx::query("UPDATE approvals SET note = $2, bulk_ref = $3 WHERE id = $1").bind(approval).bind(reason).bind(bulk_ref).execute(&mut *tx).await?;
+        tx.commit().await?;
+        return Ok(Some(approval));
+    }
+    apply_status(&mut tx, ctx, id, false, None).await?;
+    tx.commit().await?;
+    Ok(None)
 }
 
 async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
@@ -466,60 +683,40 @@ async fn apply_update(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, b: &ProductB
 #[derive(Deserialize)]
 struct StatusBody {
     is_active: bool,
+    /// Roadmap 151: an optional reason, kept on the approval request.
+    #[serde(default)]
+    reason: String,
 }
 
 async fn set_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<StatusBody>) -> AppResult<Json<Outcome<Value>>> {
     ctx.require("products.deactivate")?;
-    let mut tx = state.db.begin().await?;
-    let name: String = sqlx::query_scalar("SELECT name FROM products WHERE id=$1 AND tenant_id=$2")
-        .bind(id)
-        .bind(ctx.tenant_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(AppError::NotFound("Product"))?;
-    if !b.is_active && workflow::needs_approval(&mut tx, &ctx, "product.deactivate", workflow::Gate::default()).await? {
-        // Roadmap 148: one deactivation request per product at a time (a second would only clutter Approvals).
-        let waiting: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM approvals WHERE tenant_id = $1 AND action = 'product.deactivate' AND entity_id = $2 AND status = 'pending')",
-        )
-        .bind(ctx.tenant_id)
-        .bind(id)
-        .fetch_one(&mut *tx)
-        .await?;
-        if waiting {
-            return Err(crate::error::refused("Already waiting for approval", format!("A request to deactivate {name} is already waiting in Approvals")));
-        }
-        let approval = workflow::submit(
-            &mut tx,
-            &ctx,
-            workflow::Request {
-                action: "product.deactivate",
-                entity_type: "product",
-                entity_id: id,
-                branch_id: None,
-                summary: format!("Deactivate product: {name}"),
-                amount: None,
-                payload: json!({ "is_active": false }),
-            },
-        )
-        .await?;
-        tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, approval).await;
-        return Ok(Json(Outcome::pending(approval)));
-    }
-    apply_status(&mut tx, &ctx, id, b.is_active, None).await?;
-    tx.commit().await?;
     if !b.is_active {
-        crate::notify::to_permission(
-            &state,
-            ctx.tenant_id,
-            None,
-            "products.view",
-            crate::notify::Note::new("product_deactivated", "Product deactivated", format!("{name} is no longer available for sale"), format!("/products/{id}")),
-        )
-        .await;
+        // Roadmap 151: the same path as bulk deactivation (approval when required; one waiting request per product).
+        let name: Option<String> = sqlx::query_scalar("SELECT name FROM products WHERE id=$1 AND tenant_id=$2").bind(id).bind(ctx.tenant_id).fetch_optional(&state.db).await?;
+        let name = name.ok_or(AppError::NotFound("Product"))?;
+        return match deactivate_one(&state, &ctx, id, b.reason.trim(), None).await? {
+            Some(approval) => {
+                super::approvals::notify_approvers(&state, &ctx, approval).await;
+                Ok(Json(Outcome::pending(approval)))
+            }
+            None => {
+                crate::notify::to_permission(
+                    &state,
+                    ctx.tenant_id,
+                    None,
+                    "products.view",
+                    crate::notify::Note::new("product_deactivated", "Product deactivated", format!("{name} is no longer available for sale"), format!("/products/{id}")),
+                )
+                .await;
+                Ok(Json(Outcome::done(json!({ "id": id, "is_active": false }))))
+            }
+        };
     }
-    Ok(Json(Outcome::done(json!({ "id": id, "is_active": b.is_active }))))
+    let mut tx = state.db.begin().await?;
+    sqlx::query_scalar::<_, String>("SELECT name FROM products WHERE id=$1 AND tenant_id=$2").bind(id).bind(ctx.tenant_id).fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound("Product"))?;
+    apply_status(&mut tx, &ctx, id, true, None).await?;
+    tx.commit().await?;
+    Ok(Json(Outcome::done(json!({ "id": id, "is_active": true }))))
 }
 
 async fn apply_status(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, active: bool, approval_id: Option<Uuid>) -> AppResult<()> {

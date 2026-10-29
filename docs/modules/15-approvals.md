@@ -70,6 +70,22 @@ Tabs: Waiting · My requests · Approved · Rejected. Cards show the action, sum
 *Withdraw*. Only people who may decide the **current** level see Approve / Reject. Approval decisions are written to the audit trail
 together with the executed action.
 
+### Bulk decisions (roadmap 151)
+
+Approvals → Waiting: every request you may decide has a checkbox (and *Select every request you can decide*). The bar
+shows *X requests selected · Approve selected · Reject selected · Clear*. The review lists each request (type, record,
+level) with one **comment saved on every request**. The server then decides each request **on its own**, through the
+same single-request decision: its own level (first decision wins — a request someone else just decided is reported as
+*already handled*), its own approvers, maker-checker and the self-approval policy, its own transaction and row lock.
+A request that is no longer yours never stops the others. Levels are never skipped: approving a request at level 1 of
+2 only moves it to level 2 (*Now at level 2 of 2*), and the business action runs only after the last level.
+
+Results: approved (carried out) · approved this level (waits for the next) · rejected · already handled · not allowed
+· failed, per request. Each decision keeps the comment, the approver and time, and the bulk reference; the audit trail
+has each request's own entry plus one `approvals / bulk_approve` or `bulk_reject` entry (counts, items, comment,
+session branch). Notifications go once per person: requesters (*3 of your requests were decided by …*), the other
+approvers of the decided levels (*… no action needed*), and the next level's approvers.
+
 ### Tenant Administrator self-approval (roadmap 150)
 
 Settings → Workflow engine → **Allow Tenant Administrator self-approval** — **on** unless the business switches it off

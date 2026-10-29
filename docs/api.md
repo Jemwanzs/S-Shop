@@ -70,6 +70,11 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | DELETE | `/api/settings/logo` — S'Shop branding is used instead; audited `logo_removed` |
 | PUT | `/api/settings/workflows/{action}` |
 | — | Every `{slug}` in public addresses (`/api/public/{slug}/…`, `/api/portal/{slug}/…`, `/api/site?slug=`) also accepts a business's earlier slug (roadmap 145) |
+| GET | `/api/products?price=all\|set\|missing\|zero\|zero_or_missing\|above_zero` — roadmap 151 price filters |
+| GET | `/api/products/matching-ids?q&status&category_id&price` — ids of every matching product (≤ 500), `total`, `capped` |
+| POST | `/api/products/bulk-preview` — `{ids}` → each product `eligible` / `already_inactive` / `already_waiting`, `needs_approval` (`products.deactivate`) |
+| POST | `/api/products/bulk-deactivate` — `{ids (≤ 500), reason}` → `bulk_ref`, `summary`, per-product `outcome` (`deactivated` · `pending_approval` · `already_inactive` · `already_waiting` · `failed`) |
+| POST | `/api/approvals/bulk` — `{ids (≤ 200), decision: approve\|reject, comment, levels: {id: level}}` → `bulk_ref`, `summary`, per-request `outcome` (`approved` · `advanced` · `rejected` · `already_handled` · `not_allowed` · `failed`) |
 | PUT | `/api/settings/approval-policy` — `{admin_self_approval}`: Tenant Administrator self-approval on / off (verified Tenant Administrator, full sign-in; audited) — roadmap 150 |
 | — | Workflow levels (`PUT /api/settings/workflows/{action}`) may carry `approvers: [{approver_type, approver_role_id, approver_user_id}]` (1–10, of this business, no duplicates; any one decides the level). `POST /api/approvals/{id}/approve` and `/reject` take `{comments, level}` — a `level` that has already been decided answers 422 *Already handled* |
 | — | `GET /api/approvals` items also carry `assigned_to`, `why` (`own_request` · `decided_earlier_level` · `not_designated` · `no_permission` · `not_in_business`), `why_message` and `stuck` (`only_requester` · `no_one`) — roadmap 148; approve / reject answer 403 with the same reason. `GET /api/settings` adds `full_access_people` |

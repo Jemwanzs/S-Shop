@@ -57,3 +57,38 @@ Price, stock here, stock across branches, photo manager, recent stock movements,
 
 ## Permissions
 `products.view`, `products.create`, `products.edit`, `products.deactivate`; cost price `sales.view_financials`.
+
+## Price filters and bulk deactivation (roadmap 151)
+
+**Price status** (Products → Catalogue), on the whole catalogue (not only the page shown) and together with Active /
+Inactive / All, search, category and paging:
+
+| Filter | Products |
+|---|---|
+| All prices | every product |
+| Price set | a selling price is set, 0 included |
+| Missing price | no selling price (empty) |
+| Zero price | the selling price is exactly 0 |
+| Zero or missing price | 0 or empty |
+| Above zero | more than 0 |
+
+A price of 0 (free) and no price (*Price on Request*) are stored and filtered differently.
+
+**Bulk selection** (people who may deactivate products): a checkbox on every row (and a box for the whole page); the
+selection is kept by product across pages and filter changes, and the bar always shows how many are selected —
+*X products selected · Deactivate · Clear selection*. With the whole page selected, *Select all N matching* adds
+every product matching the filters (up to 500 per bulk action; the bar says when more match).
+
+**Bulk deactivation:** the confirmation lists every selected product as the server sees it — *will be deactivated*,
+*already inactive*, *already waiting for approval* — with an optional reason. Each product then goes through the same
+path as deactivating it alone, in its own transaction:
+
+- Product deactivation needs no approval → deactivated.
+- It needs approval → one request per product, products **stay active** until approved; the approvers are told once
+  for the whole submission (*15 requests waiting for approval*); the reason is kept on each request.
+- Never two waiting requests for the same product; already inactive / already waiting products are reported, not
+  skipped silently; a retry never doubles anything.
+
+The result lists every product's outcome (deactivated · waiting for approval · already inactive · already waiting ·
+failed). All requests of one submission share a **bulk reference**; the audit trail has one `products /
+bulk_deactivate` entry (counts, items, reason, session branch) besides each product's own entries.

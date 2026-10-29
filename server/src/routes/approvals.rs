@@ -5,6 +5,8 @@
 //! decision records the step it approved. When a workflow is edited, `sync_pending` reconciles every pending request of
 //! that action with the new chain (roadmap 49).
 
+use std::collections::HashMap;
+
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -26,6 +28,7 @@ use crate::workflow::{self, Level};
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/approvals", get(list))
+        .route("/approvals/bulk", post(bulk))
         .route("/approvals/{id}/approve", post(approve))
         .route("/approvals/{id}/reject", post(reject))
         .route("/approvals/{id}/withdraw", post(withdraw))
@@ -61,6 +64,9 @@ pub struct ApprovalRow {
     pub sync_note: String,
     pub synced_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    /// Roadmap 151: the requester's reason, and the bulk submission the request belongs to.
+    pub note: String,
+    pub bulk_ref: Option<Uuid>,
 }
 
 impl ApprovalRow {
@@ -98,7 +104,7 @@ impl ApprovalRow {
 
 const SELECT: &str = "SELECT a.id, a.tenant_id, a.action, a.entity_type, a.entity_id, a.branch_id, b.name AS branch_name, a.summary, a.amount,
         a.payload, a.status, a.requested_by, ru.name AS requested_by_name, du.name AS decided_by_name, a.decided_at,
-        a.comments, a.level, a.decisions, a.steps, a.sync_note, a.synced_at, a.created_at
+        a.comments, a.level, a.decisions, a.steps, a.sync_note, a.synced_at, a.created_at, a.note, a.bulk_ref
     FROM approvals a
     LEFT JOIN branches b ON b.id = a.branch_id
     LEFT JOIN users ru ON ru.id = a.requested_by
@@ -278,11 +284,12 @@ async fn ensure_can_decide(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &Approva
     }
 }
 
-fn decision(ctx: &Ctx, a: &ApprovalRow, verdict: &str, comments: &str, why: workflow::Why) -> Value {
+fn decision(ctx: &Ctx, a: &ApprovalRow, verdict: &str, comments: &str, why: workflow::Why, bulk: Option<Uuid>) -> Value {
     json!([{
         "level": a.level, "step_id": a.step().and_then(|s| s.id), "user_id": ctx.user_id, "user_name": ctx.name,
         "decision": verdict, "comments": comments, "at": Utc::now(),
         "self_approved": why == workflow::Why::SelfApproval,
+        "bulk_ref": bulk,
     }])
 }
 
@@ -329,11 +336,31 @@ fn action_label(action: &str) -> &'static str {
 
 async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, body: Option<Json<DecisionBody>>) -> AppResult<Json<Value>> {
     let body = body.map(|b| b.0).unwrap_or_default();
-    let comments = body.comments;
+    Ok(Json(approve_one(&state, &ctx, id, &body.comments, body.level, None).await?.value))
+}
+
+/// What one decision did — for the response and, in a bulk decision, for one summary notification per person.
+pub struct Decided {
+    pub value: Value,
+    pub summary: String,
+    pub requester: Option<Uuid>,
+    /// The other approvers of the decided level (told it was handled).
+    pub others: Vec<Uuid>,
+    /// The request moved on to another level (its approvers are told).
+    pub moved: Option<ApprovalRow>,
+    pub decided: Vec<Uuid>,
+}
+
+/// One approval decision — the same checks for a single click and for every request of a bulk decision: the level
+/// the person saw (first decision wins), eligibility (maker-checker, self-approval policy, approvers of the level),
+/// the request row locked. `bulk`: the bulk operation it belongs to (recorded on the decision and in the audit trail;
+/// notifications are then sent once per person by the caller).
+pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, level: Option<i32>, bulk: Option<Uuid>) -> AppResult<Decided> {
+    let quiet = bulk.is_some();
     let mut tx = state.db.begin().await?;
-    let a = load_pending(&mut tx, &ctx, id).await?;
-    ensure_same_level(&a, body.level)?;
-    let why = ensure_can_decide(&mut tx, &ctx, &a).await?;
+    let a = load_pending(&mut tx, ctx, id).await?;
+    ensure_same_level(&a, level)?;
+    let why = ensure_can_decide(&mut tx, ctx, &a).await?;
     // The other people this level was assigned to (told it was handled; never asked again).
     let others: Vec<Uuid> = workflow::approvers_for(&mut tx, ctx.tenant_id, Some(&a.action), a.step(), a.branch_id, a.requested_by, &a.decided_by())
         .await?
@@ -352,106 +379,262 @@ async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
     if let Some(next) = next {
         sqlx::query("UPDATE approvals SET level = $4, decisions = decisions || $2 WHERE id = $1 AND tenant_id = $3")
             .bind(id)
-            .bind(decision(&ctx, &a, "approved", &comments, why))
+            .bind(decision(ctx, &a, "approved", comments, why, bulk))
             .bind(ctx.tenant_id)
             .bind(next)
             .execute(&mut *tx)
             .await?;
-        let mut detail = decision_context(&mut tx, &ctx, &a, why, &others, &format!("passed to level {next} of {total}")).await?;
+        let mut detail = decision_context(&mut tx, ctx, &a, why, &others, &format!("passed to level {next} of {total}")).await?;
         detail["next"] = json!(next);
+        detail["bulk_ref"] = json!(bulk);
         audit::record(
             &mut tx,
-            &ctx,
-            Entry::new("approvals", "approve_level", &a.entity_type, a.entity_id).approval(Some(id)).after(detail).comments(&comments),
+            ctx,
+            Entry::new("approvals", "approve_level", &a.entity_type, a.entity_id).approval(Some(id)).after(detail).comments(comments),
         )
         .await?;
         tx.commit().await?;
-        notify_handled(&state, ctx.tenant_id, &a, &others, &ctx.name, "level").await;
         let mut decided = a.decided_by();
         decided.push(ctx.user_id);
         let mut moved = a.clone();
         moved.level = next;
-        notify_level(&state, ctx.tenant_id, &moved, &decided, "").await;
-        if let Some(requester) = a.requested_by {
-            notify::to_users(
-                &state,
-                ctx.tenant_id,
-                &[requester],
-                Note::new("approval_decided", format!("Level {} of {total} approved by {}", a.level, ctx.name), a.summary.clone(), "/approvals"),
-            )
-            .await;
+        if !quiet {
+            notify_handled(state, ctx.tenant_id, &a, &others, &ctx.name, "level").await;
+            notify_level(state, ctx.tenant_id, &moved, &decided, "").await;
+            if let Some(requester) = a.requested_by {
+                notify::to_users(
+                    state,
+                    ctx.tenant_id,
+                    &[requester],
+                    Note::new("approval_decided", format!("Level {} of {total} approved by {}", a.level, ctx.name), a.summary.clone(), "/approvals"),
+                )
+                .await;
+            }
         }
         state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "pending", "level": next }));
-        return Ok(Json(json!({ "ok": true, "status": "pending", "level": next, "levels": total })));
+        return Ok(Decided {
+            value: json!({ "ok": true, "status": "pending", "level": next, "levels": total }),
+            summary: a.summary.clone(),
+            requester: a.requested_by,
+            others,
+            moved: Some(moved),
+            decided,
+        });
     }
 
     match a.action.as_str() {
-        "product.create" | "product.edit" | "product.deactivate" => super::catalog::on_approved(&mut tx, &ctx, &a).await?,
-        "stock.add" | "stock.adjust" | "stock.write_off" => super::stock::on_approved(&mut tx, &ctx, &a).await?,
-        "stock.transfer" => super::transfers::on_approved(&mut tx, &ctx, &a).await?,
-        "sale.return" | "sale.cancel" | "credit.recall" | "sale.owner_change" => super::sales::on_approved(&mut tx, &ctx, &a).await?,
-        "credit.write_off" => super::credit::on_approved(&mut tx, &ctx, &a).await?,
+        "product.create" | "product.edit" | "product.deactivate" => super::catalog::on_approved(&mut tx, ctx, &a).await?,
+        "stock.add" | "stock.adjust" | "stock.write_off" => super::stock::on_approved(&mut tx, ctx, &a).await?,
+        "stock.transfer" => super::transfers::on_approved(&mut tx, ctx, &a).await?,
+        "sale.return" | "sale.cancel" | "credit.recall" | "sale.owner_change" => super::sales::on_approved(&mut tx, ctx, &a).await?,
+        "credit.write_off" => super::credit::on_approved(&mut tx, ctx, &a).await?,
         "expense" => super::expenses::on_decided(&mut tx, &a, true).await?,
-        "data.import" => super::onboarding::on_approved(&mut tx, &ctx, &a).await?,
+        "data.import" => super::onboarding::on_approved(&mut tx, ctx, &a).await?,
         _ => {}
     }
 
     sqlx::query("UPDATE approvals SET status='approved', decided_by=$2, decided_at=now(), comments=$3, decisions = decisions || $4 WHERE id=$1 AND tenant_id = $5")
         .bind(id)
         .bind(ctx.user_id)
-        .bind(&comments)
-        .bind(decision(&ctx, &a, "approved", &comments, why))
+        .bind(comments)
+        .bind(decision(ctx, &a, "approved", comments, why, bulk))
         .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
-    let detail = decision_context(&mut tx, &ctx, &a, why, &others, "approved and carried out").await?;
+    let mut detail = decision_context(&mut tx, ctx, &a, why, &others, "approved and carried out").await?;
+    detail["bulk_ref"] = json!(bulk);
     audit::record(
         &mut tx,
-        &ctx,
-        Entry::new("approvals", "approve", &a.entity_type, a.entity_id).approval(Some(id)).after(detail).comments(&comments),
+        ctx,
+        Entry::new("approvals", "approve", &a.entity_type, a.entity_id).approval(Some(id)).after(detail).comments(comments),
     )
     .await?;
     tx.commit().await?;
 
-    notify_requester(&state, &ctx, &a, true, &comments).await;
-    notify_handled(&state, ctx.tenant_id, &a, &others, &ctx.name, "approved").await;
+    if !quiet {
+        notify_requester(state, ctx, &a, true, comments).await;
+        notify_handled(state, ctx.tenant_id, &a, &others, &ctx.name, "approved").await;
+    }
     state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "approved" }));
-    Ok(Json(json!({ "ok": true, "status": "approved" })))
+    Ok(Decided { value: json!({ "ok": true, "status": "approved" }), summary: a.summary.clone(), requester: a.requested_by, others, moved: None, decided: Vec::new() })
 }
 
 async fn reject(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, body: Option<Json<DecisionBody>>) -> AppResult<Json<Value>> {
     let body = body.map(|b| b.0).unwrap_or_default();
-    let comments = body.comments;
+    Ok(Json(reject_one(&state, &ctx, id, &body.comments, body.level, None).await?.value))
+}
+
+/// One rejection — the same checks as [`approve_one`].
+pub async fn reject_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, level: Option<i32>, bulk: Option<Uuid>) -> AppResult<Decided> {
+    let quiet = bulk.is_some();
     let mut tx = state.db.begin().await?;
-    let a = load_pending(&mut tx, &ctx, id).await?;
-    ensure_same_level(&a, body.level)?;
-    let why = ensure_can_decide(&mut tx, &ctx, &a).await?;
+    let a = load_pending(&mut tx, ctx, id).await?;
+    ensure_same_level(&a, level)?;
+    let why = ensure_can_decide(&mut tx, ctx, &a).await?;
     let others: Vec<Uuid> = workflow::approvers_for(&mut tx, ctx.tenant_id, Some(&a.action), a.step(), a.branch_id, a.requested_by, &a.decided_by())
         .await?
         .into_iter()
         .filter(|u| *u != ctx.user_id)
         .collect();
-    on_closed_without_approval(&mut tx, &ctx, &a, "rejected").await?;
+    on_closed_without_approval(&mut tx, ctx, &a, "rejected").await?;
     sqlx::query("UPDATE approvals SET status='rejected', decided_by=$2, decided_at=now(), comments=$3, decisions = decisions || $4 WHERE id=$1 AND tenant_id = $5")
         .bind(id)
         .bind(ctx.user_id)
-        .bind(&comments)
-        .bind(decision(&ctx, &a, "rejected", &comments, why))
+        .bind(comments)
+        .bind(decision(ctx, &a, "rejected", comments, why, bulk))
         .bind(ctx.tenant_id)
         .execute(&mut *tx)
         .await?;
-    let detail = decision_context(&mut tx, &ctx, &a, why, &others, "rejected — nothing changed").await?;
+    let mut detail = decision_context(&mut tx, ctx, &a, why, &others, "rejected — nothing changed").await?;
+    detail["bulk_ref"] = json!(bulk);
     audit::record(
         &mut tx,
-        &ctx,
-        Entry::new("approvals", "reject", &a.entity_type, a.entity_id).approval(Some(id)).after(detail).comments(&comments),
+        ctx,
+        Entry::new("approvals", "reject", &a.entity_type, a.entity_id).approval(Some(id)).after(detail).comments(comments),
     )
     .await?;
     tx.commit().await?;
-    notify_requester(&state, &ctx, &a, false, &comments).await;
-    notify_handled(&state, ctx.tenant_id, &a, &others, &ctx.name, "rejected").await;
+    if !quiet {
+        notify_requester(state, ctx, &a, false, comments).await;
+        notify_handled(state, ctx.tenant_id, &a, &others, &ctx.name, "rejected").await;
+    }
     state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "rejected" }));
-    Ok(Json(json!({ "ok": true, "status": "rejected" })))
+    Ok(Decided { value: json!({ "ok": true, "status": "rejected" }), summary: a.summary.clone(), requester: a.requested_by, others, moved: None, decided: Vec::new() })
+}
+
+#[derive(Deserialize)]
+struct BulkBody {
+    ids: Vec<Uuid>,
+    /// approve | reject
+    decision: String,
+    #[serde(default)]
+    comment: String,
+    /// The level each request showed when it was selected (first decision wins, per request).
+    #[serde(default)]
+    levels: HashMap<Uuid, i32>,
+}
+
+const BULK_MAX: usize = 200;
+
+/// Roadmap 151: decide several requests at once with one comment. Every request goes through the same single-request
+/// decision (its own checks, transaction and row lock); one that is no longer actionable never stops the others. The
+/// comment is recorded on every processed request's own decision; all are linked by one bulk reference. Notifications
+/// go once per person (requesters, the other approvers of the decided levels, the next levels' approvers).
+async fn bulk(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkBody>) -> AppResult<Json<Value>> {
+    let approve = match b.decision.as_str() {
+        "approve" => true,
+        "reject" => false,
+        _ => return Err(crate::error::bad("Decision: approve or reject")),
+    };
+    let mut ids = b.ids.clone();
+    ids.sort();
+    ids.dedup();
+    if ids.is_empty() || ids.len() > BULK_MAX {
+        return Err(crate::error::bad(format!("Choose 1 to {BULK_MAX} requests")));
+    }
+    let bulk_ref = Uuid::new_v4();
+    let comment = b.comment.trim().to_string();
+    let mut items = Vec::new();
+    let (mut approved, mut advanced, mut rejected, mut handled, mut refused, mut failed) = (0, 0, 0, 0, 0, 0);
+    let mut to_requesters: HashMap<Uuid, Vec<String>> = HashMap::new();
+    let mut to_others: HashMap<Uuid, usize> = HashMap::new();
+    let mut moved: Vec<(ApprovalRow, Vec<Uuid>)> = Vec::new();
+    for id in ids {
+        let summary: Option<String> = sqlx::query_scalar("SELECT summary FROM approvals WHERE id = $1 AND tenant_id = $2")
+            .bind(id)
+            .bind(ctx.tenant_id)
+            .fetch_optional(&state.db)
+            .await?;
+        let level = b.levels.get(&id).copied();
+        let result = if approve { approve_one(&state, &ctx, id, &comment, level, Some(bulk_ref)).await } else { reject_one(&state, &ctx, id, &comment, level, Some(bulk_ref)).await };
+        let (outcome, message, extra) = match result {
+            Ok(d) => {
+                let status = d.value["status"].as_str().unwrap_or_default().to_string();
+                let outcome = match (approve, status.as_str()) {
+                    (false, _) => {
+                        rejected += 1;
+                        "rejected"
+                    }
+                    (true, "pending") => {
+                        advanced += 1;
+                        "advanced"
+                    }
+                    _ => {
+                        approved += 1;
+                        "approved"
+                    }
+                };
+                if let Some(r) = d.requester {
+                    to_requesters.entry(r).or_default().push(format!("{} — {}", d.summary, outcome));
+                }
+                for o in &d.others {
+                    *to_others.entry(*o).or_default() += 1;
+                }
+                if let Some(m) = d.moved {
+                    moved.push((m, d.decided));
+                }
+                (outcome, String::new(), d.value)
+            }
+            Err(AppError::Refused { title, message }) if title == "Already handled" => {
+                handled += 1;
+                ("already_handled", message, Value::Null)
+            }
+            Err(AppError::Forbidden(m)) => {
+                refused += 1;
+                ("not_allowed", m, Value::Null)
+            }
+            Err(AppError::NotFound(_)) => {
+                refused += 1;
+                ("not_allowed", "Request not found".to_string(), Value::Null)
+            }
+            Err(e) => {
+                failed += 1;
+                ("failed", e.to_string(), Value::Null)
+            }
+        };
+        items.push(json!({ "id": id, "summary": summary, "outcome": outcome, "message": message, "level": extra.get("level"), "levels": extra.get("levels") }));
+    }
+    // The bulk operation itself, in the audit trail (each request also has its own decision entry).
+    let mut tx = state.db.begin().await?;
+    audit::record(
+        &mut tx,
+        &ctx,
+        Entry::new("approvals", if approve { "bulk_approve" } else { "bulk_reject" }, "approval", bulk_ref)
+            .after(json!({
+                "bulk_ref": bulk_ref, "selected": items.len(), "approved": approved, "advanced": advanced, "rejected": rejected,
+                "already_handled": handled, "not_allowed": refused, "failed": failed, "session_branch": ctx.branch_id,
+                "items": items.iter().map(|i| json!({ "id": i["id"], "outcome": i["outcome"] })).collect::<Vec<_>>(),
+            }))
+            .comments(&comment),
+    )
+    .await?;
+    tx.commit().await?;
+    // One notification per person.
+    let verb = if approve { "approved" } else { "rejected" };
+    for (requester, lines) in &to_requesters {
+        let title = if lines.len() == 1 { format!("Your request was {verb} by {}", ctx.name) } else { format!("{} of your requests were decided by {}", lines.len(), ctx.name) };
+        let body = format!("{}{}", lines.join("; "), if comment.is_empty() { String::new() } else { format!(" — “{comment}”") });
+        notify::to_users(&state, ctx.tenant_id, &[*requester], Note::new("approval_decided", title, body, "/approvals").dedupe(format!("bulk:{bulk_ref}:req"))).await;
+    }
+    for (user, n) in &to_others {
+        notify::to_users(
+            &state,
+            ctx.tenant_id,
+            &[*user],
+            Note::new("approval_handled", format!("{n} request(s) {verb} by {} — no action needed", ctx.name), format!("Handled together at {} UTC.", Utc::now().format("%d %b %H:%M")), "/approvals")
+                .dedupe(format!("bulk:{bulk_ref}:others")),
+        )
+        .await;
+    }
+    for (m, decided) in &moved {
+        notify_level(&state, ctx.tenant_id, m, decided, "").await;
+    }
+    Ok(Json(json!({
+        "bulk_ref": bulk_ref,
+        "summary": { "selected": items.len(), "approved": approved, "advanced": advanced, "rejected": rejected,
+                     "already_handled": handled, "not_allowed": refused, "failed": failed },
+        "items": items,
+    })))
 }
 
 /// The requester may withdraw their own pending request.
@@ -572,6 +755,33 @@ pub async fn notify_approvers(state: &AppState, ctx: &Ctx, approval_id: Uuid) {
     if let Ok(Some(a)) = row {
         notify_level(state, ctx.tenant_id, &a, &[], "").await;
         state.emit(ctx.tenant_id, None, "approval", json!({ "id": approval_id, "status": "pending" }));
+    }
+}
+
+/// Roadmap 151: requests created together (a bulk deactivation) — their approvers are told once ("15 requests waiting"),
+/// not once per request. If nobody can approve them, the usual "nobody can approve" notice goes out instead.
+pub async fn notify_approvers_bulk(state: &AppState, ctx: &Ctx, ids: &[Uuid], label: &str) {
+    let Some(first) = ids.first() else { return };
+    let row: Result<Option<ApprovalRow>, _> = sqlx::query_as(&format!("{SELECT} WHERE a.id = $1")).bind(first).fetch_optional(&state.db).await;
+    let Ok(Some(a)) = row else { return };
+    let users = match state.db.acquire().await {
+        Ok(mut conn) => workflow::approvers_for(&mut conn, ctx.tenant_id, Some(&a.action), a.step(), a.branch_id, a.requested_by, &[]).await.unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    if users.is_empty() || ids.len() == 1 {
+        notify_level(state, ctx.tenant_id, &a, &[], "").await;
+    } else {
+        notify::to_users(
+            state,
+            ctx.tenant_id,
+            &users,
+            Note::new("approval_pending", format!("{} requests waiting for approval — {label}", ids.len()), format!("Submitted together by {}", ctx.name), "/approvals")
+                .dedupe(format!("bulk-submitted:{first}")),
+        )
+        .await;
+    }
+    for id in ids {
+        state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "pending" }));
     }
 }
 

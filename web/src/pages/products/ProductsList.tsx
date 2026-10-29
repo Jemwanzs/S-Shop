@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
-import { Images, Package, Plus, ScanBarcode } from "lucide-react";
+import { Ban, Images, Package, Plus, ScanBarcode, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useDebounced } from "@/lib/hooks";
@@ -16,6 +16,8 @@ import { ProductThumb } from "@/pages/sales/pos/ProductGrid";
 import { Pill, StockIndicator } from "@/components/Badges";
 import { t } from "@/lib/i18n";
 import { useRememberCatalogue } from "@/lib/catalogue";
+import { toast } from "@/lib/toast";
+import { BulkDeactivate } from "./BulkDeactivate";
 
 const LIMIT = 50;
 
@@ -29,9 +31,10 @@ export default function ProductsList() {
   const statusParam = params.get("status");
   const status: "active" | "inactive" | "all" = statusParam === "inactive" || statusParam === "all" ? statusParam : "active";
   const category = params.get("category") ?? "";
-  // Roadmap 140: products with or without a selling price (a real 0 counts as set).
+  // Roadmap 140/151: price status — a price of 0 and no price at all stay different things.
+  const PRICES = ["set", "missing", "zero", "zero_or_missing", "above_zero"] as const;
   const priceParam = params.get("price");
-  const price: "" | "set" | "missing" = priceParam === "set" || priceParam === "missing" ? priceParam : "";
+  const price: "" | (typeof PRICES)[number] = (PRICES as readonly string[]).includes(priceParam ?? "") ? (priceParam as (typeof PRICES)[number]) : "";
   const page = Math.max(1, Math.floor(Number(params.get("page")) || 1));
   const offset = (page - 1) * LIMIT;
   const qParam = params.get("q") ?? "";
@@ -84,7 +87,35 @@ export default function ProductsList() {
   // Roadmap 109: product list display preferences.
   const showImages = !!profile?.settings.product.list_show_images;
   // Filtering for missing prices always shows the price column (so "Not set" is visible).
-  const showPrices = (profile?.settings.product.list_show_prices ?? true) || price === "missing";
+  const showPrices = (profile?.settings.product.list_show_prices ?? true) || price !== "";
+  // Roadmap 151: bulk selection — kept by id across pages and filter changes; the bar always shows the full count.
+  const canBulk = can("products.deactivate") && !assign;
+  const [picked, setPicked] = useState<Map<string, string>>(new Map());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const pageRows = data?.items ?? [];
+  const pagePicked = pageRows.filter((r) => picked.has(r.id)).length;
+  const pick = (rows: Product[], on: boolean) =>
+    setPicked((prev) => {
+      const next = new Map(prev);
+      for (const r of rows) {
+        if (on) next.set(r.id, r.name);
+        else next.delete(r.id);
+      }
+      return next;
+    });
+  const selectMatching = async () => {
+    try {
+      const r = await api<{ ids: string[]; total: number; capped: boolean }>("/products/matching-ids", { query: { q: term, status, category_id: category, price: price || undefined } });
+      setPicked((prev) => {
+        const next = new Map(prev);
+        for (const id of r.ids) if (!next.has(id)) next.set(id, "");
+        return next;
+      });
+      if (r.capped) toast.warning(`${t("Selected the first")} ${count(r.ids.length)} ${t("of")} ${count(r.total)} — ${t("one bulk action takes up to 500 products")}`);
+    } catch (e) {
+      toast.error(e);
+    }
+  };
 
   return (
     <>
@@ -112,19 +143,45 @@ export default function ProductsList() {
             <option value="">{t("All categories")}</option>
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
-          <Select value={price} label="Price status" onChange={(v) => setPrice(v)} className="md:w-44">
+          <Select value={price} label="Price status" onChange={(v) => setPrice(v)} className="md:w-52">
             <option value="">{t("All prices")}</option>
             <option value="set">{t("Price set")}</option>
             <option value="missing">{t("Missing price")}</option>
+            <option value="zero">{t("Zero price")}</option>
+            <option value="zero_or_missing">{t("Zero or missing price")}</option>
+            <option value="above_zero">{t("Above zero")}</option>
           </Select>
         </div>
       </div>
+      {canBulk && picked.size > 0 && (
+        <div className="surface card-body sticky top-2 z-20 mb-3 flex flex-wrap items-center gap-2 border-primary/40 bg-primary/5 text-sm">
+          <b className="num">{count(picked.size)}</b> {t(picked.size === 1 ? "product selected" : "products selected")}
+          {data && pagePicked === pageRows.length && data.total > pageRows.length && picked.size < data.total && (
+            <Button variant="link" size="sm" className="h-auto p-0" onClick={selectMatching}>{t("Select all")} {count(data.total)} {t("matching")}</Button>
+          )}
+          <span className="ms-auto flex gap-2">
+            <Button size="sm" variant="destructive" onClick={() => setBulkOpen(true)}><Ban /> {t("Deactivate")}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setPicked(new Map())}><X /> {t("Clear selection")}</Button>
+          </span>
+        </div>
+      )}
+      {bulkOpen && (
+        <BulkDeactivate ids={[...picked.keys()]} onClose={() => setBulkOpen(false)}
+          onDone={(handled) => { setBulkOpen(false); setPicked((prev) => { const next = new Map(prev); handled.forEach((id) => next.delete(id)); return next; }); }} />
+      )}
       <DataList
         rows={data?.items}
         loading={isLoading}
         error={error}
         retry={refetch}
         rowKey={(r) => r.id}
+        selection={canBulk ? {
+          isSelected: (r) => picked.has(r.id),
+          toggle: (r, on) => pick([r], on),
+          page: pageRows.length > 0 && pagePicked === pageRows.length ? true : pagePicked > 0 ? "indeterminate" : false,
+          togglePage: (on) => pick(pageRows, on),
+          label: (r) => `${t("Select")} ${r.name}`,
+        } : undefined}
         onRowClick={(r) => navigate(assign ? `/products/${r.id}/edit?barcode=${encodeURIComponent(assign)}` : `/products/${r.id}`)}
         empty={<EmptyState icon={Package} title="No products yet" action={can("products.create") && <Button asChild><Link to="/products/new"><Plus /> {t("Add your first product")}</Link></Button>} />}
         columns={[

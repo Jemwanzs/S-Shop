@@ -17,6 +17,12 @@ assigned to, the other approvers of that level, whether it was a Tenant Administ
 branch and the request's branch, and the outcome (*passed to level 2 of 3*, *approved and carried out*, *rejected —
 nothing changed*).
 
+### Bulk operations (roadmap 151)
+
+`products / bulk_deactivate` and `approvals / bulk_approve` · `bulk_reject` record the bulk reference, the counts by
+outcome, every item with its outcome, the shared reason or comment and the session branch. Each product or request also
+keeps its own entries (deactivation, request, decision with the same comment and the bulk reference).
+
 ## Notifications
 In-app, per user, pushed live (Server-Sent Events) with a toast, and listed under the bell (unread badge) /
 `/notifications`:

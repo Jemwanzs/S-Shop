@@ -16,6 +16,7 @@ and the 2026-10-21/27 security updates — deployed 2026-10-27 12:58 UTC (`b50c7
 check passed, start-up clean (`stored credentials checked readable=6 rotated=0 unreadable=0`), new routes answering.
 Railway's 20–22 October **security incident** had held every push since 2026-10-19 (builds paused, then Railway's
 GitHub App installations were reset; the owner deployed). **Also live:** 150 several approvers per level & Tenant Administrator self-approval (2026-10-27 21:44 UTC, `cab1eb7`; full CI suite — 1,060 checks — passed on `f5f6f0f`, deployed automatically 22:07).
+**In progress:** 151 zero/missing price filters, bulk product deactivation and bulk approvals — built and tested, deploying.
 **Next (critical, owner):** rotate credentials — runbook in
 [deployment-railway.md → Rotating credentials](deployment-railway.md#rotating-credentials).
 
@@ -815,6 +816,26 @@ server already refuses a unit sold twice, from another branch or another product
   file); the PDF opens with a directory whose page numbers match, and no guide task is cut at a page edge (the build
   refuses); every guide step names a screen or button that exists in the code; the Status board lists every open ⏳ /
   ◐ item.
+
+**Price filters & bulk operations** (brief *Zero/Missing Price Filters, Bulk Product Deactivation & Bulk Workflow Approvals*):
+- ◐ **151. Zero / missing price filters, bulk product deactivation, bulk approvals** — purpose: find unpriced and
+  free products quickly, deactivate many at once, and decide many approval requests with one comment. Scope: price
+  filters (zero, zero or missing, above zero, besides set / missing — 0 and empty stay different); row selection in
+  the product list (kept across pages and filters; *Select all N matching* up to 500); bulk deactivation through the
+  single-product path (approval respected — products stay active; one waiting request per product; shared bulk
+  reference; reason kept; per-product outcomes; safe retries); bulk approve / reject in Approvals → Waiting (every
+  request decided on its own — level, approvers, maker-checker, self-approval policy, first decision wins, row lock;
+  one comment saved on each decision; levels never skipped; per-request outcomes); one notification per person;
+  audit entries for the bulk operation and every item. Reusable selection in the shared list component.
+
+  Acceptance criteria (smoke 151): zero is not missing; zero-or-missing, above-zero and set filters; select all
+  matching returns every match; bulk deactivation without approval deactivates and a retry reports *already
+  inactive*; with approval products stay active, one request each with one bulk reference and the reason, an already
+  waiting product is reported, submitting again creates no duplicates, approvers are told once; bulk approve decides
+  what is still open and reports the one already handled; the shared comment and bulk reference are on the request's
+  own decision; products deactivated once; at two levels bulk approval only moves requests to level 2, a level-1
+  approver cannot decide level 2, the administrator completes it; bulk reject keeps products active with the comment on
+  each; a salesperson's bulk decides nothing; empty, invalid and unauthorised bulk requests are refused.
 
 **Several approvers per level & Tenant Administrator self-approval** (brief 2026-10-27):
 - ✅ **150. Any one of several approvers decides a level; Tenant Administrators may approve their own requests** —

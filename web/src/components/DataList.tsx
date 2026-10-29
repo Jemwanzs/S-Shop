@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { tx } from "@/lib/i18n";
 import { count } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState, ErrorState, Loading } from "./Page";
 
 export interface Column<T> {
@@ -18,6 +19,17 @@ export interface Column<T> {
 
 const HIDE = { lg: "hidden lg:table-cell", xl: "hidden xl:table-cell", "2xl": "hidden 2xl:table-cell" };
 
+/** Roadmap 151: optional row selection (bulk actions). The checkbox never opens the row. */
+export interface Selection<T> {
+  isSelected: (row: T) => boolean;
+  toggle: (row: T, on: boolean) => void;
+  /** The header box: every row on this page selected (true), some ("indeterminate"), none (false). */
+  page: boolean | "indeterminate";
+  togglePage: (on: boolean) => void;
+  /** Accessible name of a row's box. */
+  label: (row: T) => string;
+}
+
 /** One definition, two layouts: a full table from md up, tappable cards on phones. */
 export function DataList<T>({
   rows,
@@ -31,6 +43,7 @@ export function DataList<T>({
   empty,
   footer,
   className,
+  selection,
 }: {
   rows: T[] | undefined;
   columns: Column<T>[];
@@ -43,6 +56,7 @@ export function DataList<T>({
   empty?: ReactNode;
   footer?: ReactNode;
   className?: string;
+  selection?: Selection<T>;
 }) {
   if (error) return <div className={cn("surface", className)}><ErrorState error={error} retry={retry} /></div>;
   if (loading && !rows) return <div className={cn("surface", className)}><Loading /></div>;
@@ -56,6 +70,11 @@ export function DataList<T>({
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-muted/60 backdrop-blur-sm">
             <tr>
+              {selection && (
+                <th className="w-10 px-3 py-3">
+                  <Checkbox checked={selection.page} onCheckedChange={(v) => selection.togglePage(v === true)} aria-label={tx("Select this page")} />
+                </th>
+              )}
               {columns.map((c) => (
                 <th key={c.key} className={cn("label-caps whitespace-nowrap px-4 py-3 font-semibold", align(c.align), c.hideBelow && HIDE[c.hideBelow])}>
                   {tx(c.header)}
@@ -68,8 +87,13 @@ export function DataList<T>({
               <tr
                 key={rowKey(r)}
                 onClick={onRowClick ? () => onRowClick(r) : undefined}
-                className={cn("transition-colors", onRowClick && "cursor-pointer hover:bg-accent/40")}
+                className={cn("transition-colors", onRowClick && "cursor-pointer hover:bg-accent/40", selection?.isSelected(r) && "bg-primary/5")}
               >
+                {selection && (
+                  <td className="w-10 px-3 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox checked={selection.isSelected(r)} onCheckedChange={(v) => selection.toggle(r, v === true)} aria-label={selection.label(r)} />
+                  </td>
+                )}
                 {columns.map((c) => (
                   <td key={c.key} className={cn("px-4 py-3 align-middle", align(c.align), c.hideBelow && HIDE[c.hideBelow], c.className)}>
                     {c.cell(r)}
@@ -82,13 +106,18 @@ export function DataList<T>({
       </div>
       <ul className="divide-y md:hidden">
         {rows.map((r) => (
-          <li key={rowKey(r)}>
+          <li key={rowKey(r)} className={cn(selection && "flex items-center", selection?.isSelected(r) && "bg-primary/5")}>
+            {selection && (
+              <div className="ps-3.5">
+                <Checkbox checked={selection.isSelected(r)} onCheckedChange={(v) => selection.toggle(r, v === true)} aria-label={selection.label(r)} className="h-5 w-5" />
+              </div>
+            )}
             {onRowClick ? (
-              <button type="button" onClick={() => onRowClick(r)} className="block w-full px-3.5 py-2.5 text-start active:bg-accent/50">
+              <button type="button" onClick={() => onRowClick(r)} className="block min-w-0 flex-1 px-3.5 py-2.5 text-start active:bg-accent/50">
                 {mobile(r)}
               </button>
             ) : (
-              <div className="px-3.5 py-2.5">{mobile(r)}</div>
+              <div className="min-w-0 flex-1 px-3.5 py-2.5">{mobile(r)}</div>
             )}
           </li>
         ))}

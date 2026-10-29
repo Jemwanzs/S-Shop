@@ -81,7 +81,7 @@
         "Control over which branches stock a product and whether it appears online",
         "Low-stock alert levels and loyalty rules per product",
         "Item barcodes stay concealed (****047) on screens, reports and exports; printing, reprinting, replacing and revealing them are permission-controlled and recorded",
-        "Filter the catalogue by price status (price set or missing) to find products that still need a selling price",
+        "Price status filters — set, missing, zero, zero-or-missing and above zero (a price of 0 and no price stay different); select products and deactivate them together, with approval when required",
         "Your filters, search, page and scroll position are kept while you open and edit products — fix missing prices one after another without choosing the filters again"
       ]
     },
@@ -456,7 +456,8 @@
           "steps": [
             "Open Approvals. Waiting lists what needs a decision; each card shows who it is Assigned to.",
             "Tap View for the details (requester, level, history), then Approve or Reject (add a Comment).",
-            "If you cannot decide it, the card says why — for example you made the request, or it is assigned to another approver."
+            "If you cannot decide it, the card says why — for example you made the request, or it is assigned to another approver.",
+            "Several at once: tick the requests (or Select every request you can decide), then Approve selected or Reject selected, add one comment and confirm — each request is decided on its own and shows its result."
           ],
           "note": "If a card says Nobody can approve this request yet, an administrator chooses another approver for that step in Settings → Workflow engine (the request follows the change), or the requester withdraws it."
         },
@@ -496,6 +497,15 @@
             "Settings → Business profile: name, logo, tagline, phone, email, address, currency and time zone; Save changes.",
             "S'Shop Workspace URL: tap Copy link to share your team's address. Staff still sign in and see only what their role allows.",
             "The business address (in the workspace URL, ordering link and website) is permanent; Change it only when necessary — old links keep working."
+          ]
+        },
+        {
+          "title": "Find unpriced products and deactivate several",
+          "steps": [
+            "Products: Price status → Zero price, Missing price or Zero or missing price (0 and no price are different).",
+            "Tick the products (or the box for the whole page, then Select all N matching), and tap Deactivate.",
+            "Check the list (already inactive or already waiting products are skipped and shown), add a reason and confirm.",
+            "If deactivation needs approval, the products stay active until approved; the result shows each product's outcome."
           ]
         },
         {

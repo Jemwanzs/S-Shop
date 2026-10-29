@@ -4177,6 +4177,83 @@ call("POST", f"/approvals/{eid}/withdraw", {}, **DA)
 call("PUT", "/settings/workflows/expense", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None, "conditions": {}}, **DA)
 call("PUT", "/settings/workflows/product.deactivate", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
 
+step("Roadmap 151: price filters, bulk product deactivation and bulk approvals")
+pf = f"PF{suffix}"
+p0 = call("POST", "/products", {"name": f"{pf} zero", "marked_price": 0, "cost_price": 0}, **DA)["result"]["id"]
+pn = call("POST", "/products", {"name": f"{pf} unpriced", "cost_price": 10}, **DA)["result"]["id"]
+pp = call("POST", "/products", {"name": f"{pf} priced", "marked_price": 250, "cost_price": 100}, **DA)["result"]["id"]
+def ids_for(price, status="all"):
+    return sorted(x["id"] for x in call("GET", f"/products?q={pf}&status={status}&price={price}&limit=50", **DA)["items"])
+check("zero price is not a missing price", ids_for("zero") == [p0] and ids_for("missing") == [pn], (ids_for("zero"), ids_for("missing")))
+check("zero or missing; above zero; set includes zero", ids_for("zero_or_missing") == sorted([p0, pn]) and ids_for("above_zero") == [pp] and ids_for("set") == sorted([p0, pp]))
+call("GET", f"/products?price=cheap", **DA, expect=400)
+m = call("GET", f"/products/matching-ids?q={pf}&status=all&price=zero_or_missing", **DA)
+check("select all matching returns every match, not only the page", sorted(m["ids"]) == sorted([p0, pn]) and m["total"] == 2 and not m["capped"], m)
+# Bulk deactivation without approval; a retry is safe.
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
+r = call("POST", "/products/bulk-deactivate", {"ids": [p0, pn], "reason": "Catalogue review"}, **DA)
+check("no approval: both deactivated", r["summary"]["deactivated"] == 2 and ids_for("zero_or_missing", "inactive") == sorted([p0, pn]), r["summary"])
+r = call("POST", "/products/bulk-deactivate", {"ids": [p0, pn]}, **DA)
+check("retry: reported as already inactive, nothing doubled", r["summary"]["already_inactive"] == 2 and r["summary"]["deactivated"] == 0, r["summary"])
+check("bulk deactivation audited with its reference", any(a["action"] == "bulk_deactivate" for a in call("GET", "/audit?period=today&limit=50&module=products", **DA)["items"]))
+for x in (p0, pn):
+    call("POST", f"/products/{x}/status", {"is_active": True}, **DA)
+# With approval: products stay active, one request each, shared reference, reason kept, no duplicates.
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [L1]}, **DA)
+call("POST", f"/products/{pp}/status", {"is_active": False}, **DA)  # pending single request on pp
+prev = call("POST", "/products/bulk-preview", {"ids": [p0, pn, pp]}, **DA)
+check("preview: eligible, already waiting, needs approval", prev["needs_approval"] and sorted(i["status"] for i in prev["items"]) == ["already_waiting", "eligible", "eligible"], prev)
+r = call("POST", "/products/bulk-deactivate", {"ids": [p0, pn, pp], "reason": "Zero and missing prices"}, **DA)
+check("with approval: two submitted, the one already waiting is reported", r["summary"]["pending_approval"] == 2 and r["summary"]["already_waiting"] == 1, r["summary"])
+check("products stay active while waiting", ids_for("zero_or_missing", "active") == sorted([p0, pn]))
+waiting = [x for x in call("GET", "/approvals?status=pending&limit=100", **S1)["items"] if x["entity_id"] in (p0, pn)]
+check("one request per product, one bulk reference, the reason kept", len(waiting) == 2 and len({x["bulk_ref"] for x in waiting}) == 1 and all(x["note"] == "Zero and missing prices" for x in waiting), waiting)
+r = call("POST", "/products/bulk-deactivate", {"ids": [p0, pn]}, **DA)
+check("submitting again creates no duplicates", r["summary"]["already_waiting"] == 2 and r["summary"]["pending_approval"] == 0, r["summary"])
+check("approvers told once for the whole submission", sum(1 for n in call("GET", "/notifications?limit=50", **S1)["items"] if "2 requests waiting" in n["title"]) == 1)
+# Bulk approve with one comment; first decision wins per request.
+wa, wb = waiting[0], waiting[1]
+call("POST", f"/approvals/{wb['id']}/approve", {"comments": "single", "level": 1}, **S2)
+r = call("POST", "/approvals/bulk", {"ids": [wa["id"], wb["id"]], "decision": "approve", "comment": "Confirmed after the catalogue review",
+                                     "levels": {wa["id"]: wa["level"], wb["id"]: wb["level"]}}, **S1)
+check("bulk approve: one approved, the one already handled reported", r["summary"]["approved"] == 1 and r["summary"]["already_handled"] == 1, r)
+done = next(x for x in call("GET", "/approvals?status=approved&limit=100", **S1)["items"] if x["id"] == wa["id"])
+check("the shared comment is saved on the request's own decision, with the bulk reference",
+      done["decisions"][-1]["comments"] == "Confirmed after the catalogue review" and done["decisions"][-1].get("bulk_ref") == r["bulk_ref"], done["decisions"])
+check("approved products deactivated, once", ids_for("zero_or_missing", "inactive") == sorted([p0, pn]))
+check("bulk decision audited", any(a["action"] == "bulk_approve" for a in call("GET", "/audit?period=today&limit=50&module=approvals", **DA)["items"]))
+# Two levels: bulk approval at level 1 only moves requests to level 2; a mixed batch decides what it may.
+for x in (p0, pn):
+    call("POST", f"/products/{x}/status", {"is_active": True}, **DA)
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [L1, {"approver_type": "admin"}]}, **DA)
+r = call("POST", "/products/bulk-deactivate", {"ids": [p0, pn]}, **DA)
+two = [x for x in call("GET", "/approvals?status=pending&limit=100", **S1)["items"] if x["entity_id"] in (p0, pn)]
+r = call("POST", "/approvals/bulk", {"ids": [x["id"] for x in two], "decision": "approve", "comment": "Level one ok", "levels": {x["id"]: x["level"] for x in two}}, **S1)
+check("bulk approval at level 1 only completes level 1", r["summary"]["advanced"] == 2 and r["summary"]["approved"] == 0, r["summary"])
+check("still active until the last level", ids_for("zero_or_missing", "active") == sorted([p0, pn]))
+r = call("POST", "/approvals/bulk", {"ids": [x["id"] for x in two], "decision": "approve", "comment": "Level two", "levels": {x["id"]: 2 for x in two}}, **S2)
+check("a level-1 approver cannot decide level 2 in bulk either", r["summary"]["not_allowed"] == 2, r["summary"])
+r = call("POST", "/approvals/bulk", {"ids": [x["id"] for x in two], "decision": "approve", "comment": "Final", "levels": {x["id"]: 2 for x in two}}, **DA)
+check("the administrator completes level 2 in bulk (self-approval policy)", r["summary"]["approved"] == 2 and ids_for("zero_or_missing", "inactive") == sorted([p0, pn]), r["summary"])
+# Bulk reject keeps products active and the comment on each.
+for x in (p0, pn):
+    call("POST", f"/products/{x}/status", {"is_active": True}, **DA)
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [L1]}, **DA)
+call("POST", "/products/bulk-deactivate", {"ids": [p0, pn]}, **DA)
+two = [x for x in call("GET", "/approvals?status=pending&limit=100", **S1)["items"] if x["entity_id"] in (p0, pn)]
+r = call("POST", "/approvals/bulk", {"ids": [x["id"] for x in two], "decision": "reject", "comment": "Keep selling", "levels": {x["id"]: x["level"] for x in two}}, **S1)
+rej = [x for x in call("GET", "/approvals?status=rejected&limit=100", **S1)["items"] if x["id"] in [y["id"] for y in two]]
+check("bulk reject: both rejected, products still active, comment on each", r["summary"]["rejected"] == 2 and ids_for("zero_or_missing", "active") == sorted([p0, pn])
+      and all(x["comments"] == "Keep selling" for x in rej), r["summary"])
+# Unauthorised and invalid.
+r = call("POST", "/approvals/bulk", {"ids": [two[0]["id"]], "decision": "approve"}, token=C1["token"], branch=d_branch)
+check("a salesperson's bulk approval decides nothing", r["summary"]["approved"] == 0 and r["summary"]["advanced"] == 0, r["summary"])
+call("POST", "/approvals/bulk", {"ids": [], "decision": "approve"}, **S1, expect=400)
+call("POST", "/approvals/bulk", {"ids": [two[0]["id"]], "decision": "maybe"}, **S1, expect=400)
+call("POST", "/products/bulk-deactivate", {"ids": [p0]}, **S1, expect=403)
+check("bulk actions refuse empty, unknown and unauthorised requests", True)
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

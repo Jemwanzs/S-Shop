@@ -9,6 +9,17 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-10-29
+
+- **Find free and unpriced products** — Products → Price status now also filters *Zero price*, *Zero or missing price*
+  and *Above zero* (a price of 0 and no price stay different). (151, [module 6](modules/06-products.md))
+- **Deactivate several products at once** — tick products (or a whole page, or every matching product), review what
+  will happen to each, add a reason and confirm. With approval on, one request per product, the products stay active
+  until approved, and nothing is ever requested twice. (151)
+- **Approve or reject several requests at once** — tick requests in Approvals → Waiting, add one comment (saved on
+  every request) and confirm. Each request is still checked and decided on its own: levels are never skipped, and one
+  that someone else just handled is reported, not decided. (151, [module 15](modules/15-approvals.md))
+
 ## 2026-10-27 (evening)
 
 - **Several approvers per approval level** — each level of a workflow can name several roles and people (Administrator,

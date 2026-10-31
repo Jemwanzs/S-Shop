@@ -17,6 +17,12 @@ level ends the request.
   locked for the decision, so of two simultaneous clicks one decides and the other is refused. A decision for a level
   that has moved on is refused — it is never applied to the next level. The business action (deactivation, stock,
   transfer, refund…) runs once, in the same transaction as the final approval.
+- **The step, not only the level (roadmap 152).** The screen also sends the step it showed. If a workflow edit
+  replaced that step meanwhile, the decision is refused as *Request changed — open it again* (in bulk: outcome
+  `changed`), never reported as someone else's approval. *No action needed* notices name the real next level, show
+  the business's local time and never go to the requester; in bulk, next-level approvers get one notice per person.
+  The list of possible approvers is found among plausible people only (full access, the step's roles and people,
+  the branch manager, *Approve requests* holders), each still fully checked.
 - A requester can **never** approve their own request — **except a Tenant Administrator under the self-approval
   policy** (below) — and **nobody approves two levels** of the same request.
 - An Administrator may decide at any level. *Administrator* means a person whose **effective** permissions include full

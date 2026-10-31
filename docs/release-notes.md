@@ -9,6 +9,18 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-10-31
+
+- **Approvals and bulk actions, tightened** — if a workflow is changed while you have a request open, your decision is
+  refused as *Request changed* (open it again) instead of being applied to a step you did not see; *no action needed*
+  notices name the right next level, use the business's time zone and never go to the requester; next-level approvers
+  get one notice per bulk; a bulk item that fails says so plainly (details reach the owner's error alerts) and never
+  stops the rest; switching Tenant Administrator self-approval changes only that setting. (152,
+  [module 15](modules/15-approvals.md))
+- **Key rotation without a payment gap** — `DATA_ENCRYPTION_KEY` is now rotated in three deploys with
+  `DATA_ENCRYPTION_KEY_NEXT`, so M-Pesa keeps working while old and new versions overlap. (152,
+  [deployment](deployment-railway.md#rotating-credentials))
+
 ## 2026-10-29
 
 - **Find free and unpriced products** — Products → Price status now also filters *Zero price*, *Zero or missing price*

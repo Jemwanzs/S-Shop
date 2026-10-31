@@ -8,7 +8,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 
 ## Status board
 
-*Kept current with every shipped item — last updated 2026-10-21.* History stays below; this table is only what is
+*Kept current with every shipped item — last updated 2026-10-31.* History stays below; this table is only what is
 open now. Release history: [release-notes.md](release-notes.md).
 
 **Latest live:** 146 documentation workflow, 147 error alerting, 148 approval eligibility, 149 credential-rotation support
@@ -17,6 +17,7 @@ check passed, start-up clean (`stored credentials checked readable=6 rotated=0 u
 Railway's 20–22 October **security incident** had held every push since 2026-10-19 (builds paused, then Railway's
 GitHub App installations were reset; the owner deployed). **Also live:** 150 several approvers per level & Tenant Administrator self-approval (2026-10-27 21:44 UTC, `cab1eb7`; full CI suite — 1,060 checks — passed on `f5f6f0f`, deployed automatically 22:07).
 **Also live:** 151 zero/missing price filters, bulk product deactivation and bulk approvals (2026-10-29 10:14 UTC, `051df00`; full CI suite — 1,083 checks — passed; deployed automatically).
+**Also live:** 152 review fixes for approvals, bulk actions and two-phase key rotation (2026-10-31 13:45 UTC, `780e4e5`; full CI suite passed; deployed automatically; start-up `readable=6 rotated=0 unreadable=0`).
 **Next (critical, owner):** rotate credentials — runbook in
 [deployment-railway.md → Rotating credentials](deployment-railway.md#rotating-credentials).
 
@@ -818,7 +819,7 @@ server already refuses a unit sold twice, from another branch or another product
   ◐ item.
 
 **Review of 148–151** (code review after 151, no new brief):
-- ◐ **152. Approvals, bulk actions and key rotation hardened** — purpose: close the faults a code review of 148–151
+- ✅ **152. Approvals, bulk actions and key rotation hardened** — purpose: close the faults a code review of 148–151
   found, without changing what users can do. Scope: the self-approval policy is read from its one setting and fails
   closed on a bad value (never on unrelated settings); switching it changes only that setting; bulk results never show
   raw database errors (logged and alerted instead) and one failing lookup never stops a bulk; *no action needed*

@@ -61,10 +61,28 @@ pub fn decrypt(key: &[u8; 32], stored: &str) -> AppResult<String> {
     String::from_utf8(plain).map_err(|_| unreadable())
 }
 
-/// One stored value under key rotation: `Ok(None)` when the current key already reads it, `Ok(Some(new))` when only
-/// the previous key does (the value re-encrypted with the current key), `Err` when neither does.
+/// Roadmap 152: reads a stored value with any key of the ring (current, next, previous — see `Config::read_keys`).
+pub fn open(keys: &[&[u8; 32]], stored: &str) -> AppResult<String> {
+    let mut last = None;
+    for k in keys {
+        match decrypt(k, stored) {
+            Ok(v) => return Ok(v),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| AppError::Rule("Saved credentials can no longer be read — enter them again in Settings → M-Pesa".into())))
+}
+
+/// One stored value under key rotation: `Ok(None)` when the current key (or the coming one, `next`) already reads it,
+/// `Ok(Some(new))` when only the previous key does (the value re-encrypted with the current key), `Err` when none does.
+/// Values are never re-encrypted with `next`: that happens only once it has become the current key.
+#[cfg(test)]
 pub fn reencrypt(current: &[u8; 32], previous: Option<&[u8; 32]>, stored: &str) -> Result<Option<String>, ()> {
-    if decrypt(current, stored).is_ok() {
+    reencrypt_ring(current, None, previous, stored)
+}
+
+pub fn reencrypt_ring(current: &[u8; 32], next: Option<&[u8; 32]>, previous: Option<&[u8; 32]>, stored: &str) -> Result<Option<String>, ()> {
+    if decrypt(current, stored).is_ok() || next.is_some_and(|k| decrypt(k, stored).is_ok()) {
         return Ok(None);
     }
     let plain = previous.and_then(|k| decrypt(k, stored).ok()).ok_or(())?;
@@ -75,7 +93,7 @@ pub fn reencrypt(current: &[u8; 32], previous: Option<&[u8; 32]>, stored: &str) 
 /// callback token) is checked; values only the previous key (`DATA_ENCRYPTION_KEY_PREVIOUS`) reads are re-encrypted
 /// with the current key, row by row. Counts are logged (never values); unreadable values alert the platform owner.
 /// Safe to run on every start: values already under the current key are left alone.
-pub async fn rotate_stored(db: &sqlx::PgPool, current: &[u8; 32], previous: Option<&[u8; 32]>) -> anyhow::Result<(usize, usize, usize)> {
+pub async fn rotate_stored(db: &sqlx::PgPool, current: &[u8; 32], next: Option<&[u8; 32]>, previous: Option<&[u8; 32]>) -> anyhow::Result<(usize, usize, usize)> {
     let rows: Vec<(uuid::Uuid, String, String, String)> =
         sqlx::query_as("SELECT id, consumer_secret_enc, passkey_enc, callback_token_enc FROM mpesa_accounts").fetch_all(db).await?;
     let (mut readable, mut rotated, mut unreadable) = (0, 0, 0);
@@ -86,7 +104,7 @@ pub async fn rotate_stored(db: &sqlx::PgPool, current: &[u8; 32], previous: Opti
                 new.push(None); // not entered (e.g. no passkey) — nothing to rotate
                 continue;
             }
-            match reencrypt(current, previous, v) {
+            match reencrypt_ring(current, next, previous, v) {
                 Ok(None) => {
                     readable += 1;
                     new.push(None);
@@ -137,6 +155,23 @@ pub fn random_token() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_phase_rotation_never_leaves_a_running_instance_unable_to_read() {
+        let (old, new) = ([1u8; 32], [2u8; 32]);
+        let stored = encrypt(&old, "consumer-secret").unwrap();
+        // Phase A — deploy with NEXT = new: nothing is re-encrypted, and this instance can already read new values.
+        assert_eq!(reencrypt_ring(&old, Some(&new), None, &stored), Ok(None));
+        let phase_a = [&old, &new];
+        // Phase B — deploy with KEY = new, PREVIOUS = old: values move to the new key…
+        let moved = reencrypt_ring(&new, None, Some(&old), &stored).unwrap().expect("re-encrypted");
+        // …and the phase-A instance still running during the switch reads them (it knows NEXT).
+        assert_eq!(open(&phase_a, &moved).unwrap(), "consumer-secret");
+        // An instance from before phase A (old key only) would not — which is why phase A comes first.
+        assert!(open(&[&old], &moved).is_err());
+        // Phase C — PREVIOUS removed: the new key alone reads everything.
+        assert_eq!(open(&[&new], &moved).unwrap(), "consumer-secret");
+    }
 
     #[test]
     fn rotation_reencrypts_only_what_the_previous_key_reads() {

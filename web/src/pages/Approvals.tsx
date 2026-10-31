@@ -108,7 +108,7 @@ export default function Approvals() {
   };
   const decide = useMutation({
     // Roadmap 150: the level this person saw — if another approver decided it first, the server answers "Already handled".
-    mutationFn: () => api<unknown>(`/approvals/${deciding!.approval.id}/${deciding!.approve ? "approve" : "reject"}`, { body: { comments, level: deciding!.approval.level } }),
+    mutationFn: () => api<unknown>(`/approvals/${deciding!.approval.id}/${deciding!.approve ? "approve" : "reject"}`, { body: { comments, level: deciding!.approval.level, step_id: stepOf(deciding!.approval) } }),
     onSuccess: (res) => {
       const r = res as { status?: string; level?: number; levels?: number };
       toast.success(!deciding!.approve ? "Rejected" : r.status === "pending" ? `Approved — passed to level ${r.level} of ${r.levels}` : "Approved — action carried out");
@@ -296,11 +296,15 @@ interface BulkResult {
   items: { id: string; summary: string | null; outcome: string; message: string; level?: number; levels?: number }[];
 }
 
+/** Roadmap 152: the step the person is looking at, so a workflow change meanwhile is refused instead of applied. */
+const stepOf = (a: { level: number; steps: { id?: string | null }[] }) => a.steps[a.level - 1]?.id ?? undefined;
+
 const BULK_OUTCOME: Record<string, [Tone, string]> = {
   approved: ["success", "Approved — carried out"],
   advanced: ["info", "Approved this level — waits for the next"],
   rejected: ["danger", "Rejected"],
   already_handled: ["neutral", "Already handled"],
+  changed: ["warning", "Request changed — open it again"],
   not_allowed: ["warning", "Not allowed"],
   failed: ["danger", "Failed"],
 };
@@ -314,7 +318,7 @@ function BulkDecide({ decision, requests, onChange, onClose, onDone }: {
   const [result, setResult] = useState<BulkResult | null>(null);
   const send = useMutation({
     mutationFn: () => api<BulkResult>("/approvals/bulk", {
-      body: { ids: requests.map((r) => r.id), decision, comment: comment.trim(), levels: Object.fromEntries(requests.map((r) => [r.id, r.level])) },
+      body: { ids: requests.map((r) => r.id), decision, comment: comment.trim(), levels: Object.fromEntries(requests.map((r) => [r.id, r.level])), steps: Object.fromEntries(requests.flatMap((r) => (stepOf(r) ? [[r.id, stepOf(r)]] : []))) },
     }),
     onSuccess: setResult,
     onError: (e) => toast.error(e),

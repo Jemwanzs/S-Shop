@@ -817,6 +817,22 @@ server already refuses a unit sold twice, from another branch or another product
   refuses); every guide step names a screen or button that exists in the code; the Status board lists every open ⏳ /
   ◐ item.
 
+**Review of 148–151** (code review after 151, no new brief):
+- ◐ **152. Approvals, bulk actions and key rotation hardened** — purpose: close the faults a code review of 148–151
+  found, without changing what users can do. Scope: the self-approval policy is read from its one setting and fails
+  closed on a bad value (never on unrelated settings); switching it changes only that setting; bulk results never show
+  raw database errors (logged and alerted instead) and one failing lookup never stops a bulk; *no action needed*
+  notices name the real next level, use the business's time zone and never go to the requester; a decision carries the
+  step the approver saw, so a workflow edit meanwhile answers *Request changed* instead of *Already handled* or a
+  decision on a step they did not see; the approver search checks only plausible people (full access, the step's roles
+  and people, branch manager, *Approve requests* holders) — same answers, far fewer queries while rows are locked;
+  bulk next-level notices once per person; `DATA_ENCRYPTION_KEY_NEXT` for two-phase key rotation so the instance still
+  serving during a deploy can read what the new one writes.
+
+  Acceptance criteria: unit tests (policy SQL, two-phase rotation); smoke 148/150/151 sections pass unchanged; a
+  decision sent with a stale step is refused *Request changed*; a bulk item that fails shows the generic message;
+  the requester gets no *no action needed* notice; the runbook describes phases A–C.
+
 **Price filters & bulk operations** (brief *Zero/Missing Price Filters, Bulk Product Deactivation & Bulk Workflow Approvals*):
 - ✅ **151. Zero / missing price filters, bulk product deactivation, bulk approvals** — purpose: find unpriced and
   free products quickly, deactivate many at once, and decide many approval requests with one comment. Scope: price

@@ -4147,6 +4147,20 @@ it = next(x for x in call("GET", "/approvals?status=pending", **DA)["items"] if 
 check("a stale level-1 click is refused and never decides level 2", r["error"]["title"] == "Already handled" and it["level"] == 2 and len(it["decisions"]) == 1, it)
 call("POST", f"/approvals/{y150}/approve", {"comments": "level 2", "level": 2}, **DA)
 check("level 2 by the administrator completes it", call("GET", f"/products/{p148}", **DA)["product"]["is_active"] is False)
+# Roadmap 152: the requester is never told "no action needed" about their own request; a decision carries the step the
+# approver saw, so a workflow edit meanwhile is refused as "Request changed" (never "Already handled", never applied).
+check("the requester gets no 'no action needed' notice about their own request",
+      not any("no action needed" in n["title"] for n in call("GET", "/notifications?limit=50", **M)["items"]))
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [L1]}, **DA)
+call("POST", f"/products/{p148}/status", {"is_active": True}, **DA)
+w152 = call("POST", f"/products/{p148}/status", {"is_active": False}, **M)["approval_id"]
+seen = next(x for x in call("GET", "/approvals?status=pending", **S1)["items"] if x["id"] == w152)
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [{"approver_type": "admin"}]}, **DA)
+r = call("POST", f"/approvals/{w152}/approve", {"comments": "stale step", "level": 1, "step_id": seen["steps"][0]["id"]}, **S1, expect=422)
+it = next(x for x in call("GET", "/approvals?status=pending", **DA)["items"] if x["id"] == w152)
+check("a decision on a step the workflow replaced is refused as Request changed", r["error"]["title"] == "Request changed" and not it["decisions"], r)
+call("POST", f"/approvals/{w152}/approve", {"comments": "current step", "level": 1, "step_id": it["steps"][0]["id"]}, **DA)
+check("the current step is decided normally", call("GET", f"/products/{p148}", **DA)["product"]["is_active"] is False)
 # Tenant Administrator self-approval (on): explicit, recorded.
 call("PUT", "/settings/workflows/product.deactivate", {"enabled": True, "min_amount": None, "levels": [{"approver_type": "admin"}]}, **DA)
 call("POST", f"/products/{p148}/status", {"is_active": True}, **DA)

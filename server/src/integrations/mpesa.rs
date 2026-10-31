@@ -57,8 +57,9 @@ const ACCOUNT_COLS: &str = "id, kind, shortcode, till_number, account_reference,
 pub const SANDBOX_SHORTCODE: &str = "174379";
 
 fn creds_of(state: &AppState, a: AccountRow) -> AppResult<Creds> {
-    let key = &state.cfg.data_key.0;
-    let token = crate::secrets::decrypt(key, &a.callback_token_enc)?;
+    // Roadmap 152: read with every key of the ring, so a credential re-encrypted by a newer instance stays readable here.
+    let keys = state.cfg.read_keys();
+    let token = crate::secrets::open(&keys, &a.callback_token_enc)?;
     let production = a.environment == "production";
     let till = a.kind == "till";
     // Sandbox requests always use Safaricom's test shortcode as a Paybill; the business's own Till / Store / Paybill
@@ -74,8 +75,8 @@ fn creds_of(state: &AppState, a: AccountRow) -> AppResult<Creds> {
         account_id: Some(a.id),
         environment: a.environment.clone(),
         base_url: if production { state.cfg.daraja_production_url.clone() } else { state.cfg.daraja_sandbox_url.clone() },
-        consumer_secret: crate::secrets::decrypt(key, &a.consumer_secret_enc)?,
-        passkey: crate::secrets::decrypt(key, &a.passkey_enc)?,
+        consumer_secret: crate::secrets::open(&keys, &a.consumer_secret_enc)?,
+        passkey: crate::secrets::open(&keys, &a.passkey_enc)?,
         consumer_key: a.consumer_key,
         transaction_type: transaction_type.into(),
         party_b,

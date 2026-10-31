@@ -10,6 +10,9 @@ pub struct Config {
     /// Roadmap 149: the key being replaced (`DATA_ENCRYPTION_KEY_PREVIOUS`, set only while rotating): stored
     /// credentials it can read are re-encrypted with `data_key` at start-up.
     pub data_key_previous: Option<crate::secrets::DataKey>,
+    /// Roadmap 152: the key about to become current (`DATA_ENCRYPTION_KEY_NEXT`, phase A of a rotation): read with it,
+    /// never written with it — so an instance still running during the next deploy reads re-encrypted values.
+    pub data_key_next: Option<crate::secrets::DataKey>,
     /// Daraja base URLs (`MPESA_SANDBOX_URL` / `MPESA_PRODUCTION_URL` override them, e.g. for the test stand-in).
     pub daraja_sandbox_url: String,
     pub daraja_production_url: String,
@@ -258,6 +261,14 @@ fn var(key: &str) -> Option<String> {
 }
 
 impl Config {
+    /// Roadmap 152: every key stored credentials may be read with — current, then next, then previous.
+    pub fn read_keys(&self) -> Vec<&[u8; 32]> {
+        let mut keys = vec![&self.data_key.0];
+        keys.extend(self.data_key_next.as_ref().map(|k| &k.0));
+        keys.extend(self.data_key_previous.as_ref().map(|k| &k.0));
+        keys
+    }
+
     pub fn from_env() -> anyhow::Result<Self> {
         let jwt_secret = var("JWT_SECRET").ok_or_else(|| anyhow::anyhow!("JWT_SECRET must be set"))?;
         if jwt_secret.len() < 32 {
@@ -333,6 +344,10 @@ impl Config {
             port: var("PORT").and_then(|p| p.parse().ok()).unwrap_or(8080),
             data_key: crate::secrets::DataKey(crate::secrets::key_from_env(var("DATA_ENCRYPTION_KEY").as_deref(), &jwt_secret)?),
             data_key_previous: match var("DATA_ENCRYPTION_KEY_PREVIOUS").filter(|k| !k.trim().is_empty()) {
+                Some(k) => Some(crate::secrets::DataKey(crate::secrets::key_from_env(Some(&k), "")?)),
+                None => None,
+            },
+            data_key_next: match var("DATA_ENCRYPTION_KEY_NEXT").filter(|k| !k.trim().is_empty()) {
                 Some(k) => Some(crate::secrets::DataKey(crate::secrets::key_from_env(Some(&k), "")?)),
                 None => None,
             },

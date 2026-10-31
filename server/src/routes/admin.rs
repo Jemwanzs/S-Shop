@@ -489,15 +489,19 @@ async fn put_approval_policy(State(state): State<AppState>, ctx: Ctx, Json(b): J
     if !admin {
         return Err(AppError::Forbidden("Only a Tenant Administrator of this business changes the self-approval policy".into()));
     }
-    let raw: Value = sqlx::query_scalar("SELECT settings FROM tenants WHERE id = $1 FOR UPDATE").bind(ctx.tenant_id).fetch_one(&mut *tx).await?;
-    let mut s: TenantSettings = serde_json::from_value(raw).unwrap_or_default();
-    let before = s.security.admin_self_approval;
-    s.security.admin_self_approval = b.admin_self_approval;
-    sqlx::query("UPDATE tenants SET settings = $2 WHERE id = $1")
-        .bind(ctx.tenant_id)
-        .bind(serde_json::to_value(&s).map_err(|e| AppError::Other(e.into()))?)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query("SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE").bind(ctx.tenant_id).execute(&mut *tx).await?;
+    let before = workflow::self_approval_policy(&mut tx, ctx.tenant_id).await?;
+    // Only this one setting is written — the rest of the business's settings are never rewritten here.
+    sqlx::query(
+        "UPDATE tenants SET settings = jsonb_set(
+                 COALESCE(settings, '{}'::jsonb) || jsonb_build_object('security', COALESCE(settings->'security', '{}'::jsonb)),
+                 '{security,admin_self_approval}', to_jsonb($2::boolean))
+          WHERE id = $1",
+    )
+    .bind(ctx.tenant_id)
+    .bind(b.admin_self_approval)
+    .execute(&mut *tx)
+    .await?;
     audit::record(
         &mut tx,
         &ctx,

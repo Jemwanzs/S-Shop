@@ -372,8 +372,7 @@ pub async fn eligibility_for(
     if own {
         let allowed = match action {
             Some(a) if tenant_admin && !PROTECTED_FROM_SELF_APPROVAL.contains(&a) => {
-                let s: Option<serde_json::Value> = sqlx::query_scalar("SELECT settings FROM tenants WHERE id = $1").bind(tenant_id).fetch_optional(&mut *conn).await?;
-                s.and_then(|v| serde_json::from_value::<crate::settings::TenantSettings>(v).ok()).unwrap_or_default().security.admin_self_approval
+                self_approval_policy(conn, tenant_id).await?
             }
             _ => false,
         };
@@ -410,6 +409,18 @@ pub async fn eligibility_for(
     Ok(if level.any_of().iter().all(|a| a.approver_type == "branch_manager") && branch_id.is_none() { Why::NoPermission } else { Why::NotDesignated })
 }
 
+/// The business's Tenant Administrator self-approval policy, read from its one setting (never by parsing the whole
+/// settings document). Not set → the documented default (on); set to anything but a boolean → off (fails closed).
+pub async fn self_approval_policy(conn: &mut PgConnection, tenant_id: Uuid) -> AppResult<bool> {
+    Ok(sqlx::query_scalar::<_, Option<bool>>(SELF_APPROVAL_SQL).bind(tenant_id).fetch_optional(&mut *conn).await?.flatten().unwrap_or(false))
+}
+
+pub const SELF_APPROVAL_SQL: &str = "SELECT CASE
+        WHEN jsonb_typeof(settings->'security'->'admin_self_approval') = 'boolean' THEN (settings->'security'->>'admin_self_approval')::boolean
+        WHEN settings->'security' ? 'admin_self_approval' THEN false
+        ELSE true END
+      FROM tenants WHERE id = $1";
+
 /// Who a step is assigned to, in words: "Administrator", the role's or person's name, "Branch manager".
 pub async fn step_label(conn: &mut PgConnection, step: Option<&Level>) -> AppResult<String> {
     let Some(s) = step else { return Ok("Anyone who may approve requests".into()) };
@@ -442,10 +453,32 @@ pub async fn approvers_for(
     requested_by: Option<Uuid>,
     decided_by: &[Uuid],
 ) -> AppResult<Vec<Uuid>> {
-    let candidates: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE tenant_id = $1 AND is_active ORDER BY name")
-        .bind(tenant_id)
-        .fetch_all(&mut *conn)
-        .await?;
+    // Roadmap 152: only people who could possibly qualify are checked — full access, the step's roles and people, the
+    // branch manager (or all-branch approvers), anyone holding *Approve requests* for a step without a named approver.
+    // Each candidate still goes through the full eligibility check, so the answer is the same as checking everyone.
+    let list = step.map(|s| s.any_of()).unwrap_or_default();
+    let roles: Vec<Uuid> = list.iter().filter_map(|a| a.approver_role_id.filter(|_| a.approver_type == "role")).collect();
+    let users: Vec<Uuid> = list.iter().filter_map(|a| a.approver_user_id.filter(|_| a.approver_type == "user")).collect();
+    let manager = list.iter().any(|a| a.approver_type == "branch_manager");
+    let open = step.is_none() || (manager && branch_id.is_none());
+    let candidates: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
+          WHERE u.tenant_id = $1 AND u.is_active AND (
+                '*' = ANY(effective_permissions(r.permissions, u.extra_permissions))
+             OR u.role_id = ANY($2) OR u.id = ANY($3)
+             OR ($4 AND (u.id = (SELECT manager_id FROM branches WHERE id = $5)
+                         OR (u.all_branches AND 'approvals.approve' = ANY(effective_permissions(r.permissions, u.extra_permissions)))))
+             OR ($6 AND 'approvals.approve' = ANY(effective_permissions(r.permissions, u.extra_permissions))))
+          ORDER BY u.name",
+    )
+    .bind(tenant_id)
+    .bind(&roles)
+    .bind(&users)
+    .bind(manager && branch_id.is_some())
+    .bind(branch_id)
+    .bind(open)
+    .fetch_all(&mut *conn)
+    .await?;
     let mut out = Vec::new();
     for u in candidates {
         if eligibility_for(conn, tenant_id, action, step, branch_id, requested_by, u, decided_by).await?.may_decide() {

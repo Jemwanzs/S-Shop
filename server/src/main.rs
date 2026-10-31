@@ -162,9 +162,9 @@ async fn serve() -> anyhow::Result<()> {
     // Roadmap 149: re-encrypt stored credentials after a `DATA_ENCRYPTION_KEY` rotation (and report unreadable ones).
     {
         let cfg = &state.cfg;
-        match secrets::rotate_stored(&state.db, &cfg.data_key.0, cfg.data_key_previous.as_ref().map(|k| &k.0)).await {
+        match secrets::rotate_stored(&state.db, &cfg.data_key.0, cfg.data_key_next.as_ref().map(|k| &k.0), cfg.data_key_previous.as_ref().map(|k| &k.0)).await {
             Ok((readable, rotated, unreadable)) => {
-                tracing::info!(readable, rotated, unreadable, previous_key = cfg.data_key_previous.is_some(), "stored credentials checked");
+                tracing::info!(readable, rotated, unreadable, previous_key = cfg.data_key_previous.is_some(), next_key = cfg.data_key_next.is_some(), "stored credentials checked");
                 if unreadable > 0 {
                     alerts::report(
                         "health",

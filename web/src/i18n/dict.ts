@@ -3460,4 +3460,6 @@ export const DICT: Record<string, [string, string, string]> = {
   "e.g. Products confirmed for deactivation following the catalogue review": ["mf. Bidhaa zimethibitishwa kuzimwa baada ya ukaguzi wa katalogi", "p. ex. Produits confirmés pour désactivation après la revue du catalogue", "مثال: تأكيد إلغاء تفعيل المنتجات بعد مراجعة الكتالوج"],
   "request": ["ombi", "demande", "طلب"],
   "requests": ["maombi", "demandes", "طلبات"],
+  // ── Roadmap 152 ──
+  "Request changed — open it again": ["Ombi limebadilika — lifungue tena", "Demande modifiée — rouvrez-la", "تغيّر الطلب — افتحه مجددًا"],
 };

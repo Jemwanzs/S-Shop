@@ -48,7 +48,8 @@ the next `railway config apply` deletes it (see above).
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (reference variable) |
 | `JWT_SECRET` | 48+ random characters (keep it stable — changing it signs everyone out) |
 | `DATA_ENCRYPTION_KEY` | 32 random bytes as 64 hex characters (`openssl rand -hex 32`): encrypts the credentials businesses store in S'Shop (M-Pesa). Required in production; change it only as in *Rotating credentials* |
-| `DATA_ENCRYPTION_KEY_PREVIOUS` | Only while rotating `DATA_ENCRYPTION_KEY`: the old value, so stored credentials are re-encrypted at start-up; delete it afterwards |
+| `DATA_ENCRYPTION_KEY_NEXT` | Only during phase A of rotating `DATA_ENCRYPTION_KEY`: the new value, so the running app can already read credentials encrypted with it; removed in phase B |
+| `DATA_ENCRYPTION_KEY_PREVIOUS` | Only while rotating `DATA_ENCRYPTION_KEY` (phase B): the old value, so stored credentials are re-encrypted at start-up; delete it afterwards |
 | `BOOTSTRAP_BUSINESS_NAME` | Your business name (first start only) |
 | `BOOTSTRAP_ADMIN_EMAIL` | First administrator email |
 | `BOOTSTRAP_ADMIN_PIN` | First administrator PIN — **set it yourself**, then change it in the app after first sign-in |
@@ -91,12 +92,17 @@ Order (the app code for step 3 must be live first — roadmap 149):
      the STK passkeys (`MPESA_STK_PASSKEY`, `MPESA_PROD_STK_PASSKEY`) are issued by Safaricom — ask Safaricom for a new
      production passkey; check Settings → M-Pesa → *Test OAuth connection*.
    - `RAILWAY_API_TOKEN` — Railway → Account → Tokens: create a new one, delete the old one.
-3. **`DATA_ENCRYPTION_KEY`** (encrypts the businesses' M-Pesa credentials in the database):
-   set `DATA_ENCRYPTION_KEY_PREVIOUS` = the current value and `DATA_ENCRYPTION_KEY` = a new 64-hex value **in the same
-   change**, deploy. At start the app re-encrypts every stored credential and logs
-   `stored credentials checked readable=… rotated=… unreadable=0`; after the next start it shows `rotated=0`.
-   Then delete `DATA_ENCRYPTION_KEY_PREVIOUS` and deploy once more (`readable=…, unreadable=0`). If `unreadable` is
-   above 0 the owner is alerted (Errors & alerts) — keep the previous key set until it is 0.
+3. **`DATA_ENCRYPTION_KEY`** (encrypts the businesses' M-Pesa credentials in the database) — in **three deploys**,
+   so the old instance that keeps serving during a deploy can always read what the new one writes (152):
+   - **A.** Generate a new 64-hex value and set it as `DATA_ENCRYPTION_KEY_NEXT`; deploy. Nothing is re-encrypted
+     (`next_key=true` in the start-up log); the app can now read values under either key.
+   - **B.** In **one change**: `DATA_ENCRYPTION_KEY_PREVIOUS` = the current value, `DATA_ENCRYPTION_KEY` = the new
+     value, delete `DATA_ENCRYPTION_KEY_NEXT`; deploy. At start the app re-encrypts every stored credential and logs
+     `stored credentials checked readable=… rotated=… unreadable=0`. Restart once more: it must show `rotated=0`.
+   - **C.** Delete `DATA_ENCRYPTION_KEY_PREVIOUS` and deploy once more (`readable=…, unreadable=0`).
+
+   If `unreadable` is above 0 the owner is alerted (Errors & alerts) — keep the previous key set until it is 0.
+   Skipping phase A still works but M-Pesa payments can fail for the minute both instances run.
 4. **`JWT_SECRET`** — a new value of 48+ characters. Everyone is signed out and signs in again (Quick PIN devices and
    Face ID keep working after a full sign-in). Stored credentials are unaffected because `DATA_ENCRYPTION_KEY` is set.
 5. **Database password** — Railway's guide *Rotate API Keys and Database Credentials Without Downtime*: a new database
@@ -104,8 +110,8 @@ Order (the app code for step 3 must be live first — roadmap 149):
    `${{Postgres.DATABASE_URL}}`, so it follows. The database has no public network access (no TCP proxy) — keep it so.
 6. **Businesses' own M-Pesa credentials** (stored in the database, encrypted): not stored as Railway variables;
    rotating them is recommended for the platform-owned business (Pablo Niche) and optional for others.
-7. Every new variable is also added to `.railway/railway.ts` as `preserve()` (e.g. `DATA_ENCRYPTION_KEY_PREVIOUS`
-   while it exists, removed again afterwards) — otherwise a later `railway config apply` deletes it.
+7. Every new variable is also added to `.railway/railway.ts` as `preserve()` (e.g. `DATA_ENCRYPTION_KEY_NEXT` and
+   `DATA_ENCRYPTION_KEY_PREVIOUS` while they exist, removed again afterwards) — otherwise a later `railway config apply` deletes it.
 
 ## 3. First deploy checklist
 

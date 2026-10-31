@@ -233,6 +233,9 @@ struct DecisionBody {
     /// the next level.
     #[serde(default)]
     level: Option<i32>,
+    /// Roadmap 152: the step the approver was looking at (detects a workflow change, not only a decided level).
+    #[serde(default)]
+    step_id: Option<Uuid>,
 }
 
 async fn load_pending(conn: &mut sqlx::PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<ApprovalRow> {
@@ -244,7 +247,7 @@ async fn load_pending(conn: &mut sqlx::PgConnection, ctx: &Ctx, id: Uuid) -> App
         .ok_or(AppError::NotFound("Approval"))?;
     if row.status != "pending" {
         let by = row.decided_by_name.clone().unwrap_or_else(|| "someone".into());
-        let when = row.decided_at.map(|d| d.format("%d %b %Y %H:%M UTC").to_string()).unwrap_or_default();
+        let when = row.decided_at.map(|d| d.with_timezone(&ctx.tz).format("%d %b %Y %H:%M").to_string()).unwrap_or_default();
         let what = match row.status.as_str() {
             "cancelled" => "withdrawn".to_string(),
             s => s.to_string(),
@@ -254,20 +257,41 @@ async fn load_pending(conn: &mut sqlx::PgConnection, ctx: &Ctx, id: Uuid) -> App
     Ok(row)
 }
 
-/// Roadmap 150: first action wins — refuse a decision for a level that another approver already decided.
-fn ensure_same_level(a: &ApprovalRow, seen: Option<i32>) -> AppResult<()> {
-    match seen {
-        Some(level) if level != a.level => {
-            let last = a.decisions.as_array().and_then(|d| d.iter().rev().find(|x| x["level"].as_i64() == Some(level as i64)));
-            let who = last.and_then(|d| d["user_name"].as_str()).unwrap_or("another approver");
-            let when = last.and_then(|d| d["at"].as_str()).map(|s| s.chars().take(16).collect::<String>().replace('T', " ")).unwrap_or_default();
+/// Roadmap 150/152: first decision wins — the person decides the step they were looking at. Refused when that step was
+/// decided meanwhile (*Already handled*, who and when) or when the request changed under them through a workflow edit
+/// (*Request changed* — never presented as someone else's approval, and never applied to a step they did not see).
+fn ensure_same_level(a: &ApprovalRow, seen: Option<i32>, seen_step: Option<Uuid>, tz: chrono_tz::Tz) -> AppResult<()> {
+    let current_step = a.step().and_then(|s| s.id);
+    let same_level = seen.is_none_or(|l| l == a.level);
+    let same_step = seen_step.is_none() || current_step.is_none() || seen_step == current_step;
+    if same_level && same_step {
+        return Ok(());
+    }
+    let decided = a.decisions.as_array().and_then(|d| {
+        d.iter().rev().find(|x| match seen_step {
+            Some(s) => x["step_id"].as_str() == Some(&s.to_string()),
+            None => seen.is_some_and(|l| x["level"].as_i64() == Some(l as i64)),
+        })
+    });
+    match decided {
+        Some(d) => {
+            let who = d["user_name"].as_str().unwrap_or("another approver");
+            let when = local_time(d["at"].as_str(), tz);
             Err(crate::error::refused(
                 "Already handled",
-                format!("Level {level} was already approved by {who} {when} UTC — the request now waits for level {} of {}", a.level, a.total()),
+                format!("That level was already {} by {who} {when} — the request now waits for level {} of {}", d["decision"].as_str().unwrap_or("decided"), a.level, a.total()),
             ))
         }
-        _ => Ok(()),
+        None => Err(crate::error::refused(
+            "Request changed",
+            "This request changed since you opened it (its workflow was updated) — open it again to see who decides it now",
+        )),
     }
+}
+
+/// A stored UTC timestamp in the business's time zone, for messages people read.
+fn local_time(at: Option<&str>, tz: chrono_tz::Tz) -> String {
+    at.and_then(|s| DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&tz).format("%d %b %Y %H:%M").to_string()).unwrap_or_default()
 }
 
 async fn ensure_can_decide(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &ApprovalRow) -> AppResult<workflow::Why> {
@@ -310,7 +334,8 @@ async fn decision_context(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &Approval
 }
 
 /// Roadmap 150: the other approvers of a level are told it was handled — by whom, when, and what happens next.
-async fn notify_handled(state: &AppState, tenant_id: Uuid, a: &ApprovalRow, others: &[Uuid], by: &str, outcome: &str) {
+#[allow(clippy::too_many_arguments)]
+async fn notify_handled(state: &AppState, tenant_id: Uuid, a: &ApprovalRow, others: &[Uuid], by: &str, outcome: &str, next: Option<i32>, tz: chrono_tz::Tz) {
     if others.is_empty() {
         return;
     }
@@ -320,13 +345,13 @@ async fn notify_handled(state: &AppState, tenant_id: Uuid, a: &ApprovalRow, othe
         "approved" => format!("{label} approved — no action needed"),
         _ => format!("{label}: level {} of {} approved — no action needed", a.level, a.total()),
     };
-    let next = match outcome {
+    let next_text = match outcome {
         "rejected" => "The request is closed.".to_string(),
         "approved" => "The request is fully approved and carried out.".to_string(),
-        _ => format!("It now waits for level {} of {}.", a.level + 1, a.total()),
+        _ => format!("It now waits for level {} of {}.", next.unwrap_or(a.level + 1), a.total()),
     };
     let verdict = if outcome == "rejected" { "rejected" } else { "approved" };
-    let body = format!("{} — {verdict} by {by} at {} UTC. {next} No further action is required from you.", a.summary, Utc::now().format("%d %b %H:%M"));
+    let body = format!("{} — {verdict} by {by} at {}. {next_text} No further action is required from you.", a.summary, Utc::now().with_timezone(&tz).format("%d %b %H:%M"));
     notify::to_users(state, tenant_id, others, Note::new("approval_handled", title, body, "/approvals").dedupe(format!("handled:{}:{}", a.id, a.level))).await;
 }
 
@@ -336,7 +361,7 @@ fn action_label(action: &str) -> &'static str {
 
 async fn approve(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, body: Option<Json<DecisionBody>>) -> AppResult<Json<Value>> {
     let body = body.map(|b| b.0).unwrap_or_default();
-    Ok(Json(approve_one(&state, &ctx, id, &body.comments, body.level, None).await?.value))
+    Ok(Json(approve_one(&state, &ctx, id, &body.comments, body.level, body.step_id, None).await?.value))
 }
 
 /// What one decision did — for the response and, in a bulk decision, for one summary notification per person.
@@ -355,17 +380,17 @@ pub struct Decided {
 /// the person saw (first decision wins), eligibility (maker-checker, self-approval policy, approvers of the level),
 /// the request row locked. `bulk`: the bulk operation it belongs to (recorded on the decision and in the audit trail;
 /// notifications are then sent once per person by the caller).
-pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, level: Option<i32>, bulk: Option<Uuid>) -> AppResult<Decided> {
+pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, level: Option<i32>, step_id: Option<Uuid>, bulk: Option<Uuid>) -> AppResult<Decided> {
     let quiet = bulk.is_some();
     let mut tx = state.db.begin().await?;
     let a = load_pending(&mut tx, ctx, id).await?;
-    ensure_same_level(&a, level)?;
+    ensure_same_level(&a, level, step_id, ctx.tz)?;
     let why = ensure_can_decide(&mut tx, ctx, &a).await?;
     // The other people this level was assigned to (told it was handled; never asked again).
     let others: Vec<Uuid> = workflow::approvers_for(&mut tx, ctx.tenant_id, Some(&a.action), a.step(), a.branch_id, a.requested_by, &a.decided_by())
         .await?
         .into_iter()
-        .filter(|u| *u != ctx.user_id)
+        .filter(|u| *u != ctx.user_id && Some(*u) != a.requested_by)
         .collect();
     let total = a.total();
     // The next step still needing a decision (steps approved earlier out of order are not asked again).
@@ -399,7 +424,7 @@ pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, 
         let mut moved = a.clone();
         moved.level = next;
         if !quiet {
-            notify_handled(state, ctx.tenant_id, &a, &others, &ctx.name, "level").await;
+            notify_handled(state, ctx.tenant_id, &a, &others, &ctx.name, "level", Some(next), ctx.tz).await;
             notify_level(state, ctx.tenant_id, &moved, &decided, "").await;
             if let Some(requester) = a.requested_by {
                 notify::to_users(
@@ -453,7 +478,7 @@ pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, 
 
     if !quiet {
         notify_requester(state, ctx, &a, true, comments).await;
-        notify_handled(state, ctx.tenant_id, &a, &others, &ctx.name, "approved").await;
+        notify_handled(state, ctx.tenant_id, &a, &others, &ctx.name, "approved", None, ctx.tz).await;
     }
     state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "approved" }));
     Ok(Decided { value: json!({ "ok": true, "status": "approved" }), summary: a.summary.clone(), requester: a.requested_by, others, moved: None, decided: Vec::new() })
@@ -461,20 +486,20 @@ pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, 
 
 async fn reject(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, body: Option<Json<DecisionBody>>) -> AppResult<Json<Value>> {
     let body = body.map(|b| b.0).unwrap_or_default();
-    Ok(Json(reject_one(&state, &ctx, id, &body.comments, body.level, None).await?.value))
+    Ok(Json(reject_one(&state, &ctx, id, &body.comments, body.level, body.step_id, None).await?.value))
 }
 
 /// One rejection — the same checks as [`approve_one`].
-pub async fn reject_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, level: Option<i32>, bulk: Option<Uuid>) -> AppResult<Decided> {
+pub async fn reject_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, level: Option<i32>, step_id: Option<Uuid>, bulk: Option<Uuid>) -> AppResult<Decided> {
     let quiet = bulk.is_some();
     let mut tx = state.db.begin().await?;
     let a = load_pending(&mut tx, ctx, id).await?;
-    ensure_same_level(&a, level)?;
+    ensure_same_level(&a, level, step_id, ctx.tz)?;
     let why = ensure_can_decide(&mut tx, ctx, &a).await?;
     let others: Vec<Uuid> = workflow::approvers_for(&mut tx, ctx.tenant_id, Some(&a.action), a.step(), a.branch_id, a.requested_by, &a.decided_by())
         .await?
         .into_iter()
-        .filter(|u| *u != ctx.user_id)
+        .filter(|u| *u != ctx.user_id && Some(*u) != a.requested_by)
         .collect();
     on_closed_without_approval(&mut tx, ctx, &a, "rejected").await?;
     sqlx::query("UPDATE approvals SET status='rejected', decided_by=$2, decided_at=now(), comments=$3, decisions = decisions || $4 WHERE id=$1 AND tenant_id = $5")
@@ -496,7 +521,7 @@ pub async fn reject_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, l
     tx.commit().await?;
     if !quiet {
         notify_requester(state, ctx, &a, false, comments).await;
-        notify_handled(state, ctx.tenant_id, &a, &others, &ctx.name, "rejected").await;
+        notify_handled(state, ctx.tenant_id, &a, &others, &ctx.name, "rejected", None, ctx.tz).await;
     }
     state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "rejected" }));
     Ok(Decided { value: json!({ "ok": true, "status": "rejected" }), summary: a.summary.clone(), requester: a.requested_by, others, moved: None, decided: Vec::new() })
@@ -512,6 +537,22 @@ struct BulkBody {
     /// The level each request showed when it was selected (first decision wins, per request).
     #[serde(default)]
     levels: HashMap<Uuid, i32>,
+    /// Roadmap 152: the step each request showed when it was selected.
+    #[serde(default)]
+    steps: HashMap<Uuid, Uuid>,
+}
+
+/// Roadmap 152: what a bulk item reports when it fails unexpectedly — never the raw database or internal error (it is
+/// logged and reaches the platform owner's error alerts instead).
+pub fn bulk_failure(e: &AppError, what: &str) -> String {
+    match e {
+        AppError::Db(_) | AppError::Other(_) => {
+            tracing::error!(error = %e, "{what} failed");
+            crate::alerts::report("server", format!("{what} failed"), e.to_string(), "POST", "bulk");
+            "Something went wrong with this one — try it again on its own".into()
+        }
+        other => other.to_string(),
+    }
 }
 
 const BULK_MAX: usize = 200;
@@ -540,13 +581,21 @@ async fn bulk(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkBody>) 
     let mut to_others: HashMap<Uuid, usize> = HashMap::new();
     let mut moved: Vec<(ApprovalRow, Vec<Uuid>)> = Vec::new();
     for id in ids {
+        // A lookup failure here never stops the bulk (decisions already made keep their audit and notifications).
         let summary: Option<String> = sqlx::query_scalar("SELECT summary FROM approvals WHERE id = $1 AND tenant_id = $2")
             .bind(id)
             .bind(ctx.tenant_id)
             .fetch_optional(&state.db)
-            .await?;
+            .await
+            .ok()
+            .flatten();
         let level = b.levels.get(&id).copied();
-        let result = if approve { approve_one(&state, &ctx, id, &comment, level, Some(bulk_ref)).await } else { reject_one(&state, &ctx, id, &comment, level, Some(bulk_ref)).await };
+        let step = b.steps.get(&id).copied();
+        let result = if approve {
+            approve_one(&state, &ctx, id, &comment, level, step, Some(bulk_ref)).await
+        } else {
+            reject_one(&state, &ctx, id, &comment, level, step, Some(bulk_ref)).await
+        };
         let (outcome, message, extra) = match result {
             Ok(d) => {
                 let status = d.value["status"].as_str().unwrap_or_default().to_string();
@@ -575,9 +624,9 @@ async fn bulk(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkBody>) 
                 }
                 (outcome, String::new(), d.value)
             }
-            Err(AppError::Refused { title, message }) if title == "Already handled" => {
+            Err(AppError::Refused { title, message }) if title == "Already handled" || title == "Request changed" => {
                 handled += 1;
-                ("already_handled", message, Value::Null)
+                (if title == "Already handled" { "already_handled" } else { "changed" }, message, Value::Null)
             }
             Err(AppError::Forbidden(m)) => {
                 refused += 1;
@@ -589,7 +638,7 @@ async fn bulk(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkBody>) 
             }
             Err(e) => {
                 failed += 1;
-                ("failed", e.to_string(), Value::Null)
+                ("failed", bulk_failure(&e, "Bulk decision"), Value::Null)
             }
         };
         items.push(json!({ "id": id, "summary": summary, "outcome": outcome, "message": message, "level": extra.get("level"), "levels": extra.get("levels") }));
@@ -621,13 +670,35 @@ async fn bulk(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkBody>) 
             &state,
             ctx.tenant_id,
             &[*user],
-            Note::new("approval_handled", format!("{n} request(s) {verb} by {} — no action needed", ctx.name), format!("Handled together at {} UTC.", Utc::now().format("%d %b %H:%M")), "/approvals")
+            Note::new("approval_handled", format!("{n} request(s) {verb} by {} — no action needed", ctx.name), format!("Handled together at {}.", Utc::now().with_timezone(&ctx.tz).format("%d %b %H:%M")), "/approvals")
                 .dedupe(format!("bulk:{bulk_ref}:others")),
         )
         .await;
     }
+    // Next-level approvers: one notice per person ("N requests waiting for you"); a moved request nobody can decide
+    // gets the usual "nobody can approve" notice.
+    let mut next_up: HashMap<Uuid, usize> = HashMap::new();
     for (m, decided) in &moved {
-        notify_level(&state, ctx.tenant_id, m, decided, "").await;
+        let users = match state.db.acquire().await {
+            Ok(mut conn) => workflow::approvers_for(&mut conn, ctx.tenant_id, Some(&m.action), m.step(), m.branch_id, m.requested_by, decided).await.unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+        if users.is_empty() {
+            notify_level(&state, ctx.tenant_id, m, decided, "").await;
+        }
+        for u in users {
+            *next_up.entry(u).or_default() += 1;
+        }
+    }
+    for (user, n) in &next_up {
+        notify::to_users(
+            &state,
+            ctx.tenant_id,
+            &[*user],
+            Note::new("approval_pending", format!("{n} request(s) waiting for your approval (next level)"), format!("Approved at the previous level by {}", ctx.name), "/approvals")
+                .dedupe(format!("bulk:{bulk_ref}:next")),
+        )
+        .await;
     }
     Ok(Json(json!({
         "bulk_ref": bulk_ref,

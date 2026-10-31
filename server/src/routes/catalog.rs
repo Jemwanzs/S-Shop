@@ -235,11 +235,20 @@ async fn bulk_deactivate(State(state): State<AppState>, ctx: Ctx, Json(b): Json<
     let mut approvals: Vec<Uuid> = Vec::new();
     let (mut done, mut pending, mut inactive, mut waiting, mut failed) = (0, 0, 0, 0, 0);
     for id in ids {
-        let row: Option<(String, bool)> = sqlx::query_as("SELECT name, is_active FROM products WHERE id = $1 AND tenant_id = $2")
+        // A lookup failure never stops the bulk (products already handled keep their audit and notifications).
+        let row: Option<(String, bool)> = match sqlx::query_as("SELECT name, is_active FROM products WHERE id = $1 AND tenant_id = $2")
             .bind(id)
             .bind(ctx.tenant_id)
             .fetch_optional(&state.db)
-            .await?;
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                failed += 1;
+                items.push(json!({ "id": id, "name": null, "outcome": "failed", "message": super::approvals::bulk_failure(&AppError::Db(e), "Bulk deactivation") }));
+                continue;
+            }
+        };
         let Some((name, active)) = row else {
             failed += 1;
             items.push(json!({ "id": id, "name": null, "outcome": "failed", "message": "Product not found" }));
@@ -266,7 +275,7 @@ async fn bulk_deactivate(State(state): State<AppState>, ctx: Ctx, Json(b): Json<
             }
             Err(e) => {
                 failed += 1;
-                items.push(json!({ "id": id, "name": name, "outcome": "failed", "message": e.to_string() }));
+                items.push(json!({ "id": id, "name": name, "outcome": "failed", "message": super::approvals::bulk_failure(&e, "Bulk deactivation") }));
             }
         }
     }

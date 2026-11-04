@@ -2027,6 +2027,81 @@ check("…the security policy allows Google's script only for this website", "go
 check("…verification codes are not in the app's data", "abcDEF123" not in json.dumps(call("GET", f"/site?slug={dk_slug}", **PUB)))
 call("PUT", "/website/draft", {"config": _vc}, **T2)
 call("POST", "/website/publish", {}, **T2)
+# Roadmap 161: each website's own favicon.
+def fav_png(size, marker=0):
+    import struct, zlib
+    def chunk(k, d):
+        return struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d) & 0xffffffff)
+    raw = b"".join(b"\x00" + bytes([marker, 100, 200, 255]) * size for _ in range(size))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+def fav_upload(fields, token, expect=200):
+    boundary = "----sshop" + uuid.uuid4().hex
+    body = b""
+    for name, data in fields.items():
+        body += f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{name}.png"\r\nContent-Type: image/png\r\n\r\n'.encode() + data + b"\r\n"
+    body += f"--{boundary}--\r\n".encode()
+    req = urllib.request.Request(BASE + "/api/website/favicon", data=body, method="POST")
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    if token:
+        req.add_header("Authorization", "Bearer " + token)
+    req.add_header("X-User-Activity", "1")
+    req.add_header("Idempotency-Key", str(uuid.uuid4()))
+    try:
+        with urllib.request.urlopen(req) as r:
+            status, payload = r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        status, payload = e.code, json.loads(e.read() or b"{}")
+    assert status == expect, f"favicon upload {status}: {payload}"
+    return payload
+FAV_SIZES = (16, 32, 48, 180, 192, 512)
+good_set = lambda marker=0: {f"s{n}": fav_png(n, marker) for n in FAV_SIZES}
+_, _, before_fav = crawl(sroot)
+check("roadmap 161: before a favicon: the business's own letter or logo, never S'Shop's icon", "/favicon" not in before_fav.split("<title>")[0] and "favicon-32" not in before_fav and ('image/svg+xml' in before_fav or "/logo" in before_fav))
+fav_upload(good_set(), None, expect=401)
+r = fav_upload({**good_set(), "s32": b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'}, t2["token"], expect=422)
+check("an SVG or anything else that is not a PNG is refused", "not a valid PNG" in r["error"]["message"], r)
+r = fav_upload({**good_set(), "s32": fav_png(64)}, t2["token"], expect=422)
+check("an image of the wrong size is refused", "32 × 32" in r["error"]["message"], r)
+wr_mail2 = f"nodesign{suffix.lower()}@sshop.test"
+nd_role = call("POST", "/roles", {"name": f"No design {suffix}", "permissions": ["website.seo", "website.view"]}, **T2B)["id"]
+call("POST", "/users", {"name": f"No design {suffix}", "email": wr_mail2, "pin": "4321", "role_id": nd_role, "all_branches": True, "branch_ids": []}, **T2B)
+fav_upload(good_set(), call("POST", "/auth/login", {"email": wr_mail2, "pin": "4321"})["token"], expect=403)
+check("only someone who may change the design can upload", True)
+fav_upload(good_set(), TOKEN, expect=422)
+check("a business without a website cannot store one", True)
+f1 = fav_upload(good_set(1), t2["token"])["id"]
+_fc = call("GET", "/website", **T2)["draft"]
+call("PUT", "/website/draft", {"config": {**_fc, "brand": {**_fc["brand"], "favicon": str(uuid.uuid4())}}}, **T2, expect=400)
+check("a website can use only its own favicon", True)
+call("PUT", "/website/draft", {"config": {**_fc, "brand": {**_fc["brand"], "favicon": f1}}}, **T2)
+check("saved as a draft: not live yet", f1 not in crawl(sroot)[2].split("site-data")[0])
+call("POST", "/website/publish", {}, **T2)
+_, _, fh = crawl(sroot)
+head_ = fh.split('id="site-data"')[0]
+check("published: every size, on the website's own address", all(f'sizes="{n}x{n}" href="/api/site/favicon/{f1}/{n}.png"' in head_ for n in (16, 32, 48, 180, 192)), head_[-600:])
+for path_ in (f"{sroot}/products/{pbag['slug']}", f"{sroot}/categories/{wcat}", f"{sroot}/about", f"{sroot}/no-such-page"):
+    assert f"/api/site/favicon/{f1}/32.png" in crawl(path_)[2], path_
+check("on product, category, other and not-found pages too", True)
+_r = urllib.request.urlopen(BASE + f"/api/site/favicon/{f1}/180.png")
+_b = _r.read()
+check("the image is served as a PNG, cached for good, with no script risk", _b == fav_png(180, 1) and _r.headers["Content-Type"] == "image/png" and "immutable" in _r.headers["Cache-Control"] and _r.headers["X-Content-Type-Options"] == "nosniff")
+_m = urllib.request.urlopen(BASE + f"{sroot}/site.webmanifest")
+_mj = json.loads(_m.read())
+check("installable as this business's own app, with its icons and name", _mj["name"] and _mj["start_url"] == f"{sroot}/" and _mj["scope"] == f"{sroot}/" and [i["sizes"] for i in _mj["icons"]] == ["192x192", "512x512"] and f1 in _mj["icons"][0]["src"] and "application/manifest+json" in _m.headers["Content-Type"], _mj)
+_cv = urllib.request.urlopen(BASE + f"{sroot}/favicon.ico")
+check("the conventional address gives this business's icon", _cv.read() == fav_png(48, 1) and _cv.headers["Content-Type"] == "image/png")
+main_ico = urllib.request.urlopen(BASE + "/favicon.ico").read()
+main_html = urllib.request.urlopen(BASE + "/").read().decode()
+check("the S'Shop app keeps its own icons", main_ico[:4] != b"\x89PNG" and f1 not in main_html and "/favicon-32.png" in main_html, main_ico[:8])
+f2 = fav_upload(good_set(2), t2["token"])["id"]
+call("PUT", "/website/draft", {"config": {**_fc, "brand": {**_fc["brand"], "favicon": f2}}}, **T2)
+call("POST", "/website/publish", {}, **T2)
+_, _, fh2 = crawl(sroot)
+check("replacing it gives a new address, so caches refresh", f2 in fh2.split('id="site-data"')[0] and f1 not in fh2.split('id="site-data"')[0] and urllib.request.urlopen(BASE + f"/api/site/favicon/{f1}/32.png").status == 200)
+call("PUT", "/website/draft", {"config": _fc}, **T2)
+call("POST", "/website/publish", {}, **T2)
+_, _, fh3 = crawl(sroot)
+check("removing it goes back to the default", "/api/site/favicon/" not in fh3.split('id="site-data"')[0])
 check("without Analytics the policy stays closed", "googletagmanager" not in crawl(sroot)[1].get("content-security-policy", ""))
 # Roadmap 80: sorting by real data, paging counted in products, in-stock filter
 ids = lambda q_: [p["id"] for p in call("GET", f"/site/products?slug={dk_slug}{q_}", **PUB)["items"]]

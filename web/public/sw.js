@@ -44,8 +44,8 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          // Only the app page becomes the offline shell (never a PDF or other file opened directly).
-          if (res.ok && (res.headers.get("content-type") || "").includes("text/html")) {
+          // Only the app page becomes the offline shell (never a PDF or other file opened directly, nor a business's website).
+          if (res.ok && !url.pathname.startsWith("/s/") && (res.headers.get("content-type") || "").includes("text/html")) {
             const copy = res.clone();
             event.waitUntil(
               (async () => {

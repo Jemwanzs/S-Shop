@@ -582,6 +582,15 @@
           ]
         },
         {
+          "title": "Give your website its own favicon",
+          "steps": [
+            "Settings → Website → Branding & Appearance → Favicon. Tap Upload favicon and choose a square image, ideally 512 × 512 (PNG, ICO or SVG).",
+            "Check how it looks in the browser tab and On a phone. Nothing is saved yet.",
+            "Tap Use this favicon, then Publish. Use the default goes back to your logo, or your first letter.",
+            "Browsers and phones keep icons for a while, so a change can take time to show. An app already on a phone may need adding again."
+          ]
+        },
+        {
           "title": "Connect M-Pesa (STK Push)",
           "steps": [
             "Settings → M-Pesa & WhatsApp → Add account.",
@@ -618,7 +627,7 @@
           "title": "Website",
           "steps": [
             "Settings → Website → Request Website Service (S'Shop sets it up and contacts you).",
-            "Once active: edit Content, Design, Products and the other sections, Save draft and Preview.",
+            "Once active: edit Content, Branding & Appearance, Products and the other sections, Save draft and Preview.",
             "Tap Publish, say What changed?, then Publish now — visitors see the new version straight away."
           ]
         },

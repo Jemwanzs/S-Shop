@@ -1,6 +1,6 @@
 # Architecture
 
-*Checked against the code on 2026-11-04 (migrations 0001–0046). Update this page when a component, table, integration
+*Checked against the code on 2026-11-04 (migrations 0001–0047). Update this page when a component, table, integration
 or security rule changes.*
 
 ## Overview
@@ -127,7 +127,7 @@ supplier_return, damage, loss, write_off, adjustment, count_variance`. Individua
 | Operations | `error_events`, `service_starts` |
 
 Approval requests carry the requester's reason (`note`) and, when created together, a shared `bulk_ref` (migration 0043).
-A business's website articles live in `website_articles` (migration 0045). AI drafts: `seo_automation`, `seo_ai_usage`, `seo_tenant_limits` (migration 0046).
+Each website's favicon sets live in `website_favicons` (migration 0047). A business's website articles live in `website_articles` (migration 0045). AI drafts: `seo_automation`, `seo_ai_usage`, `seo_tenant_limits` (migration 0046).
 Passkey challenges may start with no person (`user_id` null, kind `discover`) until the signed answer identifies them (migration 0044).
 
 Document numbers (`RCP-2026-000001`, `ORD-…`, `TRF-…`, `RTN-…`) come from `doc_counters` per business and year.

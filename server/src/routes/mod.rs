@@ -12,6 +12,7 @@ pub mod credit;
 pub mod customers;
 pub mod dashboard;
 pub mod expenses;
+pub mod favicon;
 pub mod fields;
 pub mod leaderboards;
 pub mod loyalty;
@@ -90,6 +91,7 @@ pub fn api() -> Router<AppState> {
         .merge(articles::routes())
         .merge(seo_ai::routes())
         .merge(seo_health::routes())
+        .merge(favicon::routes())
         .merge(crate::alerts::routes())
 }
 

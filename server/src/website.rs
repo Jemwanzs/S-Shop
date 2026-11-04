@@ -69,6 +69,8 @@ pub struct Brand {
     pub tagline: String,
     /// Website-specific logo (media id); None = the business logo from Settings.
     pub logo: Option<Uuid>,
+    /// Roadmap 161: this website's favicon set (`website_favicons`); None = the logo, else the business's first letter.
+    pub favicon: Option<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -549,7 +551,7 @@ pub struct Business<'a> {
 
 pub fn starter(b: &Business) -> SiteConfig {
     let mut c = SiteConfig::default();
-    c.brand = Brand { name: b.name.into(), tagline: b.tagline.into(), logo: None };
+    c.brand = Brand { name: b.name.into(), tagline: b.tagline.into(), ..Default::default() };
     c.navigation = NAV_KEYS
         .iter()
         .map(|k| NavItem { key: (*k).into(), label: label(k).into(), visible: !matches!(*k, "categories" | "testimonials") })

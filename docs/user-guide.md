@@ -556,6 +556,13 @@ Setting up the business, people, rules, payments and the website.
 3. Do the same for Bing Webmaster Tools if you wish. For Google Analytics 4, switch on the analytics cookie choice first; it runs only for visitors who accept.
 4. S'Shop does not estimate your rankings or traffic. See the real figures in Search Console.
 
+#### Give your website its own favicon
+
+1. Settings → Website → Branding & Appearance → Favicon. Tap Upload favicon and choose a square image, ideally 512 × 512 (PNG, ICO or SVG).
+2. Check how it looks in the browser tab and On a phone. Nothing is saved yet.
+3. Tap Use this favicon, then Publish. Use the default goes back to your logo, or your first letter.
+4. Browsers and phones keep icons for a while, so a change can take time to show. An app already on a phone may need adding again.
+
 #### Connect M-Pesa (STK Push)
 
 1. Settings → M-Pesa & WhatsApp → Add account.
@@ -584,7 +591,7 @@ Setting up the business, people, rules, payments and the website.
 #### Website
 
 1. Settings → Website → Request Website Service (S'Shop sets it up and contacts you).
-2. Once active: edit Content, Design, Products and the other sections, Save draft and Preview.
+2. Once active: edit Content, Branding & Appearance, Products and the other sections, Save draft and Preview.
 3. Tap Publish, say What changed?, then Publish now — visitors see the new version straight away.
 
 #### Billing

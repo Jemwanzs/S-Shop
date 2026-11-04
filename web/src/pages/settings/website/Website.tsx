@@ -40,7 +40,7 @@ export interface TabProps {
 const TABS: { key: string; label: string; perms: string[] }[] = [
   { key: "overview", label: "Overview", perms: [] },
   { key: "content", label: "Content", perms: ["website.content", "website.navigation"] },
-  { key: "design", label: "Design", perms: ["website.design"] },
+  { key: "design", label: "Branding & Appearance", perms: ["website.design"] },
   { key: "products", label: "Products", perms: ["website.products", "website.photos"] },
   { key: "categories", label: "Categories", perms: ["website.categories"] },
   { key: "services", label: "Services", perms: ["website.services"] },

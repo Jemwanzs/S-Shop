@@ -16,7 +16,7 @@ export interface Service { id: string; name: string; icon: string; image: string
 export interface Testimonial { id: string; name: string; quote: string; rating: number; photo: string | null; position: string; published: boolean; sample: boolean }
 
 export interface SiteConfig {
-  brand: { name: string; tagline: string; logo: string | null };
+  brand: { name: string; tagline: string; logo: string | null; favicon?: string | null };
   theme: Theme;
   navigation: NavItem[];
   sections: Section[];

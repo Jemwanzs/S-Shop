@@ -77,6 +77,8 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | GET | `/api/site/articles` · `/api/site/articles/{slug}` · POST `/api/site/articles/{slug}/view` — public: live articles of the website only |
 | GET / PUT | `/api/website/seo/automation` · POST `/api/website/articles/ai-draft` (`topic`) — roadmap 159; a business's schedule and one draft (`website.seo`; automatic publishing also `website.publish`) |
 | GET / PUT | `/api/platform/seo-ai` · PUT `/api/platform/tenants/{id}/seo-ai` (`ai_enabled`, `monthly_quota`) — platform owner only; totals per business, no content |
+| POST | `/api/website/favicon` — roadmap 161: multipart `s16`, `s32`, `s48`, `s180`, `s192`, `s512` (real PNGs of those sizes), `name`; → `id` for the draft's `brand.favicon` (`website.design`) |
+| GET | `/api/site/favicon/{id}/{size}.png` — public, cached for good |
 | GET | `/api/website/seo/health` — roadmap 160: counts and issues from this business's live website (`website.seo`) |
 | GET | `/api/website/seo/suggestions` — roadmap 157: this business's products and categories with what is set and suggestions from what is on record; saves nothing (`website.seo`, `website.products` or `website.categories`) |
 | GET | `/api/products/{id}/tracking-check?individual=` — roadmap 153: what changing the barcode tracking model runs into → `blockers`, `notes` |

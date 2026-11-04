@@ -266,6 +266,12 @@ async fn check_change(conn: &mut sqlx::PgConnection, ctx: &Ctx, before: &SiteCon
             return Err(AppError::Forbidden(format!("You do not have permission to change the website's {p}")));
         }
     }
+    // Roadmap 161: a favicon set must be this business's own.
+    if let Some(f) = after.brand.favicon {
+        if !super::favicon::owned(&mut *conn, ctx.tenant_id, f).await? {
+            return Err(bad("That favicon is not part of this business"));
+        }
+    }
     let ids = website::media_ids(after);
     if !ids.is_empty() {
         let mine: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM website_media WHERE tenant_id = $1 AND id = ANY($2) AND NOT archived")

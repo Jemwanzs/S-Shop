@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/lib/i18n";
 import { contrast, onColor, type Palette } from "./data";
 import { Block, Choice, ColorField, Grid2, MediaField } from "./kit";
+import { FaviconField } from "./FaviconField";
 import type { TabProps } from "./Website";
 
 const FONTS = ["Outfit", "Poppins", "Inter", "Roboto", "Nunito"];
@@ -53,7 +54,7 @@ function PaletteEditor({ title, p, onChange, reset }: { title: string; p: Palett
 
 const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 
-export function DesignTab({ c, set }: TabProps) {
+export function DesignTab({ c, set, ov }: TabProps) {
   const g = c.products.grid;
   const k = c.categories;
   const modes = c.theme.modes;
@@ -66,6 +67,8 @@ export function DesignTab({ c, set }: TabProps) {
         </Grid2>
         <MediaField label="Website logo" kind="logo" value={c.brand.logo} onChange={(id) => set((x) => { x.brand.logo = id; })} hint="Leave empty to use your business logo from Settings." />
       </Block>
+
+      <FaviconField c={c} set={set} ov={ov} />
 
       <Block title="Default landing page" hint="What visitors see first when they open your website. Every page stays in the menu.">
         <Choice value={c.landing ?? "products"} onChange={(v) => set((x) => { x.landing = v; })}

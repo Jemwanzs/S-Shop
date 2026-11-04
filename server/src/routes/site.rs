@@ -756,6 +756,8 @@ struct PageMeta {
     verification: Vec<(&'static str, String)>,
     /// Roadmap 160: this website uses Google Analytics, so its security policy allows Google's script for those who accept.
     analytics: bool,
+    /// Roadmap 161: the page's icon tags, always the business's own.
+    icons: String,
 }
 
 fn render(state: &AppState, meta: &PageMeta, data: &Value, fonts: &[String], lang: &str) -> axum::response::Response {
@@ -781,10 +783,8 @@ fn render(state: &AppState, meta: &PageMeta, data: &Value, fonts: &[String], lan
     if meta.noindex {
         head.push_str("<meta name=\"robots\" content=\"noindex\" />\n");
     }
-    // The business's own icon (the website is its brand, not S'Shop's).
-    if let Some(logo) = data.pointer("/business/logo_url").and_then(Value::as_str) {
-        head.push_str(&format!("<link rel=\"icon\" href=\"{0}\" />\n<link rel=\"apple-touch-icon\" href=\"{0}\" />\n", esc(logo)));
-    }
+    // The business's own icons (the website is its brand, not S'Shop's).
+    head.push_str(&meta.icons);
     let mut families: Vec<String> = fonts.iter().filter(|f| crate::website::FONTS.contains(&f.as_str())).cloned().collect();
     families.dedup();
     if !families.is_empty() {
@@ -990,6 +990,7 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
                 next: None,
                 verification: Vec::new(),
                 analytics: false,
+                icons: super::favicon::head_tags(None, has_logo.then(|| format!("/api/public/{slug}/logo")).as_deref(), &name, "", ""),
             };
             let data = json!({ "available": false, "business": { "name": name, "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")) } });
             let mut res = render(state, &meta, &data, &[], "en");
@@ -1001,6 +1002,13 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
     let root = site_root(state, &s);
     match rest {
         "/sitemap.xml" => return sitemap(state, &s).await,
+        // Roadmap 161: what browsers and crawlers try by convention, and the website as an installable app.
+        "/favicon.ico" => return super::favicon::conventional(state, &s, 48).await,
+        "/apple-touch-icon.png" | "/apple-touch-icon-precomposed.png" => return super::favicon::conventional(state, &s, 180).await,
+        "/site.webmanifest" => {
+            let name = if s.config.brand.name.trim().is_empty() { s.name.clone() } else { s.config.brand.name.clone() };
+            return Ok(super::favicon::manifest(&s, &name, &slug.map_or(String::new(), |x| format!("/s/{x}"))));
+        }
         "/robots.txt" => {
             return Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], site_seo::robots(&format!("{root}/sitemap.xml"), &[])).into_response());
         }
@@ -1020,6 +1028,7 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
     let cats = public_cats(state, &s).await?;
     let items = published(state, &s).await?;
     let logo = c.brand.logo.map(media_url).or_else(|| s.has_logo.then(|| format!("/api/public/{}/logo", s.slug)));
+    let icons = super::favicon::head_tags(c.brand.favicon, logo.as_deref(), &brand, &c.theme.light.primary, &slug.map_or(String::new(), |x| format!("/s/{x}")));
     let places = locations(state, &s).await?;
     let (_, article_count) = super::articles::live_articles(state, s.tenant, 1, 0).await?;
     let ctx = site_seo::Ctx { root: &root, brand: &brand, currency: &s.currency, config: c, cats: &cats, logo, places: &places, articles: article_count };
@@ -1043,6 +1052,7 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
         next: None,
         verification: Vec::new(),
         analytics: !c.seo.ga4_id.is_empty(),
+        icons,
     };
     let per = (c.products.per_page.clamp(1, 100)) as usize;
     let mut missing = false;
@@ -1285,7 +1295,8 @@ pub async fn host_pages(
         // Static files shipped with the build (icons, fonts …) are served as they are.
         let file = format!("{}{}", state.cfg.web_dir, path);
         // (robots.txt and the sitemap are the website's own, not the app's.)
-        if !matches!(path.as_str(), "/" | "/robots.txt" | "/sitemap.xml") && !path.ends_with(".html") && std::path::Path::new(&file).is_file() {
+        // (Nor are the icons browsers look for by convention: on a business's domain they are the business's, never S'Shop's.)
+        if !matches!(path.as_str(), "/" | "/robots.txt" | "/sitemap.xml" | "/favicon.ico" | "/apple-touch-icon.png" | "/apple-touch-icon-precomposed.png") && !path.ends_with(".html") && std::path::Path::new(&file).is_file() {
             return next.run(req).await;
         }
         (None, path.clone())

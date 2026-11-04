@@ -33,6 +33,25 @@ responsiveness, accessibility and security.
   503, `noindex`). POS, stock, orders and everything else keep working. Content, media, products, domain and analytics
   are kept, and re-activating brings the website back exactly as it was.
 
+## 161 — Favicon
+
+Settings → Website → **Branding & Appearance** → Favicon (`website.design`; `routes/favicon.rs`, `web/src/lib/favicon.ts`, table `website_favicons`). The document holds `brand.favicon`, so a favicon follows Save draft, Preview, Publish and version restore.
+
+| Step | What happens |
+|---|---|
+| Choose PNG, ICO or SVG (JPEG, WebP also), up to 2 MB | The browser draws it at 16, 32, 48, 180, 192 and 512, centred without cropping. A script in an SVG cannot run in an image, and the SVG itself goes no further |
+| Preview | A browser tab in light and dark, and a phone icon. Nothing is saved |
+| *Use this favicon* | The PNGs are uploaded. The server refuses anything that is not a real PNG of its size |
+| Publish | Live on every page: `icon` at 16, 32, 48, 192; `apple-touch-icon` at 180 (on white, as iPhones show transparency as black); `manifest` |
+
+**Default:** with none set, the logo; with no logo, the first letter of the business on its primary colour. Never S'Shop's icon, even on a business's own domain: there `/favicon.ico` and `/apple-touch-icon.png` give the business's icon, redirect to its logo, or answer 404.
+
+**Caching:** a set never changes and its address holds its id, so it is cached for good and replacing it is a new address. Browsers keep icons by their own rules, so a change can take time to show. An app already installed on a phone may keep its old icon until it is added again.
+
+**Search:** the links are crawlable (`/api/site/` is allowed in `robots.txt`) and 48 is among the sizes Google asks for. Google decides whether to show a favicon.
+
+**S'Shop itself:** the app's icons are static files, and nothing here changes them.
+
 ## 157 — SEO & Organic Growth
 
 Settings → Website → **SEO & Organic Growth** (permission `website.seo`). Each business's settings live in its own website document
@@ -95,7 +114,7 @@ Set-up happens in the business's own accounts. The Google and Bing **verificatio
 
 ## 52 — Management Centre
 
-Tabs: **Overview · Content · Design · Products · Categories · Services · Testimonials · Media · Users & Access · Domain ·
+Tabs: **Overview · Content · Branding & Appearance · Products · Categories · Services · Testimonials · Media · Users & Access · Domain ·
 SEO · Analytics**. Each tab is shown only to someone with the matching permission.
 
 - **Draft → Preview → Publish.** Edits change a local copy, and *Save draft* stores it with optimistic concurrency
@@ -123,7 +142,7 @@ SEO · Analytics**. Each tab is shown only to someone with the matching permissi
   alignment, two buttons); offers; About (intro, story, mission, vision, values, image); Contact (phone, WhatsApp,
   email, location, map link, hours, each with show or hide); social links; footer and policies; cookie consent and
   privacy link.
-- **Design:** website name, tagline and logo (falls back to the business logo); theme Light, Dark or Both (Light by
+- **Branding & Appearance:** website name, tagline, logo and favicon (falls back to the business logo); theme Light, Dark or Both (Light by
   default; *Both* gives visitors a switch); style modern, minimal, elegant or bold; spacing compact, balanced or
   spacious; heading and body font (Outfit, Poppins, Inter, Roboto, Nunito); light and dark palettes.
   - **Readability** is enforced with WCAG contrast. Text needs 4.5:1 on the background and cards, muted text 3:1,
@@ -380,7 +399,7 @@ returns:
 
 ## Light and dark mode (roadmap 139)
 
-Settings → Website → Design → **Theme**:
+Settings → Website → Branding & Appearance → **Theme**:
 
 | Option | Visitors get |
 |---|---|

@@ -19,6 +19,7 @@ GitHub App installations were reset; the owner deployed). **Also live:** 150 sev
 **Also live:** 151 zero/missing price filters, bulk product deactivation and bulk approvals (2026-10-29 10:14 UTC, `051df00`; full CI suite — 1,083 checks — passed; deployed automatically).
 **Also live:** 152 review fixes for approvals, bulk actions and two-phase key rotation (2026-10-31 13:45 UTC, `780e4e5`; full CI suite passed; deployed automatically; start-up `readable=6 rotated=0 unreadable=0`).
 **Also live:** 153 repeated scanning, counters and tracking models, 154 missing product image filter, and the Excel library security updates (2026-11-04 11:52 UTC, `d190691`; full CI suite and dependency audit passed on the branch and on `main`; deployed automatically; start-up `readable=6 rotated=0 unreadable=0`; new routes and screens confirmed on the live site. Scanning with a real camera and hearing the sounds on real devices is the owner's check below).
+**Live, real devices still to confirm:** 155 Face ID, fingerprint and Windows Hello across devices (2026-11-04 13:06 UTC, `a3fcd59`; full CI suite and audit passed on the branch and on `main`; production answers relying party `s-shop.store`, user verification required). It stays ◐ until the owner's real-device matrix is done.
 **Next (critical, owner):** rotate credentials — runbook in
 [deployment-railway.md → Rotating credentials](deployment-railway.md#rotating-credentials).
 

@@ -9,6 +9,18 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-04 (afternoon)
+
+- **Face ID, fingerprint and Windows Hello, made reliable** — set-up now has a separate tap for your device's check, because
+  iPhones refuse the prompt after the page has waited on the network; sign-in does the same. The sign-in button no longer
+  depends on what the browser remembers, so a passkey set up in Safari also works from S'Shop on the Home Screen. Automated
+  tests pass; **real iPhone and Android checks are still to be done**. (155, [module 37](modules/37-face-id-biometric-login.md))
+- **Says what each device does** — *Enable Face ID / Passkey Login* on iPhone, *Biometric / Passkey* on Android, *Windows Hello /
+  Passkey* on Windows, with a clear state: ready, enabled here or on another device, unavailable or unsupported. (155)
+- **Fixes:** a wrong PIN during set-up now says so (it showed nothing); a cancelled or refused check says why; a passkey
+  already on the device or removed from S'Shop is explained. (155)
+- **Security:** removing a passkey or switching them off now needs a full sign-in. (155)
+
 ## 2026-11-04
 
 - **Scan the same barcode again and again** — at Record Sale, Stock → Receive and Stock take, each scan of a shared

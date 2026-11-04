@@ -349,10 +349,17 @@ Signing in, choosing your branch and keeping your account secure.
 
 #### Turn on Face ID or fingerprint sign-in
 
-1. Open Preferences and find Face ID & Biometric Login.
-2. Tap Set up this device, enter your current PIN and tap Continue.
-3. Confirm with your face or fingerprint when the device asks.
-4. Next time, tap Sign in with Face ID / Biometrics on the sign-in page.
+1. Open Preferences and find Face ID & Biometric Login. The switch is named for your device: Enable Face ID / Passkey Login on an iPhone, Enable Biometric / Passkey Login on Android, Enable Windows Hello / Passkey Login on Windows.
+2. Turn the switch on (or tap Set up this device), enter your current PIN and tap Continue.
+3. Tap the button that appears, such as Use Face ID / Passkey, and confirm when your device asks.
+4. Check that it now says Enabled on this device. Next time, tap the button on the sign-in page, such as Sign in with Face ID / Passkey.
+
+#### Face ID or fingerprint: iPhone, Android and lost devices
+
+1. iPhone: works in Safari and in S'Shop added to the Home Screen. A passkey set up in one is on the phone for both: tap the sign-in button and choose it.
+2. Android: use Chrome or the installed app. Your phone chooses fingerprint, face or screen lock.
+3. If the check is cancelled or does not work, your email and PIN always sign you in.
+4. Lost or replaced a device: sign in with your email and PIN on another device, open Preferences and remove it. Your other devices keep working.
 
 #### Change your PIN, forgotten PIN, sign out
 

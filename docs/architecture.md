@@ -1,6 +1,6 @@
 # Architecture
 
-*Checked against the code on 2026-10-29 (migrations 0001–0043). Update this page when a component, table, integration
+*Checked against the code on 2026-11-04 (migrations 0001–0044). Update this page when a component, table, integration
 or security rule changes.*
 
 ## Overview
@@ -127,6 +127,7 @@ supplier_return, damage, loss, write_off, adjustment, count_variance`. Individua
 | Operations | `error_events`, `service_starts` |
 
 Approval requests carry the requester's reason (`note`) and, when created together, a shared `bulk_ref` (migration 0043).
+Passkey challenges may start with no person (`user_id` null, kind `discover`) until the signed answer identifies them (migration 0044).
 
 Document numbers (`RCP-2026-000001`, `ORD-…`, `TRF-…`, `RTN-…`) come from `doc_counters` per business and year.
 Schema changes are numbered migrations in `server/migrations` (applied at start-up, never edited once released).
@@ -211,3 +212,11 @@ its lines in one, so a refused line leaves nothing behind. `stock_items` and `ba
 same point, so an individual barcode is never registered before posting or final approval. `track_items` remains the one
 switch between the models (`tracking_change` in `routes/catalog.rs`). No schema change. Client: `ScanCounter`, a promise
 queue per scanning field, and `scanFeedback(ok | warning | error)` on one shared `AudioContext`.
+
+## Passkey ceremonies (roadmap 155)
+
+Each WebAuthn ceremony is split so the device call runs synchronously from the user's tap: `prepareRegistration` /
+`prepareSignIn` talk to the server first, `finishRegistration` / `finishSignIn` call `navigator.credentials` first. Sign-in has
+two challenge kinds in `passkey_challenges`: `login` (for a credential this browser remembers) and `discover` (no user yet;
+`user_id` is null until `identify_discoverable_authentication` reads the signed answer). Verification stays entirely in
+`routes/passkeys.rs` with webauthn-rs; the browser only carries bytes. See [module 37](modules/37-face-id-biometric-login.md).

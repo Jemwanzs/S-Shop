@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Link, Navigate, slugsOf, takeNext, useNavigate, useParams, useSearchParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Mail, ScanFace, TimerReset } from "lucide-react";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
 import { PinPad } from "@/components/PinPad";
 import { forgetQuickDevice, preferredMethod, quickDevice, rememberMethod } from "@/lib/quick";
-import { forgetPasskey, PasskeyCancelled, passkeyDevice, passkeysSupported, signInWithPasskey } from "@/lib/passkey";
+import { finishSignIn, forgetPasskey, onPasskeySite, PasskeyCancelled, passkeyDevice, passkeysSupported, passkeyWording, platformAuthenticator, prepareSignIn, rememberPasskey, SIGN_IN_FRESH_MS, type PreparedSignIn } from "@/lib/passkey";
 import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
 import { SShopLoader } from "@/components/SShopLoader";
@@ -48,6 +48,47 @@ export default function LoginPage() {
   const [shake, setShake] = useState(0);
   // Roadmap 132: this device set up Face ID / biometric sign-in (only offered where the browser supports passkeys).
   const [pk, setPk] = useState(() => (passkeysSupported() ? passkeyDevice() : null));
+  // Roadmap 155: also offered with nothing remembered here, wherever the device has its own check — a passkey made in
+  // Safari lives on the iPhone, but the home-screen app does not share Safari's storage.
+  const [pkOffered, setPkOffered] = useState(false);
+  const prepared = useRef<PreparedSignIn | null>(null);
+  const credentialId = pk?.credential_id;
+  const prepare = useCallback(async () => {
+    try {
+      prepared.current = await prepareSignIn(credentialId);
+    } catch (err) {
+      prepared.current = null;
+      if (err instanceof ApiError && err.title === "Full sign-in needed") {
+        // The passkey this browser remembers was removed or revoked: the device may still hold another.
+        forgetPasskey();
+        setPk(null);
+      } else if (err instanceof ApiError && err.title) {
+        setPkOffered(false);
+      }
+    }
+  }, [credentialId]);
+  useEffect(() => {
+    if (!passkeysSupported()) return;
+    let live = true;
+    void (async () => {
+      const support = await api<{ enabled: boolean; rp_id: string | null }>("/auth/passkey/support").catch(() => null);
+      if (!live || !support?.enabled || !onPasskeySite(support.rp_id)) return;
+      if (!credentialId && !(await platformAuthenticator())) return;
+      if (!live) return;
+      setPkOffered(true);
+      await prepare();
+    })();
+    const renew = () => {
+      if (document.visibilityState === "visible" && (!prepared.current || Date.now() - prepared.current.at > SIGN_IN_FRESH_MS)) void prepare();
+    };
+    const timer = window.setInterval(renew, 60_000);
+    document.addEventListener("visibilitychange", renew);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", renew);
+    };
+  }, [credentialId, prepare]);
   // Roadmap 87: shown after an automatic logout until the next sign-in (the Quick PIN keypad still opens on a trusted device).
   const [expired] = useState(() => {
     try {
@@ -112,32 +153,44 @@ export default function LoginPage() {
     }
   };
 
+  // Runs directly from the tap with nothing awaited before the device's check (iPhones refuse the prompt otherwise).
   const passkeyLogin = async () => {
-    if (!pk || busy) return;
+    if (busy) return;
+    const ready = prepared.current;
+    if (!ready) {
+      setError(t("Getting ready — tap again in a moment"));
+      void prepare();
+      return;
+    }
     setError("");
     setBusy(true);
     try {
-      enter(await signInWithPasskey(pk.credential_id));
+      const res = await finishSignIn(ready);
+      rememberPasskey({ credential_id: res.credential_id, email: res.profile.user.email, name: res.profile.user.name, business: res.profile.tenant.name, slug: res.profile.tenant.slug });
+      enter(res);
     } catch (err) {
       if (err instanceof PasskeyCancelled) {
-        setError(t("Biometric check cancelled — try again or use your PIN"));
+        // Nothing reached the server: the same challenge can answer the next tap.
+        setError(t("Check cancelled or timed out — try again or use your PIN"));
       } else {
+        prepared.current = null;
         // The passkey was removed or revoked (PIN changed, signed out everywhere): back to the full sign-in for good.
-        if (err instanceof ApiError && err.title === "Full sign-in needed") {
+        if (err instanceof ApiError && (err.title === "Full sign-in needed" || err.title === "Passkey not recognised")) {
           forgetPasskey();
           setPk(null);
-          setEmail(pk.email);
+          if (pk) setEmail(pk.email);
           setMode("full");
         }
         setError(errorMessage(err));
+        void prepare();
       }
     } finally {
       setBusy(false);
     }
   };
-  const passkeyButton = pk && (
+  const passkeyButton = pkOffered && (
     <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={passkeyLogin}>
-      <ScanFace /> {t("Sign in with Face ID / Biometrics")}
+      <ScanFace /> {t(passkeyWording().signIn)}
     </Button>
   );
 
@@ -179,9 +232,9 @@ export default function LoginPage() {
     <AuthLayout brand={layoutBrand} title="S'Shop" subtitle="Sign in to continue">
       <form onSubmit={submit} className="space-y-4">
         {expiredNote}
-        {pk && (
+        {pkOffered && (
           <div className="space-y-3">
-            <p className="text-center text-sm text-muted-foreground">{t("Welcome back")}, <span className="text-foreground">{pk.name.split(" ")[0]}</span> · {pk.business}</p>
+            {pk && <p className="text-center text-sm text-muted-foreground">{t("Welcome back")}, <span className="text-foreground">{pk.name.split(" ")[0]}</span> · {pk.business}</p>}
             {passkeyButton}
             <p className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">{t("or use your email and PIN")}</p>
           </div>

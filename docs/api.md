@@ -408,12 +408,13 @@ Any endpoint needing a full sign-in answers a Quick session with 422 *Full sign-
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/auth/passkeys` | available / reason, enabled, registered devices (`id`, `credential_id`, `name`, `created_at`, `last_used_at`), `quick_session`, `rp_id` |
+| GET | `/api/auth/passkeys` | available / reason, enabled, registered devices (`id`, `credential_id`, `name`, `created_at`, `last_used_at`), `quick_session`, `rp_id`, `user_handle` |
 | POST | `/api/auth/passkeys/register/start` (`current_pin`) | full sign-in + full PIN; returns `challenge_id` and WebAuthn creation `options` |
 | POST | `/api/auth/passkeys/register/finish` (`challenge_id`, `credential`, `device_name`) | verified; returns `id`, `credential_id` |
-| DELETE | `/api/auth/passkeys/{id}` · POST `/api/auth/passkeys/disable` | remove one · switch off (all removed) |
-| POST | `/api/auth/passkey/login/start` (`credential_id`) | public, rate-limited; 422 *Full sign-in needed* / *Face ID & biometrics unavailable* |
-| POST | `/api/auth/passkey/login/finish` (`challenge_id`, `credential`) | public; `{token, profile, quick: true}`; 400 failed check, 422 *Request expired* |
+| DELETE | `/api/auth/passkeys/{id}` · POST `/api/auth/passkeys/disable` | remove one · switch off (all removed); full sign-in needed (roadmap 155) |
+| GET | `/api/auth/passkey/support` | public: `enabled`, `rp_id`, so the sign-in page knows whether and where to offer passkeys (roadmap 155) |
+| POST | `/api/auth/passkey/login/start` (`credential_id`, optional) | public, rate-limited; empty: the device offers its own passkeys (`discoverable: true`); 422 *Full sign-in needed* / *Face ID & biometrics unavailable* |
+| POST | `/api/auth/passkey/login/finish` (`challenge_id`, `credential`) | public; `{token, profile, quick: true, credential_id}`; 400 failed check, 422 *Request expired* / *Passkey not recognised* |
 
 ## Stock balances from Excel ([module 07](modules/07-stock.md))
 

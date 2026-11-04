@@ -2564,14 +2564,14 @@ class Authenticator:
         cd = self._client("webauthn.create", pk["challenge"], origin)
         return {"id": _b64u(self.cred), "rawId": _b64u(self.cred), "type": "public-key", "extensions": {},
                 "response": {"attestationObject": _b64u(_cbor({"fmt": "none", "attStmt": {}, "authData": auth})), "clientDataJSON": _b64u(cd)}}
-    def get(self, options, uv=True, counter=None, key=None, origin=None):
+    def get(self, options, uv=True, counter=None, key=None, origin=None, handle=None):
         pk = options["publicKey"]
         self.count = self.count + 1 if counter is None else counter
         auth = hashlib.sha256(b"localhost").digest() + bytes([0x05 if uv else 0x01]) + self.count.to_bytes(4, "big")
         cd = self._client("webauthn.get", pk["challenge"], origin)
         sig = _es256(key or self.d, auth + hashlib.sha256(cd).digest())
         return {"id": _b64u(self.cred), "rawId": _b64u(self.cred), "type": "public-key", "extensions": {},
-                "response": {"authenticatorData": _b64u(auth), "clientDataJSON": _b64u(cd), "signature": _b64u(sig), "userHandle": None}}
+                "response": {"authenticatorData": _b64u(auth), "clientDataJSON": _b64u(cd), "signature": _b64u(sig), "userHandle": handle}}
 
 pk_mail = f"bio{suffix.lower()}@sshop.test"
 pk_user = call("POST", "/users", {"name": f"Bio {suffix}", "email": pk_mail, "pin": "4321", "role_id": qp_roles["Manager"], "all_branches": True, "branch_ids": []})["id"]
@@ -2634,6 +2634,55 @@ audit_p = call("GET", "/audit?period=today&limit=300&module=auth")["items"]
 check("set-up and sign-ins audited (method passkey), failures too",
       any(a["action"] == "passkey_added" for a in audit_p) and any(a["action"] == "login" and (a.get("after") or {}).get("method") == "passkey" for a in audit_p)
       and any(a["action"] == "passkey_login_failed" for a in audit_p), [a["action"] for a in audit_p[:20]])
+# Roadmap 155: the device offers its own passkey (nothing remembered in the browser: Safari and the iPhone home-screen
+# app do not share storage). The person comes from the signed answer, which must match the stored key.
+sup = call("GET", "/auth/passkey/support", token="none", branch="none")
+check("roadmap 155: the sign-in page learns whether passkeys are on and where, nothing about anyone", sup == {"enabled": True, "rp_id": "localhost"}, sup)
+handle = call("GET", "/auth/passkeys", **PQ)["user_handle"]
+ds = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none")
+check("sign-in with no remembered device: no passkey named, user verification required", ds["discoverable"] is True and not ds["options"]["publicKey"].get("allowCredentials") and ds["options"]["publicKey"]["userVerification"] == "required", ds["options"])
+dl = call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": phone.get(ds["options"], counter=20, handle=handle)}, token="none", branch="none")
+check("signed in by the passkey the device offered, as its owner, in a limited session", dl["profile"]["user"]["email"] == pk_mail and dl["profile"]["quick"] is True and dl["credential_id"] == reg["credential_id"], dl.get("credential_id"))
+ds = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none")
+r = call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": phone.get(ds["options"], counter=21, uv=False, handle=handle)}, token="none", branch="none", expect=400)
+check("device-offered sign-in: no user verification, refused", "biometric check failed" in r["error"]["message"], r)
+ds = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none")
+answer = phone.get(ds["options"], counter=22, handle=handle)
+call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": answer}, token="none", branch="none")
+r = call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": answer}, token="none", branch="none", expect=422)
+check("device-offered sign-in: a recorded answer cannot be replayed", r["error"]["title"] == "Request expired", r)
+ds = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none")
+call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": phone.get(ds["options"], origin="https://evil.example", counter=23, handle=handle)}, token="none", branch="none", expect=400)
+ds = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none")
+call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": phone.get(ds["options"], key=other, counter=24, handle=handle)}, token="none", branch="none", expect=400)
+check("device-offered sign-in: another website or another key, refused", True)
+ds = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none")
+other_person = call("GET", "/auth/passkeys", **QF)["user_handle"]
+r = call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": phone.get(ds["options"], counter=25, handle=other_person)}, token="none", branch="none", expect=422)
+check("a passkey claiming another person is refused: the passkey and its owner must match", r["error"]["title"] == "Passkey not recognised" and "@" not in json.dumps(r), r)
+ds = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none")
+stranger = Authenticator()
+r = call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": stranger.get(ds["options"], handle=handle)}, token="none", branch="none", expect=422)
+check("a passkey S'Shop does not know is reported as such", r["error"]["title"] == "Passkey not recognised", r)
+ds = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none")
+r = call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": {**phone.get(ds["options"], counter=26), "response": {**phone.get(ds["options"], counter=26)["response"], "userHandle": None}}}, token="none", branch="none", expect=422)
+check("an answer naming nobody is refused", r["error"]["title"] == "Passkey not recognised", r)
+for tok_, what_ in ((dl["token"], "a biometric session"),):
+    r = call("DELETE", f"/auth/passkeys/{reg['id']}", token=tok_, branch=BRANCH, expect=422)
+    check(f"{what_} cannot remove a device", r["error"]["title"] == "Full sign-in needed", r)
+    r = call("POST", "/auth/passkeys/disable", token=tok_, branch=BRANCH, expect=422)
+    check(f"{what_} cannot switch biometric sign-in off", r["error"]["title"] == "Full sign-in needed" and call("GET", "/auth/passkeys", **PQ)["enabled"] is True, r)
+second = Authenticator()
+rs = call("POST", "/auth/passkeys/register/start", {"current_pin": "4321"}, **PQ)
+reg_two = call("POST", "/auth/passkeys/register/finish", {"challenge_id": rs["challenge_id"], "credential": second.create(rs["options"]), "device_name": "Bio tablet"}, **PQ)
+check("several passkeys for one person", len(call("GET", "/auth/passkeys", **PQ)["passkeys"]) == 2)
+call("DELETE", f"/auth/passkeys/{reg_two['id']}", **PQ)
+ds = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none")
+r = call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": second.get(ds["options"], handle=handle)}, token="none", branch="none", expect=422)
+check("a removed passkey is refused, even offered by the device", r["error"]["title"] == "Passkey not recognised", r)
+ls = call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none")
+call("POST", "/auth/passkey/login/finish", {"challenge_id": ls["challenge_id"], "credential": phone.get(ls["options"], counter=30)}, token="none", branch="none")
+check("removing one device leaves the others working", True)
 # Tenant isolation: nobody else can remove (or see) this person's devices
 r = call("DELETE", f"/auth/passkeys/{reg['id']}", **QF, expect=404)
 check("another person cannot remove someone's device", True)
@@ -2642,6 +2691,9 @@ check("…or see it", call("GET", "/auth/passkeys", **QF)["passkeys"] == [])
 call("PUT", "/security/quick-pin", {"enabled": True, "role_ids": [], "passkeys": False})
 r = call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none", expect=422)
 check("business switched biometric sign-in off: refused at sign-in", r["error"]["title"] == "Face ID & biometrics unavailable", r)
+ds = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none")
+r = call("POST", "/auth/passkey/login/finish", {"challenge_id": ds["challenge_id"], "credential": phone.get(ds["options"], counter=31, handle=handle)}, token="none", branch="none", expect=422)
+check("…also when the device offers the passkey itself", r["error"]["title"] == "Face ID & biometrics unavailable", r)
 check("…and in the person's preferences", call("GET", "/auth/passkeys", **PQ)["available"] is False)
 call("PUT", "/security/quick-pin", {"enabled": True, "role_ids": []})
 check("business rule defaults to on", call("GET", "/security/quick-pin")["policy"]["passkeys"] is True)
@@ -2649,6 +2701,8 @@ ps = call("GET", "/platform/security")
 call("PUT", "/platform/security", {**ps, "passkeys_enabled": False})
 r = call("POST", "/auth/passkey/login/start", {"credential_id": reg["credential_id"]}, token="none", branch="none", expect=422)
 check("platform switched it off: refused", "switched off on S'Shop" in r["error"]["message"], r)
+r = call("POST", "/auth/passkey/login/start", {}, token="none", branch="none", expect=422)
+check("…and no device-offered sign-in either, and the page knows", "switched off on S'Shop" in r["error"]["message"] and call("GET", "/auth/passkey/support", token="none", branch="none")["enabled"] is False, r)
 call("PUT", "/platform/security", ps)
 # Removing the device ends it; a full PIN change ends every device
 call("DELETE", f"/auth/passkeys/{reg['id']}", **PQ)

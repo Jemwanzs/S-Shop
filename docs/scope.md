@@ -28,7 +28,8 @@ GitHub App installations were reset; the owner deployed). **Also live:** 150 sev
 | 28 | Database backups | High | Owner | Railway plan with backups | Turn on scheduled Postgres backups (daily, keep 7+), then restore one into a scratch database to prove it |
 | 29 | Email sender (`MAIL_FROM`) | High — invitations and applicant emails | Owner | `s-shop.store` verified in Resend (DNS records at the registrar) | `MAIL_FROM` exists on Railway; confirm the domain shows *Verified* in Resend and send a test invitation to an outside address |
 | — | Real production M-Pesa payment | Medium | Owner | The business's own Till / Paybill credentials | Settings → M-Pesa → *Test STK Push* (KSh 1) in Production |
-| — | Real-device checks | Medium | Owner | iPhone, label printer, scanner | Face ID sign-in (132), iPhone home screen (128), print and scan item labels (133–138), repeated camera and handheld scanning with sound (153) |
+| 155 | **Real-device passkey check** | High | Owner | iPhone (Safari and home-screen app), Android, Windows | Follow the matrix in [module 37](modules/37-face-id-biometric-login.md#real-device-verification) and report any row that fails |
+| — | Real-device checks | Medium | Owner | iPhone, label printer, scanner | iPhone home screen (128), print and scan item labels (133–138), repeated camera and handheld scanning with sound (153) |
 | 30 | `www.s-shop.store` | Low | Owner | DNS; **Railway's custom-domain limit** — the service has 3 (`s-shop.store`, `s-shop.click`, `www.pablo-niche.com`) and Railway refused another on 2026-10-16 | Free a slot (e.g. remove `s-shop.click` if unused) or upgrade the plan, then add it with a CNAME — or redirect `www` at the registrar instead |
 | — | *Discard changes?* on screens' own Cancel buttons | Low — decision | Owner | — | Decide yes / no |
 | 31 | EU region | Low — deferred by owner | Owner | 28 (tested backup and restore) | Choose a maintenance window |
@@ -818,6 +819,33 @@ server already refuses a unit sold twice, from another branch or another product
   file); the PDF opens with a directory whose page numbers match, and no guide task is cut at a page edge (the build
   refuses); every guide step names a screen or button that exists in the code; the Status board lists every open ⏳ /
   ◐ item.
+
+**Passkeys across devices** (brief *Troubleshoot & Complete Face ID, Fingerprint and Biometric Login Across iOS, Android & Desktop*):
+- ◐ **155. Face ID, fingerprint and Windows Hello: reliable on every device** — purpose: the 132 sign-in, made reliable on
+  iPhones (browser and home-screen app), Android and desktop. Causes found in the code: (1) the device's prompt was
+  requested only after the server had checked the PIN or issued a challenge, while iPhones show it only straight after a
+  tap, and the refusal was reported as *cancelled*; (2) the sign-in button depended on browser storage, which Safari and the
+  home-screen app do not share and which can be cleared, so a passkey on the phone was not offered; (3) any set-up error other
+  than a cancel, a wrong PIN included, showed nothing at all; (4) limited sessions could remove passkeys. Scope: the server
+  part of each ceremony now runs before the tap and the device part directly from it (set-up in two steps, the sign-in
+  challenge fetched when the page opens and renewed); sign-in also works with a passkey the device offers itself
+  (`discover` challenges; the person comes from the signed answer and must own that passkey on record; webauthn-rs
+  `conditional-ui`, migration 0044); new passkeys are requested as discoverable (*preferred*); `GET
+  /auth/passkey/support`; wording by device family (iPhone, iPad, Android, Windows, Mac, other) and states that follow the
+  server's list (*Ready to set up*, *Enabled on this device*, *Enabled on another device*, *Passkey unavailable*, *Not
+  configured*, *Unsupported browser or device*, *Not available*; set-up in progress and failed in the dialog); clear
+  messages per device error; removing or switching off needs a full sign-in; removed passkeys also leave the device's
+  list where the browser supports it (Signal API). No weakening: origin, RP ID, challenge, user verification and
+  counter checks unchanged; Quick PIN and email + PIN unchanged.
+
+  Acceptance criteria (smoke 132/155, browser with Chrome's virtual authenticator, device families emulated): the device is
+  asked in the same tap with no network wait, set-up and sign-in, on a slow connection; a wrong PIN says so and never reaches
+  the device; cancel changes nothing and retry works; sign-in with nothing remembered in the browser; the same device is not
+  set up twice and says so; a passkey removed from S'Shop is refused and explained, email and PIN still work; several
+  passkeys, one removed, others keep working; replay, another website, another key, no user verification, a passkey claiming
+  another person, an unknown one and one naming nobody are refused; business and platform switches apply; a limited session
+  cannot remove or switch off; wording on each device family, unsupported browser. **Needs real devices (owner):** the matrix in
+  [module 37](modules/37-face-id-biometric-login.md#real-device-verification); iPhone and Android are not yet verified.
 
 **Catalogue filters** (brief *Filter Products With Missing Images*):
 - ✅ **154. Missing product image filter** — purpose: find every catalogue product without a photo. Scope: *Missing

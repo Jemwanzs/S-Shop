@@ -10,6 +10,9 @@
 //! - **Within rules**: the platform (on/off) and the business (on/off, which roles), re-checked at every sign-in.
 //! - **Independent of the Quick PIN**; ends when the person removes it, when the full PIN changes or is reset, or when
 //!   they sign out everywhere.
+//! - **Found by the device** (roadmap 155): sign-in also works with no record in the browser, whose storage is not shared
+//!   between Safari and the iPhone home-screen app. The person comes from the signed answer, checked against the stored
+//!   public key; a passkey and its owner must match.
 
 use std::sync::OnceLock;
 
@@ -22,7 +25,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 use webauthn_rs::prelude::{
-    Passkey, PasskeyAuthentication, PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential, Url, Webauthn, WebauthnBuilder,
+    DiscoverableAuthentication, DiscoverableKey, Passkey, PasskeyAuthentication, PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential, Url, Webauthn,
+    WebauthnBuilder,
 };
 
 use super::quickpin::{check_full_pin, device_name, identity, platform_security, tenant_rules};
@@ -43,6 +47,7 @@ pub fn routes() -> Router<AppState> {
         .route("/auth/passkeys/register/finish", post(register_finish))
         .route("/auth/passkeys/{id}", delete(remove))
         .route("/auth/passkeys/disable", post(disable))
+        .route("/auth/passkey/support", get(support))
         .route("/auth/passkey/login/start", post(login_start))
         .route("/auth/passkey/login/finish", post(login_finish))
 }
@@ -108,7 +113,7 @@ fn cred_key(bytes: &[u8]) -> String {
 }
 
 /// Stores a ceremony's state; only its id goes to the browser. Expired ones are cleared on the way.
-async fn save_challenge(state: &AppState, user: Uuid, kind: &str, st: Value, passkey: Option<Uuid>) -> AppResult<Uuid> {
+async fn save_challenge(state: &AppState, user: Option<Uuid>, kind: &str, st: Value, passkey: Option<Uuid>) -> AppResult<Uuid> {
     sqlx::query("DELETE FROM passkey_challenges WHERE expires_at < now()").execute(&state.db).await?;
     Ok(sqlx::query_scalar(
         "INSERT INTO passkey_challenges (user_id, kind, state, passkey_id, expires_at) VALUES ($1, $2, $3, $4, now() + make_interval(mins => $5)) RETURNING id",
@@ -122,16 +127,19 @@ async fn save_challenge(state: &AppState, user: Uuid, kind: &str, st: Value, pas
     .await?)
 }
 
-/// Takes a challenge (single use: it is deleted whether or not the answer is right).
-async fn take_challenge(state: &AppState, id: Uuid, kind: &str) -> AppResult<(Uuid, Value, Option<Uuid>)> {
-    let row: Option<(Uuid, Value, Option<Uuid>, DateTime<Utc>)> =
-        sqlx::query_as("DELETE FROM passkey_challenges WHERE id = $1 AND kind = $2 RETURNING user_id, state, passkey_id, expires_at")
+/// A challenge taken back: its person (none until the answer says who, for `discover`), kind, state and passkey.
+type TakenChallenge = (Option<Uuid>, String, Value, Option<Uuid>);
+
+/// Takes a challenge of one of these kinds (single use: it is deleted whether or not the answer is right).
+async fn take_challenge(state: &AppState, id: Uuid, kinds: &[&str]) -> AppResult<TakenChallenge> {
+    let row: Option<(Option<Uuid>, String, Value, Option<Uuid>, DateTime<Utc>)> =
+        sqlx::query_as("DELETE FROM passkey_challenges WHERE id = $1 AND kind = ANY($2) RETURNING user_id, kind, state, passkey_id, expires_at")
             .bind(id)
-            .bind(kind)
+            .bind(kinds)
             .fetch_optional(&state.db)
             .await?;
     match row {
-        Some((user, st, passkey, expires)) if expires > Utc::now() => Ok((user, st, passkey)),
+        Some((user, kind, st, passkey, expires)) if expires > Utc::now() => Ok((user, kind, st, passkey)),
         _ => Err(refused("Request expired", "That request has expired — please try again")),
     }
 }
@@ -162,6 +170,8 @@ async fn status(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value
     Ok(Json(json!({
         "available": reason.is_none(), "reason": reason, "enabled": !passkeys.is_empty(),
         "passkeys": passkeys, "quick_session": ctx.quick, "rp_id": rp_id(&state),
+        // The id devices know this person by, so removed passkeys can also leave the device's own list.
+        "user_handle": cred_key(ident.as_bytes()),
     })))
 }
 
@@ -192,7 +202,7 @@ async fn register_start(State(state): State<AppState>, ctx: Ctx, Json(b): Json<R
             tracing::warn!(error = %e, "passkey registration could not start");
             bad("Biometric set-up could not start — please try again")
         })?;
-    let id = save_challenge(&state, ident, "register", json!(reg), None).await?;
+    let id = save_challenge(&state, Some(ident), "register", json!(reg), None).await?;
     Ok(Json(json!({ "challenge_id": id, "options": options })))
 }
 
@@ -209,8 +219,8 @@ async fn register_finish(State(state): State<AppState>, ctx: Ctx, headers: Heade
     ctx.require_full()?;
     let ident = identity(&state, &ctx).await?;
     let w = webauthn(&state)?;
-    let (owner, st, _) = take_challenge(&state, b.challenge_id, "register").await?;
-    if owner != ident {
+    let (owner, _, st, _) = take_challenge(&state, b.challenge_id, &["register"]).await?;
+    if owner != Some(ident) {
         return Err(refused("Request expired", "That request has expired — please try again"));
     }
     let reg: PasskeyRegistration = serde_json::from_value(st).map_err(|_| bad("That request has expired — please try again"))?;
@@ -239,6 +249,8 @@ async fn register_finish(State(state): State<AppState>, ctx: Ctx, headers: Heade
 }
 
 async fn remove(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+    // Roadmap 155: a limited session (Quick PIN or biometric) cannot change how the person signs in.
+    ctx.require_full()?;
     let ident = identity(&state, &ctx).await?;
     let mut tx = state.db.begin().await?;
     let n = sqlx::query("UPDATE passkeys SET revoked_at = now(), revoked_by = $2, revoke_reason = 'Removed by the person' WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL")
@@ -257,6 +269,7 @@ async fn remove(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
 
 /// Switch biometric sign-in off: every device of this person is removed.
 async fn disable(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    ctx.require_full()?;
     let ident = identity(&state, &ctx).await?;
     let mut tx = state.db.begin().await?;
     let n = revoke_all(&mut tx, ident, "Switched off by the person", Some(ident)).await?;
@@ -269,13 +282,16 @@ async fn disable(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Valu
 
 #[derive(Deserialize)]
 struct LoginStart {
-    /// The passkey this device set up (remembered by the browser); no email is asked or revealed.
+    /// The passkey this device set up, when the browser remembers it. Empty: the device offers its own passkeys
+    /// (roadmap 155). Either way no email is asked or revealed.
+    #[serde(default)]
     credential_id: String,
 }
 
 #[derive(sqlx::FromRow)]
 struct SignInRow {
     passkey_id: Uuid,
+    credential_id: String,
     passkey: Value,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -290,7 +306,7 @@ where
     T: for<'q> sqlx::Encode<'q, sqlx::Postgres> + sqlx::Type<sqlx::Postgres> + Send,
 {
     let sql = format!(
-        "SELECT p.id AS passkey_id, p.passkey, u.id AS user_id, u.tenant_id, u.is_active, u.must_change_pin, t.status AS tenant_status
+        "SELECT p.id AS passkey_id, p.credential_id, p.passkey, u.id AS user_id, u.tenant_id, u.is_active, u.must_change_pin, t.status AS tenant_status
          FROM passkeys p JOIN users u ON u.id = p.user_id JOIN tenants t ON t.id = u.tenant_id
          WHERE p.revoked_at IS NULL AND u.login_user_id IS NULL AND {cond} = $1"
     );
@@ -312,11 +328,36 @@ fn full_needed() -> AppError {
     refused("Full sign-in needed", "Biometric sign-in is not available on this device — sign in with your email and PIN")
 }
 
+/// A passkey the device offered that S'Shop no longer accepts (removed, revoked, or never here).
+fn not_recognised() -> AppError {
+    refused("Passkey not recognised", "This passkey is no longer set up for S'Shop — sign in with your email and PIN, then set it up again in your preferences")
+}
+
+/// Roadmap 155: may the sign-in page offer passkeys at all, and on which address do they work? (Public; says nothing about anyone.)
+async fn support(State(state): State<AppState>) -> AppResult<Json<Value>> {
+    let on = webauthn(&state).is_ok() && platform_security(&state.db).await?.passkeys_enabled;
+    Ok(Json(json!({ "enabled": on, "rp_id": rp_id(&state) })))
+}
+
+/// Issues the sign-in challenge. The sign-in page asks for it **before** the tap: iPhones show the Face ID prompt only
+/// right after a tap, so the prompt must not wait for the network (roadmap 155).
 async fn login_start(State(state): State<AppState>, headers: HeaderMap, Json(b): Json<LoginStart>) -> AppResult<Json<Value>> {
     let (ip, _) = client_meta(&headers);
-    state.limits.check(&ip, "passkey_login", 30, std::time::Duration::from_secs(300))?;
+    // Every open sign-in page asks for one, and a shop's devices share one address: a wider limit than for answers.
+    state.limits.check(&ip, "passkey_challenge", 120, std::time::Duration::from_secs(300))?;
     let w = webauthn(&state)?;
     let key: String = b.credential_id.trim().chars().take(512).collect();
+    if key.is_empty() {
+        if !platform_security(&state.db).await?.passkeys_enabled {
+            return Err(refused("Face ID & biometrics unavailable", "Face ID & biometric sign-in is switched off on S'Shop"));
+        }
+        let (options, auth) = w.start_discoverable_authentication().map_err(|e| {
+            tracing::warn!(error = %e, "passkey sign-in could not start");
+            bad("Biometric sign-in could not start — please try again")
+        })?;
+        let id = save_challenge(&state, None, "discover", json!(auth), None).await?;
+        return Ok(Json(json!({ "challenge_id": id, "options": options, "discoverable": true })));
+    }
     let r = sign_in_row(&state, "p.credential_id", key).await?.ok_or_else(full_needed)?;
     usable(&state, &r).await?;
     let passkey: Passkey = serde_json::from_value(r.passkey.clone()).map_err(|_| full_needed())?;
@@ -324,8 +365,8 @@ async fn login_start(State(state): State<AppState>, headers: HeaderMap, Json(b):
         tracing::warn!(error = %e, "passkey sign-in could not start");
         bad("Biometric sign-in could not start — please try again")
     })?;
-    let id = save_challenge(&state, r.user_id, "login", json!(auth), Some(r.passkey_id)).await?;
-    Ok(Json(json!({ "challenge_id": id, "options": options })))
+    let id = save_challenge(&state, Some(r.user_id), "login", json!(auth), Some(r.passkey_id)).await?;
+    Ok(Json(json!({ "challenge_id": id, "options": options, "discoverable": false })))
 }
 
 #[derive(Deserialize)]
@@ -338,12 +379,29 @@ async fn login_finish(State(state): State<AppState>, headers: HeaderMap, Json(b)
     let (ip, ua) = client_meta(&headers);
     state.limits.check(&ip, "passkey_login", 30, std::time::Duration::from_secs(300))?;
     let w = webauthn(&state)?;
-    let (user, st, passkey_id) = take_challenge(&state, b.challenge_id, "login").await?;
-    let passkey_id = passkey_id.ok_or_else(full_needed)?;
-    let r = sign_in_row(&state, "p.id", passkey_id).await?.filter(|r| r.user_id == user).ok_or_else(full_needed)?;
+    let (user, kind, st, passkey_id) = take_challenge(&state, b.challenge_id, &["login", "discover"]).await?;
+    // Who is signing in: the passkey the challenge was issued for, or the one the device answered with — which must be
+    // on record for the person the answer names. The signature is checked against that stored public key either way.
+    let r = if kind == "discover" {
+        let (handle, credential) = w.identify_discoverable_authentication(&b.credential).map_err(|e| {
+            tracing::warn!(error = %e, "passkey sign-in: the answer names nobody");
+            not_recognised()
+        })?;
+        sign_in_row(&state, "p.credential_id", cred_key(credential)).await?.filter(|r| r.user_id == handle).ok_or_else(not_recognised)?
+    } else {
+        let passkey_id = passkey_id.ok_or_else(full_needed)?;
+        sign_in_row(&state, "p.id", passkey_id).await?.filter(|r| Some(r.user_id) == user).ok_or_else(full_needed)?
+    };
     usable(&state, &r).await?;
-    let auth: PasskeyAuthentication = serde_json::from_value(st).map_err(|_| full_needed())?;
-    let result = match w.finish_passkey_authentication(&b.credential, &auth) {
+    let stored: Passkey = serde_json::from_value(r.passkey.clone()).map_err(|_| full_needed())?;
+    let outcome = if kind == "discover" {
+        let auth: DiscoverableAuthentication = serde_json::from_value(st).map_err(|_| full_needed())?;
+        w.finish_discoverable_authentication(&b.credential, auth, &[DiscoverableKey::from(&stored)])
+    } else {
+        let auth: PasskeyAuthentication = serde_json::from_value(st).map_err(|_| full_needed())?;
+        w.finish_passkey_authentication(&b.credential, &auth)
+    };
+    let result = match outcome {
         Ok(res) if res.user_verified() => res,
         outcome => {
             if let Err(e) = &outcome {
@@ -356,7 +414,7 @@ async fn login_finish(State(state): State<AppState>, headers: HeaderMap, Json(b)
         }
     };
     // The signature counter moves on (a cloned passkey is refused by the verification above).
-    let mut passkey: Passkey = serde_json::from_value(r.passkey.clone()).map_err(|_| full_needed())?;
+    let mut passkey = stored;
     let changed = passkey.update_credential(&result).unwrap_or(false);
     let mut tx = state.db.begin().await?;
     sqlx::query("UPDATE passkeys SET last_used_at = now(), passkey = CASE WHEN $2 THEN $3 ELSE passkey END WHERE id = $1")
@@ -366,10 +424,10 @@ async fn login_finish(State(state): State<AppState>, headers: HeaderMap, Json(b)
         .execute(&mut *tx)
         .await?;
     sqlx::query("UPDATE users SET last_login_at = now() WHERE id = $1").bind(r.user_id).execute(&mut *tx).await?;
-    audit::system(&mut tx, r.tenant_id, Some(r.user_id), Entry::new("auth", "login", "user", r.user_id).after(json!({ "method": "passkey", "passkey": r.passkey_id })), &ip, &ua).await?;
+    audit::system(&mut tx, r.tenant_id, Some(r.user_id), Entry::new("auth", "login", "user", r.user_id).after(json!({ "method": "passkey", "passkey": r.passkey_id, "found_by_device": kind == "discover" })), &ip, &ua).await?;
     tx.commit().await?;
     let token = crate::sessions::issue(&state, r.user_id, r.tenant_id, crate::sessions::Kind::Quick).await?;
     let mut profile = super::auth::load_profile(&state, r.user_id, r.tenant_id, None).await?;
     profile.quick = true;
-    Ok(Json(json!({ "token": token, "profile": profile, "quick": true })))
+    Ok(Json(json!({ "token": token, "profile": profile, "quick": true, "credential_id": r.credential_id })))
 }

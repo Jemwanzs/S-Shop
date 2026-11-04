@@ -9,6 +9,10 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-04 (evening)
+
+- **Each website's own favicon** — Settings → Website → *Branding & Appearance* (the former Design tab) → Favicon: upload PNG, ICO or SVG, see it as a browser tab and a phone icon, then Publish. With none set a website uses its logo or first letter, never S'Shop's icon, including on its own domain, and it can be added to a phone with its own name and icon. (161, [module 23](modules/23-website.md))
+
 ## 2026-11-04 (late afternoon)
 
 - **SEO health** — SEO & Organic Growth → *Analytics & SEO Health* lists what to fix, counted from the live website: missing photos and descriptions, duplicate titles, dead links in articles

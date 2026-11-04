@@ -37,6 +37,7 @@ pub const ACTIONS: &[Action] = &[
     Action { key: "stock.adjust", label: "Stock adjustment / count", uses_amount: false, uses_category: false },
     Action { key: "stock.write_off", label: "Stock write-off", uses_amount: false, uses_category: false },
     Action { key: "stock.transfer", label: "Stock transfer", uses_amount: false, uses_category: false },
+    Action { key: "barcode.replace", label: "Item barcode replacement", uses_amount: false, uses_category: false },
     Action { key: "sale.discount", label: "Excessive discount (supervisor PIN at the counter)", uses_amount: true, uses_category: false },
     Action { key: "sale.return", label: "Sale return / refund", uses_amount: true, uses_category: false },
     Action { key: "sale.cancel", label: "Sale cancellation", uses_amount: true, uses_category: false },

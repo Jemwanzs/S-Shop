@@ -429,6 +429,16 @@
           ]
         },
         {
+          "title": "Replace a damaged barcode label",
+          "steps": [
+            "Stock → Barcoded items → the item → Replace label. You see the current barcode and the new one. Nothing has changed yet, and the current barcode keeps working.",
+            "Enter the reason. Print only, PNG, PDF, ZPL and TSPL change nothing, so you can test the label first.",
+            "Tap Save Barcode, or Save & Print. Only then does the old barcode stop working. It stays in the item's history and is never reused. Quantities do not change.",
+            "Cancel leaves everything as it was. If your business requires approval, tap Send for approval: the item keeps its barcode until the final approval, then use Reprint label.",
+            "Reprint label, and Print label on a product with a shared barcode, only print. Tap Done when finished."
+          ]
+        },
+        {
           "title": "Count stock (stock take)",
           "steps": [
             "Open Stock and tap Stock take.",

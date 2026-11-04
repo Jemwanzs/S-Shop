@@ -20,10 +20,12 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::access::require_platform_admin;
+use super::approvals::ApprovalRow;
 use crate::audit::{self, Entry};
 use crate::auth::Ctx;
 use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::state::AppState;
+use crate::workflow;
 
 /// Size of the seven-digit namespace.
 pub const CAPACITY: i64 = 9_000_000;
@@ -39,6 +41,8 @@ pub fn routes() -> Router<AppState> {
         .route("/barcodes/generate", post(generate))
         .route("/barcodes/labels", post(labels))
         .route("/barcodes/replace", post(replace))
+        .route("/barcodes/replace/prepare", post(replace_prepare))
+        .route("/barcodes/replace/cancel", post(replace_cancel))
         .route("/barcodes/label-existing", post(label_existing))
         .route("/barcodes/reveal", post(reveal))
         .route("/platform/barcodes/capacity", get(capacity))
@@ -312,13 +316,167 @@ async fn labels(State(state): State<AppState>, ctx: Ctx, Json(b): Json<LabelsBod
 }
 
 #[derive(Deserialize)]
+struct PrepareBody {
+    stock_item_id: Uuid,
+}
+
+/// A replacement waiting for approval on this item: its id and the proposed code.
+async fn waiting_replacement(conn: &mut PgConnection, tenant: Uuid, item: Uuid) -> AppResult<Option<(Uuid, String)>> {
+    Ok(sqlx::query_as(
+        "SELECT id, COALESCE(payload->>'barcode', '') FROM approvals
+          WHERE tenant_id = $1 AND action = 'barcode.replace' AND entity_id = $2 AND status = 'pending' LIMIT 1",
+    )
+    .bind(tenant)
+    .bind(item)
+    .fetch_optional(&mut *conn)
+    .await?)
+}
+
+/// Roadmap 162, first step of replacing a label: issues a proposed code so its label can be seen and printed. The item does
+/// not change, so its current barcode keeps working until the replacement is saved (and approved, if the business asks).
+async fn replace_prepare(State(state): State<AppState>, ctx: Ctx, Json(b): Json<PrepareBody>) -> AppResult<Json<Value>> {
+    ctx.require("barcodes.replace")?;
+    let mut tx = state.db.begin().await?;
+    let (current, product, branch, status, name): (String, Uuid, Uuid, String, String) = sqlx::query_as(
+        "SELECT i.barcode, i.product_id, i.branch_id, i.status, p.name FROM stock_items i JOIN products p ON p.id = i.product_id
+          WHERE i.id = $1 AND i.tenant_id = $2 FOR UPDATE OF i",
+    )
+    .bind(b.stock_item_id)
+    .bind(ctx.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("Item"))?;
+    ctx.ensure_branch(branch)?;
+    if status != "in_stock" {
+        return Err(rule("Only an item in stock can be relabelled"));
+    }
+    if waiting_replacement(&mut tx, ctx.tenant_id, b.stock_item_id).await?.is_some() {
+        return Err(refused("Waiting for approval", "A replacement for this barcode is waiting for approval. The current barcode keeps working until it is decided."));
+    }
+    let approval_required = workflow::needs_approval(&mut tx, &ctx, "barcode.replace", workflow::Gate::branch(branch)).await?;
+    let code = allocate(&mut tx, ctx.tenant_id, product, ctx.user_id, 1).await?.remove(0);
+    let business = business_name(&mut tx, ctx.tenant_id).await?;
+    audit::record(
+        &mut tx,
+        &ctx,
+        Entry::new("barcodes", "replacement_prepared", "stock_item", b.stock_item_id)
+            .branch(branch)
+            .before(json!({ "barcode": mask(&current) }))
+            .after(json!({ "proposed": mask(&code) })),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(json!({
+        "code": code, "masked": mask(&code), "current": mask(&current), "business": business, "product": name,
+        "approval_required": approval_required,
+    })))
+}
+
+#[derive(Deserialize)]
+struct CancelBody {
+    code: String,
+}
+
+/// Roadmap 162: the person cancelled, so their proposed code is retired, unused and never issued again. Nothing else changes.
+async fn replace_cancel(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CancelBody>) -> AppResult<Json<Value>> {
+    ctx.require("barcodes.replace")?;
+    let mut tx = state.db.begin().await?;
+    let done = sqlx::query(
+        "UPDATE barcode_registry SET status = 'retired', retired_at = now(), retire_reason = 'Replacement cancelled'
+          WHERE code = $1 AND tenant_id = $2 AND allocated_by = $3 AND status = 'allocated'
+            AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.tenant_id = $2 AND a.action = 'barcode.replace'
+                             AND a.status = 'pending' AND a.payload->>'barcode' = $1)",
+    )
+    .bind(&b.code)
+    .bind(ctx.tenant_id)
+    .bind(ctx.user_id)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    tx.commit().await?;
+    Ok(Json(json!({ "ok": true, "retired": done > 0 })))
+}
+
+#[derive(Deserialize)]
 struct ReplaceBody {
     stock_item_id: Uuid,
     #[serde(default)]
     reason: String,
+    /// The code from *prepare*, whose label the person has seen. Without one a new code is issued here.
+    #[serde(default)]
+    code: Option<String>,
+    /// The masked barcode the person saw as current: refused if it has changed since.
+    #[serde(default)]
+    base_masked: Option<String>,
 }
 
-/// A damaged or lost label: the unit gets a new seven-digit code; the old one is retired, never reused.
+/// A proposed code may go on this item only if it was issued to this business for this product and is still unused.
+async fn check_proposed(conn: &mut PgConnection, tenant: Uuid, product: Uuid, item: Uuid, code: &str) -> AppResult<()> {
+    let row: Option<(Option<Uuid>, Option<Uuid>, String)> =
+        sqlx::query_as("SELECT tenant_id, product_id, status FROM barcode_registry WHERE code = $1 FOR UPDATE").bind(code).fetch_optional(&mut *conn).await?;
+    let usable = matches!(&row, Some((t, p, s)) if *t == Some(tenant) && *p == Some(product) && s == "allocated");
+    if !usable {
+        return Err(refused("Barcode not available", "This barcode was not issued for this product, or it has already been used. Start the replacement again."));
+    }
+    let elsewhere: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM approvals WHERE tenant_id = $1 AND action = 'barcode.replace' AND status = 'pending'
+                         AND payload->>'barcode' = $2 AND entity_id <> $3)",
+    )
+    .bind(tenant)
+    .bind(code)
+    .bind(item)
+    .fetch_one(&mut *conn)
+    .await?;
+    if elsewhere {
+        return Err(refused("Barcode not available", "This barcode is waiting for approval on another item."));
+    }
+    Ok(())
+}
+
+/// The change itself, inside the caller's transaction: the old code goes to the item's history and is retired, never reused;
+/// the item keeps its identity and stock is untouched.
+#[allow(clippy::too_many_arguments)]
+async fn apply_replacement(
+    conn: &mut PgConnection,
+    ctx: &Ctx,
+    item: Uuid,
+    product: Uuid,
+    branch: Uuid,
+    old: &str,
+    code: &str,
+    reason: &str,
+    requested_by: Uuid,
+) -> AppResult<()> {
+    sqlx::query("INSERT INTO stock_item_barcode_history (tenant_id, stock_item_id, barcode, replaced_by, reason) VALUES ($1, $2, $3, $4, $5)")
+        .bind(ctx.tenant_id)
+        .bind(item)
+        .bind(old)
+        .bind(requested_by)
+        .bind(reason)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("UPDATE stock_items SET barcode = $2, updated_at = now() WHERE id = $1").bind(item).bind(code).execute(&mut *conn).await?;
+    sqlx::query("UPDATE barcode_registry SET status = 'retired', retired_at = now(), retire_reason = $3 WHERE code = $1 AND tenant_id = $2")
+        .bind(old)
+        .bind(ctx.tenant_id)
+        .bind(format!("Replaced: {reason}"))
+        .execute(&mut *conn)
+        .await?;
+    assign(&mut *conn, ctx.tenant_id, product, item, code).await?;
+    audit::record(
+        &mut *conn,
+        ctx,
+        Entry::new("barcodes", "replaced", "stock_item", item)
+            .branch(branch)
+            .before(json!({ "barcode": mask(old) }))
+            .after(json!({ "barcode": mask(code), "reason": reason })),
+    )
+    .await?;
+    Ok(())
+}
+
+/// A damaged or lost label: the unit gets a new seven-digit code; the old one is retired, never reused. Saving twice changes
+/// nothing more. Where the business requires approval the item does not change until the final approval.
 async fn replace(State(state): State<AppState>, ctx: Ctx, Json(b): Json<ReplaceBody>) -> AppResult<Json<Value>> {
     ctx.require("barcodes.replace")?;
     let reason = b.reason.trim().to_string();
@@ -336,38 +494,92 @@ async fn replace(State(state): State<AppState>, ctx: Ctx, Json(b): Json<ReplaceB
     .await?
     .ok_or(AppError::NotFound("Item"))?;
     ctx.ensure_branch(branch)?;
+    if b.code.as_deref() == Some(old.as_str()) {
+        let business = business_name(&mut tx, ctx.tenant_id).await?;
+        return Ok(Json(json!({ "status": "saved", "already_saved": true, "code": old, "masked": mask(&old), "business": business, "product": name })));
+    }
     if status != "in_stock" {
         return Err(rule("Only an item in stock can be relabelled"));
     }
-    let code = allocate(&mut tx, ctx.tenant_id, product, ctx.user_id, 1).await?.remove(0);
-    sqlx::query("INSERT INTO stock_item_barcode_history (tenant_id, stock_item_id, barcode, replaced_by, reason) VALUES ($1, $2, $3, $4, $5)")
-        .bind(ctx.tenant_id)
-        .bind(b.stock_item_id)
-        .bind(&old)
-        .bind(ctx.user_id)
-        .bind(&reason)
-        .execute(&mut *tx)
+    if let Some((approval, waiting)) = waiting_replacement(&mut tx, ctx.tenant_id, b.stock_item_id).await? {
+        if b.code.as_deref() == Some(waiting.as_str()) {
+            return Ok(Json(json!({ "status": "pending", "approval_id": approval, "masked": mask(&waiting), "current": mask(&old) })));
+        }
+        return Err(refused("Waiting for approval", "A replacement for this barcode is waiting for approval. The current barcode keeps working until it is decided."));
+    }
+    if b.base_masked.as_deref().is_some_and(|seen| seen != mask(&old)) {
+        return Err(refused("Changed by someone else", "This item's barcode has changed since you opened it. Close this and start again."));
+    }
+    let code = match &b.code {
+        Some(code) => {
+            check_proposed(&mut tx, ctx.tenant_id, product, b.stock_item_id, code).await?;
+            code.clone()
+        }
+        None => allocate(&mut tx, ctx.tenant_id, product, ctx.user_id, 1).await?.remove(0),
+    };
+    if workflow::needs_approval(&mut tx, &ctx, "barcode.replace", workflow::Gate::branch(branch)).await? {
+        let approval = workflow::submit(
+            &mut tx,
+            &ctx,
+            workflow::Request {
+                action: "barcode.replace",
+                entity_type: "stock_item",
+                entity_id: b.stock_item_id,
+                branch_id: Some(branch),
+                summary: format!("Replace barcode of {name}: {} → {}. {reason}", mask(&old), mask(&code)),
+                amount: None,
+                payload: json!({ "barcode": code, "current": mask(&old), "reason": reason }),
+            },
+        )
         .await?;
-    sqlx::query("UPDATE stock_items SET barcode = $2, updated_at = now() WHERE id = $1").bind(b.stock_item_id).bind(&code).execute(&mut *tx).await?;
-    sqlx::query("UPDATE barcode_registry SET status = 'retired', retired_at = now(), retire_reason = $3 WHERE code = $1 AND tenant_id = $2")
-        .bind(&old)
-        .bind(ctx.tenant_id)
-        .bind(format!("Replaced: {reason}"))
-        .execute(&mut *tx)
+        audit::record(
+            &mut tx,
+            &ctx,
+            Entry::new("barcodes", "replacement_requested", "stock_item", b.stock_item_id)
+                .branch(branch)
+                .approval(Some(approval))
+                .before(json!({ "barcode": mask(&old) }))
+                .after(json!({ "proposed": mask(&code), "reason": reason })),
+        )
         .await?;
-    assign(&mut tx, ctx.tenant_id, product, b.stock_item_id, &code).await?;
+        tx.commit().await?;
+        return Ok(Json(json!({ "status": "pending", "approval_id": approval, "masked": mask(&code), "current": mask(&old) })));
+    }
+    apply_replacement(&mut tx, &ctx, b.stock_item_id, product, branch, &old, &code, &reason, ctx.user_id).await?;
     let business = business_name(&mut tx, ctx.tenant_id).await?;
-    audit::record(
-        &mut tx,
-        &ctx,
-        Entry::new("barcodes", "replaced", "stock_item", b.stock_item_id)
-            .branch(branch)
-            .before(json!({ "barcode": mask(&old) }))
-            .after(json!({ "barcode": mask(&code), "reason": reason })),
-    )
-    .await?;
     tx.commit().await?;
-    Ok(Json(json!({ "code": code, "masked": mask(&code), "business": business, "product": name })))
+    Ok(Json(json!({ "status": "saved", "code": code, "masked": mask(&code), "business": business, "product": name })))
+}
+
+/// The final approval of a replacement. The item may have moved on while the request waited, so everything is checked again.
+pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) -> AppResult<()> {
+    let code = a.payload["barcode"].as_str().unwrap_or_default().to_string();
+    let reason = a.payload["reason"].as_str().unwrap_or("Approved replacement").to_string();
+    let (old, product, branch, status): (String, Uuid, Uuid, String) =
+        sqlx::query_as("SELECT barcode, product_id, branch_id, status FROM stock_items WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+            .bind(a.entity_id)
+            .bind(a.tenant_id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .ok_or(AppError::NotFound("Item"))?;
+    if status != "in_stock" {
+        return Err(refused("Item no longer in stock", "This item left stock while the request waited. Reject the request: its current barcode stays."));
+    }
+    if a.payload["current"].as_str() != Some(mask(&old).as_str()) {
+        return Err(refused("Changed by someone else", "This item's barcode changed while the request waited. Reject the request."));
+    }
+    check_proposed(&mut *conn, a.tenant_id, product, a.entity_id, &code).await?;
+    apply_replacement(&mut *conn, ctx, a.entity_id, product, branch, &old, &code, &reason, a.requested_by.unwrap_or(ctx.user_id)).await
+}
+
+/// A replacement rejected or withdrawn: the item never changed; the proposed code is retired, unused.
+pub async fn on_closed(conn: &mut PgConnection, a: &ApprovalRow) -> AppResult<()> {
+    sqlx::query("UPDATE barcode_registry SET status = 'retired', retired_at = now(), retire_reason = 'Replacement not approved' WHERE code = $1 AND tenant_id = $2 AND status = 'allocated'")
+        .bind(a.payload["barcode"].as_str().unwrap_or_default())
+        .bind(a.tenant_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
 }
 
 #[derive(Deserialize)]

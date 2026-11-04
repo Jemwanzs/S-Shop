@@ -488,7 +488,7 @@ export default function ReceiveStock() {
       />
       {printing && generated && (
         <LabelsDialog business={generated.business} labels={generated.codes.map((code) => ({ code, product: generated.product }))}
-          note={`Attach one label to each ${generated.product}`} onClose={() => setPrinting(false)} />
+          note={`Attach one label to each ${generated.product}`} notice="These barcodes are saved on the items when you press Receive. Printing or downloading changes nothing." onClose={() => setPrinting(false)} />
       )}
       {p && (
         <AddPhotosDialog

@@ -113,9 +113,31 @@ when *Require barcode verification before completing a receipt* is on. Printing 
 
 **Stock → Barcoded items → an item:**
 - *Reprint label*.
-- *Replace label*: a reason is required. The item gets a new code; the old one is retired, is never reused and can
-  still be traced.
+- *Replace label*: see roadmap 162 below.
 - *Reveal*.
+
+## 162 — Saving, replacing and printing are separate
+
+| You press | The database |
+|---|---|
+| Print, Print only, Reprint, PNG, PDF, ZPL, TSPL | Unchanged. Reprints are recorded in the audit log |
+| *Replace label* | Issues a proposed code. The item keeps its barcode |
+| *Save Barcode*, *Save & Print* | One transaction: old code to the item's history and retired, new code on the item. Quantities unchanged |
+| *Send for approval* (workflow on) | A request. The item keeps its barcode until the final approval |
+| *Cancel* | The proposed code is retired, unused. Nothing else changes |
+
+**The dialog.** It shows the current and new barcodes, a required reason, and the label. It closes only after the save succeeded; a failure leaves it open with the reason. If printing fails after a save, the barcode stays saved and the dialog becomes print-only.
+
+**Refused on save:** a barcode that changed since the dialog opened (*Changed by someone else*); a code not issued to this business for this product, already used, or waiting on another item (*Barcode not available*); an item no longer in stock. Saving the same code twice changes nothing more.
+
+**Approval.** Settings → Approvals → *Item barcode replacement*, off by default. Only one request per item. Approvers see masked codes. The old label keeps working and the proposed one sells nothing until the final approval; then *Reprint label* prints the new one. Rejecting or withdrawing retires the proposed code. If the item left stock while waiting, approving is refused and the request should be rejected.
+
+**Print-only dialogs** have *Done* and say where the barcode is saved:
+- *Reprint label*, *Label existing stock*: already saved.
+- Receiving: saved when you press Receive.
+- Product details → *Print label* (shared barcode): made from the product's barcode, nothing is issued.
+
+**Shared barcodes.** Edit product shows the current barcode. Generate or typing changes only the form, Saving the product replaces it (through *Product edit* approval when on), and *Keep current* puts it back.
 
 ## 136 — Concealed item barcodes
 

@@ -86,7 +86,7 @@ export function BarcodeHardwareCard({ s, update }: { s: Settings; update: (f: (x
         </details>
       </div>
       {testLabel && profile && (
-        <LabelsDialog business={profile.tenant.name} title="Test label" onClose={() => setTestLabel(false)}
+        <LabelsDialog business={profile.tenant.name} title="Test label" notice="A test label. Nothing is saved." onClose={() => setTestLabel(false)}
           labels={[{ code: "5831047", product: t("Test label — not a real item") }]} />
       )}
     </Card>

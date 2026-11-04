@@ -1,5 +1,6 @@
 /** Item barcodes on products and stock (roadmap 135–136): print / reprint labels, replace a damaged label, reveal one
- * full barcode, label stock that has none yet. Full codes come only from audited server actions; screens show `****047`. */
+ * full barcode, label stock that has none yet. Full codes come only from audited server actions; screens show `****047`.
+ * Roadmap 162: replacing shows the current barcode and the proposed label first, and changes the item only on Save. */
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Printer, RefreshCcw, Tags } from "lucide-react";
@@ -11,19 +12,20 @@ import { toast } from "@/lib/toast";
 import type { Paged } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ActionButton } from "@/components/ActionButton";
-import { ResponsiveDialog } from "@/components/ResponsiveDialog";
+import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Field } from "@/components/Form";
 import { LabelsDialog } from "@/components/LabelsDialog";
 import type { Label } from "@/lib/labels";
 
 interface Sheet { business: string; labels: Label[]; title: string }
+interface Proposal { code: string; masked: string; current: string; business: string; product: string; approval_required: boolean }
 
 /** Reprint, replace or reveal one unit's barcode. */
 export function ItemBarcodeActions({ itemId, status, onChanged }: { itemId: string; status: string; onChanged?: () => void }) {
   const { can } = useSession();
   const [sheet, setSheet] = useState<Sheet | null>(null);
-  const [replacing, setReplacing] = useState(false);
+  const qc = useQueryClient();
+  const [proposal, setProposal] = useState<Proposal | null>(null);
   const [reason, setReason] = useState("");
   const [revealed, setRevealed] = useState<string | null>(null);
   const live = ["in_stock", "in_transit"].includes(status);
@@ -37,7 +39,15 @@ export function ItemBarcodeActions({ itemId, status, onChanged }: { itemId: stri
         }}><Printer /> {t("Reprint label")}</ActionButton>
       )}
       {status === "in_stock" && can("barcodes.replace") && (
-        <Button size="sm" variant="outline" onClick={() => { setReason(""); setReplacing(true); }}><RefreshCcw /> {t("Replace label")}</Button>
+        <ActionButton size="sm" variant="outline" online onAction={async () => {
+          try {
+            const r = await api<Proposal>("/barcodes/replace/prepare", { body: { stock_item_id: itemId } });
+            setReason("");
+            setProposal(r);
+          } catch (e) {
+            toast.error(e);
+          }
+        }}><RefreshCcw /> {t("Replace label")}</ActionButton>
       )}
       {can("barcodes.reveal") && (
         revealed
@@ -46,18 +56,33 @@ export function ItemBarcodeActions({ itemId, status, onChanged }: { itemId: stri
               <Eye /> {t("Reveal")}
             </ActionButton>
       )}
-      <ResponsiveDialog open={replacing} onOpenChange={setReplacing} title="Replace label"
-        description="The item gets a new seven-digit barcode; the old one stops working and is never reused."
-        footer={<ActionButton online blockedBy={[!reason.trim() && "Say why the label is being replaced"]} onAction={async () => {
-          const r = await api<{ code: string; business: string; product: string }>("/barcodes/replace", { body: { stock_item_id: itemId, reason } });
-          setReplacing(false);
-          toast.success("New barcode issued — print and attach the new label");
-          setSheet({ business: r.business, labels: [{ code: r.code, product: r.product }], title: "New label" });
-          onChanged?.();
-        }}>{t("Replace")}</ActionButton>}>
-        <Field label="Reason" hint="e.g. label torn, unreadable, lost"><Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-      </ResponsiveDialog>
-      {sheet && <LabelsDialog business={sheet.business} labels={sheet.labels} title={sheet.title} onClose={() => setSheet(null)} />}
+      {proposal && (
+        <LabelsDialog business={proposal.business} labels={[{ code: proposal.code, product: proposal.product }]} title="Replace barcode"
+          onClose={() => setProposal(null)}
+          save={{
+            approval: proposal.approval_required,
+            blockedBy: [!reason.trim() && REASONS.enterReason],
+            onCancel: () => { void api("/barcodes/replace/cancel", { body: { code: proposal.code } }).catch(() => {}); },
+            onSave: async () => {
+              const r = await api<{ status: string }>("/barcodes/replace", { body: { stock_item_id: itemId, reason, code: proposal.code, base_masked: proposal.current } });
+              toast.success(r.status === "pending" ? "Sent for approval. The current barcode keeps working until it is approved." : "New barcode saved. The old one no longer works.");
+              qc.invalidateQueries({ queryKey: ["stock", "items"] });
+              onChanged?.();
+            },
+          }}>
+          <dl className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-lg bg-muted/60 p-2.5"><dt className="text-xs text-muted-foreground">{t("Current barcode")}</dt><dd className="num font-semibold">{proposal.current}</dd></div>
+            <div className="rounded-lg bg-primary/5 p-2.5"><dt className="text-xs text-muted-foreground">{t("New barcode")}</dt><dd className="num font-semibold text-primary">{proposal.masked}</dd></div>
+          </dl>
+          <p className="rounded-lg bg-warning/10 p-2.5 text-xs text-warning">
+            {t(proposal.approval_required
+              ? "This needs approval. The current barcode keeps working until the final approval. You can reprint the new label then."
+              : "Nothing has changed yet. The current barcode keeps working until you save. After that it stops working, stays in this item's history and is never reused. Quantities do not change.")}
+          </p>
+          <Field label="Reason" hint="e.g. label torn, unreadable, lost"><Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+        </LabelsDialog>
+      )}
+      {sheet && <LabelsDialog business={sheet.business} labels={sheet.labels} title={sheet.title} notice="This barcode is already saved. Printing or downloading changes nothing." onClose={() => setSheet(null)} />}
     </div>
   );
 }
@@ -98,7 +123,22 @@ export function ProductBarcodeLabels({ productId, branchId, branchName, onHand }
           }}><Tags /> {t("Label existing stock")} ({count(missing)})</ActionButton>
         )}
       </div>
-      {sheet && <LabelsDialog business={sheet.business} labels={sheet.labels} title={sheet.title} note={sheet.title === "Label existing stock" ? "Attach one label to each item on the shelf" : undefined} onClose={() => setSheet(null)} />}
+      {sheet && <LabelsDialog business={sheet.business} labels={sheet.labels} title={sheet.title} note={sheet.title === "Label existing stock" ? "Attach one label to each item on the shelf" : undefined}
+        notice="These barcodes are already saved. Printing or downloading changes nothing." onClose={() => setSheet(null)} />}
     </div>
+  );
+}
+
+/** Roadmap 162: the label of a product's one shared barcode. It is made here from what is already on the product, so nothing is saved. */
+export function SharedBarcodeLabel({ barcode, product }: { barcode: string; product: string }) {
+  const { can, profile } = useSession();
+  const [open, setOpen] = useState(false);
+  if (!can("barcodes.print") || !profile) return null;
+  return (
+    <>
+      <Button size="sm" variant="outline" className="w-full" onClick={() => setOpen(true)}><Printer /> {t("Print label")}</Button>
+      {open && <LabelsDialog business={profile.tenant.name} labels={[{ code: barcode, product }]} title="Print label"
+        notice="Every unit of this product shares this barcode. Printing or downloading changes nothing." onClose={() => setOpen(false)} />}
+    </>
   );
 }

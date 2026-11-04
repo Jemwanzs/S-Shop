@@ -60,6 +60,7 @@ Existing single-approver workflows were migrated to a one-level chain (migration
 | Stock addition (by value) | is stored, no stock moves | receipt applied (barcodes re-checked) |
 | Stock adjustment / count | adjustment *pending* | applied (recount re-derives variance) |
 | Stock write-off | adjustment *pending* | applied |
+| Item barcode replacement | item unchanged, proposed code reserved | new code on the item, old one retired; rejected or withdrawn: proposed code retired |
 | Stock transfer | transfer *pending approval* | transfer *approved* |
 | Excessive discount | supervisor email + PIN at the counter | recorded as approved instantly |
 | Sale return (by amount) | is stored | return processed |

@@ -17,7 +17,7 @@ import { ConfirmDialog } from "@/components/Form";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { CustomFieldValues } from "@/components/CustomFields";
 import { t } from "@/lib/i18n";
-import { ProductBarcodeLabels } from "@/components/ItemBarcodes";
+import { ProductBarcodeLabels, SharedBarcodeLabel } from "@/components/ItemBarcodes";
 
 interface Detail {
   product: Product;
@@ -169,6 +169,7 @@ export default function ProductDetail() {
             {p.max_discount !== null && <KV label="Max discount"><span className="num">{money(p.max_discount)}</span></KV>}
             {p.cost_price !== null && can("sales.view_financials") && <KV label="Cost price"><span className="num">{money(p.cost_price)}</span></KV>}
             <KV label="Barcode">{p.track_items ? "Per item" : p.barcode ? <span className="num">{p.barcode}</span> : "—"}</KV>
+            {!p.track_items && p.barcode && <div className="py-1"><SharedBarcodeLabel barcode={p.barcode} product={p.name} /></div>}
             <KV label="Supplier">{p.supplier_name ?? "—"}</KV>
             <KV label="Ordering link">{p.available_for_orders ? "Visible" : "Hidden"}</KV>
             <KV label="Transfers">{p.transfer_allowed ? "Allowed" : "Not allowed"}</KV>

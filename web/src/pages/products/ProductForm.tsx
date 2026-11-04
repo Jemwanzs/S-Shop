@@ -292,6 +292,16 @@ export default function ProductForm() {
                       catch (e) { toast.error(e); }
                     }}><Wand2 /> {t("Generate")}</Button>
                   </div>
+                  {existing.data?.product.barcode && !assignBarcode && (
+                    existing.data.product.barcode === f.barcode.trim()
+                      ? <p className="mt-1 text-xs text-muted-foreground">{t("This is the current barcode. Generating or typing another one replaces it when you save the product.")}</p>
+                      : (
+                        <p className="mt-1 rounded-lg bg-warning/10 p-2 text-xs text-warning">
+                          {t("Current barcode")} <span className="num font-semibold">{existing.data.product.barcode}</span>. {t("Saving the product replaces it for every unit.")}{" "}
+                          <button type="button" className="font-medium underline" onClick={() => set("barcode", existing.data?.product.barcode ?? "")}>{t("Keep current")}</button>
+                        </p>
+                      )
+                  )}
                 </Field>
               )}
             </Section>

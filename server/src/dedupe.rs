@@ -82,11 +82,12 @@ fn exempt(path: &str) -> bool {
     p.starts_with("/auth/login") || p.starts_with("/webhooks/") || p.starts_with("/events")
 }
 
-/// Writes that are really status checks (is it paid yet? is this barcode free?): an identical request while one is
-/// running is still refused, but a later one always runs — its answer can change, so it is never replayed.
+/// Writes that are really status checks (is it paid yet? is this barcode free?) or that give something new each time (a
+/// proposed barcode, which Cancel retires): an identical request while one is running is still refused, but a later one
+/// always runs — its answer can change, so it is never replayed.
 fn never_replay(path: &str) -> bool {
     let p = path.strip_prefix("/api").unwrap_or(path);
-    p.ends_with("/verify") || p.ends_with("/identify") || p.ends_with("/check-barcode")
+    p.ends_with("/verify") || p.ends_with("/identify") || p.ends_with("/check-barcode") || p.ends_with("/barcodes/replace/prepare")
 }
 
 pub async fn guard(axum::extract::State(state): axum::extract::State<crate::state::AppState>, req: Request, next: Next) -> Response {
@@ -176,5 +177,6 @@ mod tests {
         assert!(matches!(d.claim(f), Seen::New));
         assert!(exempt("/api/auth/login") && exempt("/webhooks/paystack") && !exempt("/api/sales"));
         assert!(never_replay("/billing/paystack/verify") && never_replay("/sales/check-barcode") && !never_replay("/sales"));
+        assert!(never_replay("/api/barcodes/replace/prepare") && !never_replay("/api/barcodes/replace"));
     }
 }

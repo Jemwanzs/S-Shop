@@ -26,6 +26,7 @@ const ACTION_LABEL: Record<string, string> = {
   "stock.adjust": "Stock adjustment",
   "stock.write_off": "Write-off",
   "stock.transfer": "Transfer",
+  "barcode.replace": "Barcode replacement",
   "sale.discount": "Discount",
   "sale.return": "Return",
   "sale.cancel": "Cancellation",

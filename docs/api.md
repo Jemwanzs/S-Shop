@@ -440,7 +440,9 @@ Posting, progress, error report and approval are the onboarding batch endpoints 
 |---|---|---|
 | POST | `/api/barcodes/generate` (`product_id`, `quantity` 1–500) | *Generate item barcodes*; individually tracked products; `{codes, label: {business, product}}` |
 | POST | `/api/barcodes/labels` (`codes` · `stock_item_ids` · `product_id` + `branch_id`) | *Print & reprint labels*; full codes for printing only; audited |
-| POST | `/api/barcodes/replace` (`stock_item_id`, `reason`) | *Replace item barcodes*; in-stock item; new code, old retired |
+| POST | `/api/barcodes/replace/prepare` (`stock_item_id`) | *Replace item barcodes*; in-stock item; → proposed `code`, `masked`, `current`, `approval_required`. The item does not change |
+| POST | `/api/barcodes/replace` (`stock_item_id`, `reason`, optional `code`, `base_masked`) | *Replace item barcodes*; → `status` `saved` (old retired, in history) or `pending` (`approval_id`, item unchanged). Saving the same `code` again changes nothing. Without `code`, one is issued |
+| POST | `/api/barcodes/replace/cancel` (`code`) | *Replace item barcodes*; retires your own unused proposed code |
 | POST | `/api/barcodes/label-existing` (`product_id`, `branch_id`) | *Generate* + *Receive stock*; one code per unlabelled unit on hand |
 | POST | `/api/barcodes/reveal` (`stock_item_id`) | *Reveal full item barcodes*; audited |
 | GET | `/api/platform/barcodes/capacity` | platform owner; issued / on items / remaining / percent / warning |

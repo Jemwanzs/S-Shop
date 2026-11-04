@@ -436,6 +436,14 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 5. Enter the Cost / purchase price, Marked selling price, Supplier and the delivery note in Reference / notes; change Date received if needed.
 6. Tap Receive. The stock and its value update immediately (or after approval when required).
 
+#### Replace a damaged barcode label
+
+1. Stock → Barcoded items → the item → Replace label. You see the current barcode and the new one. Nothing has changed yet, and the current barcode keeps working.
+2. Enter the reason. Print only, PNG, PDF, ZPL and TSPL change nothing, so you can test the label first.
+3. Tap Save Barcode, or Save & Print. Only then does the old barcode stop working. It stays in the item's history and is never reused. Quantities do not change.
+4. Cancel leaves everything as it was. If your business requires approval, tap Send for approval: the item keeps its barcode until the final approval, then use Reprint label.
+5. Reprint label, and Print label on a product with a shared barcode, only print. Tap Done when finished.
+
 #### Count stock (stock take)
 
 1. Open Stock and tap Stock take.

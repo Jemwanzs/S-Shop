@@ -55,6 +55,11 @@ async fn run_once(state: &AppState) -> anyhow::Result<()> {
     .execute(&state.db)
     .await?;
     sqlx::query("DELETE FROM portal_otps WHERE created_at < now() - interval '1 day'").execute(&state.db).await?;
+    // Roadmap 158: scheduled articles whose time has come.
+    if let Err(e) = crate::routes::articles::publish_due(state).await {
+        tracing::warn!(error = %format!("{e:#}"), "scheduled articles");
+        crate::alerts::report("job", "Publishing scheduled articles failed", format!("{e:#}"), "", "Housekeeping (every 15 min)");
+    }
     // Roadmap 147: resolved errors and old start records are kept for 90 days.
     sqlx::query("DELETE FROM error_events WHERE resolved_at < now() - interval '90 days'").execute(&state.db).await?;
     sqlx::query("DELETE FROM service_starts WHERE started_at < now() - interval '90 days'").execute(&state.db).await?;

@@ -76,6 +76,8 @@ pub struct Ctx<'a> {
     pub cats: &'a [Cat],
     pub logo: Option<String>,
     pub places: &'a [Location],
+    /// Live articles this website has (roadmap 158).
+    pub articles: i64,
 }
 
 /// Schema.org opening hours from trading days (Monday first). Hours never set (open all day, every day, the default) say nothing.
@@ -122,6 +124,9 @@ impl Ctx<'_> {
             if n.visible {
                 links.push(format!("<a href=\"{}\">{}</a>", esc(&self.href(path)), esc(&n.label)));
             }
+        }
+        if self.articles > 0 {
+            links.push(format!("<a href=\"{}\">Articles</a>", esc(&self.href("/articles"))));
         }
         format!("<nav aria-label=\"Main\">{}</nav>", links.join(" "))
     }
@@ -249,6 +254,35 @@ impl Ctx<'_> {
     pub fn testimonials_page(&self) -> String {
         let items: String = shown_testimonials(self.config).map(|t| format!("<li><blockquote>{}</blockquote><p>{}</p></li>", esc(&t.quote), esc(&t.name))).collect();
         self.wrap(format!("<h1>Testimonials</h1><ul>{items}</ul>"))
+    }
+
+    pub fn articles_page(&self, rows: &[super::articles::ArticleRow], page: usize, last: usize) -> String {
+        let items: String = rows.iter().map(|a| {
+            let img = a.cover_media.map(|m| format!("<img src=\"{}\" alt=\"{}\" loading=\"lazy\" />", esc(&absolute(self.root, &format!("{}?size=thumb", super::site::media_url(m)))), esc(&a.cover_alt))).unwrap_or_default();
+            format!("<li><a href=\"{}\">{img}<h2>{}</h2></a><p>{}</p></li>", esc(&self.href(&format!("/articles/{}", a.slug))), esc(&a.title), esc(&a.description))
+        }).collect();
+        self.wrap(format!("<h1>Articles</h1><ul>{items}</ul>{}", self.pager("/articles", page, last)))
+    }
+
+    pub fn article_page(&self, a: &super::articles::ArticleRow) -> String {
+        let crumbs = format!("<a href=\"{}\">{}</a> / <a href=\"{}\">Articles</a>", esc(&self.href("/")), esc(self.brand), esc(&self.href("/articles")));
+        let cover = a.cover_media.map(|m| format!("<img src=\"{}\" alt=\"{}\" />", esc(&absolute(self.root, &super::site::media_url(m))), esc(&a.cover_alt))).unwrap_or_default();
+        let by = if a.author_name.trim().is_empty() { String::new() } else { format!("<p>{}</p>", esc(a.author_name.trim())) };
+        self.wrap(format!("<nav aria-label=\"Breadcrumb\">{crumbs}</nav><article><h1>{}</h1>{by}{cover}{}</article>", esc(&a.title), super::articles::render_body(&a.body, self.root)))
+    }
+
+    /// `Article`, with only what the page shows.
+    pub fn article_ld(&self, a: &super::articles::ArticleRow, canonical: &str) -> Value {
+        let mut v = json!({ "@context": "https://schema.org", "@type": "Article", "headline": clip(&a.title, 110), "description": a.description, "url": canonical, "mainEntityOfPage": canonical,
+            "dateModified": a.updated_at.to_rfc3339(), "publisher": { "@type": "Organization", "name": self.brand } });
+        if let Some(at) = a.published_at {
+            v["datePublished"] = json!(at.to_rfc3339());
+        }
+        if let Some(m) = a.cover_media {
+            v["image"] = json!(absolute(self.root, &super::site::media_url(m)));
+        }
+        v["author"] = if a.author_name.trim().is_empty() { json!({ "@type": "Organization", "name": self.brand }) } else { json!({ "@type": "Person", "name": a.author_name.trim() }) };
+        v
     }
 
     pub fn not_found(&self) -> String {
@@ -414,7 +448,7 @@ mod tests {
 
     fn with<T>(currency: &str, f: impl FnOnce(&Ctx) -> T) -> T {
         let config = SiteConfig::default();
-        f(&Ctx { root: "https://shop.example", brand: "Any Business", currency, config: &config, cats: &[], logo: None, places: &[] })
+        f(&Ctx { root: "https://shop.example", brand: "Any Business", currency, config: &config, cats: &[], logo: None, places: &[], articles: 0 })
     }
 
     #[test]

@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Check, ChevronLeft, ChevronRight, ImageOff, Loader2, Minus, PackageSearch, Plus, ShoppingBag, Trash2, XCircle } from "lucide-react";
 import type { Category, Product, Section, SiteData } from "./types";
 import { pageItems } from "@/lib/paging";
+import { ShareBar } from "./articles";
 import { call, cartStore, customerStore, currentVisitor, hasCta, mediaUrl, money, SiteError, track, type Customer } from "./lib";
 import { addToCart, badgeLabel, CategoryTiles, ContactList, CtaLink, GridSkeleton, productAction, ProductGrid, SERVICE_ICONS, Testimonials } from "./parts";
 
@@ -397,6 +398,7 @@ export function ProductPage({ data }: { data: SiteData }) {
             <ProductGrid data={data} items={res!.related} rail />
           </div>
         )}
+        <div style={{ marginTop: 24 }}><ShareBar title={p.name} /></div>
       </div>
     </section>
   );

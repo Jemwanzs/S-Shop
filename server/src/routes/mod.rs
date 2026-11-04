@@ -3,6 +3,7 @@
 pub mod access;
 pub mod admin;
 pub mod approvals;
+pub mod articles;
 pub mod audit;
 pub mod auth;
 pub mod billing;
@@ -84,6 +85,7 @@ pub fn api() -> Router<AppState> {
         .merge(webhooks::routes())
         .merge(website::routes())
         .merge(site::routes())
+        .merge(articles::routes())
         .merge(crate::alerts::routes())
 }
 

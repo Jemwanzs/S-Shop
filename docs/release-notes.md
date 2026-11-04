@@ -11,6 +11,10 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ## 2026-11-04 (late afternoon)
 
+- **SEO & Organic Growth** — Settings → Website has a new section for each business's search presence: its title and description with a
+  preview, what it sells and where it serves in its own words, the address customers can visit, which branches to list, and a checklist for
+  Google Business Profile. Products and categories get suggestions made only from what is on record. Nothing is published until you do. (157,
+  [module 23](modules/23-website.md))
 - **Websites search engines can read** — every page of a business's website now carries its real content, links and structured
   data in the first HTML, so search engines and link previews read it without JavaScript. Unknown pages answer *not found*, each page
   has one address, a hidden price stays hidden there too, and categories are in the sitemap. The private app stays out of search.

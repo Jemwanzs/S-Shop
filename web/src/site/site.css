@@ -475,3 +475,18 @@ textarea.field { min-height: 90px; resize: vertical; }
 .seed img { max-width: 100%; height: auto; display: block; }
 .seed h1 { font-size: 1.75rem; margin: 1rem 0; }
 .seed h3 { font-size: 1rem; margin: 0.5rem 0 0; }
+
+/* Roadmap 158: articles and sharing */
+.article-list { list-style: none; padding: 0; display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); }
+.article-card { display: grid; gap: 8px; color: inherit; text-decoration: none; }
+.article-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 12px; }
+.article-card h2, .article-card h3 { font-size: 1.1rem; margin: 0; }
+.article { max-width: 46rem; display: grid; gap: 14px; }
+.article-cover { width: 100%; height: auto; border-radius: 12px; }
+.article-body p { white-space: normal; }
+.article-body h2 { margin-top: 1.25em; }
+.article-body ul, .article-body ol { padding-inline-start: 1.25em; }
+.article-body a { text-decoration: underline; }
+.share { display: flex; flex-wrap: wrap; gap: 8px; }
+.share .btn svg { width: 1em; height: 1em; }
+.pager { display: flex; align-items: center; justify-content: center; gap: 12px; }

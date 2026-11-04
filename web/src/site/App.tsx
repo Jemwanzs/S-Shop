@@ -10,6 +10,7 @@ import {
   AboutPage, CartLines, CartSummary, CategoriesPage, CategoryPage, ContactPage, HomePage, NotFound, OrderPage, ProductPage, ProductsPage, ratio,
   ServicesPage, TestimonialsPage, TrackPage, useCart, useScrollTop,
 } from "./pages";
+import { ArticlePage, ArticlesPage } from "./articles";
 
 const RADIUS = { none: "0px", small: "6px", medium: "12px", large: "20px" } as const;
 
@@ -161,7 +162,7 @@ function Header({ data, onSearch, onCart, toggleMode, mode }: { data: SiteData; 
         <button className="icon-btn menu-btn" aria-label="Menu" aria-expanded={menu} onClick={() => setMenu(true)}><Menu /></button>
         <Logo data={data} />
         <nav className="nav" aria-label="Main">
-          {nav.map((n) => <NavLink key={n.key} to={pagePath(n.key)} end={n.key === "home"} className={({ isActive }) => (isActive ? "on" : "")}>{n.label}</NavLink>)}
+          {withArticles(data, nav).map((n) => <NavLink key={n.key} to={pagePath(n.key)} end={n.key === "home"} className={({ isActive }) => (isActive ? "on" : "")}>{n.label}</NavLink>)}
         </nav>
         <button className="icon-btn" aria-label="Search products" onClick={onSearch}><Search /></button>
         {toggleMode && <button className="icon-btn" aria-label={mode === "dark" ? "Light mode" : "Dark mode"} onClick={toggleMode}>{mode === "dark" ? <Sun /> : <Moon />}</button>}
@@ -175,7 +176,7 @@ function Header({ data, onSearch, onCart, toggleMode, mode }: { data: SiteData; 
           <aside className="drawer left" role="dialog" aria-modal="true" aria-label="Menu">
             <div className="drawer-head"><Logo data={data} /><button className="icon-btn" aria-label="Close menu" onClick={() => setMenu(false)}><X /></button></div>
             <div className="drawer-body">
-              <nav aria-label="Main">{data.config.navigation.filter((n) => shownNav(data, n)).map((n) => <Link key={n.key} to={pagePath(n.key)}>{n.label}</Link>)}</nav>
+              <nav aria-label="Main">{withArticles(data, data.config.navigation.filter((n) => shownNav(data, n))).map((n) => <Link key={n.key} to={pagePath(n.key)}>{n.label}</Link>)}</nav>
             </div>
           </aside>
         </>
@@ -205,7 +206,7 @@ function Footer({ data }: { data: SiteData }) {
           </div>
           <div>
             <h3>Explore</h3>
-            <ul>{c.navigation.filter((n) => shownNav(data, n)).map((n) => <li key={n.key}><Link to={pagePath(n.key)}>{n.label}</Link></li>)}</ul>
+            <ul>{withArticles(data, c.navigation.filter((n) => shownNav(data, n))).map((n) => <li key={n.key}><Link to={pagePath(n.key)}>{n.label}</Link></li>)}</ul>
           </div>
           {((c.contact.show_phone && c.contact.phone) || (c.contact.show_email && c.contact.email) || (c.contact.show_location && c.contact.location)) && <div>
             <h3>Contact</h3>
@@ -307,6 +308,8 @@ function Shell({ data }: { data: SiteData }) {
           <Route path="/about" element={<AboutPage data={data} />} />
           <Route path="/contact" element={<ContactPage data={data} />} />
           <Route path="/testimonials" element={<TestimonialsPage data={data} />} />
+          <Route path="/articles" element={<ArticlesPage data={data} />} />
+          <Route path="/articles/:slug" element={<ArticlePage data={data} />} />
           <Route path="/order" element={<OrderPage data={data} />} />
           <Route path="/orders" element={<OrderPage data={data} />} />
           <Route path="/cart" element={<OrderPage data={data} />} />
@@ -348,6 +351,11 @@ function Landing({ data }: { data: SiteData }) {
 const client = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } } });
 
 /** A menu link shows when switched on; Testimonials only while there are testimonials to show (roadmap 90). */
+/** Roadmap 158: the Articles link appears once there is something to read. */
+function withArticles<T extends { key: string; label: string; visible: boolean }>(data: SiteData, items: T[]): (T | { key: string; label: string; visible: boolean })[] {
+  return data.articles ? [...items, { key: "articles", label: "Articles", visible: true }] : items;
+}
+
 function shownNav(data: SiteData, n: { key: string; visible: boolean }) {
   return n.visible && (n.key !== "testimonials" || (data.config.testimonials.show && data.config.testimonials.items.length > 0));
 }

@@ -150,7 +150,7 @@ export const currentVisitor = () => visitorId() ?? "";
 
 const PAGE_PATHS: Record<string, string> = {
   home: "/", about: "/about", products: "/products", categories: "/categories", services: "/services",
-  testimonials: "/testimonials", contact: "/contact", order: "/order",
+  testimonials: "/testimonials", contact: "/contact", order: "/order", articles: "/articles",
 };
 
 /** A call-to-action target: a page key, a product/category path, or an external https:/tel:/mailto: link. */

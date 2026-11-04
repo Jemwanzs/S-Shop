@@ -555,6 +555,15 @@
           ]
         },
         {
+          "title": "Write and publish an article on your website",
+          "steps": [
+            "Settings → Website → SEO & Organic Growth → Articles & Content Automation → Create article.",
+            "Write the Title and Article text, and add a Description, a Cover image and the Products mentioned. Say only what you know to be true.",
+            "Tap Send for review, or, if you may publish, Publish article or Schedule.",
+            "Once published, use Copy public link, WhatsApp, Facebook or LinkedIn to share it yourself. Nothing is posted for you."
+          ]
+        },
+        {
           "title": "Connect M-Pesa (STK Push)",
           "steps": [
             "Settings → M-Pesa & WhatsApp → Add account.",

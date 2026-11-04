@@ -535,6 +535,13 @@ Setting up the business, people, rules, payments and the website.
 4. Products & Categories: check what is missing. Tap Use suggestion, edit it so it is accurate, and add photos and descriptions where they are missing.
 5. Tap Publish. No tool can guarantee a position in search results, and search engines take time to read changes.
 
+#### Write and publish an article on your website
+
+1. Settings → Website → SEO & Organic Growth → Articles & Content Automation → Create article.
+2. Write the Title and Article text, and add a Description, a Cover image and the Products mentioned. Say only what you know to be true.
+3. Tap Send for review, or, if you may publish, Publish article or Schedule.
+4. Once published, use Copy public link, WhatsApp, Facebook or LinkedIn to share it yourself. Nothing is posted for you.
+
 #### Connect M-Pesa (STK Push)
 
 1. Settings → M-Pesa & WhatsApp → Add account.

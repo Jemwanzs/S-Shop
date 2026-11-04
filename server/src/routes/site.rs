@@ -806,7 +806,7 @@ fn render(state: &AppState, meta: &PageMeta, data: &Value, fonts: &[String], lan
 }
 
 /// Where a website lives: its active custom domain, else `/s/{slug}` on the S'Shop host.
-fn site_root(state: &AppState, s: &Site) -> String {
+pub fn site_root(state: &AppState, s: &Site) -> String {
     match &s.domain {
         Some(d) => format!("https://{d}"),
         None => format!("{}/s/{}", state.cfg.public_url, s.slug),
@@ -830,6 +830,8 @@ async fn site_data(state: &AppState, s: &Site) -> AppResult<Value> {
         // Roadmap 84: the holiday / promotional campaign showing now (or null).
         "campaign": super::campaigns::public_campaign(state, s, None).await?,
         "locations": locations(state, s).await?,
+        // Roadmap 158: the Articles link appears once there is something to read.
+        "articles": super::articles::live_articles(state, s.tenant, 1, 0).await?.1,
     }))
 }
 
@@ -912,6 +914,13 @@ async fn sitemap(state: &AppState, s: &Site) -> AppResult<axum::response::Respon
         for p in published(state, s).await? {
             xml.push_str(&sitemap_url(&format!("{root}/products/{}", p.slug), Some(p.updated_at.max(s.published_at.unwrap_or(p.updated_at)))));
         }
+        let (articles, total) = super::articles::live_articles(state, s.tenant, 2000, 0).await?;
+        if total > 0 {
+            xml.push_str(&sitemap_url(&format!("{root}/articles"), articles.first().map(|a| a.updated_at)));
+        }
+        for a in articles {
+            xml.push_str(&sitemap_url(&format!("{root}/articles/{}", a.slug), Some(a.updated_at)));
+        }
     }
     xml.push_str("</urlset>\n");
     Ok(([(header::CONTENT_TYPE, "application/xml; charset=utf-8"), (header::CACHE_CONTROL, "public, max-age=3600")], xml).into_response())
@@ -991,7 +1000,8 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
     let items = published(state, &s).await?;
     let logo = c.brand.logo.map(media_url).or_else(|| s.has_logo.then(|| format!("/api/public/{}/logo", s.slug)));
     let places = locations(state, &s).await?;
-    let ctx = site_seo::Ctx { root: &root, brand: &brand, currency: &s.currency, config: c, cats: &cats, logo, places: &places };
+    let (_, article_count) = super::articles::live_articles(state, s.tenant, 1, 0).await?;
+    let ctx = site_seo::Ctx { root: &root, brand: &brand, currency: &s.currency, config: c, cats: &cats, logo, places: &places, articles: article_count };
     let page_title = |label: &str| format!("{label} | {brand}");
     let landing = landing_path(c);
     // The root shows the business's chosen landing page (roadmap 80), under the root's address.
@@ -1129,6 +1139,50 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
                     let base = format!("/categories/{}", cat.id);
                     missing = paged_list(&mut meta, &cat.name, &base, in_cat);
                     meta.ld.push(ctx.breadcrumbs(&[(brand.clone(), "/".to_string()), ("Categories".to_string(), "/categories".to_string()), (cat.name.clone(), base.clone())]));
+                }
+                None => missing = true,
+            }
+        }
+        // Roadmap 158: the business's articles.
+        "/articles" => {
+            const PER: i64 = 12;
+            let (rows, total) = super::articles::live_articles(state, s.tenant, PER, (number as i64 - 1) * PER).await?;
+            let last = (total as usize).div_ceil(PER as usize).max(1);
+            if total == 0 || number > last {
+                missing = true;
+            } else {
+                meta.title = page_title("Articles");
+                meta.description = clip(&format!("Articles and guides from {brand}."), 160);
+                let address = |n: usize| if n > 1 { format!("{root}/articles?page={n}") } else { format!("{root}/articles") };
+                meta.canonical = address(number);
+                meta.prev = (number > 1).then(|| address(number - 1));
+                meta.next = (number < last).then(|| address(number + 1));
+                if number > 1 {
+                    meta.title = format!("{} — page {number}", meta.title);
+                    meta.description = clip(&format!("Page {number} of {last}. {}", meta.description), 160);
+                }
+                meta.seed = ctx.articles_page(&rows, number, last);
+            }
+        }
+        p if p.starts_with("/articles/") => {
+            let wanted = &p["/articles/".len()..];
+            match super::articles::live_article(state, s.tenant, wanted).await? {
+                // An earlier address forwards to the current one.
+                Some(a) if a.slug != wanted => {
+                    let to = format!("{root}/articles/{}", a.slug);
+                    return Ok(axum::response::Redirect::permanent(&to).into_response());
+                }
+                Some(a) => {
+                    meta.title = if a.seo_title.trim().is_empty() { format!("{} | {brand}", a.title) } else { a.seo_title.clone() };
+                    meta.description = clip(&a.description, 160);
+                    if let Some(m) = a.cover_media {
+                        meta.image = Some(absolute(&root, &media_url(m)));
+                    }
+                    meta.canonical = format!("{root}/articles/{}", a.slug);
+                    meta.og_type = "article";
+                    meta.seed = ctx.article_page(&a);
+                    meta.ld.push(ctx.article_ld(&a, &meta.canonical));
+                    meta.ld.push(ctx.breadcrumbs(&[(brand.clone(), "/".to_string()), ("Articles".to_string(), "/articles".to_string()), (a.title.clone(), format!("/articles/{}", a.slug))]));
                 }
                 None => missing = true,
             }

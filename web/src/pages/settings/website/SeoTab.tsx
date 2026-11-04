@@ -15,6 +15,7 @@ import { Loading } from "@/components/Page";
 import { t } from "@/lib/i18n";
 import { blankProduct, useCatalogue, type SiteConfig } from "./data";
 import { Block, Grid2, MediaField } from "./kit";
+import { ArticlesTab } from "./ArticlesTab";
 import type { TabProps } from "./Website";
 
 const TITLE_MAX = 60;
@@ -272,7 +273,7 @@ function IndexingTab({ c, set, ov }: TabProps) {
   );
 }
 
-const TABS = [["general", "General SEO"], ["local", "Local SEO"], ["products", "Products & Categories"], ["indexing", "Search Engines & Indexing"]] as const;
+const TABS = [["general", "General SEO"], ["local", "Local SEO"], ["products", "Products & Categories"], ["articles", "Articles & Content Automation"], ["indexing", "Search Engines & Indexing"]] as const;
 
 export function SeoTab(props: TabProps) {
   const [tab, setTab] = useState<(typeof TABS)[number][0]>("general");
@@ -287,6 +288,7 @@ export function SeoTab(props: TabProps) {
       {tab === "general" && <GeneralTab {...props} />}
       {tab === "local" && <LocalTab {...props} />}
       {tab === "products" && <ProductsCategoriesTab {...props} />}
+      {tab === "articles" && <ArticlesTab ov={props.ov} />}
       {tab === "indexing" && <IndexingTab {...props} />}
     </div>
   );

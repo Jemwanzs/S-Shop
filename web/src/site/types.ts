@@ -63,6 +63,8 @@ export interface SiteData {
   campaign?: Campaign | null;
   /** Roadmap 157: the places customers can visit, as the business chose to show them. */
   locations?: SiteLocation[];
+  /** Roadmap 158: how many articles are live. */
+  articles?: number;
 }
 
 export interface CampaignDesign {

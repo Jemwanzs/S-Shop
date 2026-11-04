@@ -51,6 +51,25 @@ website; neither do the local settings, except the `locations` it chose to show.
 address. A branch can be listed only if it is one of the business's own active branches; shown branches appear on the Contact page, not on pages of
 their own, and their hours come from the branch's trading hours when they were really set.
 
+## 158 — Articles
+
+SEO & Organic Growth → **Articles & Content Automation** (`routes/articles.rs`, table `website_articles`, one business per row). Separate from the website
+draft: each article has its own life, **draft → pending review → scheduled or published → archived**.
+
+| Who | May |
+|---|---|
+| `website.seo` | Create, edit drafts, send for review, delete a draft never made public |
+| `website.publish` | Publish, schedule, archive, change a live article |
+
+- **Text** is a small format, turned into escaped HTML by the server: `##` and `###` headings, paragraphs, `-` and `1.` lists, `**bold**` and links in square and round brackets, to an
+  https address or to a path on the same website. Nothing else becomes HTML, so an article cannot carry a script. The page's title is its only `h1`.
+- **Before publishing:** a description and at least a couple of paragraphs are required. A text overlapping another article of the business heavily (shared runs of three
+  words, 60 % or more) is stopped with *Very similar article* until the person confirms.
+- **Public:** `/articles` (12 a page) and `/articles/{slug}`, both with their content in the first HTML, `Article` and `BreadcrumbList` structured data and a place in the
+  sitemap. Drafts, pending, scheduled-not-yet-due and archived articles are 404. A scheduled article is live from its time, even between job runs; the job records it. Changing
+  an address keeps the old one forwarding. The *Articles* link appears once one is live.
+- **Sharing:** Copy link, native share, WhatsApp, Facebook and LinkedIn on article and product pages open each network's own share page. Nothing is posted for anyone, and S'Shop never says it was.
+
 ## 52 — Management Centre
 
 Tabs: **Overview · Content · Design · Products · Categories · Services · Testimonials · Media · Users & Access · Domain ·

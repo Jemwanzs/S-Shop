@@ -9,6 +9,25 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-04
+
+- **Scan the same barcode again and again** — at Record Sale, Stock → Receive and Stock take, each scan of a shared
+  barcode counts one more unit, with a live counter beside the scanner, − / + and typed corrections, and a session total
+  across products. The till never goes above what is available. (153, [module 19](modules/19-barcode-scanning.md))
+- **Scan a whole delivery** — Stock → Receive → *Scan delivery* builds a list of several products; nothing reaches stock
+  until you receive it, all of it or none of it, and approvals still apply line by line. (153,
+  [module 7](modules/07-stock.md))
+- **Individual barcodes stay one unit** — scanned again they say *Already scanned — 1 unit captured*. A stock take now
+  shows units still missing and labels that are misplaced, unexpected or unknown. (153)
+- **Choosing and changing how a product is tracked** — Products → Barcode shows *Shared barcode* and *Individual barcode*
+  side by side; changing a saved product is checked first against its stock, waiting requests and open transfers. (153)
+- **Fixes:** quick repeat scans are no longer lost in the barcode field; a refused scan no longer sounds twice, and each
+  result has its own sound; a scan error in the barcode field no longer opens a popup that catches the next scan. (153)
+- **Find products without a photo** — *Missing product image*, the last option of the Products price filter. (154,
+  [module 6](modules/06-products.md))
+- **Security:** Excel libraries updated (`calamine`, RUSTSEC-2026-0436; `zip`, RUSTSEC-2026-0429).
+- Product User Manual 1.9.
+
 ## 2026-10-31
 
 - **Approvals and bulk actions, tightened** — if a workflow is changed while you have a request open, your decision is

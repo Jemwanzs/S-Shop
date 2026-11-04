@@ -8,7 +8,7 @@ Status: ✅ implemented · ◐ partly implemented (see note) · ⏳ planned
 
 ## Status board
 
-*Kept current with every shipped item — last updated 2026-10-31.* History stays below; this table is only what is
+*Kept current with every shipped item — last updated 2026-11-04.* History stays below; this table is only what is
 open now. Release history: [release-notes.md](release-notes.md).
 
 **Latest live:** 146 documentation workflow, 147 error alerting, 148 approval eligibility, 149 credential-rotation support
@@ -18,6 +18,7 @@ Railway's 20–22 October **security incident** had held every push since 2026-1
 GitHub App installations were reset; the owner deployed). **Also live:** 150 several approvers per level & Tenant Administrator self-approval (2026-10-27 21:44 UTC, `cab1eb7`; full CI suite — 1,060 checks — passed on `f5f6f0f`, deployed automatically 22:07).
 **Also live:** 151 zero/missing price filters, bulk product deactivation and bulk approvals (2026-10-29 10:14 UTC, `051df00`; full CI suite — 1,083 checks — passed; deployed automatically).
 **Also live:** 152 review fixes for approvals, bulk actions and two-phase key rotation (2026-10-31 13:45 UTC, `780e4e5`; full CI suite passed; deployed automatically; start-up `readable=6 rotated=0 unreadable=0`).
+**Also live:** 153 repeated scanning, counters and tracking models, 154 missing product image filter, and the Excel library security updates (2026-11-04 11:52 UTC, `d190691`; full CI suite and dependency audit passed on the branch and on `main`; deployed automatically; start-up `readable=6 rotated=0 unreadable=0`; new routes and screens confirmed on the live site. Scanning with a real camera and hearing the sounds on real devices is the owner's check below).
 **Next (critical, owner):** rotate credentials — runbook in
 [deployment-railway.md → Rotating credentials](deployment-railway.md#rotating-credentials).
 
@@ -819,7 +820,7 @@ server already refuses a unit sold twice, from another branch or another product
   ◐ item.
 
 **Catalogue filters** (brief *Filter Products With Missing Images*):
-- ◐ **154. Missing product image filter** — purpose: find every catalogue product without a photo. Scope: *Missing
+- ✅ **154. Missing product image filter** — purpose: find every catalogue product without a photo. Scope: *Missing
   product image*, the last option of the existing Products filter (*All prices* …), on the whole catalogue with
   Active / Inactive / All, category, search and paging; no stored photo with image data qualifies, a photo failing to
   load in a browser does not; kept in the address while opening and editing a product; *Select all matching* follows it.
@@ -829,7 +830,7 @@ server already refuses a unit sold twice, from another branch or another product
   label shown, kept after opening a product and coming back.
 
 **Repeated scanning** (brief *Repeated Barcode Scanning, Quantity Counters & Flexible Item Tracking*):
-- ◐ **153. Repeated scanning, quantity counters and the two barcode tracking models** — purpose: scanning a shared
+- ✅ **153. Repeated scanning, quantity counters and the two barcode tracking models** — purpose: scanning a shared
   barcode again counts another unit everywhere, with a live counter and corrections, while an individual barcode stays
   exactly one physical unit. Scope: one live counter (`ScanCounter`) in the scanner and under the inline field —
   product, barcode, tracking model, quantity, − / field / +, remove, other products and the session total; **Stock →

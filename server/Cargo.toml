@@ -11,7 +11,7 @@ anyhow = "1"
 argon2 = "0.5"
 axum = { version = "0.8", features = ["macros", "multipart"] }
 base64 = "0.22"
-calamine = { version = "0.36", features = ["dates"] }
+calamine = { version = "0.38", features = ["dates"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 dotenvy = "0.15"
@@ -22,7 +22,7 @@ jsonwebtoken = "9"
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rust_decimal = { version = "1", features = ["serde-with-float", "serde-with-str"] }
-rust_xlsxwriter = "0.100"
+rust_xlsxwriter = "0.102"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

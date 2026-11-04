@@ -456,6 +456,11 @@ pub struct Seo {
     /// The set-up wizard was completed or skipped.
     pub wizard_done: bool,
     pub local: LocalSeo,
+    /// Roadmap 160: codes from the business's own search-engine accounts, published as meta tags. They prove ownership and nothing else.
+    pub google_verification: String,
+    pub bing_verification: String,
+    /// Google Analytics 4 measurement id. Runs only for visitors who accept analytics cookies.
+    pub ga4_id: String,
 }
 
 /// Roadmap 157: local search details, only as the business states them. Nothing here is verified or claimed anywhere.
@@ -822,6 +827,17 @@ pub fn validate(c: &SiteConfig) -> AppResult<()> {
         if !v.is_empty() && !v.starts_with("https://") {
             return Err(bad(format!("{what}: use a full link starting with https://")));
         }
+    }
+    let code_ok = |v: &str| v.is_empty() || (v.len() <= 100 && v.chars().all(|x| x.is_ascii_alphanumeric() || x == '-' || x == '_'));
+    if !code_ok(&c.seo.google_verification) || !code_ok(&c.seo.bing_verification) {
+        return Err(bad("Verification code: paste only the code from the content part of the tag"));
+    }
+    let ga = c.seo.ga4_id.as_str();
+    if !ga.is_empty() && !(ga.starts_with("G-") && ga.len() <= 24 && ga[2..].chars().all(|x| x.is_ascii_alphanumeric()) && ga.len() > 2) {
+        return Err(bad("Google Analytics: the measurement ID starts with G-"));
+    }
+    if !ga.is_empty() && !c.cookies.analytics {
+        return Err(bad("Google Analytics needs visitors' consent: switch on the analytics cookie choice first"));
     }
     if c.seo.local.branches.len() > 200 {
         return Err(bad("Up to 200 locations"));

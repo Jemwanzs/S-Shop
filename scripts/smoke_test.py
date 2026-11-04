@@ -2000,6 +2000,34 @@ check("its language and tone reach the prompt", "French" in AI_REQUESTS[-1]["mes
 call("PUT", "/website/seo/automation", {**s_, "enabled": False}, **T2)
 check("switched off: no next slot", call("GET", "/website/seo/automation", **T2)["next_run_at"] is None)
 call("PUT", "/platform/seo-ai", {"enabled": False, "monthly_quota": 4, "monthly_budget_usd": 50})
+
+# Roadmap 160: SEO health and search-engine set-up.
+hl = call("GET", "/website/seo/health", **T2)
+codes_ = {i["code"]: i for i in hl["issues"]}
+check("roadmap 160: health counts this business's live website", hl["live"] is True and hl["products"] == len(plist) and hl["pages"] >= hl["products"] and hl["indexing"] is True, {k: hl[k] for k in ("pages", "products")})
+check("…products without a photo are named, with no other business's", f"Leather Bag {suffix}" in codes_["products_no_photo"]["items"] and f"Nduma {suffix}" not in json.dumps(hl), codes_.get("products_no_photo"))
+check("…nothing invented: no score, rank or search traffic", not any(k in json.dumps(hl).lower() for k in ("ranking", "\"score\"", "impressions", "organic")))
+call("GET", "/website/seo/health", **PUB, expect=401)
+call("GET", "/website/seo/health", token=WR["token"], branch=dk_branch)
+broken_ = call("POST", "/website/articles", {"title": f"Broken link {suffix}", "description": "Has a dead link.", "body": "A long enough article body for publishing, " * 8 + "\n\nSee [gone](/products/no-such-thing) and [fine](/products)."}, **T2)
+call("POST", f"/website/articles/{broken_['id']}/status", {"action": "publish", "confirm_similar": True}, **T2)
+hl = call("GET", "/website/seo/health", **T2)
+bl_ = next(i for i in hl["issues"] if i["code"] == "broken_links")
+check("a dead link in an article is reported, a good one is not", bl_["count"] == 1 and "/products/no-such-thing" in bl_["items"][0], bl_)
+call("POST", f"/website/articles/{broken_['id']}/status", {"action": "archive"}, **T2)
+_vc = call("GET", "/website", **T2)["draft"]
+call("PUT", "/website/draft", {"config": {**_vc, "seo": {**_vc["seo"], "google_verification": '"><script>'}}}, **T2, expect=400)
+r = call("PUT", "/website/draft", {"config": {**_vc, "seo": {**_vc["seo"], "ga4_id": "G-ABC123"}}}, **T2, expect=400)
+check("a verification code cannot carry markup, and Analytics needs the cookie choice", "consent" in r["error"]["message"], r)
+call("PUT", "/website/draft", {"config": {**_vc, "cookies": {**_vc["cookies"], "analytics": True}, "seo": {**_vc["seo"], "google_verification": "abcDEF123_-x", "bing_verification": "ABC123", "ga4_id": "G-ABC123"}}}, **T2)
+call("POST", "/website/publish", {}, **T2)
+_, h_, vh = crawl(sroot)
+check("the codes appear as meta tags on the home page", '<meta name="google-site-verification" content="abcDEF123_-x"' in vh and '<meta name="msvalidate.01" content="ABC123"' in vh)
+check("…the security policy allows Google's script only for this website", "googletagmanager" in h_.get("content-security-policy", "") and 'google-site-verification' not in crawl(f"{sroot}/about")[2])
+check("…verification codes are not in the app's data", "abcDEF123" not in json.dumps(call("GET", f"/site?slug={dk_slug}", **PUB)))
+call("PUT", "/website/draft", {"config": _vc}, **T2)
+call("POST", "/website/publish", {}, **T2)
+check("without Analytics the policy stays closed", "googletagmanager" not in crawl(sroot)[1].get("content-security-policy", ""))
 # Roadmap 80: sorting by real data, paging counted in products, in-stock filter
 ids = lambda q_: [p["id"] for p in call("GET", f"/site/products?slug={dk_slug}{q_}", **PUB)["items"]]
 by_name = ids("&sort=name_desc")

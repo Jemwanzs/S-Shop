@@ -16,6 +16,7 @@ import { t } from "@/lib/i18n";
 import { blankProduct, useCatalogue, type SiteConfig } from "./data";
 import { Block, Grid2, MediaField } from "./kit";
 import { ArticlesTab } from "./ArticlesTab";
+import { HealthTab, SearchEnginesBlock } from "./SeoHealth";
 import type { TabProps } from "./Website";
 
 const TITLE_MAX = 60;
@@ -269,11 +270,12 @@ function IndexingTab({ c, set, ov }: TabProps) {
           <div><dt className="label-caps">{t("Sitemap (updates itself)")}</dt><dd className="break-all">{ov.public_url}/sitemap.xml</dd></div>
         </dl>
       </Block>
+      <SearchEnginesBlock c={c} set={set} ov={ov} />
     </div>
   );
 }
 
-const TABS = [["general", "General SEO"], ["local", "Local SEO"], ["products", "Products & Categories"], ["articles", "Articles & Content Automation"], ["indexing", "Search Engines & Indexing"]] as const;
+const TABS = [["general", "General SEO"], ["local", "Local SEO"], ["products", "Products & Categories"], ["articles", "Articles & Content Automation"], ["indexing", "Search Engines & Indexing"], ["health", "Analytics & SEO Health"]] as const;
 
 export function SeoTab(props: TabProps) {
   const [tab, setTab] = useState<(typeof TABS)[number][0]>("general");
@@ -290,6 +292,7 @@ export function SeoTab(props: TabProps) {
       {tab === "products" && <ProductsCategoriesTab {...props} />}
       {tab === "articles" && <ArticlesTab ov={props.ov} />}
       {tab === "indexing" && <IndexingTab {...props} />}
+      {tab === "health" && <HealthTab onOpen={(k) => setTab(k as (typeof TABS)[number][0])} />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 # S'Shop — Smart Retail & Business Management — Product Features & Capabilities Manual
 
-*Version 1.9 · November 2026. Generated from [manual/manual.json](manual/manual.json) by `scripts/manual/build.mjs` — edit the JSON, not this file. The same content is the PDF at https://s-shop.store/SShop_Product_User_Manual.pdf.*
+*Version 2.0 · November 2026. Generated from [manual/manual.json](manual/manual.json) by `scripts/manual/build.mjs` — edit the JSON, not this file. The same content is the PDF at https://s-shop.store/SShop_Product_User_Manual.pdf.*
 
 S'Shop runs a retail business end to end, from the till and stock room to the customer's phone and the business's own website. It works on phones, tablets and computers, across branches, online and offline. Each module below describes features available today.
 
@@ -548,6 +548,13 @@ Setting up the business, people, rules, payments and the website.
 2. Type a Topic or leave it empty, and tap AI-assisted draft. The draft opens for you to edit; it is not public.
 3. Check every fact and change what you like. The draft uses only your own details, but it can still be wrong, and you are responsible for what you publish.
 4. To get drafts on a schedule, switch on Enable automated article drafting and choose How often, the Day and the Time. Keep Require approval before publishing on.
+
+#### Check your website's search health and connect Google
+
+1. Settings → Website → SEO & Organic Growth → Analytics & SEO Health. What to look at lists what to fix first; tap Open to go there.
+2. Search Engines & Indexing: follow the Google Search Console steps in your own Google account, paste the Google verification code, and tap Publish. Then press Verify on Google and submit your sitemap.
+3. Do the same for Bing Webmaster Tools if you wish. For Google Analytics 4, switch on the analytics cookie choice first; it runs only for visitors who accept.
+4. S'Shop does not estimate your rankings or traffic. See the real figures in Search Console.
 
 #### Connect M-Pesa (STK Push)
 

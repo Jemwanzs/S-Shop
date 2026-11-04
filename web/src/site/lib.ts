@@ -111,8 +111,29 @@ export const consent = {
 };
 
 let needsConsent = false;
+let ga4Id = "";
 export function configureAnalytics(data: SiteData) {
   needsConsent = data.config.cookies.analytics;
+  ga4Id = data.config.seo.ga4_id ?? "";
+  startGoogleAnalytics();
+}
+
+/** Roadmap 160: the business's own Google Analytics, only once this visitor has accepted analytics cookies, and never in a preview. */
+export function startGoogleAnalytics() {
+  if (!ga4Id || runtime.preview || consent.get() !== "accepted" || document.getElementById("ga4")) return;
+  const w = window as unknown as { dataLayer: unknown[]; gtag: (...a: unknown[]) => void };
+  w.dataLayer = w.dataLayer || [];
+  w.gtag = function gtag() {
+    // eslint-disable-next-line prefer-rest-params
+    w.dataLayer.push(arguments);
+  };
+  w.gtag("js", new Date());
+  w.gtag("config", ga4Id);
+  const s = document.createElement("script");
+  s.id = "ga4";
+  s.async = true;
+  s.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(ga4Id)}`;
+  document.head.appendChild(s);
 }
 
 function visitorId(): string | null {

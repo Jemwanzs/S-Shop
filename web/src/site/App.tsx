@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Menu, Moon, Search, ShoppingBag, Sun, X } from "lucide-react";
 import type { Palette, Product, SiteData } from "./types";
 import { CampaignBanner } from "./campaign";
-import { call, consent, money, onColor, pagePath, runtime, track } from "./lib";
+import { call, consent, money, onColor, pagePath, runtime, startGoogleAnalytics, track } from "./lib";
 import {
   AboutPage, CartLines, CartSummary, CategoriesPage, CategoryPage, ContactPage, HomePage, NotFound, OrderPage, ProductPage, ProductsPage, ratio,
   ServicesPage, TestimonialsPage, TrackPage, useCart, useScrollTop,
@@ -233,6 +233,7 @@ function Consent({ data }: { data: SiteData }) {
   if (!data.config.cookies.analytics || answer || runtime.preview) return null;
   const choose = (v: "accepted" | "declined") => {
     consent.set(v);
+    startGoogleAnalytics();
     setAnswer(v);
     if (v === "accepted") track("visit");
   };

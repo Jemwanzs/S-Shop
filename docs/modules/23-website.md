@@ -44,7 +44,9 @@ its own words, and the wizard's suggestions come from its own categories. Existi
 | General SEO | Title, description, about, sharing image, category, service area, search phrases and topics, search preview, first-visit wizard |
 | Local SEO | Customers can visit, address, service areas, maps and Business Profile links, branch locations, Google Business Profile checklist |
 | Products & Categories | What is missing, suggestions (`GET /api/website/seo/suggestions`) from the name, category and description on record, applied by the person; category titles and descriptions |
-| Search Engines & Indexing | Allow search engines, language, the main address and sitemap |
+| Articles & Content Automation | Articles (158) and AI-assisted drafts (159) |
+| Search Engines & Indexing | Allow search engines, language, the main address and sitemap; Search Console, Bing, Analytics, Merchant Center (160) |
+| Analytics & SEO Health | What to look at, from the live website (160) |
 
 Topics and phrases guide the business's own content and later its articles. They are not published as a keywords tag and do not reach the public
 website; neither do the local settings, except the `locations` it chose to show. `LocalBusiness` appears only when *Customers can visit* is on with an
@@ -84,6 +86,12 @@ draft: each article has its own life, **draft → pending review → scheduled o
 **Limits:** drafts per business per month (platform default 4, or a per-business limit), and a platform monthly budget in US dollars, estimated from tokens. When either is reached, drafts stop until the next month, and the business is told once. A scheduled slot is claimed in one statement, and `run_key` means it runs once, even across restarts or two copies of the server. A busy service is tried again an hour later, three times in all, then reported in Errors & alerts.
 
 **The platform owner sees** drafts, failures, tokens and estimated cost per business, and never titles, topics or text. The costs are estimates from public prices, not an invoice.
+
+## 160 — SEO health and search engines
+
+`routes/seo_health.rs`, tabs *Analytics & SEO Health* and *Search Engines & Indexing*. Health is worked out on request from the business's own live website: counts and named items, each with a link to where to fix it. It holds no scores, rankings or traffic estimates: **clicks and positions are in Search Console, speed in PageSpeed Insights, and rich-result checks in Google's test**, all linked for this website.
+
+Set-up happens in the business's own accounts. The Google and Bing **verification codes** go out as meta tags on the home page only, can hold only letters, numbers, `-` and `_`, and are never in the app's data. **Google Analytics 4** needs the analytics cookie choice to be on: Google's script loads only after a visitor accepts, and only websites using it have their security policy opened for it. **Merchant Center** is guidance only; no feed is sent. Nothing says *connected*, because S'Shop cannot know.
 
 ## 52 — Management Centre
 

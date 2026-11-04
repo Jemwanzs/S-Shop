@@ -32,6 +32,7 @@ export interface SiteConfig {
   seo: {
     title: string; description: string; share_image: string | null; business_description: string; noindex: boolean; language: string;
     primary_category: string; topics: string[]; service_area: string; wizard_done: boolean; local: LocalSeo;
+    google_verification: string; bing_verification: string; ga4_id: string;
   };
   cookies: { analytics: boolean; privacy_policy: string };
   footer: { description: string; policies: string; show_attribution: boolean };

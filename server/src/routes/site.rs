@@ -229,6 +229,8 @@ fn public_config(c: &SiteConfig, preview: bool) -> Value {
     c.seo.primary_category.clear();
     c.seo.service_area.clear();
     c.seo.local = Default::default();
+    c.seo.google_verification.clear();
+    c.seo.bing_verification.clear();
     serde_json::to_value(c).unwrap_or_default()
 }
 
@@ -718,6 +720,16 @@ async fn event(State(state): State<AppState>, headers: HeaderMap, Json(b): Json<
 /// Website Management Centre).
 const SITE_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'";
 
+fn site_csp(analytics: bool) -> String {
+    if !analytics {
+        return SITE_CSP.to_string();
+    }
+    SITE_CSP
+        .replace("script-src 'self'", "script-src 'self' https://www.googletagmanager.com")
+        .replace("connect-src 'self'", "connect-src 'self' https://*.google-analytics.com https://*.googletagmanager.com")
+        .replace("img-src 'self' data: blob:", "img-src 'self' data: blob: https://*.google-analytics.com https://*.googletagmanager.com")
+}
+
 /// The website app shell (`site.html` from the web build), read once.
 fn shell(state: &AppState) -> Option<&'static str> {
     static SHELL: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
@@ -740,6 +752,10 @@ struct PageMeta {
     /// `rel=prev` / `rel=next` of a paged list.
     prev: Option<String>,
     next: Option<String>,
+    /// Roadmap 160: meta tags proving ownership to a search engine (name, code), on the home page.
+    verification: Vec<(&'static str, String)>,
+    /// Roadmap 160: this website uses Google Analytics, so its security policy allows Google's script for those who accept.
+    analytics: bool,
 }
 
 fn render(state: &AppState, meta: &PageMeta, data: &Value, fonts: &[String], lang: &str) -> axum::response::Response {
@@ -781,6 +797,9 @@ fn render(state: &AppState, meta: &PageMeta, data: &Value, fonts: &[String], lan
     for block in &meta.ld {
         head.push_str(&site_seo::ld_block(block));
     }
+    for (name, code) in &meta.verification {
+        head.push_str(&format!("<meta name=\"{name}\" content=\"{}\" />\n", esc(code)));
+    }
     // Published content for the first render (a data block, not a script: the page's JavaScript reads it).
     let data = data.to_string().replace('<', "\\u003c");
     head.push_str(&format!("<script type=\"application/json\" id=\"site-data\">{data}</script>\n"));
@@ -793,7 +812,7 @@ fn render(state: &AppState, meta: &PageMeta, data: &Value, fonts: &[String], lan
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
             (header::CACHE_CONTROL, "no-cache".to_string()),
-            (header::HeaderName::from_static("content-security-policy"), SITE_CSP.to_string()),
+            (header::HeaderName::from_static("content-security-policy"), site_csp(meta.analytics)),
             (header::HeaderName::from_static("x-frame-options"), "SAMEORIGIN".to_string()),
         ],
         page,
@@ -878,7 +897,7 @@ fn nav_visible(c: &SiteConfig, key: &str) -> bool {
 }
 
 /// The categories this website shows, for links and the sitemap.
-async fn public_cats(state: &AppState, s: &Site) -> AppResult<Vec<Cat>> {
+pub async fn public_cats(state: &AppState, s: &Site) -> AppResult<Vec<Cat>> {
     Ok(categories(state, s)
         .await?
         .iter()
@@ -969,6 +988,8 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
                 seed: String::new(),
                 prev: None,
                 next: None,
+                verification: Vec::new(),
+                analytics: false,
             };
             let data = json!({ "available": false, "business": { "name": name, "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")) } });
             let mut res = render(state, &meta, &data, &[], "en");
@@ -1020,6 +1041,8 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
         seed: String::new(),
         prev: None,
         next: None,
+        verification: Vec::new(),
+        analytics: !c.seo.ga4_id.is_empty(),
     };
     let per = (c.products.per_page.clamp(1, 100)) as usize;
     let mut missing = false;
@@ -1204,6 +1227,12 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
     if rest == "/" && !missing {
         meta.ld.push(ctx.organization());
         meta.ld.push(ctx.website());
+        if !c.seo.google_verification.is_empty() {
+            meta.verification.push(("google-site-verification", c.seo.google_verification.clone()));
+        }
+        if !c.seo.bing_verification.is_empty() {
+            meta.verification.push(("msvalidate.01", c.seo.bing_verification.clone()));
+        }
     }
     // The places customers can visit, on the page that shows them.
     if route == "/contact" && !missing {

@@ -11,6 +11,11 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ## 2026-11-04 (late afternoon)
 
+- **SEO health** — SEO & Organic Growth → *Analytics & SEO Health* lists what to fix, counted from the live website: missing photos and descriptions, duplicate titles, dead links in articles
+  and more. It never estimates rankings or traffic; it links to Search Console, PageSpeed Insights and the Rich Results Test instead. (160, [module 23](modules/23-website.md))
+- **Search engines** — guided Search Console and Bing set-up with verification codes, Google Analytics that runs only for visitors who accept, and Merchant Center guidance. (160)
+- **AI-assisted article drafts, off until enabled** — a first draft from a business's own details, on demand or on a schedule it chooses, waiting for a person's approval by default, with a monthly limit and
+  costs visible to the platform owner. Needs the platform owner to switch it on with an API key. (159, [module 23](modules/23-website.md))
 - **Articles** — a business can write and publish articles on its website: drafts, review, scheduling, its own search details and a place in the sitemap. Thin articles and near-copies are
   stopped before publishing. Share buttons on articles and products open WhatsApp, Facebook or LinkedIn for the visitor to post. (158, [module 23](modules/23-website.md))
 - **SEO & Organic Growth** — Settings → Website has a new section for each business's search presence: its title and description with a

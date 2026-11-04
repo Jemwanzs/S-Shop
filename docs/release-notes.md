@@ -9,6 +9,10 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-05
+
+- **Replacing a barcode label** — *Replace label* now shows the current barcode and the new one first, and the item changes only when you tap *Save Barcode* or *Save & Print*. Until then the old label keeps working, and Cancel leaves everything as it was. Printing and downloads never change a barcode, and print-only screens have *Done*. Businesses can require approval (*Item barcode replacement*, off by default). Product details can print a shared barcode's label, and the product form shows the current barcode before Generate replaces it. (162, [module 38](modules/38-item-barcodes-labels.md))
+
 ## 2026-11-04 (evening)
 
 - **Each website's own favicon** — Settings → Website → *Branding & Appearance* (the former Design tab) → Favicon: upload PNG, ICO or SVG, see it as a browser tab and a phone icon, then Publish. With none set a website uses its logo or first letter, never S'Shop's icon, including on its own domain, and it can be added to a phone with its own name and icon. (161, [module 23](modules/23-website.md))

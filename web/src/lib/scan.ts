@@ -45,4 +45,7 @@ export function useManualBarcodes(context: "sale" | "stock"): boolean {
   return profile?.settings.stock.manual_barcode_entry ?? true;
 }
 
+/** Roadmap 153: the same code again within this time is one trigger press reaching the page twice, not a second unit. */
+export const DOUBLE_READ_MS = 120;
+
 export const TYPING_OFF = "Typing barcodes is switched off here — scan the label with the scanner or camera";

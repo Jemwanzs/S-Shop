@@ -29,12 +29,14 @@ pub fn routes() -> Router<AppState> {
         .route("/stock", get(levels))
         .route("/stock/availability/{product_id}", get(availability))
         .route("/stock/receive", post(receive))
+        .route("/stock/receive/batch", post(receive_batch))
         .route("/stock/movements", get(movements))
         .route("/stock/items", get(items))
         .route("/stock/barcode/{code}", get(barcode_history))
         .route("/stock/items/{id}/history", get(item_history))
         .route("/stock/adjustments", get(list_adjustments).post(create_adjustment))
         .route("/stock/count", post(stock_count))
+        .route("/stock/count/compare", post(count_compare))
         .route("/stock/position", get(position))
 }
 
@@ -292,8 +294,108 @@ async fn receive(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Rece
     b.branch_id = Some(branch);
     let mut tx = state.db.begin().await?;
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
-    inventory::ensure_product_in_branch(&mut tx, ctx.tenant_id, b.product_id, branch).await?;
-    let p = product_info(&mut tx, ctx.tenant_id, b.product_id).await?;
+    let outcome = receive_line(&mut tx, &ctx, &s, &mut b).await?;
+    tx.commit().await?;
+    match outcome.approval_id {
+        Some(approval) => super::approvals::notify_approvers(&state, &ctx, approval).await,
+        None => state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": branch, "product_id": b.product_id })),
+    }
+    Ok(Json(outcome))
+}
+
+/// Roadmap 153: one delivery scanned in one session — every line is checked and recorded by the same rules as a single
+/// receipt, in **one transaction**: if any line is refused nothing is received. Each line needing approval becomes its
+/// own request and stays out of stock until it is approved; a rejected request never adds stock.
+#[derive(Deserialize)]
+struct ReceiveBatchBody {
+    branch_id: Option<Uuid>,
+    supplier_id: Option<Uuid>,
+    #[serde(default)]
+    reference: String,
+    date_received: Option<NaiveDate>,
+    lines: Vec<ReceiveBatchLine>,
+}
+
+#[derive(Deserialize)]
+struct ReceiveBatchLine {
+    product_id: Uuid,
+    quantity: i32,
+    /// The shared barcode scanned, when it was scanned.
+    barcode: Option<String>,
+    /// scanner | camera | manual.
+    barcode_source: Option<String>,
+}
+
+async fn receive_batch(State(state): State<AppState>, ctx: Ctx, Json(body): Json<ReceiveBatchBody>) -> AppResult<Json<Value>> {
+    ctx.require("stock.add")?;
+    crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "stock").await?;
+    let branch = ctx.branch_or_current(body.branch_id)?;
+    if body.lines.is_empty() {
+        return Err(bad("Scan at least one product"));
+    }
+    if body.lines.len() > 200 {
+        return Err(bad("Up to 200 products in one delivery"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    if !body.lines.iter().all(|l| seen.insert(l.product_id)) {
+        return Err(bad("A product appears twice in this delivery"));
+    }
+    let mut tx = state.db.begin().await?;
+    let s = settings::load(&mut tx, ctx.tenant_id).await?;
+    let (mut received, mut pending, mut units) = (0i64, 0i64, 0i64);
+    let mut lines = Vec::new();
+    let mut approvals = Vec::new();
+    for l in body.lines {
+        let name: Option<String> = sqlx::query_scalar("SELECT name FROM products WHERE id = $1 AND tenant_id = $2").bind(l.product_id).bind(ctx.tenant_id).fetch_optional(&mut *tx).await?;
+        let name = name.ok_or(AppError::NotFound("Product"))?;
+        let mut b = ReceiveBody {
+            product_id: l.product_id,
+            branch_id: Some(branch),
+            quantity: l.quantity,
+            barcodes: l.barcode.into_iter().collect(),
+            cost_price: None,
+            marked_price: None,
+            max_discount: None,
+            supplier_id: body.supplier_id,
+            reference: body.reference.clone(),
+            date_received: body.date_received,
+            activate: false,
+            kind: None,
+            labels_attached: false,
+            labels_verified: false,
+            barcode_sources: l.barcode_source.into_iter().collect(),
+        };
+        // The message names the product: the whole delivery waits for this one line to be corrected.
+        let outcome = receive_line(&mut tx, &ctx, &s, &mut b).await.map_err(|e| match e {
+            AppError::Rule(m) | AppError::BadRequest(m) => refused("Nothing was received", format!("{name}: {m}")),
+            AppError::Refused { title, message } => refused(title, format!("{name}: {message}")),
+            other => other,
+        })?;
+        match outcome.approval_id {
+            Some(id) => {
+                pending += 1;
+                approvals.push(id);
+            }
+            None => {
+                received += 1;
+                units += i64::from(l.quantity);
+            }
+        }
+        lines.push(json!({ "product_id": l.product_id, "name": name, "quantity": l.quantity, "pending_approval": outcome.pending_approval, "result": outcome.result }));
+    }
+    tx.commit().await?;
+    for id in approvals {
+        super::approvals::notify_approvers(&state, &ctx, id).await;
+    }
+    state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": branch }));
+    Ok(Json(json!({ "received": received, "pending_approval": pending, "units_received": units, "lines": lines })))
+}
+
+/// One receipt inside the caller's transaction: checked, then recorded or sent for approval.
+async fn receive_line(tx: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &mut ReceiveBody) -> AppResult<Outcome<Value>> {
+    let branch = b.branch_id.unwrap_or(ctx.branch_id);
+    inventory::ensure_product_in_branch(&mut *tx, ctx.tenant_id, b.product_id, branch).await?;
+    let p = product_info(&mut *tx, ctx.tenant_id, b.product_id).await?;
     if !s.stock.capture_cost {
         b.cost_price = None;
     }
@@ -301,10 +403,10 @@ async fn receive(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Rece
     if !s.stock.manual_barcode_entry && b.barcode_sources.iter().any(|x| x == "manual") {
         return Err(refused("Scan required", "Typing barcodes is switched off for stock receiving — scan the labels or generate new ones"));
     }
-    check_receipt(&mut tx, &ctx, &s, &mut b, &p).await?;
+    check_receipt(&mut *tx, ctx, s, b, &p).await?;
     // Roadmap 135: printing a label is not attaching it — newly generated labels are confirmed (and verified when the
     // business requires it) before the items count as received.
-    if p.track_items && super::barcodes::generated_count(&mut tx, ctx.tenant_id, &b.barcodes).await? > 0 {
+    if p.track_items && super::barcodes::generated_count(&mut *tx, ctx.tenant_id, &b.barcodes).await? > 0 {
         if !b.labels_attached {
             return Err(rule("Confirm that a label is attached to each item before receiving"));
         }
@@ -316,10 +418,10 @@ async fn receive(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Rece
     // Roadmap 131: with neither a cost nor a selling price the receipt has no value (never an invented one).
     let unit_value = b.cost_price.or(p.cost_price).or(b.marked_price).or(p.marked_price).unwrap_or(Decimal::ZERO);
     let amount = unit_value * Decimal::from(b.quantity);
-    if workflow::needs_approval(&mut tx, &ctx, "stock.add", workflow::Gate::branch(branch).amount(amount)).await? {
+    if workflow::needs_approval(&mut *tx, ctx, "stock.add", workflow::Gate::branch(branch).amount(amount)).await? {
         let approval = workflow::submit(
-            &mut tx,
-            &ctx,
+            &mut *tx,
+            ctx,
             workflow::Request {
                 action: "stock.add",
                 entity_type: "product",
@@ -327,18 +429,13 @@ async fn receive(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Rece
                 branch_id: Some(branch),
                 summary: format!("Receive {} × {}", b.quantity, p.name),
                 amount: Some(amount),
-                payload: serde_json::to_value(&b).unwrap_or_default(),
+                payload: serde_json::to_value(&*b).unwrap_or_default(),
             },
         )
         .await?;
-        tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, approval).await;
-        return Ok(Json(Outcome::pending(approval)));
+        return Ok(Outcome::pending(approval));
     }
-    let result = execute_receipt(&mut tx, &ctx, &b, None).await?;
-    tx.commit().await?;
-    state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": branch, "product_id": b.product_id }));
-    Ok(Json(Outcome::done(result)))
+    Ok(Outcome::done(execute_receipt(&mut *tx, ctx, b, None).await?))
 }
 
 async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, approval_id: Option<Uuid>) -> AppResult<Value> {
@@ -869,6 +966,46 @@ struct CountBody {
     reason: String,
 }
 
+#[derive(Deserialize)]
+struct CompareBody {
+    product_id: Uuid,
+    branch_id: Option<Uuid>,
+    #[serde(default)]
+    barcodes: Vec<String>,
+}
+
+/// Roadmap 153: individually tracked stock take — the units scanned against the units expected at this branch: which
+/// are missing, and which do not belong here (masked; nothing changes). Unknown to this business stays `unknown`.
+async fn count_compare(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CompareBody>) -> AppResult<Json<Value>> {
+    ctx.require("stock.adjust")?;
+    let branch = ctx.branch_or_current(b.branch_id)?;
+    let mut conn = state.db.acquire().await?;
+    let here: Vec<String> = sqlx::query_scalar("SELECT barcode FROM stock_items WHERE tenant_id = $1 AND product_id = $2 AND branch_id = $3 AND status = 'in_stock' ORDER BY barcode")
+        .bind(ctx.tenant_id)
+        .bind(b.product_id)
+        .bind(branch)
+        .fetch_all(&mut *conn)
+        .await?;
+    let mask = super::barcodes::mask;
+    let missing: Vec<String> = here.iter().filter(|c| !b.barcodes.contains(c)).map(|c| mask(c)).collect();
+    let mut unexpected = Vec::new();
+    for code in b.barcodes.iter().filter(|c| !here.contains(c)) {
+        let row: Option<(String, String, String, Uuid)> = sqlx::query_as(
+            "SELECT p.name, si.status, br.name, si.branch_id FROM stock_items si JOIN products p ON p.id = si.product_id JOIN branches br ON br.id = si.branch_id
+              WHERE si.tenant_id = $1 AND si.barcode = $2 ORDER BY (si.status = 'in_stock') DESC, si.updated_at DESC LIMIT 1",
+        )
+        .bind(ctx.tenant_id)
+        .bind(code)
+        .fetch_optional(&mut *conn)
+        .await?;
+        unexpected.push(match row {
+            Some((product, status, branch_name, at)) => json!({ "barcode": mask(code), "kind": if status == "in_stock" && at != branch { "misplaced" } else { "unexpected" }, "product": product, "status": status, "branch": branch_name }),
+            None => json!({ "barcode": mask(code), "kind": "unknown" }),
+        });
+    }
+    Ok(Json(json!({ "expected": here.len(), "found": b.barcodes.len() - unexpected.len(), "missing": missing, "unexpected": unexpected })))
+}
+
 /// Physical stock take: one count adjustment per line with a variance.
 async fn stock_count(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CountBody>) -> AppResult<Json<Value>> {
     ctx.require("stock.adjust")?;
@@ -878,6 +1015,9 @@ async fn stock_count(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Coun
         return Err(bad("Add at least one counted product"));
     }
     let reason = if b.reason.trim().is_empty() { "Stock take".to_string() } else { b.reason.trim().to_string() };
+    if b.lines.iter().any(|l| l.counted < 0) {
+        return Err(bad("A counted quantity cannot be negative"));
+    }
     let mut tx = state.db.begin().await?;
     let (mut applied, mut pending, mut unchanged) = (0, 0, 0);
     let mut variances = Vec::new();

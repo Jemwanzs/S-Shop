@@ -8,7 +8,7 @@ import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useBrandLogo } from "@/lib/brand";
 import { useDebounced, useIsDesktop, usePersistentState } from "@/lib/hooks";
-import { count, money, toNum } from "@/lib/format";
+import { count, maskCode, money, toNum } from "@/lib/format";
 import type { PosProduct, Product, SaleDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,9 @@ import { ReceiptPanel } from "@/components/ReceiptPanel";
 import { ProductGrid } from "./pos/ProductGrid";
 import { RankStars } from "./pos/RankStars";
 import { SaleDateBar, todayIn } from "./pos/SaleDate";
-import { TYPING_OFF, useKeyTiming, useManualBarcodes, type ScanSource } from "@/lib/scan";
+import { DOUBLE_READ_MS, TYPING_OFF, useKeyTiming, useManualBarcodes, type ScanSource } from "@/lib/scan";
+import { outcomeSound, scanFeedback } from "@/lib/scanner";
+import type { ScanCountLine } from "@/components/ScanCounter";
 
 const DEFAULT_POS = { style: "compact" as const, show_images: false, tablet_columns: 2, desktop_columns: 4, show_prices: true };
 
@@ -72,6 +74,8 @@ export default function Pos() {
   // Roadmap 137: typing barcodes at the till follows the sales rule (off by default) and the person's permission.
   const typingAllowed = useManualBarcodes("sale");
   const searchTiming = useKeyTiming();
+  const searchChain = useRef<Promise<void>>(Promise.resolve());
+  const lastSearchScan = useRef({ code: "", at: 0 });
   const [scan, setScan] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [done, setDone] = useState<SaleDetail | null>(null);
@@ -121,7 +125,39 @@ export default function Pos() {
   // Scans add straight to the cart (the scanner stays open); tap a line to change price or quantity.
   const cartRef = useRef(cart);
   cartRef.current = cart;
+  // Roadmap 153: the next scan must see this scan's cart even before the screen updates.
+  const changeLines = (change: (lines: CartLine[]) => CartLine[]) => {
+    const next = { ...cartRef.current, lines: change(cartRef.current.lines) };
+    cartRef.current = next;
+    setCart(next);
+  };
+  const [lastScanned, setLastScanned] = useState<string | null>(null);
+  const qtyLockedAtTill = s.sales.quantity_entry === "locked";
+  // The most a line may hold: what is available here less the same product's other lines (negative stock allowed: no limit).
+  const lineMax = (l: CartLine) => {
+    if (qtyLockedAtTill) return 1;
+    if (s.stock.allow_negative) return null;
+    const available = products.data?.find((x) => x.id === l.product.id)?.available ?? l.product.available;
+    return Math.max(l.quantity, available - cart.lines.filter((o) => o.product.id === l.product.id && o.key !== l.key).reduce((a, o) => a + o.quantity, 0));
+  };
+  const setLineQuantity = (key: string, quantity: number) => {
+    const l = cartRef.current.lines.find((x) => x.key === key);
+    if (!l || l.product.track_items) return;
+    const max = lineMax(l);
+    const q = Math.max(1, max == null ? quantity : Math.min(max, quantity));
+    changeLines((lines) => lines.map((x) => (x.key === key ? { ...x, quantity: q } : x)));
+  };
+  const removeLine = (key: string) => changeLines((lines) => lines.filter((x) => x.key !== key));
+  const scanLines: ScanCountLine[] = cart.lines.map((l) => ({
+    key: l.key,
+    name: l.product.name,
+    barcode: l.barcode ? (l.product.track_items ? maskCode(l.barcode) : l.barcode) : l.product.track_items ? null : l.product.barcode,
+    kind: l.product.track_items ? "unique" : "shared",
+    quantity: l.quantity,
+    max: l.product.track_items ? 1 : lineMax(l),
+  }));
   const onScan = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
+    if (waitingRef.current) return { tone: "error", title: "Waiting for the M-Pesa payment — the cart is locked until it is paid or you stop waiting" };
     let r: Lookup;
     try {
       r = await api<Lookup>("/products/lookup", { query: { code } });
@@ -152,9 +188,16 @@ export default function Pos() {
       if (item.status === "sold") return { tone: "error", title: "This item has already been sold" };
       if (!item.in_current_branch) return { tone: "error", title: `This item is at ${item.branch_name}`, detail: "It cannot be sold from this branch — change branch or transfer it first." };
       if (item.status !== "in_stock") return { tone: "error", title: `This item is ${item.status.replace("_", " ")}` };
-      if (lines.some((l) => l.barcode === code)) return { tone: "info", title: `${p.name} is already in the cart` };
+      // Roadmap 153: this exact unit is in the cart — scanning it again is never a second unit.
+      const scanned = lines.find((l) => l.barcode === code);
+      if (scanned) {
+        setLastScanned(scanned.key);
+        return { tone: "warning", title: "Already scanned — 1 unit captured", detail: p.name };
+      }
       if (source === "manual" && !typingAllowed) return { tone: "error", title: translate(TYPING_OFF) };
-      setCart((c) => ({ ...c, lines: [...c.lines, { key: newRef(), product: p, quantity: 1, unitPrice: toNum(p.marked_price), barcode: code, barcodeSource: source }] }));
+      const unitKey = newRef();
+      changeLines((all) => [...all, { key: unitKey, product: p, quantity: 1, unitPrice: toNum(p.marked_price), barcode: code, barcodeSource: source }]);
+      setLastScanned(unitKey);
       return { tone: "success", title: `${p.name} added` };
     }
 
@@ -171,13 +214,15 @@ export default function Pos() {
     // The product barcode clears it at the counter (Require barcode clearance).
     // A typed product barcode still finds the product, but clears it only where typing is allowed.
     const cleared = p.barcode === code && !(source === "manual" && !typingAllowed && s.sales.require_barcode_clearance) ? code : undefined;
-    const same = lines.find((l) => l.product.id === p.id && !l.product.track_items && l.unitPrice === toNum(p.marked_price) && !l.saleDate);
-    setCart((c) => ({
-      ...c,
-      lines: same
-        ? c.lines.map((l) => (l.key === same.key ? { ...l, quantity: l.quantity + 1, barcode: l.barcode ?? cleared, barcodeSource: l.barcode ? l.barcodeSource : cleared ? source : undefined } : l))
-        : [...c.lines, { key: newRef(), product: p, quantity: 1, unitPrice: toNum(p.marked_price), barcode: cleared, barcodeSource: cleared ? source : undefined }],
-    }));
+    // Quantity entry locked at the till: the server takes one unit per line, so each scan is its own line.
+    const same = qtyLockedAtTill ? undefined : lines.find((l) => l.product.id === p.id && !l.product.track_items && l.unitPrice === toNum(p.marked_price) && !l.saleDate);
+    const lineKey = same?.key ?? newRef();
+    changeLines((all) =>
+      same
+        ? all.map((l) => (l.key === same.key ? { ...l, quantity: l.quantity + 1, barcode: l.barcode ?? cleared, barcodeSource: l.barcode ? l.barcodeSource : cleared ? source : undefined } : l))
+        : [...all, { key: lineKey, product: p, quantity: 1, unitPrice: toNum(p.marked_price), barcode: cleared, barcodeSource: cleared ? source : undefined }],
+    );
+    setLastScanned(lineKey);
     return { tone: "success", title: `${p.name} added · Qty ${already + 1}` };
   };
 
@@ -225,7 +270,7 @@ export default function Pos() {
         <EmptyState icon={ShoppingCart} title="Cart is empty" hint="Search or scan products to add them." />
       ) : (
         <>
-          <CartLines lines={cart.lines} saleDate={saleDate} onEdit={(l) => { setEditing(l); setSelected(l.product); }} onRemove={(key) => setCart((c) => ({ ...c, lines: c.lines.filter((l) => l.key !== key) }))} />
+          <CartLines lines={cart.lines} saleDate={saleDate} qtyLocked={qtyLockedAtTill} lineMax={lineMax} onQuantity={setLineQuantity} onEdit={(l) => { setEditing(l); setSelected(l.product); }} onRemove={(key) => setCart((c) => ({ ...c, lines: c.lines.filter((l) => l.key !== key) }))} />
           <Checkout lines={cart.lines} onDone={finished} onQueued={savedOffline} clientRef={cart.ref} ownerId={cart.owner?.id} onWaiting={setWaiting}
             saleDate={saleDate < today ? saleDate : undefined} />
         </>
@@ -265,12 +310,25 @@ export default function Pos() {
         <div className="sticky top-14 z-20 -mx-3.5 space-y-2 bg-background/90 px-3.5 pb-3 pt-1 backdrop-blur-sm md:-mx-6 md:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
           <div onKeyDownCapture={searchTiming.onKeyDown} onPasteCapture={searchTiming.onPaste}>
           <SearchInput value={q} onChange={setQ} placeholder="Search name, nickname, code or barcode" autoFocus={desktop}
-            onEnter={s.stock.barcode_requirement === "disabled" ? undefined : async (code) => {
+            onEnter={s.stock.barcode_requirement === "disabled" ? undefined : (code) => {
               // Roadmap 98: Enter with a barcode (handheld scanner or typed) adds it like a camera scan; anything else
               // simply stays as the search. Roadmap 137: the key timing tells a handheld scanner from typing.
-              const r = await onScan(code, searchTiming.source(code));
-              if (r?.tone === "success") { toast.success(r.title, { duration: 1200 }); setQ(""); }
-              else if (r?.tone === "error" && !/not found/i.test(r.title)) toast.error(r.title);
+              // Roadmap 153: a handheld scan clears the box at once and scans run in order, so quick repeats all count.
+              const source = searchTiming.source(code);
+              const scanner = source === "scanner";
+              const now = Date.now();
+              if (scanner && code === lastSearchScan.current.code && now - lastSearchScan.current.at < DOUBLE_READ_MS) { setQ(""); return; }
+              if (scanner) { lastSearchScan.current = { code, at: now }; setQ(""); }
+              searchChain.current = searchChain.current.then(async () => {
+                const r = await onScan(code, source);
+                const notFound = r.tone === "error" && /not found/i.test(r.title);
+                // A typed word that is no barcode is simply a search: no error sound for it.
+                if (scanner || !notFound) scanFeedback(outcomeSound(r.tone));
+                if (r.tone === "success") { toast.success(r.title, { duration: 1200 }); setQ(""); }
+                else if (r.tone === "warning") toast.warning(translate(r.title));
+                else if (notFound) { if (scanner) { setQ(code); toast.error(r.title); } }
+                else if (r.tone === "error") toast.error(r.title);
+              });
             }} />
           </div>
           {categories.length > 1 && (
@@ -332,7 +390,8 @@ export default function Pos() {
         onSave={save}
         takenBarcodes={takenBarcodes}
       />
-      <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={onScan} title="Scan to sell" continuous context="sale" />
+      <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={onScan} title="Scan to sell" continuous context="sale"
+        session={{ lines: scanLines, activeKey: lastScanned, onSet: qtyLockedAtTill ? undefined : setLineQuantity, onRemove: removeLine }} />
 
       <ResponsiveDialog
         open={!!queued}

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ImagePlus, Images, PackagePlus, Printer, RotateCcw, ScanLine, ShieldCheck, Tags, X } from "lucide-react";
+import { CheckCircle2, Eraser, ImagePlus, Images, PackagePlus, Printer, RotateCcw, ScanLine, ShieldCheck, Tags, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { useDebounced } from "@/lib/hooks";
+import { useDebounced, usePersistentState } from "@/lib/hooks";
 import { count, money, todayIso, toNum } from "@/lib/format";
 import type { Outcome, Paged, Product, Supplier } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -20,15 +20,21 @@ import { PhotoGallery } from "@/components/PhotoGallery";
 import { AddPhotosDialog } from "@/components/PhotoPicker";
 import { Pill } from "@/components/Badges";
 import { LabelsDialog } from "@/components/LabelsDialog";
+import { ScanCounter } from "@/components/ScanCounter";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
 import { useManualBarcodes, type ScanSource } from "@/lib/scan";
+import type { ScanCountLine } from "@/components/ScanCounter";
 
 interface ProductDetail {
   product: Product;
   photos: { url: string }[];
   stock_by_branch: { branch_id: string; on_hand: number }[];
 }
+
+/** Roadmap 153: a delivery being scanned — provisional, kept on this device; nothing reaches stock until it is received. */
+interface DeliveryLine { product_id: string; name: string; barcode: string; quantity: number; source?: ScanSource }
+const noDelivery: DeliveryLine[] = [];
 
 export default function ReceiveStock() {
   const { profile, branch, can } = useSession();
@@ -91,19 +97,39 @@ export default function ReceiveStock() {
 
   const barcodesRef = useRef(barcodes);
   barcodesRef.current = barcodes;
+  const qtyRef = useRef(qty);
+  qtyRef.current = qty;
+  const [lastScanned, setLastScanned] = useState<string | null>(null);
+  const [delivery, setDelivery] = usePersistentState<DeliveryLine[]>(`sshop.delivery.${profile?.tenant.id}.${profile?.user.id}.${branch?.id}`, noDelivery);
+  const deliveryRef = useRef(delivery);
+  deliveryRef.current = delivery;
+  const changeDelivery = (lines: DeliveryLine[]) => { deliveryRef.current = lines; setDelivery(lines); };
   const qtyLocked = s.stock.quantity_entry === "locked";
   const barcodesOn = s.stock.barcode_requirement !== "disabled";
   const tracked = !!p?.track_items;
   const quantity = tracked ? barcodes.length : Math.max(0, parseInt(qty) || 0);
   const showCost = s.stock.capture_cost && can("sales.view_financials");
 
-  // Scan a product's barcode to pick it; an unknown code can be assigned to a product or start a new one.
-  const findByCode = async (code: string): Promise<ScanOutcome> => {
+  // Roadmap 153: a shared barcode adds one unit to this delivery (several products, each with its own count). A product
+  // tracked per item opens on its own, where each unit's label is scanned. An unknown code can be assigned to a product
+  // or start a new one.
+  const scanDelivery = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
     try {
       const r = await api<{ product: Product }>("/products/lookup", { query: { code } });
-      setProductId(r.product.id);
-      if (!r.product.track_items && !r.product.barcode) setBarcodes([code]);
-      return { tone: "success", title: `${r.product.name} found` };
+      if (r.product.track_items) {
+        setScan(null);
+        setProductId(r.product.id);
+        return { tone: "info", title: `${r.product.name} is tracked per item — scan each item's own label` };
+      }
+      const lines = deliveryRef.current;
+      const line = lines.find((l) => l.product_id === r.product.id);
+      setLastScanned(r.product.id);
+      if (line && qtyLocked) return { tone: "warning", title: "Quantity entry is locked to 1 — capture each item individually", detail: r.product.name };
+      const quantity = (line?.quantity ?? 0) + 1;
+      changeDelivery(line
+        ? lines.map((l) => (l === line ? { ...l, quantity } : l))
+        : [...lines, { product_id: r.product.id, name: r.product.name, barcode: code, quantity, source }]);
+      return { tone: "success", title: `${r.product.name} — ${count(quantity)} ${t(quantity === 1 ? "unit" : "units")} ${t("captured")}` };
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 404)) return { tone: "error", title: errorMessage(e) };
       return {
@@ -119,7 +145,11 @@ export default function ReceiveStock() {
   };
   // Tracked products: every unit's own label, checked so a code can never be in stock twice.
   const addItem = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
-    if (barcodesRef.current.includes(code)) return { tone: "info", title: "Already scanned in this delivery" };
+    // Roadmap 153: one physical item, however often its label is read.
+    if (barcodesRef.current.includes(code)) {
+      setLastScanned(code);
+      return { tone: "warning", title: "Already scanned — 1 unit captured" };
+    }
     const known = await api<{ product: Product; stock_item: { status: string; branch_name: string } | null }>("/products/lookup", { query: { code } }).catch(() => null);
     if (known?.stock_item && ["in_stock", "reserved", "in_transit"].includes(known.stock_item.status)) {
       return { tone: "error", title: "This barcode is already in stock", detail: `${known.product.name} at ${known.stock_item.branch_name}` };
@@ -127,9 +157,31 @@ export default function ReceiveStock() {
     if (known && !known.stock_item && known.product.barcode === code) {
       return { tone: "error", title: "That is a product barcode", detail: "Scan the label that identifies this individual item." };
     }
-    setBarcodes((b) => [...b, code]);
+    barcodesRef.current = [...barcodesRef.current, code];
+    setBarcodes(barcodesRef.current);
+    setLastScanned(code);
     if (source) setSources((s) => ({ ...s, [code]: source }));
-    return { tone: "success", title: `Item ${barcodesRef.current.length + 1} captured` };
+    return { tone: "success", title: `Item ${barcodesRef.current.length} captured` };
+  };
+  // Roadmap 153: this product's shared barcode, scanned again and again: each read is one more unit. The first read
+  // confirms the quantity already showing when nothing was typed yet.
+  const addSharedUnit = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
+    const expected = p?.barcode ?? barcodesRef.current[0];
+    if (expected && code !== expected) return { tone: "error", title: "Scanned barcode does not match", detail: `${p?.name} (${expected})` };
+    if (!expected) {
+      const other = await api<{ product: Product }>("/products/lookup", { query: { code } }).catch(() => null);
+      if (other && other.product.id !== p?.id) return { tone: "error", title: "That barcode belongs to another product", detail: other.product.name };
+    }
+    const first = barcodesRef.current.length === 0;
+    const current = parseInt(qtyRef.current) || 0;
+    if (!first && qtyLocked) return { tone: "warning", title: "Quantity entry is locked to 1 — capture each item individually" };
+    const next = first && current <= 1 ? 1 : current + 1;
+    barcodesRef.current = [code];
+    setBarcodes([code]);
+    setSources(source ? { [code]: source } : {});
+    qtyRef.current = String(next);
+    setQty(qtyRef.current);
+    return { tone: "success", title: `${p?.name} — ${count(next)} ${t(next === 1 ? "unit" : "units")} ${t("captured")}` };
   };
 
   const generate = async () => {
@@ -189,6 +241,52 @@ export default function ReceiveStock() {
     onError: (e) => toast.error(e),
   });
 
+  const deliveryUnits = delivery.reduce((a, l) => a + l.quantity, 0);
+  const receiveDelivery = useMutation({
+    mutationFn: () => api<{ received: number; pending_approval: number; units_received: number }>("/stock/receive/batch", {
+      body: {
+        branch_id: branchId,
+        supplier_id: supplier || null,
+        reference,
+        date_received: received,
+        lines: delivery.map((l) => ({ product_id: l.product_id, quantity: l.quantity, barcode: l.barcode, barcode_source: l.source ?? "scanner" })),
+      },
+    }),
+    onSuccess: (r) => {
+      toast.success(r.pending_approval && !r.received
+        ? `${r.pending_approval} ${t("stock receipt(s) sent for approval — stock changes when approved")}`
+        : `${t("Received")} ${count(r.units_received)} ${t(r.units_received === 1 ? "unit" : "units")}${r.pending_approval ? ` · ${r.pending_approval} ${t("sent for approval")}` : ""}`);
+      changeDelivery([]);
+      setReference("");
+      setLastScanned(null);
+      qc.invalidateQueries({ queryKey: ["stock"] });
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["product"] });
+      qc.invalidateQueries({ queryKey: ["pos-products"] });
+    },
+    onError: (e) => toast.error(e),
+  });
+  const deliveryLines: ScanCountLine[] = delivery.map((l) => ({ key: l.product_id, name: l.name, barcode: l.barcode, kind: "shared", quantity: l.quantity, max: qtyLocked ? 1 : null }));
+  const deliverySession = {
+    lines: deliveryLines,
+    activeKey: lastScanned,
+    onSet: qtyLocked ? undefined : (key: string, q: number) => changeDelivery(deliveryRef.current.map((l) => (l.product_id === key ? { ...l, quantity: q } : l))),
+    onRemove: (key: string) => changeDelivery(deliveryRef.current.filter((l) => l.product_id !== key)),
+  };
+  // One product open: each unit's label (individual barcodes), or the running count of its shared barcode.
+  const productSession = !p ? undefined : tracked
+    ? {
+        lines: barcodes.map((c): ScanCountLine => ({ key: c, name: p.name, barcode: c, kind: "unique", quantity: 1 })),
+        activeKey: lastScanned,
+        onRemove: (key: string) => { barcodesRef.current = barcodesRef.current.filter((x) => x !== key); setBarcodes(barcodesRef.current); },
+      }
+    : {
+        lines: barcodes.length ? [{ key: p.id, name: p.name, barcode: barcodes[0], kind: "shared", quantity, max: qtyLocked ? 1 : null } satisfies ScanCountLine] : [],
+        activeKey: p.id,
+        onSet: qtyLocked ? undefined : (_: string, q: number) => { qtyRef.current = String(q); setQty(qtyRef.current); },
+        onRemove: () => { barcodesRef.current = []; setBarcodes([]); setSources({}); qtyRef.current = "1"; setQty("1"); },
+      };
+
   const valid = !!p && quantity > 0 && (!qtyLocked || quantity === 1) && (s.stock.barcode_requirement !== "required" || tracked || barcodes.length > 0 || !!p.barcode);
   const labelsPending = tracked && !!generated && (!attached ? "Confirm the labels are attached" : mustVerify && verified.length < generated.codes.length ? "Scan each label to verify it" : false);
 
@@ -202,9 +300,9 @@ export default function ReceiveStock() {
               <div className="space-y-2">
                 <div className="flex gap-2">
                   <SearchInput value={q} onChange={setQ} placeholder="Search product name or code" className="flex-1" autoFocus />
-                  {barcodesOn && <Button variant="ink" onClick={() => setScan("find")}><ScanLine /> {t("Scan")}</Button>}
+                  {barcodesOn && <Button variant="ink" onClick={() => setScan("find")}><ScanLine /> {t("Scan delivery")}</Button>}
                 </div>
-                {barcodesOn && <BarcodeInput onCode={(code) => findByCode(code)} continuousCamera={false} placeholder="Or enter / scan its barcode" />}
+                {barcodesOn && <BarcodeInput onCode={scanDelivery} cameraTitle="Scan delivery" placeholder="Or enter / scan its barcode" session={deliverySession} />}
                 {detail.isLoading && <p className="text-sm text-muted-foreground">{t("Loading…")}</p>}
                 <ul className="divide-y rounded-lg border empty:hidden">
                   {results.data?.items.map((r) => (
@@ -287,21 +385,15 @@ export default function ReceiveStock() {
                 )
               ) : tracked ? (
                 <div className="space-y-3">
-                  <BarcodeInput onCode={(code, source) => addItem(code, source)} placeholder="Enter or scan each item's barcode" cameraTitle={`Scan each ${p.name}`} />
+                  <BarcodeInput onCode={(code, source) => addItem(code, source)} placeholder="Enter or scan each item's barcode" cameraTitle={`Scan each ${p.name}`} session={productSession} />
                   <Button className="w-full" variant="ink" size="lg" onClick={() => setScan("items")}><ScanLine /> {t("Scan items (")}{barcodes.length})</Button>
                   <p className="text-xs text-muted-foreground">{t("Each physical item gets its own barcode. Scanned:")} {barcodes.length}.</p>
-                  <div className="flex flex-wrap gap-2">
-                    {barcodes.map((b) => (
-                      <span key={b} className="num inline-flex items-center gap-1 rounded-full bg-success/10 px-2.5 py-1 text-xs text-success">
-                        {b}<button onClick={() => setBarcodes(barcodes.filter((x) => x !== b))} aria-label={`Remove ${b}`}><X className="h-3 w-3" /></button>
-                      </span>
-                    ))}
-                  </div>
                 </div>
               ) : (
+                <div className="space-y-3">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Quantity" hint={qtyLocked ? "Locked to 1 — capture each item individually" : undefined}>
-                    <Input inputMode="numeric" className="num h-12 text-lg" value={qty} disabled={qtyLocked} onChange={(e) => setQty(e.target.value.replace(/\D/g, ""))} />
+                    <Input inputMode="numeric" className="num h-12 text-lg" value={qty} disabled={qtyLocked} onChange={(e) => { qtyRef.current = e.target.value.replace(/\D/g, ""); setQty(qtyRef.current); }} />
                   </Field>
                   {barcodesOn && (
                     <Field label="Barcode / item code" optional={s.stock.barcode_requirement !== "required"} hint={p.barcode ? "Scan to confirm the product" : "Saved as the product barcode"}>
@@ -313,10 +405,41 @@ export default function ReceiveStock() {
                     </Field>
                   )}
                 </div>
+                {productSession && !tracked && <ScanCounter {...productSession} />}
+                </div>
               )}
             </Section>
           )}
         </div>
+
+        {!p && delivery.length > 0 && (
+          <div className="space-y-5">
+            <Section title="This delivery">
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">{t("Nothing changes in stock until you receive it.")}</p>
+                {(profile?.branches.length ?? 0) > 1 && (
+                  <Field label="Branch">
+                    <Select value={branchId} onChange={setBranchId}>{profile?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select>
+                  </Field>
+                )}
+                <Field label="Supplier" optional>
+                  <Select value={supplier} onChange={setSupplier}>
+                    <option value="">—</option>
+                    {suppliers.data?.filter((x) => x.is_active).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Reference / notes" optional><Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Delivery note, invoice no." /></Field>
+                <Field label="Date received"><Input type="date" value={received} max={todayIso()} onChange={(e) => setReceived(e.target.value)} /></Field>
+              </div>
+            </Section>
+            <ActionButton size="lg" className="h-14 w-full text-base" online busy={receiveDelivery.isPending} busyLabel="Receiving…" onAction={() => receiveDelivery.mutateAsync()}>
+              <PackagePlus /> {t("Receive")} {count(deliveryUnits)} {t(deliveryUnits === 1 ? "unit" : "units")}
+            </ActionButton>
+            <Button variant="ghost" className="w-full" onClick={() => { if (window.confirm(t("Clear this delivery? Nothing has been received."))) { changeDelivery([]); setLastScanned(null); } }}>
+              <Eraser /> {t("Clear delivery")}
+            </Button>
+          </div>
+        )}
 
         {p && (
           <div className="space-y-5">
@@ -357,10 +480,11 @@ export default function ReceiveStock() {
       <BarcodeScanner
         open={scan !== null}
         onOpenChange={(o) => !o && setScan(null)}
-        onDetected={(code, source) => (scan === "find" ? findByCode(code) : scan === "verify" ? verifyLabel(code) : tracked ? addItem(code, source) : (setBarcodes([code]), setSources(source ? { [code]: source } : {})))}
-        hint={scan === "verify" ? "Scan each label you attached" : scan === "items" && tracked ? "Each item's own label" : undefined}
-        continuous={(scan === "items" && tracked) || scan === "verify"}
-        title={scan === "verify" ? "Verify labels" : scan === "items" && tracked ? `Scan each ${p?.name}` : "Scan barcode"}
+        onDetected={(code, source) => (scan === "find" ? scanDelivery(code, source) : scan === "verify" ? verifyLabel(code) : tracked ? addItem(code, source) : addSharedUnit(code, source))}
+        hint={scan === "verify" ? "Scan each label you attached" : scan === "items" && tracked ? "Each item's own label" : scan === "items" ? "Each scan is one more unit" : scan === "find" ? "Each scan is one more unit" : undefined}
+        continuous
+        title={scan === "verify" ? "Verify labels" : scan === "items" && tracked ? `Scan each ${p?.name}` : scan === "items" ? `Scan ${p?.name}` : scan === "find" ? "Scan delivery" : "Scan barcode"}
+        session={scan === "find" ? deliverySession : scan === "items" ? productSession : undefined}
       />
       {printing && generated && (
         <LabelsDialog business={generated.business} labels={generated.codes.map((code) => ({ code, product: generated.product }))}

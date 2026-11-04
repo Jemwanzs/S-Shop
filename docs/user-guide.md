@@ -1,6 +1,6 @@
 # S'Shop — Smart Retail & Business Management — Product Features & Capabilities Manual
 
-*Version 1.8 · October 2026. Generated from [manual/manual.json](manual/manual.json) by `scripts/manual/build.mjs` — edit the JSON, not this file. The same content is the PDF at https://s-shop.store/SShop_Product_User_Manual.pdf.*
+*Version 1.9 · November 2026. Generated from [manual/manual.json](manual/manual.json) by `scripts/manual/build.mjs` — edit the JSON, not this file. The same content is the PDF at https://s-shop.store/SShop_Product_User_Manual.pdf.*
 
 S'Shop runs a retail business end to end, from the till and stock room to the customer's phone and the business's own website. It works on phones, tablets and computers, across branches, online and offline. Each module below describes features available today.
 
@@ -96,7 +96,7 @@ One master catalogue shared by all branches, with photos, pricing rules and your
 - Control over which branches stock a product and whether it appears online
 - Low-stock alert levels and loyalty rules per product
 - Item barcodes stay concealed (****047) on screens, reports and exports; printing, reprinting, replacing and revealing them are permission-controlled and recorded
-- Price status filters — set, missing, zero, zero-or-missing and above zero (a price of 0 and no price stay different); select products and deactivate them together, with approval when required
+- Filters — set, missing, zero, zero-or-missing and above zero prices (a price of 0 and no price stay different), and Missing product image; select products and deactivate them together, with approval when required
 - Your filters, search, page and scroll position are kept while you open and edit products — fix missing prices one after another without choosing the filters again
 
 <a id="module-7"></a>
@@ -370,7 +370,7 @@ Recording sales, payments, receipts, returns, credit and customer orders.
 #### Record a sale
 
 1. Open New Sale (phone: the Sales tab or the floating Record sale button).
-2. Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner.
+2. Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner. Scanning a shared barcode again adds another unit and the counter shows how many; use − or + to correct it. An individually tracked item is one unit: scanned again it says Already scanned.
 3. Tap the product, set the Quantity (and the Selling price if you give a discount), then Add to cart.
 4. Optional: enter the Customer phone number so the customer earns loyalty points (first name for a new customer).
 5. Choose the payment: Cash, M-Pesa, Credit Sale or Split payment.
@@ -423,16 +423,18 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 #### Receive a delivery
 
 1. Open Stock and tap Receive stock.
-2. Find or scan the product and enter the quantity received.
-3. Individually tracked products: tap Generate barcodes, Print labels, stick one label on each item, tick I have attached a label to each item, then Verify labels by scanning them.
-4. Enter the Cost / purchase price, Marked selling price, Supplier and the delivery note in Reference / notes; change Date received if needed.
-5. Tap Receive. The stock and its value update immediately (or after approval when required).
+2. Several products with shared barcodes: tap Scan delivery and scan every unit; each scan counts one more, and each product keeps its own count. Correct a count with − or +, then tap Receive. Nothing changes in stock until you do; Clear delivery leaves stock as it was.
+3. One product at a time: find it, then enter the quantity received or scan its barcode once per unit.
+4. Individually tracked products: tap Generate barcodes, Print labels, stick one label on each item, tick I have attached a label to each item, then Verify labels by scanning them.
+5. Enter the Cost / purchase price, Marked selling price, Supplier and the delivery note in Reference / notes; change Date received if needed.
+6. Tap Receive. The stock and its value update immediately (or after approval when required).
 
 #### Count stock (stock take)
 
 1. Open Stock and tap Stock take.
-2. Enter the Reason for the count, then scan or type what is on the shelf for each product.
-3. Check Expected, Counted and Variance, then Submit count. Variances wait for approval where required.
+2. Enter the Reason for the count, then scan or type what is on the shelf for each product. Each scan of a shared barcode counts one more; correct it with − or +.
+3. Individually tracked items: scan each label once. Check Labels to check (misplaced or unknown labels) and the units shown as Missing before submitting.
+4. Check Expected, Counted and Variance, then Submit count. Variances wait for approval where required.
 
 #### Correct stock for damage, loss or returns
 
@@ -494,7 +496,7 @@ Setting up the business, people, rules, payments and the website.
 
 #### Find unpriced products and deactivate several
 
-1. Products: Price status → Zero price, Missing price or Zero or missing price (0 and no price are different).
+1. Products: Price status → Zero price, Missing price or Zero or missing price (0 and no price are different). Missing product image, the last option, lists products without a photo.
 2. Tick the products (or the box for the whole page, then Select all N matching), and tap Deactivate.
 3. Check the list (already inactive or already waiting products are skipped and shown), add a reason and confirm.
 4. If deactivation needs approval, the products stay active until approved; the result shows each product's outcome.

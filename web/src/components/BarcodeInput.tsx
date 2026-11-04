@@ -1,17 +1,21 @@
 /** The one inline "Enter or scan barcode" field (roadmap 98): product form, stock-in, stock take and Record Sale.
- * Enter submits; the outcome shows under the field and the field clears and keeps focus for the next code. The camera
+ * Enter submits; the outcome shows under the field (never a popup that would catch the next scan, roadmap 153) and the
+ * field clears and keeps focus for the next code. The camera
  * button opens the shared scanner when camera scanning is on. */
 import { useRef, useState } from "react";
-import { Camera, CheckCircle2, Info, ScanLine, XCircle } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, Info, ScanLine, XCircle } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { toast } from "@/lib/toast";
+import { errorMessage } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BarcodeScanner, type ScanHandler, type ScanOutcome } from "@/components/BarcodeScanner";
 import { SShopLoader } from "@/components/SShopLoader";
-import { TYPING_OFF, useKeyTiming, useManualBarcodes } from "@/lib/scan";
+import { ScanCounter, type ScanCounterProps } from "@/components/ScanCounter";
+import { outcomeSound, scanFeedback } from "@/lib/scanner";
+import { DOUBLE_READ_MS, TYPING_OFF, useKeyTiming, useManualBarcodes, type ScanSource } from "@/lib/scan";
 
 export function useBarcodeSettings() {
   const { profile } = useSession();
@@ -23,7 +27,7 @@ export function useBarcodeSettings() {
   };
 }
 
-export function BarcodeInput({ onCode, placeholder, autoFocus, className, continuousCamera = true, cameraTitle = "Scan barcode", context = "stock" }: {
+export function BarcodeInput({ onCode, placeholder, autoFocus, className, continuousCamera = true, cameraTitle = "Scan barcode", context = "stock", session }: {
   onCode: ScanHandler;
   /** Roadmap 137: "sale" follows the till's barcode rule (typing off by default); "stock" the stock rule. */
   context?: "sale" | "stock";
@@ -32,6 +36,8 @@ export function BarcodeInput({ onCode, placeholder, autoFocus, className, contin
   className?: string;
   continuousCamera?: boolean;
   cameraTitle?: string;
+  /** Roadmap 153: the live count of this scanning session, shown under the field and in the camera scanner. */
+  session?: Omit<ScanCounterProps, "tone" | "onScanned" | "onDone">;
 }) {
   const cfg = { ...useBarcodeSettings(), manual: useManualBarcodes(context) };
   const timing = useKeyTiming();
@@ -41,29 +47,44 @@ export function BarcodeInput({ onCode, placeholder, autoFocus, className, contin
   const [camera, setCamera] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
-  const submit = async (raw: string) => {
-    const code = raw.trim();
-    if (!code || busy) return;
-    const source = timing.source(code);
-    if (source === "manual" && !cfg.manual) {
-      setValue("");
-      setResult({ tone: "error", title: TYPING_OFF });
-      toast.error(TYPING_OFF);
-      return;
-    }
-    setBusy(true);
+  // Roadmap 153: the field clears the moment a code is submitted and codes are handled strictly in order, so a handheld
+  // scanner firing again before the last code is checked neither loses a scan nor runs two into one.
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const waiting = useRef(0);
+  const last = useRef({ code: "", at: 0 });
+  const handle = async (code: string, source: ScanSource) => {
     try {
       const r = (await onCode(code, source)) || null;
       setResult(r);
-      if (r?.tone === "error") toast.error(r.title);
+      scanFeedback(outcomeSound(r ? r.tone : "success"));
+    } catch (e) {
+      scanFeedback("error");
+      setResult({ tone: "error", title: errorMessage(e) });
     } finally {
-      setBusy(false);
-      setValue("");
+      waiting.current -= 1;
+      if (waiting.current === 0) setBusy(false);
       input.current?.focus();
     }
   };
+  const submit = (raw: string) => {
+    const code = raw.trim();
+    setValue("");
+    if (!code) return;
+    const source = timing.source(code);
+    if (source === "manual" && !cfg.manual) {
+      setResult({ tone: "error", title: TYPING_OFF });
+      scanFeedback("error");
+      return;
+    }
+    const now = Date.now();
+    if (code === last.current.code && now - last.current.at < DOUBLE_READ_MS) return;
+    last.current = { code, at: now };
+    waiting.current += 1;
+    setBusy(true);
+    chain.current = chain.current.then(() => handle(code, source));
+  };
 
-  const Icon = !result ? null : result.tone === "success" ? CheckCircle2 : result.tone === "error" ? XCircle : Info;
+  const Icon = !result ? null : result.tone === "success" ? CheckCircle2 : result.tone === "error" ? XCircle : result.tone === "warning" ? AlertTriangle : Info;
   return (
     <div className={cn("space-y-1", className)}>
       <div className="flex gap-2">
@@ -73,18 +94,19 @@ export function BarcodeInput({ onCode, placeholder, autoFocus, className, contin
             placeholder={t(placeholder ?? (cfg.manual ? "Enter or scan barcode" : "Scan barcode"))} aria-label={t("Enter or scan barcode")}
             onPaste={(e) => { timing.onPaste(); if (!cfg.manual) { e.preventDefault(); toast.error(TYPING_OFF); } }}
             onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => { timing.onKeyDown(e); if (e.key === "Enter") { e.preventDefault(); void submit(value); } }} />
+            onKeyDown={(e) => { timing.onKeyDown(e); if (e.key === "Enter") { e.preventDefault(); submit(value); } }} />
           {busy && <SShopLoader size="sm" className="absolute inset-e-3 top-1/2 -translate-y-1/2" />}
         </div>
         {cfg.camera && <Button type="button" variant="outline" size="icon" onClick={() => setCamera(true)} aria-label={t("Scan with camera")}><Camera /></Button>}
       </div>
-      {result && Icon && (
-        <p role="status" aria-live="polite" className={cn("flex items-start gap-1.5 text-xs", result.tone === "success" ? "text-success" : result.tone === "error" ? "text-destructive" : "text-muted-foreground")}>
+      {result && Icon && !(session?.lines.length && result.tone === "success") && (
+        <p role="status" aria-live="polite" className={cn("flex items-start gap-1.5 text-xs", result.tone === "success" ? "text-success" : result.tone === "error" ? "text-destructive" : result.tone === "warning" ? "text-warning" : "text-muted-foreground")}>
           <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> <span>{result.title}{result.detail ? <> · {result.detail}</> : null}</span>
         </p>
       )}
+      {session && <ScanCounter {...session} className="mt-2" onScanned={(code) => submit(code)} onDone={() => input.current?.focus()} />}
       {cfg.camera && (
-        <BarcodeScanner open={camera} onOpenChange={setCamera} continuous={continuousCamera} title={cameraTitle} context={context}
+        <BarcodeScanner session={session} open={camera} onOpenChange={setCamera} continuous={continuousCamera} title={cameraTitle} context={context}
           onDetected={async (code, source) => { const r = (await onCode(code, source)) || undefined; setResult(r ?? null); if (!continuousCamera) setCamera(false); return r; }} />
       )}
     </div>

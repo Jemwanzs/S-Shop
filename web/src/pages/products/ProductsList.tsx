@@ -32,7 +32,7 @@ export default function ProductsList() {
   const status: "active" | "inactive" | "all" = statusParam === "inactive" || statusParam === "all" ? statusParam : "active";
   const category = params.get("category") ?? "";
   // Roadmap 140/151: price status — a price of 0 and no price at all stay different things.
-  const PRICES = ["set", "missing", "zero", "zero_or_missing", "above_zero"] as const;
+  const PRICES = ["set", "missing", "zero", "zero_or_missing", "above_zero", "missing_image"] as const;
   const priceParam = params.get("price");
   const price: "" | (typeof PRICES)[number] = (PRICES as readonly string[]).includes(priceParam ?? "") ? (priceParam as (typeof PRICES)[number]) : "";
   const page = Math.max(1, Math.floor(Number(params.get("page")) || 1));
@@ -87,7 +87,7 @@ export default function ProductsList() {
   // Roadmap 109: product list display preferences.
   const showImages = !!profile?.settings.product.list_show_images;
   // Filtering for missing prices always shows the price column (so "Not set" is visible).
-  const showPrices = (profile?.settings.product.list_show_prices ?? true) || price !== "";
+  const showPrices = (profile?.settings.product.list_show_prices ?? true) || (price !== "" && price !== "missing_image");
   // Roadmap 151: bulk selection — kept by id across pages and filter changes; the bar always shows the full count.
   const canBulk = can("products.deactivate") && !assign;
   const [picked, setPicked] = useState<Map<string, string>>(new Map());
@@ -150,6 +150,8 @@ export default function ProductsList() {
             <option value="zero">{t("Zero price")}</option>
             <option value="zero_or_missing">{t("Zero or missing price")}</option>
             <option value="above_zero">{t("Above zero")}</option>
+            {/* Roadmap 154: the owner asked for it here, as the last option. */}
+            <option value="missing_image">{t("Missing product image")}</option>
           </Select>
         </div>
       </div>

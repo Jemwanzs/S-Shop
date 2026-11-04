@@ -3,6 +3,11 @@
 **Scope:** §6–8, §10, §35–36 · **Routes:** `/pos`, `/sales`, `/sales/:id` · **API:** `/api/pos/products`, `/api/sales…`
 
 ## Record a sale (POS)
+> **Repeated scanning (roadmap 153):** scanning a shared barcode again adds a unit, with a live counter in the scanner and
+> − / + on the cart line, never above what is available here (unless negative stock is allowed); the server checks again
+> at checkout. An individual barcode is one unit: scanned again it shows *Already scanned — 1 unit captured*. With quantity
+> entry locked each scan is its own line. The unit is marked sold only when the sale completes.
+
 1. **Find the product** — search (name, nickname, code, barcode) or **Scan** (camera or handheld scanner). Products with
    stock at the Current Branch come first; out-of-stock ones are greyed. Photos stay hidden until *View photos*.
 2. **Item sheet** — quantity (default 1; locked to 1 when configured or for per-item products), marked price

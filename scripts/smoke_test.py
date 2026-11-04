@@ -4268,6 +4268,107 @@ call("POST", "/products/bulk-deactivate", {"ids": [p0]}, **S1, expect=403)
 check("bulk actions refuse empty, unknown and unauthorised requests", True)
 call("PUT", "/settings/workflows/product.deactivate", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
 
+step("Roadmap 153: repeated scanning — delivery batch, stock take comparison, tracking model changes")
+call("PUT", "/settings/workflows/stock.add", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
+sc = f"SC{suffix}"
+def on_hand153(pid, branch=None):
+    d = call("GET", f"/products/{pid}", **DA)
+    return next((b["on_hand"] for b in d["stock_by_branch"] if b["branch_id"] == (branch or d_branch)), 0)
+s1 = call("POST", "/products", {"name": f"{sc} Heroes", "marked_price": 100, "cost_price": 50, "barcode": f"8{suffix}01"}, **DA)["result"]["id"]
+s2 = call("POST", "/products", {"name": f"{sc} Oud", "marked_price": 200, "cost_price": 90, "barcode": f"8{suffix}02"}, **DA)["result"]["id"]
+u1 = call("POST", "/products", {"name": f"{sc} Watch", "marked_price": 900, "cost_price": 400, "track_items": True}, **DA)["result"]["id"]
+batch = lambda lines, **kw: call("POST", "/stock/receive/batch", {"lines": lines, "reference": "DN-153"}, **DA, **kw)
+r = batch([{"product_id": s1, "quantity": 8, "barcode": f"8{suffix}01"}, {"product_id": s2, "quantity": 3, "barcode": f"8{suffix}02"}])
+check("a delivery keeps separate counts per shared barcode", r["received"] == 2 and r["units_received"] == 11 and on_hand153(s1) == 8 and on_hand153(s2) == 3, r)
+r = batch([{"product_id": s1, "quantity": 1, "barcode": f"8{suffix}01"}, {"product_id": s2, "quantity": 2, "barcode": "WRONG-CODE"}], expect=422)
+check("one refused line receives nothing (no partial delivery), and names the product", on_hand153(s1) == 8 and on_hand153(s2) == 3 and sc in r["error"]["message"], r)
+r = batch([{"product_id": s1, "quantity": 0}], expect=422)
+check("a zero quantity is refused", "at least 1" in r["error"]["message"], r)
+call("POST", "/stock/receive/batch", {"lines": []}, **DA, expect=400)
+call("POST", "/stock/receive/batch", {"lines": [{"product_id": s1, "quantity": 1}, {"product_id": s1, "quantity": 1}]}, **DA, expect=400)
+batch([{"product_id": nduma, "quantity": 1}], expect=404)
+check("another business's product cannot be received", True)
+# Approval: nothing moves until final approval; rejection never adds stock.
+call("PUT", "/settings/workflows/stock.add", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
+r = batch([{"product_id": s1, "quantity": 7, "barcode": f"8{suffix}01"}, {"product_id": s2, "quantity": 5, "barcode": f"8{suffix}02"}])
+check("with approval on, every line waits and stock stays", r["pending_approval"] == 2 and r["received"] == 0 and on_hand153(s1) == 8 and on_hand153(s2) == 3, r)
+waiting = [x for x in call("GET", "/approvals?status=pending&limit=50", **DA)["items"] if x["action"] == "stock.add" and x["entity_id"] in (s1, s2)]
+a1 = next(x["id"] for x in waiting if x["entity_id"] == s1)
+a2 = next(x["id"] for x in waiting if x["entity_id"] == s2)
+r = call("GET", f"/products/{s1}/tracking-check?individual=true", **DA)
+check("a stock request waiting blocks changing the tracking model", any("waiting for approval" in m for m in r["blockers"]), r)
+body153 = {k: v for k, v in call("GET", f"/products/{s1}", **DA)["product"].items() if k in ("name", "code", "marked_price", "cost_price", "barcode")}
+r = call("PUT", f"/products/{s1}", {**body153, "track_items": True}, **DA, expect=422)
+check("the server refuses that change too", r["error"]["title"] == "Tracking cannot change yet", r)
+call("POST", f"/approvals/{a1}/approve", {"comments": "ok"}, **DA)
+call("POST", f"/approvals/{a2}/reject", {"comments": "short delivery"}, **DA)
+check("final approval posts the exact quantity; rejection adds nothing", on_hand153(s1) == 15 and on_hand153(s2) == 3, (on_hand153(s1), on_hand153(s2)))
+# Individual barcodes: registered only when posted; one unit each.
+code_a, code_b = f"U{suffix}A1", f"U{suffix}B2"
+r = call("POST", "/stock/receive", {"product_id": u1, "quantity": 1, "barcodes": [code_a]}, **DA)
+check("an individual barcode waits for approval", r["pending_approval"] is True and on_hand153(u1) == 0, r)
+call("GET", f"/products/lookup?code={code_a}", **DA, expect=404)
+check("…and is not registered before approval", True)
+call("POST", f"/approvals/{r['approval_id']}/approve", {"comments": "ok"}, **DA)
+check("approved: exactly that one unit", on_hand153(u1) == 1 and call("GET", f"/products/lookup?code={code_a}", **DA)["stock_item"]["status"] == "in_stock")
+call("PUT", "/settings/workflows/stock.add", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None}, **DA)
+r = call("POST", "/stock/receive", {"product_id": u1, "quantity": 2, "barcodes": [code_b, code_b]}, **DA, expect=422)
+check("the same individual barcode twice is one receipt refused", "twice" in r["error"]["message"] and on_hand153(u1) == 1, r)
+r = call("POST", "/stock/receive", {"product_id": u1, "quantity": 1, "barcodes": [code_a]}, **DA, expect=422)
+check("a barcode already in stock cannot be received again", "already in use" in r["error"]["message"], r)
+call("POST", "/stock/receive", {"product_id": u1, "quantity": 1, "barcodes": [code_b]}, **DA)
+r = call("POST", "/sales", {"items": [{"product_id": u1, "quantity": 1, "unit_price": 900, "barcode": code_a, "scan_source": "scanner"}, {"product_id": u1, "quantity": 1, "unit_price": 900, "barcode": code_a, "scan_source": "scanner"}], "payment": {"method": "cash"}}, **DA, expect=422)
+check("one unit cannot be sold twice in a cart", on_hand153(u1) == 2, r)
+# Overselling a shared barcode.
+r = call("POST", "/sales", {"items": [{"product_id": s2, "quantity": 4, "unit_price": 200}], "payment": {"method": "cash"}}, **DA, expect=422)
+check("a shared barcode cannot oversell what is on hand", on_hand153(s2) == 3, r)
+# Stock take: corrections, comparison of identities.
+r = call("POST", "/stock/count", {"reason": "t", "lines": [{"product_id": s2, "counted": -1}]}, **DA, expect=400)
+check("a negative count is refused", "negative" in r["error"]["message"], r)
+r = call("POST", "/stock/count", {"reason": "Corrected from 8 to 2", "lines": [{"product_id": s2, "counted": 2, "scanned": True}]}, **DA)
+check("a corrected count posts the correction", r["applied"] == 1 and on_hand153(s2) == 2, r)
+other_branch = call("POST", "/branches", {"name": f"Second {suffix}", "code": f"SB{suffix}"}, **DA)["id"]
+code_m = f"U{suffix}M3"
+call("POST", "/stock/receive", {"product_id": u1, "branch_id": other_branch, "quantity": 1, "barcodes": [code_m]}, **DA)
+r = call("POST", "/stock/count/compare", {"product_id": u1, "barcodes": [code_a, code_m, "NO-SUCH-CODE"]}, **DA)
+kinds = sorted(x["kind"] for x in r["unexpected"])
+check("stock take compares identities: missing, misplaced and unknown", r["expected"] == 2 and r["found"] == 1 and len(r["missing"]) == 1 and kinds == ["misplaced", "unknown"], r)
+check("compared barcodes stay masked", code_b not in json.dumps(r) and code_m not in json.dumps(r), r)
+r = call("POST", "/stock/count/compare", {"product_id": watch, "barcodes": [f"W{suffix}0"]}, **DA)
+check("another business's units are never revealed by a comparison", r["expected"] == 0 and r["unexpected"][0]["kind"] == "unknown", r)
+r = call("POST", "/stock/count", {"reason": "t", "lines": [{"product_id": u1, "barcodes": [code_a, code_a]}]}, **DA, expect=422)
+check("a unit counted twice is refused", r["error"]["title"] == "Scanned twice", r)
+# Tracking model: controlled, both ways.
+r = call("GET", f"/products/{u1}/tracking-check?individual=false", **DA)
+check("individual to shared is blocked while units carry their own barcode", any("carry their own barcode" in m for m in r["blockers"]), r)
+r = call("GET", f"/products/{s1}/tracking-check?individual=true", **DA)
+check("shared to individual warns about stock without labels", not r["blockers"] and any("Label existing stock" in m for m in r["notes"]), r)
+fresh = call("POST", "/products", {"name": f"{sc} Fresh", "marked_price": 10, "cost_price": 5}, **DA)["result"]["id"]
+call("PUT", f"/products/{fresh}", {"name": f"{sc} Fresh", "marked_price": 10, "cost_price": 5, "track_items": True}, **DA)
+check("a product with nothing in the way changes model", call("GET", f"/products/{fresh}", **DA)["product"]["track_items"] is True)
+call("GET", f"/products/{nduma}/tracking-check?individual=true", **DA, expect=404)
+check("another business's product cannot be checked", True)
+kept = call("GET", f"/products/{u1}", **DA)["product"]
+check("existing tracking models are unchanged", kept["track_items"] is True and call("GET", f"/products/{s1}", **DA)["product"]["track_items"] is False)
+
+step("Roadmap 154: filter products with a missing image")
+mi = f"MI{suffix}"
+with_photo = call("POST", "/products", {"name": f"{mi} photo", "marked_price": 10, "cost_price": 5})["result"]["id"]
+no_photo = call("POST", "/products", {"name": f"{mi} bare", "marked_price": 10, "cost_price": 5})["result"]["id"]
+no_photo_off = call("POST", "/products", {"name": f"{mi} bare inactive", "marked_price": 0, "cost_price": 5})["result"]["id"]
+upload_file(f"/products/{with_photo}/photos", tiny_png(), "p.png", "image/png")
+call("PUT", "/settings/workflows/product.deactivate", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+call("POST", f"/products/{no_photo_off}/status", {"is_active": False})
+missing = lambda status: sorted(x["id"] for x in call("GET", f"/products?q={mi}&status={status}&price=missing_image&limit=50")["items"])
+check("only products without a photo", missing("all") == sorted([no_photo, no_photo_off]), missing("all"))
+check("combined with active and inactive", missing("active") == [no_photo] and missing("inactive") == [no_photo_off])
+m = call("GET", f"/products/matching-ids?q={mi}&status=all&price=missing_image")
+check("select all matching follows the filter", sorted(m["ids"]) == sorted([no_photo, no_photo_off]) and m["total"] == 2, m)
+page = call("GET", "/products?status=all&price=missing_image&limit=1&offset=0")
+check("paged across the whole catalogue", page["total"] >= 2 and len(page["items"]) == 1, page["total"])
+upload_file(f"/products/{no_photo}/photos", tiny_png(), "p.png", "image/png")
+check("once a photo is saved the product leaves the list", missing("all") == [no_photo_off], missing("all"))
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

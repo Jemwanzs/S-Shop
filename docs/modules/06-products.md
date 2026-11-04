@@ -72,6 +72,8 @@ Inactive / All, search, category and paging:
 | Zero or missing price | 0 or empty |
 | Above zero | more than 0 |
 
+**Missing product image** (roadmap 154), the last option of the same list: products with no stored photo holding image data, on the whole catalogue and with the other filters. A photo that fails to load in a browser does not count as missing.
+
 A price of 0 (free) and no price (*Price on Request*) are stored and filtered differently.
 
 **Bulk selection** (people who may deactivate products): a checkbox on every row (and a box for the whole page); the

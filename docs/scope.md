@@ -27,7 +27,7 @@ GitHub App installations were reset; the owner deployed). **Also live:** 150 sev
 | 28 | Database backups | High | Owner | Railway plan with backups | Turn on scheduled Postgres backups (daily, keep 7+), then restore one into a scratch database to prove it |
 | 29 | Email sender (`MAIL_FROM`) | High — invitations and applicant emails | Owner | `s-shop.store` verified in Resend (DNS records at the registrar) | `MAIL_FROM` exists on Railway; confirm the domain shows *Verified* in Resend and send a test invitation to an outside address |
 | — | Real production M-Pesa payment | Medium | Owner | The business's own Till / Paybill credentials | Settings → M-Pesa → *Test STK Push* (KSh 1) in Production |
-| — | Real-device checks | Medium | Owner | iPhone, label printer, scanner | Face ID sign-in (132), iPhone home screen (128), print and scan item labels (133–138) |
+| — | Real-device checks | Medium | Owner | iPhone, label printer, scanner | Face ID sign-in (132), iPhone home screen (128), print and scan item labels (133–138), repeated camera and handheld scanning with sound (153) |
 | 30 | `www.s-shop.store` | Low | Owner | DNS; **Railway's custom-domain limit** — the service has 3 (`s-shop.store`, `s-shop.click`, `www.pablo-niche.com`) and Railway refused another on 2026-10-16 | Free a slot (e.g. remove `s-shop.click` if unused) or upgrade the plan, then add it with a CNAME — or redirect `www` at the registrar instead |
 | — | *Discard changes?* on screens' own Cancel buttons | Low — decision | Owner | — | Decide yes / no |
 | 31 | EU region | Low — deferred by owner | Owner | 28 (tested backup and restore) | Choose a maintenance window |
@@ -817,6 +817,40 @@ server already refuses a unit sold twice, from another branch or another product
   file); the PDF opens with a directory whose page numbers match, and no guide task is cut at a page edge (the build
   refuses); every guide step names a screen or button that exists in the code; the Status board lists every open ⏳ /
   ◐ item.
+
+**Catalogue filters** (brief *Filter Products With Missing Images*):
+- ◐ **154. Missing product image filter** — purpose: find every catalogue product without a photo. Scope: *Missing
+  product image*, the last option of the existing Products filter (*All prices* …), on the whole catalogue with
+  Active / Inactive / All, category, search and paging; no stored photo with image data qualifies, a photo failing to
+  load in a browser does not; kept in the address while opening and editing a product; *Select all matching* follows it.
+
+  Acceptance criteria (smoke 154): only products without a photo; combined with active and inactive; select all
+  matching; paged across the whole catalogue; a product leaves the list once a photo is saved. Browser: last option,
+  label shown, kept after opening a product and coming back.
+
+**Repeated scanning** (brief *Repeated Barcode Scanning, Quantity Counters & Flexible Item Tracking*):
+- ◐ **153. Repeated scanning, quantity counters and the two barcode tracking models** — purpose: scanning a shared
+  barcode again counts another unit everywhere, with a live counter and corrections, while an individual barcode stays
+  exactly one physical unit. Scope: one live counter (`ScanCounter`) in the scanner and under the inline field —
+  product, barcode, tracking model, quantity, − / field / +, remove, other products and the session total; **Stock →
+  Receive**: *Scan delivery* builds a provisional list of several products, kept on the device, received in **one
+  transaction** (`POST /stock/receive/batch`; one refused line receives nothing; each line needing approval waits on its
+  own), one open product counts its shared barcode too; **Record Sale**: quantity controls on the cart lines, never above
+  what is available; **Stock take**: corrections, zero as a real count, labels to check (misplaced, unexpected, unknown)
+  and units missing (`POST /stock/count/compare`), never a negative count; individual barcodes: *Already scanned — 1 unit
+  captured*, quantity stays 1, remove and scan another; rapid scans handled strictly in order and none dropped (the inline
+  field used to drop them); one sound per scan (beep / warning / error — an error used to sound twice), unlocked on
+  phones by the first touch; Products → Barcode shows both models side by side (still `track_items`); changing a saved
+  product's model is checked both ways (`GET /products/{id}/tracking-check`, enforced on save and on approval) against
+  waiting stock requests, open transfers, reservations and units carrying their own barcode; barcodes being switched off
+  no longer changes a product's model.
+
+  Acceptance criteria (smoke 153 + browser): a shared barcode scanned 8 times is 8, corrected to 7; two shared barcodes
+  keep separate counts and a session total; an individual barcode scanned repeatedly stays one unit with the warning
+  sound; clearing a delivery leaves stock unchanged; approval posts the exact quantity and rejection adds nothing;
+  individual barcodes are registered only when posted; the till cannot oversell; rapid input neither loses nor doubles a
+  scan; one sound per scan; existing tracked products unchanged; another business's products and units unreachable.
+  Not testable here: the camera on a real phone, and how loud the beep is on real devices (owner check).
 
 **Review of 148–151** (code review after 151, no new brief):
 - ✅ **152. Approvals, bulk actions and key rotation hardened** — purpose: close the faults a code review of 148–151

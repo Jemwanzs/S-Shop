@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Loading, PageHeader, Section } from "@/components/Page";
 import { useCatalogueHref } from "@/lib/catalogue";
 import { Field, Select, ToggleRow } from "@/components/Form";
+import { cn } from "@/lib/utils";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { useBarcodeSettings } from "@/components/BarcodeInput";
 import { CustomFieldInputs } from "@/components/CustomFields";
@@ -69,6 +70,10 @@ export default function ProductForm() {
   // The product as loaded, to tell whether an edit has anything to save.
   const [loaded, setLoaded] = useState<FormState | null>(null);
   const [scan, setScan] = useState(false);
+  // Roadmap 153: moving a saved product between shared and individual tracking is checked against its stock, waiting
+  // requests and open transfers before it can be chosen (and again by the server when saved).
+  const [modelCheck, setModelCheck] = useState<{ blockers: string[]; notes: string[] } | null>(null);
+  const [checkingModel, setCheckingModel] = useState(false);
   const photos = usePendingPhotos();
   const [uploaded, setUploaded] = useState<number | null>(null);
   const [newCategory, setNewCategory] = useState<string | null>(null);
@@ -76,6 +81,24 @@ export default function ProductForm() {
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((s) => ({ ...s, [k]: v }));
 
   const existing = useQuery({ queryKey: ["product", id], queryFn: () => api<{ product: Product; branch_ids: string[] }>(`/products/${id}`), enabled: editing });
+  const chooseModel = async (individual: boolean) => {
+    const saved = existing.data?.product.track_items;
+    if (!editing || saved === undefined || saved === individual) {
+      setModelCheck(null);
+      set("track_items", individual);
+      return;
+    }
+    setCheckingModel(true);
+    try {
+      const r = await api<{ blockers: string[]; notes: string[] }>(`/products/${id}/tracking-check`, { query: { individual } });
+      setModelCheck(r);
+      if (!r.blockers.length) set("track_items", individual);
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setCheckingModel(false);
+    }
+  };
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => api<Category[]>("/categories") });
   const suppliers = useQuery({ queryKey: ["suppliers"], queryFn: () => api<Supplier[]>("/suppliers") });
   const barcodesDisabled = profile?.settings.stock.barcode_requirement === "disabled";
@@ -237,12 +260,26 @@ export default function ProductForm() {
                     : <>{t("Assigning scanned barcode")} <span className="num font-semibold">{assignBarcode}</span>{existing.data?.product.barcode && existing.data.product.barcode !== assignBarcode ? <> — it replaces <span className="num">{existing.data.product.barcode}</span></> : null}. Save to apply.</>}
                 </p>
               )}
-              <ToggleRow
-                label="Track each item individually"
-                hint="Every physical unit gets its own barcode, scanned when received and when sold."
-                checked={f.track_items}
-                onChange={(v) => set("track_items", v)}
-              />
+              {/* Roadmap 153: the two tracking models (`track_items`), side by side. Changing a saved product's model is checked first. */}
+              <div className="mb-3 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t("Barcode tracking")}>
+                {([
+                  [false, "Shared barcode / Quantity tracking", "Multiple units share one barcode. Each scan counts one more unit."],
+                  [true, "Individual barcode tracking", "Each unit must have a unique barcode, scanned when received and when sold."],
+                ] as const).map(([individual, title, hint]) => (
+                  <button key={title} type="button" role="radio" aria-checked={f.track_items === individual} disabled={checkingModel}
+                    onClick={() => chooseModel(individual)}
+                    className={cn("rounded-xl border p-3 text-start transition-colors", f.track_items === individual ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-accent")}>
+                    <span className="block text-sm font-semibold">{t(title)}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{t(hint)}{individual ? <> ({t("Track each item individually")})</> : null}</span>
+                  </button>
+                ))}
+              </div>
+              {modelCheck && (
+                <div className={cn("mb-3 space-y-1 rounded-xl p-3 text-xs", modelCheck.blockers.length ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning")} role="status">
+                  <p className="font-semibold">{t(modelCheck.blockers.length ? "Tracking cannot change yet" : "Before you save this change")}</p>
+                  {[...modelCheck.blockers, ...(modelCheck.blockers.length ? [] : modelCheck.notes)].map((m) => <p key={m}>{m}</p>)}
+                </div>
+              )}
               {!f.track_items && (
                 <Field label="Product barcode" optional hint="Manufacturer barcode shared by all units">
                   <div className="flex flex-wrap gap-2">

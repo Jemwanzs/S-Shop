@@ -30,6 +30,7 @@ pub fn routes() -> Router<AppState> {
         .route("/products/barcode-conflicts", get(barcode_conflicts))
         .route("/products/{id}", get(detail).put(update))
         .route("/products/{id}/status", post(set_status))
+        .route("/products/{id}/tracking-check", get(tracking_check))
         .route("/products/matching-ids", get(matching_ids))
         .route("/products/bulk-preview", post(bulk_preview))
         .route("/products/bulk-deactivate", post(bulk_deactivate))
@@ -101,6 +102,7 @@ struct ListQuery {
     branch_id: Option<Uuid>,
     /// Roadmap 140/151: all | set (a selling price, 0 included) | missing (no selling price yet, NULL) | zero (exactly 0)
     /// | zero_or_missing | above_zero. A price of 0 and no price are different things and stay different.
+    /// Roadmap 154: missing_image (no stored photo with image data — a photo failing to load in a browser is not missing).
     price: Option<String>,
     #[serde(flatten)]
     page: Page,
@@ -139,10 +141,11 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
 const PRICE_FILTER: &str = "($8::text IS NULL OR $8 = 'all'
             OR ($8 = 'set' AND p.marked_price IS NOT NULL) OR ($8 = 'missing' AND p.marked_price IS NULL)
             OR ($8 = 'zero' AND p.marked_price = 0) OR ($8 = 'zero_or_missing' AND (p.marked_price IS NULL OR p.marked_price = 0))
-            OR ($8 = 'above_zero' AND p.marked_price > 0))";
+            OR ($8 = 'above_zero' AND p.marked_price > 0)
+            OR ($8 = 'missing_image' AND NOT EXISTS (SELECT 1 FROM product_photos ph WHERE ph.product_id = p.id AND octet_length(ph.data) > 0 AND ph.mime LIKE 'image/%')))";
 
 fn check_price_filter(price: &Option<String>) -> AppResult<()> {
-    if matches!(price.as_deref(), None | Some("all" | "set" | "missing" | "zero" | "zero_or_missing" | "above_zero")) {
+    if matches!(price.as_deref(), None | Some("all" | "set" | "missing" | "zero" | "zero_or_missing" | "above_zero" | "missing_image")) {
         Ok(())
     } else {
         Err(bad("Price status: all, set, missing, zero, zero_or_missing or above_zero"))
@@ -598,8 +601,8 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Produ
 async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(mut b): Json<ProductBody>) -> AppResult<Json<Outcome<Value>>> {
     ctx.require("products.edit")?;
     let mut tx = state.db.begin().await?;
-    let (current_active, current_code, current_cost): (bool, String, Option<Decimal>) =
-        sqlx::query_as("SELECT is_active, code, cost_price FROM products WHERE id=$1 AND tenant_id=$2")
+    let (current_active, current_code, current_cost, current_track): (bool, String, Option<Decimal>, bool) =
+        sqlx::query_as("SELECT is_active, code, cost_price, track_items FROM products WHERE id=$1 AND tenant_id=$2")
         .bind(id)
         .bind(ctx.tenant_id)
         .fetch_optional(&mut *tx)
@@ -615,6 +618,17 @@ async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
     }
     // Activation changes go through /status (their own permission and workflow).
     b.is_active = current_active;
+    // Roadmap 153: a product never changes tracking model by accident (barcodes being switched off keeps its model), and
+    // an edit that could not be applied is refused now, not after someone approved it.
+    if settings::load(&mut tx, ctx.tenant_id).await?.stock.barcode_requirement == settings::BarcodeRequirement::Disabled {
+        b.track_items = current_track;
+    }
+    if b.track_items != current_track {
+        let check = tracking_change(&mut tx, ctx.tenant_id, id, b.track_items, None).await?;
+        if let Some(first) = check.blockers.first() {
+            return Err(refused("Tracking cannot change yet", first.clone()));
+        }
+    }
 
     if workflow::needs_approval(&mut tx, &ctx, "product.edit", workflow::Gate::default()).await? {
         let approval = workflow::submit(
@@ -640,19 +654,90 @@ async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
     Ok(Json(Outcome::done(json!({ "id": id }))))
 }
 
+/// Roadmap 153: what a change of barcode tracking model runs into. `blockers` refuse the change; `notes` are what the
+/// person should know before going ahead. `excluding` is the approval carrying this very change.
+#[derive(Serialize)]
+pub struct TrackingChange {
+    blockers: Vec<String>,
+    notes: Vec<String>,
+}
+
+async fn tracking_change(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid, to_individual: bool, excluding: Option<Uuid>) -> AppResult<TrackingChange> {
+    let (mut blockers, mut notes) = (Vec::new(), Vec::new());
+    let pending: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM approvals WHERE tenant_id = $1 AND status = 'pending' AND action LIKE 'stock.%'
+            AND (entity_id = $2 OR payload->>'product_id' = $2::text) AND id IS DISTINCT FROM $3",
+    )
+    .bind(tenant_id)
+    .bind(id)
+    .bind(excluding)
+    .fetch_one(&mut *conn)
+    .await?;
+    if pending > 0 {
+        blockers.push(format!("{pending} stock request(s) for this product are waiting for approval — approve or reject them first"));
+    }
+    let transfers: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT t.id) FROM transfers t JOIN transfer_items ti ON ti.transfer_id = t.id
+          WHERE t.tenant_id = $1 AND ti.product_id = $2 AND t.status IN ('pending_approval','approved','dispatched')",
+    )
+    .bind(tenant_id)
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
+    if transfers > 0 {
+        blockers.push(format!("{transfers} transfer(s) of this product are still open — receive or cancel them first"));
+    }
+    let (on_hand, reserved): (i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(on_hand), 0)::bigint, COALESCE(SUM(reserved), 0)::bigint FROM stock_levels WHERE tenant_id = $1 AND product_id = $2")
+        .bind(tenant_id)
+        .bind(id)
+        .fetch_one(&mut *conn)
+        .await?;
+    let units: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM stock_items WHERE tenant_id = $1 AND product_id = $2 AND status IN ('in_stock','reserved','in_transit')")
+        .bind(tenant_id)
+        .bind(id)
+        .fetch_one(&mut *conn)
+        .await?;
+    if to_individual {
+        if reserved > 0 {
+            blockers.push(format!("{reserved} unit(s) are reserved for orders — complete or cancel those orders first"));
+        }
+        if on_hand > 0 {
+            notes.push(format!("{on_hand} unit(s) on hand have no barcode of their own yet: after saving, open the product → Barcode labels → Label existing stock before counting or selling them"));
+        }
+        notes.push("From then on every unit is received and sold by its own barcode; the shared barcode no longer identifies a unit".into());
+    } else {
+        // Units with their own barcode cannot lose them by switching the product back to one shared barcode (roadmap 135).
+        if units > 0 {
+            blockers.push(format!("{units} item(s) of this product carry their own barcode — sell, transfer or write them off before switching to one shared barcode"));
+        }
+        notes.push("From then on one barcode identifies the product and each scan counts one unit; the history of earlier unit barcodes is kept".into());
+    }
+    Ok(TrackingChange { blockers, notes })
+}
+
+#[derive(Deserialize)]
+struct TrackingQuery {
+    individual: bool,
+}
+
+async fn tracking_check(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Query(q): Query<TrackingQuery>) -> AppResult<Json<TrackingChange>> {
+    ctx.require("products.edit")?;
+    let mut conn = state.db.acquire().await?;
+    let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM products WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).fetch_optional(&mut *conn).await?;
+    exists.ok_or(AppError::NotFound("Product"))?;
+    Ok(Json(tracking_change(&mut conn, ctx.tenant_id, id, q.individual, None).await?))
+}
+
 async fn apply_update(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, b: &ProductBody, approval_id: Option<Uuid>) -> AppResult<()> {
     let before: Value = sqlx::query_scalar("SELECT to_jsonb(p) FROM products p WHERE id = $1 FOR UPDATE")
         .bind(id)
         .fetch_one(&mut *conn)
         .await?;
-    // Roadmap 135: units with their own barcode cannot lose them by switching the product back to one shared barcode.
-    if before.get("track_items").and_then(Value::as_bool) == Some(true) && !b.track_items {
-        let live: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM stock_items WHERE product_id = $1 AND status IN ('in_stock','reserved','in_transit')")
-            .bind(id)
-            .fetch_one(&mut *conn)
-            .await?;
-        if live > 0 {
-            return Err(rule(format!("{live} item(s) of this product carry their own barcode — sell, transfer or write them off before switching to one shared barcode")));
+    // Roadmap 135/153: checked again here — an approved edit may arrive after stock moved.
+    if before.get("track_items").and_then(Value::as_bool) != Some(b.track_items) {
+        let check = tracking_change(conn, ctx.tenant_id, id, b.track_items, approval_id).await?;
+        if let Some(first) = check.blockers.first() {
+            return Err(rule(first.clone()));
         }
     }
     sqlx::query(

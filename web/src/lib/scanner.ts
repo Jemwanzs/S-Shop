@@ -183,18 +183,60 @@ export async function startScanning(video: HTMLVideoElement, onCode: (code: stri
   };
 }
 
-/** Short beep + vibration on a successful read (best effort; respects devices without either). */
-export function scanFeedback(ok = true) {
+export type ScanSound = "ok" | "error" | "warning";
+
+// One audio context for the app (browsers limit how many may exist). Phones only let it make sound after a tap or key
+// press, and a camera read is neither — so the first touch of the page unlocks it.
+let audio: AudioContext | null = null;
+function audioContext() {
+  audio ??= new AudioContext();
+  if (audio.state === "suspended") void audio.resume();
+  return audio;
+}
+if (typeof document !== "undefined") {
+  const unlock = () => {
+    try {
+      audioContext();
+    } catch {
+      /* no sound on this device */
+    }
+    document.removeEventListener("pointerdown", unlock, true);
+    document.removeEventListener("keydown", unlock, true);
+  };
+  document.addEventListener("pointerdown", unlock, true);
+  document.addEventListener("keydown", unlock, true);
+}
+
+/** [frequency Hz, start s, length s] of each tone. */
+const SOUNDS: Record<ScanSound, { wave: OscillatorType; tones: [number, number, number][]; buzz: number | number[] }> = {
+  ok: { wave: "sine", tones: [[1900, 0, 0.09]], buzz: 60 }, // the supermarket beep
+  warning: { wave: "triangle", tones: [[880, 0, 0.07], [880, 0.12, 0.07]], buzz: [30, 40, 30] }, // already scanned
+  error: { wave: "square", tones: [[220, 0, 0.24]], buzz: [40, 60, 40] }, // not accepted
+};
+
+/** The sound and vibration of one finished scan (best effort; respects devices without either). Call once per scan. */
+export function scanFeedback(sound: ScanSound = "ok") {
   try {
-    navigator.vibrate?.(ok ? 60 : [40, 60, 40]);
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    osc.frequency.value = ok ? 1200 : 300;
-    osc.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + (ok ? 0.08 : 0.18));
-    osc.onended = () => ctx.close();
+    const s = SOUNDS[sound];
+    navigator.vibrate?.(s.buzz);
+    const ctx = audioContext();
+    for (const [frequency, at, length] of s.tones) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = s.wave;
+      osc.frequency.value = frequency;
+      gain.gain.value = sound === "error" ? 0.12 : 0.25;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + at);
+      osc.stop(ctx.currentTime + at + length);
+    }
   } catch {
     /* feedback is optional */
   }
+}
+
+/** The sound of a scan's result. */
+export function outcomeSound(tone?: "success" | "error" | "warning" | "info"): ScanSound {
+  return tone === "error" ? "error" : tone === "warning" ? "warning" : "ok";
 }

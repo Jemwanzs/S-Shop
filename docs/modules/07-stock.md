@@ -32,9 +32,25 @@ and approver are recorded. Tracked items are adjusted one scanned barcode at a t
 variance at the moment it is applied (sales in between are respected). Approval workflows: *Stock adjustment* and
 *Stock write-off*.
 
+### Scan a delivery (roadmap 153)
+On Stock → Receive, **Scan delivery** (or the barcode field) adds one unit per scan of a shared barcode to a list of
+products with live counts and corrections. The list is **provisional**: it stays on this device per branch, *Clear
+delivery* leaves stock untouched, and *Receive N units* (with branch, supplier, reference and date) posts it through
+`POST /api/stock/receive/batch` in **one transaction** — every line under the same checks as a single receipt; one line
+refused (named in the message) means nothing is received and the list stays. A line needing approval becomes its own
+request and adds stock only on final approval; rejected, it adds nothing. Prices are unchanged by a delivery scan: open
+a product on its own to change them with the receipt. With quantity entry locked each product stays at 1.
+
 ## Stock take
 `/stock/count`: a count sheet of all quantity-tracked products; enter counted quantities, see variances live, submit →
 one recount adjustment per variance (applied or sent for approval).
+
+
+**Scanning (roadmap 153).** Scans of a shared barcode count up, corrected in the counter or the row; zero is a real count
+and a negative one is refused. Individually tracked units count once each: *Labels to check* lists labels that are
+misplaced (in stock at another branch), unexpected (not in stock) or unknown, none of them counted, and each product shows
+the units still **missing** (`POST /api/stock/count/compare`, masked; nothing changes). A quantity correction never creates
+or removes a physical barcode record.
 
 ## Barcodes
 Camera scanning (native BarcodeDetector, ZXing fallback) and keyboard-wedge handheld scanners. Settings → Stock →

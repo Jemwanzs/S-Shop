@@ -201,3 +201,13 @@ scaling beyond one instance, replace it with PostgreSQL `LISTEN/NOTIFY`.
   domains.
 
 See [ui.md](ui.md).
+
+## Scanning sessions and tracking models (roadmap 153)
+
+A scan never touches inventory: sessions live on the client (the cart, the delivery list and the stock-take session, the
+last two kept on the device) until posted through the ordinary ledger path. `stock_levels` and `stock_movements` change only
+in `execute_receipt` / `submit_adjustment` / the sale, inside one database transaction; `POST /stock/receive/batch` runs all
+its lines in one, so a refused line leaves nothing behind. `stock_items` and `barcode_registry` assignment happens at the
+same point, so an individual barcode is never registered before posting or final approval. `track_items` remains the one
+switch between the models (`tracking_change` in `routes/catalog.rs`). No schema change. Client: `ScanCounter`, a promise
+queue per scanning field, and `scanFeedback(ok | warning | error)` on one shared `AudioContext`.

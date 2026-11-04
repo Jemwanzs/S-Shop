@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Pencil, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
+import { CheckCircle2, Minus, Pencil, Plus, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { enqueueSale, offlineBlocker, type QueuedSale } from "@/lib/offline";
@@ -43,7 +43,11 @@ const STK_LABEL: Record<StkSale["status"], string> = {
   awaiting: "Pending", completed: "Successful", failed: "Failed", cancelled: "Cancelled", timeout: "Timed out", attention: "Needs attention",
 };
 
-export function CartLines({ lines, onEdit, onRemove, saleDate }: { lines: CartLine[]; onEdit: (l: CartLine) => void; onRemove: (key: string) => void; saleDate?: string }) {
+export function CartLines({ lines, onEdit, onRemove, saleDate, onQuantity, lineMax, qtyLocked }: {
+  lines: CartLine[]; onEdit: (l: CartLine) => void; onRemove: (key: string) => void; saleDate?: string;
+  /** Roadmap 153: correct a line's quantity right here (individually tracked lines are always one unit). */
+  onQuantity?: (key: string, quantity: number) => void; lineMax?: (l: CartLine) => number | null; qtyLocked?: boolean;
+}) {
   const { profile } = useSession();
   const s = profile!.settings;
   const net = lines.reduce((a, l) => a + lineTotal(l), 0);
@@ -70,7 +74,14 @@ export function CartLines({ lines, onEdit, onRemove, saleDate }: { lines: CartLi
             </div>
             <div className="flex flex-col items-end justify-between">
               <span className="num font-semibold">{money(lineTotal(l))}</span>
-              <span className="flex gap-0.5">
+              <span className="flex items-center gap-0.5">
+                {onQuantity && !qtyLocked && !l.product.track_items && (
+                  <span className="me-1 flex items-center rounded-lg border">
+                    <button className="flex h-8 w-8 items-center justify-center disabled:opacity-40" disabled={l.quantity <= 1} onClick={() => onQuantity(l.key, l.quantity - 1)} aria-label={tr("Decrease quantity")}><Minus className="h-3.5 w-3.5" /></button>
+                    <span className="num w-7 text-center text-sm font-semibold">{count(l.quantity)}</span>
+                    <button className="flex h-8 w-8 items-center justify-center disabled:opacity-40" disabled={(() => { const m = lineMax?.(l); return m != null && l.quantity >= m; })()} onClick={() => onQuantity(l.key, l.quantity + 1)} aria-label={tr("Increase quantity")}><Plus className="h-3.5 w-3.5" /></button>
+                  </span>
+                )}
                 <button className="rounded p-1.5 text-muted-foreground hover:bg-muted" onClick={() => onEdit(l)} aria-label="Edit"><Pencil className="h-3.5 w-3.5" /></button>
                 <button className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive" onClick={() => onRemove(l.key)} aria-label="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
               </span>

@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { CameraOff, Check, Flashlight, FlashlightOff, Keyboard, RefreshCw, SwitchCamera, X } from "lucide-react";
+import { AlertTriangle, CameraOff, Check, Flashlight, FlashlightOff, Keyboard, RefreshCw, SwitchCamera, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
 import { ApiError } from "@/lib/api";
-import { cameraProblemText, scanFeedback, startScanning, type CameraProblem, type CameraSession } from "@/lib/scanner";
+import { cameraProblemText, outcomeSound, scanFeedback, startScanning, type CameraProblem, type CameraSession } from "@/lib/scanner";
 import { useIsDesktop } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SShopLoader } from "@/components/SShopLoader";
-import { TYPING_OFF, useKeyTiming, useManualBarcodes, type ScanSource } from "@/lib/scan";
+import { ScanCounter, type ScanCounterProps } from "@/components/ScanCounter";
+import { DOUBLE_READ_MS, TYPING_OFF, useKeyTiming, useManualBarcodes, type ScanSource } from "@/lib/scan";
 
 /** What a scan led to, shown inside the scanner so the user never has to leave it. */
 export interface ScanOutcome {
-  tone: "success" | "error" | "info";
+  /** `warning` (roadmap 153): read fine, but nothing was added — e.g. an individual barcode already scanned. */
+  tone: "success" | "error" | "warning" | "info";
   title: string;
   detail?: ReactNode;
   /** Extra actions for errors (e.g. "Search product", "Assign barcode"). "Scan again" is always offered. */
@@ -40,6 +42,7 @@ export function BarcodeScanner({
   continuous = false,
   hint,
   context = "stock",
+  session: tally,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -49,6 +52,8 @@ export function BarcodeScanner({
   hint?: string;
   /** Roadmap 137: "sale" follows the till's barcode rule (typing off by default); "stock" the stock rule. */
   context?: "sale" | "stock";
+  /** Roadmap 153: the live count of this scanning session, with its corrections. */
+  session?: Omit<ScanCounterProps, "tone" | "onScanned" | "onDone">;
 }) {
   const desktop = useIsDesktop();
   // The dialog mounts its content after opening, so the video element arrives as state, not a ref read too early.
@@ -62,6 +67,7 @@ export function BarcodeScanner({
   const [detected, setDetected] = useState(false);
   const [outcome, setOutcome] = useState<(ScanOutcome & { code: string }) | null>(null);
   const [manual, setManual] = useState("");
+  const manualInput = useRef<HTMLInputElement>(null);
   // Roadmap 98 / 137: the business may switch typed / pasted barcodes off (handheld scanners still work in this field).
   const manualAllowed = useManualBarcodes(context);
   const timing = useKeyTiming();
@@ -72,23 +78,12 @@ export function BarcodeScanner({
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
-  // One path for camera, handheld and typed codes.
-  const process = useCallback(
-    async (raw: string, source: ScanSource) => {
-      const fromCamera = source === "camera";
-      const code = raw.trim();
-      if (!code || paused.current) return;
-      const now = Date.now();
-      // The camera sees the same label many times a second: count it once until it leaves view for a moment.
-      if (fromCamera && code === last.current.code && now - last.current.at < 1500) {
-        last.current.at = now;
-        return;
-      }
-      last.current = { code, at: now };
-      paused.current = true;
-      setBusy(true);
-      setDetected(true);
-      scanFeedback(true);
+  // One path for camera, handheld and typed codes. Scans run strictly one after another (roadmap 153): a handheld scanner
+  // can fire again before the previous code is checked, and each must see the count the previous one left.
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const resume = useRef(0);
+  const runScan = useCallback(
+    async (code: string, source: ScanSource) => {
       let result: void | ScanOutcome;
       try {
         result = await handler.current(code, source);
@@ -99,8 +94,9 @@ export function BarcodeScanner({
             : { tone: "error", title: e instanceof Error ? e.message : String(e) };
       }
       setBusy(false);
+      // One sound per scan, once its result is known.
+      scanFeedback(outcomeSound(result ? result.tone : "success"));
       if (result && result.tone === "error") {
-        scanFeedback(false);
         setOutcome({ ...result, code });
         return; // stays paused until "Scan again"
       }
@@ -109,12 +105,34 @@ export function BarcodeScanner({
         return;
       }
       setOutcome(result ? { ...result, code } : { tone: "success", title: t("Scanned"), code });
-      window.setTimeout(() => {
+      window.clearTimeout(resume.current);
+      resume.current = window.setTimeout(() => {
         setDetected(false);
         paused.current = false;
       }, 700);
     },
     [continuous, close],
+  );
+  const process = useCallback(
+    (raw: string, source: ScanSource) => {
+      const fromCamera = source === "camera";
+      const code = raw.trim();
+      if (!code || (fromCamera && paused.current)) return;
+      const now = Date.now();
+      // The camera sees the same label many times a second: count it once until it leaves view for a moment.
+      if (fromCamera && code === last.current.code && now - last.current.at < 1500) {
+        last.current.at = now;
+        return;
+      }
+      // A handheld trigger press can reach the page twice; the same code again this fast is one scan.
+      if (!fromCamera && code === last.current.code && now - last.current.at < DOUBLE_READ_MS) return;
+      last.current = { code, at: now };
+      paused.current = true;
+      setBusy(true);
+      setDetected(true);
+      chain.current = chain.current.then(() => runScan(code, source));
+    },
+    [runScan],
   );
 
   const scanAgain = () => {
@@ -189,19 +207,20 @@ export function BarcodeScanner({
     e.preventDefault();
     const code = manual;
     setManual("");
-    last.current = { code: "", at: 0 };
-    paused.current = false;
     setOutcome(null);
     const source = timing.source(code.trim());
     if (source === "manual" && !manualAllowed) {
-      scanFeedback(false);
+      scanFeedback("error");
       setOutcome({ tone: "error", title: t(TYPING_OFF), code: code.trim() });
       return;
     }
-    void process(code, source);
+    process(code, source);
   };
 
   const frameState = outcome?.tone === "error" ? "error" : detected ? "ok" : "scanning";
+  // The counter already shows an accepted scan (product, barcode, quantity, tick).
+  const counted = !!tally?.lines.length;
+  const refocus = () => { if (desktop) manualInput.current?.focus(); };
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -242,7 +261,7 @@ export function BarcodeScanner({
           </div>
 
           {/* Camera */}
-          <div className="relative min-h-0 flex-1 md:aspect-4/3 md:flex-none">
+          <div className="relative min-h-0 flex-1 md:h-[min(22.5rem,40vh)] md:flex-none">
             <video ref={setVideo} className="absolute inset-0 h-full w-full object-cover" playsInline muted />
             {camera.state === "live" && (
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
@@ -258,7 +277,7 @@ export function BarcodeScanner({
                   {busy ? <span className="inline-flex items-center gap-1.5"><SShopLoader size="sm" />{t("Checking…")}</span>
                     : frameState === "ok" ? <span className="inline-flex items-center gap-1.5 text-emerald-300"><Check className="h-3.5 w-3.5" />{t("Barcode detected")}</span>
                     : frameState === "error" ? t("Scanning paused")
-                    : t("Position the barcode inside the frame")}
+                    : t(counted ? "Move the barcode away and back to count another" : "Position the barcode inside the frame")}
                 </p>
               </div>
             )}
@@ -279,17 +298,18 @@ export function BarcodeScanner({
           </div>
 
           {/* Result + handheld / manual entry */}
-          <div className="relative z-20 space-y-2.5 bg-black px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
-            {outcome && (
+          <div className="relative z-20 max-h-[58dvh] space-y-2.5 overflow-y-auto bg-black px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+            {tally && <ScanCounter {...tally} tone="dark" onScanned={(code) => process(code, "scanner")} onDone={refocus} />}
+            {outcome && !(counted && outcome.tone === "success") && (
               <div
                 role="status"
                 className={cn(
                   "rounded-xl px-3 py-2.5 text-sm animate-fade-up",
-                  outcome.tone === "success" ? "bg-emerald-500/15 text-emerald-100" : outcome.tone === "error" ? "bg-red-500/15 text-red-100" : "bg-white/10 text-white",
+                  outcome.tone === "success" ? "bg-emerald-500/15 text-emerald-100" : outcome.tone === "error" ? "bg-red-500/15 text-red-100" : outcome.tone === "warning" ? "bg-amber-500/15 text-amber-100" : "bg-white/10 text-white",
                 )}
               >
                 <p className="flex items-start gap-2 font-semibold">
-                  {outcome.tone === "success" ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" /> : outcome.tone === "error" ? <X className="mt-0.5 h-4 w-4 shrink-0 text-red-300" /> : null}
+                  {outcome.tone === "success" ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" /> : outcome.tone === "error" ? <X className="mt-0.5 h-4 w-4 shrink-0 text-red-300" /> : outcome.tone === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" /> : null}
                   <span className="min-w-0">{t(outcome.title)}</span>
                 </p>
                 <p className="num mt-0.5 ps-6 text-xs opacity-70">{outcome.code}</p>
@@ -310,6 +330,7 @@ export function BarcodeScanner({
               <div className="relative flex-1">
                 <Keyboard className="pointer-events-none absolute inset-s-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
                 <Input
+                  ref={manualInput}
                   value={manual}
                   onChange={(e) => setManual(e.target.value)}
                   onPaste={(e) => { timing.onPaste(); if (!manualAllowed) e.preventDefault(); }}

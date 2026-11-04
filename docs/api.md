@@ -73,6 +73,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | GET | `/api/products?price=all\|set\|missing\|zero\|zero_or_missing\|above_zero` — roadmap 151 price filters |
 | GET | `/api/products/matching-ids?q&status&category_id&price` — ids of every matching product (≤ 500), `total`, `capped` |
 | POST | `/api/products/bulk-preview` — `{ids}` → each product `eligible` / `already_inactive` / `already_waiting`, `needs_approval` (`products.deactivate`) |
+| GET | `/api/products/{id}/tracking-check?individual=` — roadmap 153: what changing the barcode tracking model runs into → `blockers`, `notes` |
 | POST | `/api/products/bulk-deactivate` — `{ids (≤ 500), reason}` → `bulk_ref`, `summary`, per-product `outcome` (`deactivated` · `pending_approval` · `already_inactive` · `already_waiting` · `failed`) |
 | POST | `/api/approvals/bulk` — `{ids (≤ 200), decision: approve\|reject, comment, levels: {id: level}}` → `bulk_ref`, `summary`, per-request `outcome` (`approved` · `advanced` · `rejected` · `already_handled` · `not_allowed` · `failed`) |
 | PUT | `/api/settings/approval-policy` — `{admin_self_approval}`: Tenant Administrator self-approval on / off (verified Tenant Administrator, full sign-in; audited) — roadmap 150 |
@@ -135,12 +136,14 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | GET | `/api/stock` |
 | GET | `/api/stock/availability/{product_id}` |
 | POST | `/api/stock/receive` |
+| POST | `/api/stock/receive/batch` — roadmap 153: `{branch_id, supplier_id, reference, date_received, lines: [{product_id, quantity, barcode, barcode_source}] (≤ 200, each product once)}`: one transaction; → `received`, `pending_approval`, `units_received`, `lines` |
 | GET | `/api/stock/movements` |
 | GET | `/api/stock/items` |
 | GET | `/api/stock/barcode/{code}` |
 | GET | `/api/stock/adjustments` |
 | POST | `/api/stock/adjustments` |
 | POST | `/api/stock/count` |
+| POST | `/api/stock/count/compare` — roadmap 153: `{product_id, branch_id, barcodes}` → `expected`, `found`, `missing` (masked), `unexpected` (`kind`: misplaced / unexpected / unknown); changes nothing |
 | GET | `/api/stock/position` |
 
 ## Transfers

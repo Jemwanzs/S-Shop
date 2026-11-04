@@ -36,6 +36,7 @@ pub fn routes() -> Router<AppState> {
         .route("/website/versions", get(versions))
         .route("/website/versions/{version}/restore", post(restore))
         .route("/website/prices", put(set_prices))
+        .route("/website/seo/suggestions", get(seo_suggestions))
         .route("/website/access", get(access_list))
         .route("/website/access/{user_id}", put(access_set))
         .route("/website/media", get(media_list).post(media_upload).layer(DefaultBodyLimit::max(8 * 1024 * 1024)))
@@ -118,14 +119,17 @@ async fn overview(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Val
     let settings: Value = sqlx::query_scalar("SELECT settings FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&mut *conn).await?;
     let show_prices = settings.pointer("/orders/show_prices").and_then(Value::as_bool).unwrap_or(true);
     let billing = crate::billing::summary_of(&mut conn, ctx.tenant_id, "website").await?;
-    let domain: Option<(String, String)> = sqlx::query_as("SELECT domain, status FROM website_domains WHERE tenant_id = $1")
+    let domain: Option<(String, String, bool)> = sqlx::query_as("SELECT domain, status, is_primary FROM website_domains WHERE tenant_id = $1")
         .bind(ctx.tenant_id)
         .fetch_optional(&mut *conn)
         .await?;
+    // The website's one address (roadmap 156), the same the pages' canonical links use.
     let public_url = match &domain {
-        Some((d, s)) if s == "active" => format!("https://{d}"),
+        Some((d, s, true)) if s == "active" => format!("https://{d}"),
         _ => format!("{}/s/{slug}", state.cfg.public_url),
     };
+    let domain = domain.map(|(d, s, _)| (d, s));
+    let branches: Vec<(Uuid, String, String, String)> = sqlx::query_as("SELECT id, name, location, phone FROM branches WHERE tenant_id = $1 AND is_active ORDER BY name").bind(ctx.tenant_id).fetch_all(&mut *conn).await?;
     let Some(r) = row else {
         return Ok(Json(json!({ "status": "none", "business": name, "billing": billing })));
     };
@@ -154,6 +158,7 @@ async fn overview(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Val
         "domain": domain.map(|(d, s)| json!({ "domain": d, "status": s })),
         "show_prices": show_prices,
         "fonts": website::FONTS,
+        "branches": branches.into_iter().map(|(id, name, location, phone)| json!({ "id": id, "name": name, "location": location, "phone": phone })).collect::<Vec<_>>(),
     })))
 }
 
@@ -1346,6 +1351,50 @@ async fn catalogue(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Va
             "is_active": active, "available_for_orders": orderable, "photos": photos,
         })).collect::<Vec<_>>(),
         "categories": categories.into_iter().map(|(id, name, active)| json!({ "id": id, "name": name, "is_active": active })).collect::<Vec<_>>(),
+    })))
+}
+
+/// Roadmap 157: for this business's own products and categories: what is set, what is missing, and a suggestion made only from
+/// what it has on record. Nothing is saved: the person edits and applies them through the draft.
+async fn seo_suggestions(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    ctx.require_any(&["website.seo", "website.products", "website.categories"])?;
+    let mut conn = state.db.acquire().await?;
+    let row = load(&mut conn, ctx.tenant_id, false).await?.ok_or(AppError::NotFound("Website"))?;
+    let (name, ..) = business(&mut conn, ctx.tenant_id).await?;
+    let c = &row.draft.0;
+    let brand = if c.brand.name.trim().is_empty() { name } else { c.brand.name.clone() };
+    let local = &c.seo.local;
+    let place = [local.country.as_str(), local.city.as_str()].into_iter().find(|x| !x.trim().is_empty()).unwrap_or("").to_string();
+    let products: Vec<(Uuid, String, String, Option<Uuid>, Option<String>, i64)> = sqlx::query_as(
+        "SELECT p.id, p.name, p.description, p.category_id, k.name, (SELECT COUNT(*) FROM product_photos ph WHERE ph.product_id = p.id)
+           FROM products p LEFT JOIN categories k ON k.id = p.category_id WHERE p.tenant_id = $1 AND p.is_active ORDER BY p.name",
+    )
+    .bind(ctx.tenant_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let categories: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, name FROM categories WHERE tenant_id = $1 AND is_active ORDER BY name").bind(ctx.tenant_id).fetch_all(&mut *conn).await?;
+    use super::site_seo::{suggest_description, suggest_title};
+    Ok(Json(json!({
+        "products": products.iter().filter_map(|(id, pname, description, _, category, photos)| {
+            let e = c.products.items.iter().find(|x| x.product_id == *id);
+            if !e.map_or(c.products.auto_publish_new, |x| x.published) {
+                return None;
+            }
+            let shown = e.map(|x| x.marketing_name.trim()).filter(|x| !x.is_empty()).unwrap_or(pname);
+            let text = e.map(|x| x.marketing_description.trim()).filter(|x| !x.is_empty()).unwrap_or(description);
+            Some(json!({
+                "id": id, "name": shown, "category": category, "has_photo": *photos > 0, "has_description": !text.trim().is_empty(),
+                "seo_title": e.map_or("", |x| x.seo_title.as_str()), "seo_description": e.map_or("", |x| x.seo_description.as_str()),
+                "suggested_title": suggest_title(shown, &brand, &place), "suggested_description": suggest_description(shown, text, category.as_deref(), &brand, &place),
+            }))
+        }).collect::<Vec<_>>(),
+        "categories": categories.iter().map(|(id, cname)| {
+            let e = c.categories.items.iter().find(|x| x.category_id == *id);
+            json!({
+                "id": id, "name": cname, "seo_title": e.map_or("", |x| x.seo_title.as_str()), "seo_description": e.map_or("", |x| x.seo_description.as_str()),
+                "suggested_title": suggest_title(cname, &brand, &place), "suggested_description": suggest_description(cname, "", None, &brand, &place),
+            })
+        }).collect::<Vec<_>>(),
     })))
 }
 

@@ -527,6 +527,14 @@ Setting up the business, people, rules, payments and the website.
 3. Add level for a second or third approval in order; optionally limit when it applies (amount, branches, requester's role, categories), then Save.
 4. Allow Tenant Administrator self-approval (top of the page): on, you can approve your own requests by pressing Approve; switch it off for strict separation of duties. Refunds, cancellations, credit write-offs, expenses and discounts always need a second person.
 
+#### Help customers find your website on search engines
+
+1. Settings → Website → SEO & Organic Growth. The first time, answer the short questions, or tap Skip.
+2. General SEO: write your Website title and Description in your own words; the preview shows how they may look in search results.
+3. Local SEO: if customers can come to you, switch on Customers can visit and enter your address. Switch on the branches to list. Follow the Google Business Profile checklist yourself on Google.
+4. Products & Categories: check what is missing. Tap Use suggestion, edit it so it is accurate, and add photos and descriptions where they are missing.
+5. Tap Publish. No tool can guarantee a position in search results, and search engines take time to read changes.
+
 #### Connect M-Pesa (STK Push)
 
 1. Settings → M-Pesa & WhatsApp → Add account.

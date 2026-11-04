@@ -73,6 +73,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | GET | `/api/products?price=all\|set\|missing\|zero\|zero_or_missing\|above_zero` — roadmap 151 price filters |
 | GET | `/api/products/matching-ids?q&status&category_id&price` — ids of every matching product (≤ 500), `total`, `capped` |
 | POST | `/api/products/bulk-preview` — `{ids}` → each product `eligible` / `already_inactive` / `already_waiting`, `needs_approval` (`products.deactivate`) |
+| GET | `/api/website/seo/suggestions` — roadmap 157: this business's products and categories with what is set and suggestions from what is on record; saves nothing (`website.seo`, `website.products` or `website.categories`) |
 | GET | `/api/products/{id}/tracking-check?individual=` — roadmap 153: what changing the barcode tracking model runs into → `blockers`, `notes` |
 | POST | `/api/products/bulk-deactivate` — `{ids (≤ 500), reason}` → `bulk_ref`, `summary`, per-product `outcome` (`deactivated` · `pending_approval` · `already_inactive` · `already_waiting` · `failed`) |
 | POST | `/api/approvals/bulk` — `{ids (≤ 200), decision: approve\|reject, comment, levels: {id: level}}` → `bulk_ref`, `summary`, per-request `outcome` (`approved` · `advanced` · `rejected` · `already_handled` · `not_allowed` · `failed`) |

@@ -28,7 +28,8 @@ import { DesignTab } from "./DesignTab";
 import { CategoriesTab, ProductsTab } from "./ProductsTab";
 import { ServicesTab, TestimonialsTab } from "./PeopleTabs";
 import { MediaTab } from "./MediaTab";
-import { AccessTab, AnalyticsTab, DomainTab, SeoTab } from "./ServiceTabs";
+import { AccessTab, AnalyticsTab, DomainTab } from "./ServiceTabs";
+import { SeoTab } from "./SeoTab";
 
 export interface TabProps {
   c: SiteConfig;
@@ -47,7 +48,7 @@ const TABS: { key: string; label: string; perms: string[] }[] = [
   { key: "media", label: "Media", perms: ["website.media"] },
   { key: "access", label: "Users & Access", perms: ["users.manage"] },
   { key: "domain", label: "Domain", perms: ["website.domain"] },
-  { key: "seo", label: "SEO", perms: ["website.seo"] },
+  { key: "seo", label: "SEO & Organic Growth", perms: ["website.seo"] },
   { key: "campaigns", label: "Holiday & promotions", perms: ["website.content", "website.publish", "website.analytics"] },
   { key: "analytics", label: "Analytics", perms: ["website.analytics"] },
 ];

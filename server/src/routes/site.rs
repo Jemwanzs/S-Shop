@@ -224,6 +224,11 @@ fn public_config(c: &SiteConfig, preview: bool) -> Value {
     c.services.items.retain(|s| s.active);
     c.promotions.retain(|p| p.active);
     c.products.items.clear();
+    // Roadmap 157: the business's search plans and unshown locations stay on the server (locations go out separately).
+    c.seo.topics.clear();
+    c.seo.primary_category.clear();
+    c.seo.service_area.clear();
+    c.seo.local = Default::default();
     serde_json::to_value(c).unwrap_or_default()
 }
 
@@ -824,7 +829,36 @@ async fn site_data(state: &AppState, s: &Site) -> AppResult<Value> {
         "ordering": { "enabled": s.ordering, "otp_required": portal::otp_required(state, &t) },
         // Roadmap 84: the holiday / promotional campaign showing now (or null).
         "campaign": super::campaigns::public_campaign(state, s, None).await?,
+        "locations": locations(state, s).await?,
     }))
+}
+
+/// Roadmap 157: where customers can visit, as the business chose to show it: only its own active branches it switched on.
+/// Empty fields follow the branch's own record; nothing is added.
+pub async fn locations(state: &AppState, s: &Site) -> AppResult<Vec<site_seo::Location>> {
+    let chosen: Vec<&crate::website::LocalBranch> = s.config.seo.local.branches.iter().filter(|b| b.show).collect();
+    if !s.config.seo.local.enabled || chosen.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<(Uuid, String, String, String, Option<DbJson<crate::settings::Hours>>)> =
+        sqlx::query_as("SELECT id, name, location, phone, hours FROM branches WHERE tenant_id = $1 AND is_active").bind(s.tenant).fetch_all(&state.db).await?;
+    let or = |a: &str, b: &str| if a.trim().is_empty() { b.trim().to_string() } else { a.trim().to_string() };
+    Ok(chosen
+        .into_iter()
+        .filter_map(|b| {
+            let (_, name, location, phone, hours) = rows.iter().find(|r| r.0 == b.branch_id)?;
+            Some(site_seo::Location {
+                name: or(&b.name, name),
+                street_address: or(&b.street_address, location),
+                city: b.city.trim().to_string(),
+                region: b.region.trim().to_string(),
+                country: or(&b.country, &s.config.seo.local.country),
+                phone: or(&b.phone, phone),
+                maps_url: b.maps_url.trim().to_string(),
+                hours: hours.as_ref().map(|h| h.0.clone()),
+            })
+        })
+        .collect())
 }
 
 /// The path the root shows (the business's chosen landing page): one address per page, so that path points back to the root.
@@ -956,7 +990,8 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
     let cats = public_cats(state, &s).await?;
     let items = published(state, &s).await?;
     let logo = c.brand.logo.map(media_url).or_else(|| s.has_logo.then(|| format!("/api/public/{}/logo", s.slug)));
-    let ctx = site_seo::Ctx { root: &root, brand: &brand, currency: &s.currency, config: c, cats: &cats, logo };
+    let places = locations(state, &s).await?;
+    let ctx = site_seo::Ctx { root: &root, brand: &brand, currency: &s.currency, config: c, cats: &cats, logo, places: &places };
     let page_title = |label: &str| format!("{label} | {brand}");
     let landing = landing_path(c);
     // The root shows the business's chosen landing page (roadmap 80), under the root's address.
@@ -1087,8 +1122,9 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
             let found = p["/categories/".len()..].parse::<Uuid>().ok().and_then(|id| cats.iter().find(|x| x.id == id));
             match found {
                 Some(cat) => {
-                    meta.title = page_title(&cat.name);
-                    meta.description = clip(&format!("{} at {brand}. {site_desc}", cat.name), 160);
+                    let own = c.categories.items.iter().find(|x| x.category_id == cat.id);
+                    meta.title = own.map(|x| x.seo_title.trim()).filter(|x| !x.is_empty()).map_or_else(|| page_title(&cat.name), str::to_string);
+                    meta.description = own.map(|x| x.seo_description.trim()).filter(|x| !x.is_empty()).map_or_else(|| clip(&format!("{} at {brand}. {site_desc}", cat.name), 160), |x| clip(x, 160));
                     let in_cat: Vec<&PubProduct> = items.iter().filter(|x| x.category_id == Some(cat.id)).collect();
                     let base = format!("/categories/{}", cat.id);
                     missing = paged_list(&mut meta, &cat.name, &base, in_cat);
@@ -1114,6 +1150,10 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
     if rest == "/" && !missing {
         meta.ld.push(ctx.organization());
         meta.ld.push(ctx.website());
+    }
+    // The places customers can visit, on the page that shows them.
+    if route == "/contact" && !missing {
+        meta.ld.extend(ctx.branches_ld());
     }
     // The business chose to stay out of search engines (Website → SEO): every page says so.
     if c.seo.noindex {

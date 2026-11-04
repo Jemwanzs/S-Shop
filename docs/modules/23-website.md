@@ -33,6 +33,24 @@ responsiveness, accessibility and security.
   503, `noindex`). POS, stock, orders and everything else keep working. Content, media, products, domain and analytics
   are kept, and re-activating brings the website back exactly as it was.
 
+## 157 — SEO & Organic Growth
+
+Settings → Website → **SEO & Organic Growth** (permission `website.seo`). Each business's settings live in its own website document
+(`seo`, `seo.local`), edited as a draft and live on Publish. Nothing is assumed about a business: the category, service area and topics are
+its own words, and the wizard's suggestions come from its own categories. Existing websites keep their settings; new ones start clean.
+
+| Tab | What |
+|---|---|
+| General SEO | Title, description, about, sharing image, category, service area, search phrases and topics, search preview, first-visit wizard |
+| Local SEO | Customers can visit, address, service areas, maps and Business Profile links, branch locations, Google Business Profile checklist |
+| Products & Categories | What is missing, suggestions (`GET /api/website/seo/suggestions`) from the name, category and description on record, applied by the person; category titles and descriptions |
+| Search Engines & Indexing | Allow search engines, language, the main address and sitemap |
+
+Topics and phrases guide the business's own content and later its articles. They are not published as a keywords tag and do not reach the public
+website; neither do the local settings, except the `locations` it chose to show. `LocalBusiness` appears only when *Customers can visit* is on with an
+address. A branch can be listed only if it is one of the business's own active branches; shown branches appear on the Contact page, not on pages of
+their own, and their hours come from the branch's trading hours when they were really set.
+
 ## 52 — Management Centre
 
 Tabs: **Overview · Content · Design · Products · Categories · Services · Testimonials · Media · Users & Access · Domain ·

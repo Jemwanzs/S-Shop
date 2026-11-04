@@ -545,6 +545,16 @@
           ]
         },
         {
+          "title": "Help customers find your website on search engines",
+          "steps": [
+            "Settings → Website → SEO & Organic Growth. The first time, answer the short questions, or tap Skip.",
+            "General SEO: write your Website title and Description in your own words; the preview shows how they may look in search results.",
+            "Local SEO: if customers can come to you, switch on Customers can visit and enter your address. Switch on the branches to list. Follow the Google Business Profile checklist yourself on Google.",
+            "Products & Categories: check what is missing. Tap Use suggestion, edit it so it is accurate, and add photos and descriptions where they are missing.",
+            "Tap Publish. No tool can guarantee a position in search results, and search engines take time to read changes."
+          ]
+        },
+        {
           "title": "Connect M-Pesa (STK Push)",
           "steps": [
             "Settings → M-Pesa & WhatsApp → Add account.",

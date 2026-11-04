@@ -1814,6 +1814,47 @@ call("PUT", "/website/draft", {"config": {**_seo_cfg, "seo": {**_seo_cfg["seo"],
 call("PUT", "/website/draft", {"config": _seo_cfg}, **T2)
 call("POST", "/website/publish", {}, **T2)
 check("indexing back on", 'name="robots"' not in crawl(sroot)[2])
+
+# Roadmap 157: SEO settings and Local SEO, per business.
+sg = call("GET", "/website/seo/suggestions", **T2)
+sb_ = next(x for x in sg["products"] if x["id"] == bag)
+check("roadmap 157: suggestions come from this business's own product and name", f"Leather Bag {suffix}" in sb_["suggested_title"] and dk_name in sb_["suggested_title"] and f"Bags {suffix}" in sb_["suggested_description"], sb_)
+check("…only its own products", not any(x["id"] in (nduma, watch) for x in sg["products"]))
+call("GET", "/website/seo/suggestions", token="none", branch="none", expect=401)
+sc_ = call("GET", "/website", **T2)["draft"]
+dk_b = call("GET", "/website", **T2)["branches"]
+check("the settings list this business's own branches", [x["id"] for x in dk_b] == [dk_branch] or dk_branch in [x["id"] for x in dk_b], dk_b)
+def with_seo(**kw):
+    return {**sc_, "seo": {**sc_["seo"], **kw}}
+r = call("PUT", "/website/draft", {"config": with_seo(local={**sc_["seo"]["local"], "enabled": True})}, **T2, expect=400)
+check("customers can visit needs a real address and city", "address and city" in r["error"]["message"], r)
+call("PUT", "/website/draft", {"config": with_seo(local={**sc_["seo"]["local"], "maps_url": "http://insecure"})}, **T2, expect=400)
+call("PUT", "/website/draft", {"config": with_seo(topics=["x" * 81])}, **T2, expect=400)
+check("links and topics are validated", True)
+local_ = {**sc_["seo"]["local"], "enabled": True, "street_address": "1 Test Street", "city": "Testville", "country": "Testland", "service_areas": ["Testville"], "profile_url": "https://g.page/test",
+          "branches": [{"branch_id": dk_branch, "show": True, "name": "Our test shop", "street_address": "2 Branch Road", "city": "Testville", "region": "", "country": "", "phone": "0700 000 111", "maps_url": ""},
+                       {"branch_id": BRANCH, "show": True, "name": "Someone else's branch", "street_address": "9 Other Road", "city": "", "region": "", "country": "", "phone": "", "maps_url": ""}]}
+cats_ = {**sc_["categories"], "items": [{"category_id": wcat, "visible": True, "sort": 0, "image": None, "seo_title": f"Fine bags {suffix}", "seo_description": "Bags made to last."}]}
+call("PUT", "/website/draft", {"config": {**with_seo(local=local_, primary_category="Anything", topics=["a private topic"], service_area="Testville", wizard_done=True), "categories": cats_}}, **T2)
+call("POST", "/website/publish", {}, **T2)
+_, _, home = crawl(sroot)
+org_ = next(x for x in ld(home) if x["@type"] in ("LocalBusiness", "Organization"))
+check("the address the business states becomes LocalBusiness", org_["@type"] == "LocalBusiness" and org_["address"]["streetAddress"] == "1 Test Street" and org_["address"]["addressLocality"] == "Testville" and org_["areaServed"] == ["Testville"] and "https://g.page/test" in org_["sameAs"], org_)
+check("no rating or review is added", "aggregateRating" not in org_ and "review" not in org_)
+_, _, con = crawl(f"{sroot}/contact")
+loc_ = [x for x in ld(con) if x["@type"] == "LocalBusiness"]
+check("a shown branch is on the Contact page and in its structured data", "2 Branch Road" in seed(con) and [x["name"] for x in loc_] == ["Our test shop"] and loc_[0]["telephone"] == "0700 000 111", loc_)
+check("another business's branch can never be listed", "Someone else" not in con and "9 Other Road" not in con)
+pub_ = call("GET", f"/site?slug={dk_slug}", **PUB)
+check("the app gets the same locations", [x["name"] for x in pub_["locations"]] == ["Our test shop"] and "hours" not in pub_["locations"][0], pub_["locations"])
+check("search plans stay on the server", "a private topic" not in json.dumps(pub_) and pub_["config"]["seo"]["local"]["street_address"] == "" and pub_["config"]["seo"]["topics"] == [])
+check("…and out of the page", "a private topic" not in home)
+_, _, ct_ = crawl(f"{sroot}/categories/{wcat}")
+check("a category's own search title and description", f"<title>Fine bags {suffix}</title>" in ct_ and 'content="Bags made to last."' in ct_)
+call("PUT", "/website/draft", {"config": sc_}, **T2)
+call("POST", "/website/publish", {}, **T2)
+_, _, home = crawl(sroot)
+check("not stating an address: no LocalBusiness, no locations", not any(x["@type"] == "LocalBusiness" for x in ld(home)) and call("GET", f"/site?slug={dk_slug}", **PUB)["locations"] == [])
 # Roadmap 80: sorting by real data, paging counted in products, in-stock filter
 ids = lambda q_: [p["id"] for p in call("GET", f"/site/products?slug={dk_slug}{q_}", **PUB)["items"]]
 by_name = ids("&sort=name_desc")

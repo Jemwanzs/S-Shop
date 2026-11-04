@@ -209,7 +209,7 @@ export function CategoriesTab({ c, set }: TabProps) {
   const ordered = [...cats].sort((a, b) => (cfg(a.id)?.sort ?? 1e9) - (cfg(b.id)?.sort ?? 1e9) || a.name.localeCompare(b.name));
   const ensure = (x: SiteConfig, id: string) => {
     let it = x.categories.items.find((k) => k.category_id === id);
-    if (!it) { it = { category_id: id, visible: true, sort: x.categories.items.length, image: null }; x.categories.items.push(it); }
+    if (!it) { it = { category_id: id, visible: true, sort: x.categories.items.length, image: null, seo_title: "", seo_description: "" }; x.categories.items.push(it); }
     return it;
   };
   return (

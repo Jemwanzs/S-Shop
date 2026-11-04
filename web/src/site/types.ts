@@ -29,7 +29,10 @@ export interface SiteConfig {
   categories: CategoriesCfg & { items?: unknown[] };
   services: { intro: string; items: Service[] };
   testimonials: { show: boolean; auto_scroll: boolean; speed: "slow" | "normal" | "fast"; items: Testimonial[] };
-  seo: { title: string; description: string; share_image: string | null; business_description: string; noindex?: boolean; language?: string };
+  seo: {
+    title: string; description: string; share_image: string | null; business_description: string; noindex: boolean; language: string;
+    primary_category: string; topics: string[]; service_area: string; wizard_done: boolean; local: LocalSeo;
+  };
   cookies: { analytics: boolean; privacy_policy: string };
   footer: { description: string; policies: string; show_attribution: boolean };
   /** Roadmap 80: the page at the website's root. */
@@ -37,6 +40,13 @@ export interface SiteConfig {
 }
 
 export interface Category { id: string; name: string; image: string | null; count: number }
+
+/** Roadmap 157: edited in the Management Centre; the public website receives `locations` instead. */
+export interface LocalSeo {
+  enabled: boolean; country: string; region: string; city: string; street_address: string; postal_code: string; service_areas: string[]; phone: string; maps_url: string; profile_url: string;
+  branches: { branch_id: string; show: boolean; name: string; street_address: string; city: string; region: string; country: string; phone: string; maps_url: string }[];
+}
+export interface SiteLocation { name: string; street_address: string; city: string; region: string; country: string; phone: string; maps_url: string }
 
 export interface SiteData {
   available: boolean;
@@ -51,6 +61,8 @@ export interface SiteData {
   ordering: { enabled: boolean; otp_required: boolean };
   /** Roadmap 84: the holiday / promotional campaign showing now. */
   campaign?: Campaign | null;
+  /** Roadmap 157: the places customers can visit, as the business chose to show them. */
+  locations?: SiteLocation[];
 }
 
 export interface CampaignDesign {

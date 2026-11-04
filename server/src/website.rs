@@ -355,6 +355,9 @@ pub struct CategoryCfg {
     pub visible: bool,
     pub sort: i32,
     pub image: Option<Uuid>,
+    /// Roadmap 157: this category page's own search title and description (empty = built from its name).
+    pub seo_title: String,
+    pub seo_description: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -443,6 +446,49 @@ pub struct Seo {
     pub noindex: bool,
     /// The website's language for search engines (`en`, `sw`, `fr-CA` …); empty = English.
     pub language: String,
+    /// Roadmap 157: what the business is, in its own words (never a fixed list of industries).
+    pub primary_category: String,
+    /// Search phrases and content topics it wants to be found for: guidance for its own content (and later its articles),
+    /// never published as a keywords tag.
+    pub topics: Vec<String>,
+    /// Who it serves, in its own words.
+    pub service_area: String,
+    /// The set-up wizard was completed or skipped.
+    pub wizard_done: bool,
+    pub local: LocalSeo,
+}
+
+/// Roadmap 157: local search details, only as the business states them. Nothing here is verified or claimed anywhere.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct LocalSeo {
+    /// Customers can visit: publish the address as `LocalBusiness` structured data and on the Contact page.
+    pub enabled: bool,
+    pub country: String,
+    pub region: String,
+    pub city: String,
+    pub street_address: String,
+    pub postal_code: String,
+    pub service_areas: Vec<String>,
+    pub phone: String,
+    pub maps_url: String,
+    pub profile_url: String,
+    pub branches: Vec<LocalBranch>,
+}
+
+/// One of the business's real branches, shown as a location only when switched on. Empty fields follow the branch's own.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct LocalBranch {
+    pub branch_id: Uuid,
+    pub show: bool,
+    pub name: String,
+    pub street_address: String,
+    pub city: String,
+    pub region: String,
+    pub country: String,
+    pub phone: String,
+    pub maps_url: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -758,6 +804,43 @@ pub fn validate(c: &SiteConfig) -> AppResult<()> {
         return Err(bad("Products per page must be between 1 and 100"));
     }
     one_of(&c.landing, &["home", "products", "categories", "services"], "Default landing page")?;
+    for (v, n, what) in [
+        (&c.seo.primary_category, 80, "Business category"), (&c.seo.service_area, 200, "Service area"), (&c.seo.local.country, 80, "Country"), (&c.seo.local.region, 80, "County or region"),
+        (&c.seo.local.city, 80, "City"), (&c.seo.local.street_address, 200, "Address"), (&c.seo.local.postal_code, 20, "Postal code"), (&c.seo.local.phone, 40, "Phone"),
+    ] {
+        max_len(v, n, what)?;
+    }
+    for (list, what) in [(&c.seo.topics, "Search topics"), (&c.seo.local.service_areas, "Service areas")] {
+        if list.len() > 30 {
+            return Err(bad(format!("{what}: up to 30")));
+        }
+        if list.iter().any(|x| x.chars().count() > 80) {
+            return Err(bad(format!("{what}: each up to 80 characters")));
+        }
+    }
+    for (v, what) in [(&c.seo.local.maps_url, "Google Maps link"), (&c.seo.local.profile_url, "Google Business Profile link")] {
+        if !v.is_empty() && !v.starts_with("https://") {
+            return Err(bad(format!("{what}: use a full link starting with https://")));
+        }
+    }
+    if c.seo.local.branches.len() > 200 {
+        return Err(bad("Up to 200 locations"));
+    }
+    for b in &c.seo.local.branches {
+        for (v, n, what) in [(&b.name, 120, "Location name"), (&b.street_address, 200, "Location address"), (&b.city, 80, "Location city"), (&b.region, 80, "Location region"), (&b.country, 80, "Location country"), (&b.phone, 40, "Location phone")] {
+            max_len(v, n, what)?;
+        }
+        if !b.maps_url.is_empty() && !b.maps_url.starts_with("https://") {
+            return Err(bad("Location map link: use a full link starting with https://"));
+        }
+    }
+    if c.seo.local.enabled && (c.seo.local.street_address.trim().is_empty() || c.seo.local.city.trim().is_empty()) {
+        return Err(bad("Local SEO: enter the address and city customers visit, or switch off Customers can visit"));
+    }
+    for k in &c.categories.items {
+        max_len(&k.seo_title, 70, "Category search title")?;
+        max_len(&k.seo_description, 170, "Category search description")?;
+    }
     let lang = c.seo.language.trim();
     if !lang.is_empty() && !(lang.len() <= 12 && lang.chars().next().is_some_and(|x| x.is_ascii_alphabetic()) && lang.chars().all(|x| x.is_ascii_alphanumeric() || x == '-')) {
         return Err(bad("Language: use a code such as en, sw or fr-CA"));

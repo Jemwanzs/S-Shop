@@ -26,7 +26,7 @@ export interface ProductCfg {
   /** Roadmap 80: the website "was" price (shown struck through, with the saving, when above the current price). */
   compare_at?: string | null;
 }
-export interface CategoryCfg { category_id: string; visible: boolean; sort: number; image: string | null }
+export interface CategoryCfg { category_id: string; visible: boolean; sort: number; image: string | null; seo_title: string; seo_description: string }
 
 /** The full editable document (the public one leaves out per-product settings and drafts). */
 export type SiteConfig = Omit<PublicConfig, "products" | "categories"> & {
@@ -58,6 +58,8 @@ export interface Overview {
   domain?: { domain: string; status: string } | null;
   show_prices?: boolean;
   fonts?: string[];
+  /** Roadmap 157: this business's own active branches. */
+  branches?: { id: string; name: string; location: string; phone: string }[];
 }
 
 export function useOverview() {

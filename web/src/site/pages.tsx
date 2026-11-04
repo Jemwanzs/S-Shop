@@ -486,6 +486,21 @@ export function ContactPage({ data }: { data: SiteData }) {
         </div>
         <ContactList data={data} />
       </div>
+      {!!data.locations?.length && (
+        <div className="wrap stack" style={{ marginTop: 28 }}>
+          <h2>Our locations</h2>
+          <ul className="stack" style={{ listStyle: "none", padding: 0 }}>
+            {data.locations.map((l) => (
+              <li key={l.name}>
+                <strong>{l.name}</strong>
+                <p className="muted">{[l.street_address, l.city, l.region, l.country].filter(Boolean).join(", ")}</p>
+                {l.phone && <p><a href={`tel:${l.phone.replace(/\s/g, "")}`}>{l.phone}</a></p>}
+                {l.maps_url && <p><a href={l.maps_url} target="_blank" rel="noreferrer">Get directions</a></p>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

@@ -9,6 +9,13 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-04 (late afternoon)
+
+- **Websites search engines can read** — every page of a business's website now carries its real content, links and structured
+  data in the first HTML, so search engines and link previews read it without JavaScript. Unknown pages answer *not found*, each page
+  has one address, a hidden price stays hidden there too, and categories are in the sitemap. The private app stays out of search.
+  (156, [module 23](modules/23-website.md))
+
 ## 2026-11-04 (afternoon)
 
 - **Face ID, fingerprint and Windows Hello, made reliable** — set-up now has a separate tap for your device's check, because

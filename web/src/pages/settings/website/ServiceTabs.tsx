@@ -1,4 +1,4 @@
-/** Users & Access, Domain, SEO and Analytics. */
+/** Users & Access, Domain and Analytics. */
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ChevronDown, Copy, ExternalLink, RefreshCw, Trash2, XCircle } from "lucide-react";
@@ -9,16 +9,14 @@ import { amount, count, dateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ActionButton } from "@/components/ActionButton";
-import { ConfirmDialog, Field, ToggleRow } from "@/components/Form";
+import { ConfirmDialog, ToggleRow } from "@/components/Form";
 import { Loading } from "@/components/Page";
 import { StatCard as Stat } from "@/components/Stat";
 import { t } from "@/lib/i18n";
 import type { Overview } from "./data";
-import { Block, Choice, MediaField } from "./kit";
-import type { TabProps } from "./Website";
+import { Block, Choice } from "./kit";
 
 // ── Users & Access ────────────────────────────────────────────────────
 
@@ -191,37 +189,6 @@ export function DomainTab({ ov }: { ov: Overview }) {
       )}
       <ConfirmDialog open={remove} onOpenChange={setRemove} title="Remove this domain?" description="Your website stays available at its S'Shop address. You can connect a domain again any time."
         confirmLabel="Remove domain" destructive busy={del.isPending} onConfirm={() => del.mutate()} />
-    </div>
-  );
-}
-
-// ── SEO ───────────────────────────────────────────────────────────────
-
-export function SeoTab({ c, set, ov }: TabProps) {
-  const title = c.seo.title || c.brand.name;
-  const desc = c.seo.description || c.brand.tagline;
-  return (
-    <div className="space-y-4">
-      <Block title="Search engines & sharing">
-        <Field label="Website title" hint={`${c.seo.title.length}/70`}><Input value={c.seo.title} maxLength={70} onChange={(e) => set((x) => { x.seo.title = e.target.value; })} /></Field>
-        <Field label="Description" hint={`${c.seo.description.length}/160`}><Textarea value={c.seo.description} maxLength={160} onChange={(e) => set((x) => { x.seo.description = e.target.value; })} /></Field>
-        <Field label="About the business" optional hint="Used for search engines"><Textarea value={c.seo.business_description} maxLength={500} onChange={(e) => set((x) => { x.seo.business_description = e.target.value; })} /></Field>
-        <MediaField label="Sharing image" kind="banner" value={c.seo.share_image} onChange={(id) => set((x) => { x.seo.share_image = id; })} hint="Shown when your link is shared on WhatsApp or social media (empty = the hero image)." />
-      </Block>
-      <Block title="Indexing & language">
-        <ToggleRow label="Allow search engines to list this website" hint="Off: every page asks search engines to stay away and the sitemap is empty. People with the link can still visit."
-          checked={!c.seo.noindex} onChange={(v) => set((x) => { x.seo.noindex = !v; })} />
-        <Field label="Website language" optional hint="A code such as en, sw or fr-CA. Empty means English."><Input value={c.seo.language ?? ""} maxLength={12} onChange={(e) => set((x) => { x.seo.language = e.target.value; })} /></Field>
-      </Block>
-      <Block title="Search result preview">
-        <div className="rounded-lg border p-3">
-          <p className="truncate text-xs text-success">{ov.public_url}</p>
-          <p className="truncate text-base text-primary">{title}</p>
-          <p className="line-clamp-2 text-sm text-muted-foreground">{desc || t("Add a description so people know what you sell.")}</p>
-        </div>
-        <p className="text-xs text-muted-foreground">{t("Each product has its own page, title and description (Products tab). The sitemap updates itself:")}</p>
-        <CopyValue value={`${ov.public_url}/sitemap.xml`} />
-      </Block>
     </div>
   );
 }

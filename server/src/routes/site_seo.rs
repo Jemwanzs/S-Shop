@@ -45,6 +45,20 @@ pub fn currency_code(currency: &str) -> Option<String> {
     Some(code.to_string())
 }
 
+/// A place customers can visit, as the website shows it (roadmap 157).
+#[derive(serde::Serialize, Clone)]
+pub struct Location {
+    pub name: String,
+    pub street_address: String,
+    pub city: String,
+    pub region: String,
+    pub country: String,
+    pub phone: String,
+    pub maps_url: String,
+    #[serde(skip)]
+    pub hours: Option<crate::settings::Hours>,
+}
+
 /// A category as the public website shows it.
 #[derive(Clone)]
 pub struct Cat {
@@ -61,6 +75,27 @@ pub struct Ctx<'a> {
     pub config: &'a SiteConfig,
     pub cats: &'a [Cat],
     pub logo: Option<String>,
+    pub places: &'a [Location],
+}
+
+/// Schema.org opening hours from trading days (Monday first). Hours never set (open all day, every day, the default) say nothing.
+fn opening_hours(h: &crate::settings::Hours) -> Option<Value> {
+    const DAYS: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    if h.open == h.close {
+        return None;
+    }
+    let days: Vec<&str> = DAYS.iter().zip(h.days.iter()).filter(|(_, on)| **on).map(|(d, _)| *d).collect();
+    Some(json!({ "@type": "OpeningHoursSpecification", "dayOfWeek": days, "opens": h.open, "closes": h.close }))
+}
+
+fn postal(street: &str, city: &str, region: &str, country: &str, code: &str) -> Value {
+    let mut a = json!({ "@type": "PostalAddress" });
+    for (key, value) in [("streetAddress", street), ("addressLocality", city), ("addressRegion", region), ("addressCountry", country), ("postalCode", code)] {
+        if !value.trim().is_empty() {
+            a[key] = json!(value.trim());
+        }
+    }
+    a
 }
 
 impl Ctx<'_> {
@@ -202,7 +237,13 @@ impl Ctx<'_> {
     }
 
     pub fn contact_page(&self) -> String {
-        self.wrap(format!("<h1>Contact {}</h1><p>{}</p>", esc(self.brand), esc(&self.config.contact.intro)))
+        let places: String = self.places.iter().map(|l| {
+            let line = [l.street_address.as_str(), l.city.as_str(), l.region.as_str(), l.country.as_str()].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(", ");
+            let phone = if l.phone.is_empty() { String::new() } else { format!("<p>{}</p>", esc(&l.phone)) };
+            format!("<li><h2>{}</h2><p>{}</p>{phone}</li>", esc(&l.name), esc(&line))
+        }).collect();
+        let places = if places.is_empty() { places } else { format!("<ul>{places}</ul>") };
+        self.wrap(format!("<h1>Contact {}</h1><p>{}</p>{places}", esc(self.brand), esc(&self.config.contact.intro)))
     }
 
     pub fn testimonials_page(&self) -> String {
@@ -232,11 +273,44 @@ impl Ctx<'_> {
             o["email"] = json!(c.email.trim());
         }
         let s = &self.config.social;
-        let same: Vec<&str> = [&s.instagram, &s.facebook, &s.tiktok, &s.x, &s.linkedin, &s.youtube].into_iter().map(|x| x.trim()).filter(|x| x.starts_with("http")).collect();
+        let local = &self.config.seo.local;
+        let same: Vec<&str> = [&s.instagram, &s.facebook, &s.tiktok, &s.x, &s.linkedin, &s.youtube, &local.profile_url].into_iter().map(|x| x.trim()).filter(|x| x.starts_with("http")).collect();
         if !same.is_empty() {
             o["sameAs"] = json!(same);
         }
+        // Roadmap 157: a place customers can visit, only as the business states it.
+        if local.enabled {
+            o["@type"] = json!("LocalBusiness");
+            o["address"] = postal(&local.street_address, &local.city, &local.region, &local.country, &local.postal_code);
+            if !local.phone.trim().is_empty() {
+                o["telephone"] = json!(local.phone.trim());
+            }
+            if !local.maps_url.trim().is_empty() {
+                o["hasMap"] = json!(local.maps_url.trim());
+            }
+            if !local.service_areas.is_empty() {
+                o["areaServed"] = json!(local.service_areas);
+            }
+        }
         o
+    }
+
+    /// One `LocalBusiness` per location the business chose to show, on the page that shows them. No separate location pages.
+    pub fn branches_ld(&self) -> Vec<Value> {
+        self.places.iter().filter(|l| !l.street_address.is_empty()).map(|l| {
+            let mut v = json!({ "@context": "https://schema.org", "@type": "LocalBusiness", "name": l.name, "url": self.href("/contact"), "parentOrganization": { "@type": "Organization", "name": self.brand },
+                "address": postal(&l.street_address, &l.city, &l.region, &l.country, "") });
+            if !l.phone.is_empty() {
+                v["telephone"] = json!(l.phone);
+            }
+            if !l.maps_url.is_empty() {
+                v["hasMap"] = json!(l.maps_url);
+            }
+            if let Some(h) = l.hours.as_ref().and_then(opening_hours) {
+                v["openingHoursSpecification"] = json!([h]);
+            }
+            v
+        }).collect()
     }
 
     pub fn website(&self) -> Value {
@@ -291,6 +365,28 @@ pub fn ld_block(v: &Value) -> String {
     format!("<script type=\"application/ld+json\">{}</script>\n", v.to_string().replace('<', "\\u003c"))
 }
 
+/// Roadmap 157: a search title from a product or category's own name and the business, shortened rather than cut.
+pub fn suggest_title(name: &str, brand: &str, place: &str) -> String {
+    let full = if place.trim().is_empty() { format!("{name} | {brand}") } else { format!("{name} | {brand} {}", place.trim()) };
+    if full.chars().count() <= 60 {
+        return full;
+    }
+    let short = format!("{name} | {brand}");
+    if short.chars().count() <= 60 { short } else { clip(name, 60) }
+}
+
+/// Roadmap 157: a search description from what is verified: the product's own description, else only its name, category and
+/// the business. No claims are added.
+pub fn suggest_description(name: &str, description: &str, category: Option<&str>, brand: &str, place: &str) -> String {
+    let d = description.split_whitespace().collect::<Vec<_>>().join(" ");
+    if d.chars().count() >= 40 {
+        return clip(&d, 155);
+    }
+    let what = category.map_or_else(|| name.to_string(), |c| format!("{name} in {c}"));
+    let from = if place.trim().is_empty() { brand.to_string() } else { format!("{brand}, {}", place.trim()) };
+    clip(&if d.is_empty() { format!("{what} from {from}.") } else { format!("{what} from {from}. {d}") }, 155)
+}
+
 /// `robots.txt` of a host serving websites. The JSON the pages read and the images must stay readable for crawlers to
 /// render them; everything else under `/api/` stays out.
 pub fn robots(sitemap: &str, extra_disallow: &[&str]) -> String {
@@ -318,7 +414,7 @@ mod tests {
 
     fn with<T>(currency: &str, f: impl FnOnce(&Ctx) -> T) -> T {
         let config = SiteConfig::default();
-        f(&Ctx { root: "https://shop.example", brand: "Any Business", currency, config: &config, cats: &[], logo: None })
+        f(&Ctx { root: "https://shop.example", brand: "Any Business", currency, config: &config, cats: &[], logo: None, places: &[] })
     }
 
     #[test]
@@ -348,6 +444,27 @@ mod tests {
         assert!(html.contains("A &lt;b&gt;") && !html.contains("A <b>"));
         assert!(!ld_block(&json!({ "x": "</script>" })).contains("</script><"));
         assert!(!ld_block(&json!({ "x": "</script>" }))[30..].contains("</script>\"}"));
+    }
+
+    #[test]
+    fn suggestions_use_only_what_is_known_and_fit() {
+        assert_eq!(suggest_title("Claw Hammer", "Any Business", "Ghana"), "Claw Hammer | Any Business Ghana");
+        let long = "A very long product name that nearly fills the whole search title";
+        assert!(suggest_title(long, "Any Business", "Ghana").chars().count() <= 60);
+        assert_eq!(suggest_description("Claw Hammer", "", Some("Tools"), "Any Business", "Accra"), "Claw Hammer in Tools from Any Business, Accra.");
+        assert_eq!(suggest_description("X", "", None, "B", ""), "X from B.");
+        let own = "A steel claw hammer with a rubber grip, balanced for everyday work around the home.";
+        assert_eq!(suggest_description("Claw Hammer", own, None, "B", ""), own);
+    }
+
+    #[test]
+    fn opening_hours_only_when_really_set() {
+        use crate::settings::Hours;
+        assert!(opening_hours(&Hours::default()).is_none(), "the default (open all day) was never set by anyone");
+        let h = Hours { days: [true, true, true, true, true, false, false], open: "08:00".into(), close: "17:00".into() };
+        let v = opening_hours(&h).unwrap();
+        assert_eq!(v["dayOfWeek"].as_array().unwrap().len(), 5);
+        assert_eq!(v["dayOfWeek"][0], "Monday");
     }
 
     #[test]

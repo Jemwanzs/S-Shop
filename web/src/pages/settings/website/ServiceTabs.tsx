@@ -208,6 +208,11 @@ export function SeoTab({ c, set, ov }: TabProps) {
         <Field label="About the business" optional hint="Used for search engines"><Textarea value={c.seo.business_description} maxLength={500} onChange={(e) => set((x) => { x.seo.business_description = e.target.value; })} /></Field>
         <MediaField label="Sharing image" kind="banner" value={c.seo.share_image} onChange={(id) => set((x) => { x.seo.share_image = id; })} hint="Shown when your link is shared on WhatsApp or social media (empty = the hero image)." />
       </Block>
+      <Block title="Indexing & language">
+        <ToggleRow label="Allow search engines to list this website" hint="Off: every page asks search engines to stay away and the sitemap is empty. People with the link can still visit."
+          checked={!c.seo.noindex} onChange={(v) => set((x) => { x.seo.noindex = !v; })} />
+        <Field label="Website language" optional hint="A code such as en, sw or fr-CA. Empty means English."><Input value={c.seo.language ?? ""} maxLength={12} onChange={(e) => set((x) => { x.seo.language = e.target.value; })} /></Field>
+      </Block>
       <Block title="Search result preview">
         <div className="rounded-lg border p-3">
           <p className="truncate text-xs text-success">{ov.public_url}</p>

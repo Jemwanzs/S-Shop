@@ -467,3 +467,11 @@ textarea.field { min-height: 90px; resize: vertical; }
   .cg-add { height: 28px; font-size: .75em; }
 }
 @media (max-width: 639px) { .cg-hero .cg-copy, .cg-compact .cg-copy { padding-inline: 30px; } }
+
+/* Roadmap 156: the page's content as the server sends it, shown until the app starts (and read by search engines). */
+.seed { max-width: 72rem; margin: 0 auto; padding: 1rem; font-family: system-ui, sans-serif; line-height: 1.5; }
+.seed nav { display: flex; flex-wrap: wrap; gap: 0.75rem; padding: 0.5rem 0; }
+.seed ul { list-style: none; padding: 0; display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); }
+.seed img { max-width: 100%; height: auto; display: block; }
+.seed h1 { font-size: 1.75rem; margin: 1rem 0; }
+.seed h3 { font-size: 1rem; margin: 0.5rem 0 0; }

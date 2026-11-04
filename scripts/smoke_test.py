@@ -1745,6 +1745,75 @@ detail = call("GET", f"/site/products/{pbag['slug']}?slug={dk_slug}", **PUB)
 check("product page by slug with related products", detail["product"]["id"] == bag and any(r["id"] == hat for r in detail["related"]))
 sug = call("GET", f"/site/products?slug={dk_slug}&q=leath&suggest=true", **PUB)["items"]
 check("search suggestions", [p["id"] for p in sug] == [bag], [p["name"] for p in sug])
+
+# Roadmap 156: what a crawler reads, with no JavaScript. Never follows redirects, so each address answers for itself.
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+_crawler = urllib.request.build_opener(_NoRedirect)
+def crawl(path):
+    try:
+        r = _crawler.open(urllib.request.Request(BASE + path, headers={"User-Agent": "smoke-crawler"}))
+        return r.status, dict((k.lower(), v) for k, v in r.headers.items()), r.read().decode()
+    except urllib.error.HTTPError as e:
+        return e.code, dict((k.lower(), v) for k, v in e.headers.items()), e.read().decode()
+def ld(html):
+    return [json.loads(x) for x in re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.S)]
+def seed(html):
+    return html.split('<div id="site-root">', 1)[1].split('<script', 1)[0] if '<div id="site-root">' in html else ""
+sroot = f"/s/{dk_slug}"
+st_, h_, home = crawl(sroot)
+check("roadmap 156: the root answers 200 with the catalogue in the first HTML", st_ == 200 and f"Leather Bag {suffix}" in seed(home) and f'{sroot}/products/{pbag["slug"]}"' in seed(home), st_)
+check("…its own title, canonical and description", f"<title>" in home and re.search(rf'rel="canonical" href="[^"]*{sroot}"', home) and 'name="description"' in home and 'name="robots"' not in home)
+check("…and the business as structured data", any(x["@type"] == "Organization" and x["name"] for x in ld(home)) and any(x["@type"] == "WebSite" for x in ld(home)))
+check("…nothing of another business", f"Nduma {suffix}" not in home and f"Classic Watch {suffix}" not in home)
+st_, h_, ph = crawl(f'{sroot}/products/{pbag["slug"]}')
+prod_ld = next(x for x in ld(ph) if x["@type"] == "Product")
+check("a product page answers 200 with its name, picture alt and price readable", st_ == 200 and f"<h1>Leather Bag {suffix}</h1>" in seed(ph) and "4321" in seed(ph) and 'og:type" content="product"' in ph, st_)
+check("…structured data with an Offer for the shown price, nothing invented", float(prod_ld["offers"]["price"]) == 4321 and prod_ld["name"] == f"Leather Bag {suffix}" and not any(k in prod_ld for k in ("aggregateRating", "review", "sku", "gtin", "brand")), prod_ld)
+check("…the currency is an ISO code", re.fullmatch(r"[A-Z]{3}", prod_ld["offers"]["priceCurrency"]) and prod_ld["offers"]["priceCurrency"] != "KSH", prod_ld["offers"])
+check("…breadcrumbs through its category", any(x["@type"] == "BreadcrumbList" and len(x["itemListElement"]) == 4 for x in ld(ph)))
+call("PUT", "/website/prices", {"show_prices": False}, **T2)
+_, _, hidden = crawl(f'{sroot}/products/{pbag["slug"]}')
+check("a hidden price is in neither the page nor its structured data", "4321" not in seed(hidden) and "offers" not in next(x for x in ld(hidden) if x["@type"] == "Product") and "4321" not in "".join(json.dumps(x) for x in ld(hidden)))
+call("PUT", "/website/prices", {"show_prices": True}, **T2)
+for path_, what_ in ((f"{sroot}/products/no-such-product", "an unknown product"), (f"{sroot}/no-such-page", "an unknown page"), (f"{sroot}/categories/{uuid.uuid4()}", "an unknown category"), (f"{sroot}/categories/{uuid.uuid4().hex}", "a malformed category"), (f"{sroot}/products?page=999", "a page past the end")):
+    st_, h_, body_ = crawl(path_)
+    check(f"{what_} answers 404, not indexable", st_ == 404 and "noindex" in h_.get("x-robots-tag", "") and 'name="robots" content="noindex"' in body_, st_)
+st_, h_, cat_ = crawl(f"{sroot}/categories/{wcat}")
+check("a category page: its own title and products", st_ == 200 and f"Bags {suffix}" in cat_.split("</title>")[0] and f"Straw Hat {suffix}" in seed(cat_) and any(x["@type"] == "BreadcrumbList" for x in ld(cat_)), st_)
+st_, h_, _ = crawl(f"{sroot}/about/")
+check("a trailing slash forwards to the one address", st_ in (301, 308) and h_.get("location", "").endswith(f"{sroot}/about"), (st_, h_.get("location")))
+short_ = pbag["slug"].rsplit("-", 1)[1]
+st_, h_, _ = crawl(f"{sroot}/products/old-name-{short_}")
+check("a renamed product's old address forwards to the current one", st_ in (301, 308) and h_.get("location", "").endswith(f'/products/{pbag["slug"]}'), (st_, h_.get("location")))
+titles = {crawl(f"{sroot}{x}")[2].split("</title>")[0] for x in ("", "/about", "/contact", f"/categories/{wcat}", f'/products/{pbag["slug"]}')}
+check("indexable pages have different titles", len(titles) == 5, titles)
+st_, h_, body_ = crawl(f"{sroot}/cart")
+check("the cart answers 200 and is kept out of search", st_ == 200 and "noindex" in h_.get("x-robots-tag", ""))
+st_, h_, sm = crawl(f"{sroot}/sitemap.xml")
+check("the sitemap lists the root, categories and products", st_ == 200 and re.search(rf"<loc>[^<]*{sroot}</loc>", sm) and f"/categories/{wcat}<" in sm and f'/products/{pbag["slug"]}<' in sm and "<lastmod>" in sm, sm[:300])
+check("…never checkout, tracking or another business", "/cart" not in sm and "/order" not in sm and "/track" not in sm and f"/s/{slug}/" not in sm)
+check("…no page twice (the landing page is the root)", sm.count("<loc>") == len(set(re.findall(r"<loc>(.*?)</loc>", sm))) and not re.search(rf"<loc>[^<]*{sroot}/products</loc>", sm))
+_, _, rb = crawl("/robots.txt")
+check("the S'Shop host's robots.txt: APIs out, what pages need in, its sitemap named", "Disallow: /api/" in rb and "Allow: /api/site/" in rb and "Allow: /api/photos/" in rb and re.search(r"Sitemap: \S+/sitemap\.xml", rb), rb)
+_, _, ix = crawl("/sitemap.xml")
+check("the S'Shop host's sitemap indexes the websites on it", "<sitemapindex" in ix and f"{sroot}/sitemap.xml" in ix, ix[:300])
+_, h_, _ = crawl("/settings")
+check("the private app is kept out of search", "noindex" in h_.get("x-robots-tag", ""))
+_, h_, _ = crawl(f"/{slug}/products")
+check("…workspace pages too", "noindex" in h_.get("x-robots-tag", ""))
+_seo_cfg = call("GET", "/website", **T2)["draft"]
+call("PUT", "/website/draft", {"config": {**_seo_cfg, "seo": {**_seo_cfg["seo"], "noindex": True, "language": "sw"}}}, **T2)
+call("POST", "/website/publish", {}, **T2)
+_, h_, off = crawl(sroot)
+check("indexing switched off: every page says noindex", "noindex" in h_.get("x-robots-tag", "") and 'name="robots" content="noindex"' in off)
+check("…the website's language is set", '<html lang="sw">' in off)
+check("…the sitemap is empty and the index leaves it out", "<loc>" not in crawl(f"{sroot}/sitemap.xml")[2] and f"{sroot}/sitemap.xml" not in crawl("/sitemap.xml")[2])
+call("PUT", "/website/draft", {"config": {**_seo_cfg, "seo": {**_seo_cfg["seo"], "language": "not a language!"}}}, **T2, expect=400)
+call("PUT", "/website/draft", {"config": _seo_cfg}, **T2)
+call("POST", "/website/publish", {}, **T2)
+check("indexing back on", 'name="robots"' not in crawl(sroot)[2])
 # Roadmap 80: sorting by real data, paging counted in products, in-stock filter
 ids = lambda q_: [p["id"] for p in call("GET", f"/site/products?slug={dk_slug}{q_}", **PUB)["items"]]
 by_name = ids("&sort=name_desc")

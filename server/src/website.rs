@@ -439,6 +439,10 @@ pub struct Seo {
     pub description: String,
     pub share_image: Option<Uuid>,
     pub business_description: String,
+    /// Roadmap 156: stay out of search engines (noindex on every page, an empty sitemap).
+    pub noindex: bool,
+    /// The website's language for search engines (`en`, `sw`, `fr-CA` …); empty = English.
+    pub language: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -556,7 +560,7 @@ pub fn starter(b: &Business) -> SiteConfig {
             sample: true,
         })
         .collect();
-    c.seo = Seo { title: b.name.into(), description: b.tagline.into(), share_image: None, business_description: String::new() };
+    c.seo = Seo { title: b.name.into(), description: b.tagline.into(), ..Default::default() };
     c.footer = Footer { description: if b.tagline.is_empty() { b.name.into() } else { b.tagline.into() }, ..Default::default() };
     c
 }
@@ -754,6 +758,10 @@ pub fn validate(c: &SiteConfig) -> AppResult<()> {
         return Err(bad("Products per page must be between 1 and 100"));
     }
     one_of(&c.landing, &["home", "products", "categories", "services"], "Default landing page")?;
+    let lang = c.seo.language.trim();
+    if !lang.is_empty() && !(lang.len() <= 12 && lang.chars().next().is_some_and(|x| x.is_ascii_alphabetic()) && lang.chars().all(|x| x.is_ascii_alphanumeric() || x == '-')) {
+        return Err(bad("Language: use a code such as en, sw or fr-CA"));
+    }
     if c.products.items.len() > 5000 {
         return Err(bad("Too many products"));
     }

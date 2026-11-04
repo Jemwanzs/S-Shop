@@ -103,9 +103,16 @@ the interface is not the only guard.
 - **Pages:** home (the sections in the chosen order), `/products` (search and category chips), `/products/{slug}`
   (gallery, availability, quantity, related products), `/categories`, `/categories/{id}`, `/services`, `/about`,
   `/contact`, `/testimonials`, `/order` (cart and checkout), `/track/{token}`. Unknown paths show a not-found page.
-- **The server renders SEO:** each page's title, description, canonical URL, Open Graph / Twitter tags and share
-  image, plus the business's fonts and icon, are filled in before the page loads. `/sitemap.xml` lists visible pages
-  and every published product; `/robots.txt` points to it. Checkout and tracking pages are `noindex`.
+- **The server renders SEO (roadmap 53, 156):** each page's title, description, canonical URL, Open Graph / Twitter tags,
+  structured data and share image, plus the business's fonts and icon, are filled in before the page loads, and **the page's
+  real content is in the first HTML** (`routes/site_seo.rs`), so it can be read with no JavaScript. The app replaces that
+  content when it starts; it comes from the same published data, so people and crawlers read the same page. A hidden price
+  appears in neither. `/sitemap.xml` lists visible pages, categories and every published product, each once; `/robots.txt`
+  points to it. Checkout and tracking pages are `noindex`, unknown pages answer 404, and *Allow search engines* (SEO tab) off
+  makes every page `noindex` and empties the sitemap.
+- **On the S'Shop host (156):** `robots.txt` keeps `/api/` out except what pages need to render; `/sitemap.xml` is an index of the
+  websites living there (not those on their own domain, switched off, suspended or kept out of search). App pages answer
+  `X-Robots-Tag: noindex`, except S'Shop's own front page on its own address.
 - **Ordering** uses the existing engine. The customer gives a mobile number, then a WhatsApp code when verification is
   on, then their first name if they are new; they are the same S'Shop customer as on the ordering link. The order is
   placed with `create_order(…, "website")`, so it lands in **Orders** with source *website* and goes through the

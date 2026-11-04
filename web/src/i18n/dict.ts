@@ -3540,4 +3540,10 @@ export const DICT: Record<string, [string, string, string]> = {
   "The device could not complete the check — try again, or use your PIN.": ["Kifaa hakikuweza kukamilisha ukaguzi — jaribu tena, au tumia PIN.", "L'appareil n'a pas pu terminer la vérification — réessayez ou utilisez votre PIN.", "تعذر على الجهاز إكمال التحقق — حاول مجددًا أو استخدم رمز PIN."],
   "This passkey is no longer set up for S'Shop — sign in with your email and PIN, then set it up again in your preferences": ["Passkey hii haijawekwa tena kwa S'Shop — ingia kwa barua pepe na PIN, kisha uiweke upya kwenye mapendeleo", "Cette clé d'accès n'est plus configurée pour S'Shop — connectez-vous avec votre e-mail et votre PIN, puis reconfigurez-la dans vos préférences", "لم يعد مفتاح المرور هذا مُعدًا لـ S'Shop — سجّل الدخول بالبريد ورمز PIN ثم أعد إعداده في تفضيلاتك"],
   "Passkey not recognised": ["Passkey haitambuliki", "Clé d'accès non reconnue", "مفتاح المرور غير معروف"],
+  // ── Roadmap 156: indexing ──
+  "Indexing & language": ["Uorodheshaji na lugha", "Indexation et langue", "الفهرسة واللغة"],
+  "Allow search engines to list this website": ["Ruhusu injini za utafutaji kuorodhesha tovuti hii", "Autoriser les moteurs de recherche à répertorier ce site", "السماح لمحركات البحث بإدراج هذا الموقع"],
+  "Off: every page asks search engines to stay away and the sitemap is empty. People with the link can still visit.": ["Imezimwa: kila ukurasa unaomba injini za utafutaji zisiuorodheshe na ramani ya tovuti ni tupu. Wenye kiungo bado wanaweza kutembelea.", "Désactivé : chaque page demande aux moteurs de ne pas l'indexer et le plan du site est vide. Les personnes ayant le lien peuvent toujours visiter.", "عند الإيقاف: تطلب كل صفحة من محركات البحث عدم فهرستها وتكون خريطة الموقع فارغة. يمكن لمن لديه الرابط الزيارة."],
+  "Website language": ["Lugha ya tovuti", "Langue du site", "لغة الموقع"],
+  "A code such as en, sw or fr-CA. Empty means English.": ["Msimbo kama en, sw au fr-CA. Tupu ina maana Kiingereza.", "Un code comme en, sw ou fr-CA. Vide signifie anglais.", "رمز مثل en أو sw أو fr-CA. الفارغ يعني الإنجليزية."],
 };

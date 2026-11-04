@@ -209,7 +209,8 @@ export function ProductsPage({ data, categoryId }: { data: SiteData; categoryId?
   const cfg = data.config.products;
   const paged = cfg.pagination !== false;
   const per = Math.min(100, Math.max(1, cfg.per_page ?? 10));
-  const [more, setMore] = useState(1);
+  // Roadmap 156: "Load more" also honours a page address (search engines follow ?page=N), by showing up to that page.
+  const [more, setMore] = useState(page);
   const category = data.categories.find((c) => c.id === cat);
   useTitle(category?.name ?? "Products", data);
   const head = useRef<HTMLDivElement>(null);

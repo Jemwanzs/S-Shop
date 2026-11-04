@@ -29,7 +29,7 @@ export interface SiteConfig {
   categories: CategoriesCfg & { items?: unknown[] };
   services: { intro: string; items: Service[] };
   testimonials: { show: boolean; auto_scroll: boolean; speed: "slow" | "normal" | "fast"; items: Testimonial[] };
-  seo: { title: string; description: string; share_image: string | null; business_description: string };
+  seo: { title: string; description: string; share_image: string | null; business_description: string; noindex?: boolean; language?: string };
   cookies: { analytics: boolean; privacy_policy: string };
   footer: { description: string; policies: string; show_attribution: boolean };
   /** Roadmap 80: the page at the website's root. */

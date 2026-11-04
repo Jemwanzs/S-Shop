@@ -220,3 +220,11 @@ Each WebAuthn ceremony is split so the device call runs synchronously from the u
 two challenge kinds in `passkey_challenges`: `login` (for a credential this browser remembers) and `discover` (no user yet;
 `user_id` is null until `identify_discoverable_authentication` reads the signed answer). Verification stays entirely in
 `routes/passkeys.rs` with webauthn-rs; the browser only carries bytes. See [module 37](modules/37-face-id-biometric-login.md).
+
+## Website pages for crawlers (roadmap 156)
+
+`routes/site.rs::page` answers every website page: it decides status, canonical address and redirects, then `routes/site_seo.rs`
+builds the page's content and structured data from the published website and catalogue of that one business. `render` places them
+in the `site.html` shell (`#site-root`, `application/ld+json` blocks); `createRoot` replaces the content when the React app starts
+(no hydration, so the two can never disagree in a way React would reject). The S'Shop host's `/robots.txt` and `/sitemap.xml`
+(an index) are answered in `host_pages`, which also marks app pages `noindex`.

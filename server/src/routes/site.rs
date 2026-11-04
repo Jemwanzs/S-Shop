@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use super::orders::{announce_new, create_order, OrderLine};
 use super::portal::{self, IdentifyBody, SessionBody};
+use super::site_seo::{self, absolute, clip, esc, Cat};
 use crate::auth::PortalCustomer;
 use crate::error::{bad, refused, AppError, AppResult};
 use crate::state::AppState;
@@ -258,6 +259,7 @@ struct ProductDb {
     available: i32,
     available_for_orders: bool,
     created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
     sold: i64,
     photos: Vec<Uuid>,
 }
@@ -291,6 +293,8 @@ pub struct PubProduct {
     #[serde(skip)]
     pub created_at: DateTime<Utc>,
     #[serde(skip)]
+    pub updated_at: DateTime<Utc>,
+    #[serde(skip)]
     pub sold: i64,
     #[serde(skip)]
     pub search: String,
@@ -315,7 +319,7 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
     let branch = portal::portal_branch(state, &t).await.ok();
     let rows: Vec<ProductDb> = sqlx::query_as(
         "SELECT p.id, p.name, p.nickname, p.code, p.description, p.category_id, c.name AS category_name, p.marked_price AS price,
-                GREATEST(COALESCE(sl.on_hand, 0) - COALESCE(sl.reserved, 0), 0) AS available, p.available_for_orders, p.created_at,
+                GREATEST(COALESCE(sl.on_hand, 0) - COALESCE(sl.reserved, 0), 0) AS available, p.available_for_orders, p.created_at, p.updated_at,
                 COALESCE((SELECT SUM(si.quantity - si.returned_qty) FROM sale_items si JOIN sales sa ON sa.id = si.sale_id
                           WHERE si.product_id = p.id AND sa.created_at > now() - interval '90 days'), 0)::bigint AS sold,
                 ARRAY(SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order) AS photos
@@ -408,6 +412,7 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
             featured: e.is_some_and(|e| e.featured),
             sort: e.map_or(i32::MAX, |e| e.sort),
             created_at: r.created_at,
+            updated_at: r.updated_at,
             sold: r.sold,
             seo_title: e.map(|e| e.seo_title.clone()).unwrap_or_default(),
             seo_description: e.map(|e| e.seo_description.clone()).unwrap_or_default(),
@@ -708,15 +713,6 @@ async fn event(State(state): State<AppState>, headers: HeaderMap, Json(b): Json<
 /// Website Management Centre).
 const SITE_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'";
 
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
-}
-
-fn clip(s: &str, n: usize) -> String {
-    let t: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    if t.chars().count() <= n { t } else { format!("{}…", t.chars().take(n - 1).collect::<String>()) }
-}
-
 /// The website app shell (`site.html` from the web build), read once.
 fn shell(state: &AppState) -> Option<&'static str> {
     static SHELL: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
@@ -729,6 +725,16 @@ struct PageMeta {
     image: Option<String>,
     canonical: String,
     noindex: bool,
+    /// website | product | article
+    og_type: &'static str,
+    site_name: String,
+    /// Structured data for this page (Schema.org).
+    ld: Vec<Value>,
+    /// The page's real content, in the first HTML (roadmap 156). React replaces it when it starts.
+    seed: String,
+    /// `rel=prev` / `rel=next` of a paged list.
+    prev: Option<String>,
+    next: Option<String>,
 }
 
 fn render(state: &AppState, meta: &PageMeta, data: &Value, fonts: &[String], lang: &str) -> axum::response::Response {
@@ -738,9 +744,15 @@ fn render(state: &AppState, meta: &PageMeta, data: &Value, fonts: &[String], lan
     let mut head = String::new();
     head.push_str(&format!("<meta name=\"description\" content=\"{}\" />\n", esc(&meta.description)));
     head.push_str(&format!("<link rel=\"canonical\" href=\"{}\" />\n", esc(&meta.canonical)));
+    for (rel, href) in [("prev", &meta.prev), ("next", &meta.next)] {
+        if let Some(h) = href {
+            head.push_str(&format!("<link rel=\"{rel}\" href=\"{}\" />\n", esc(h)));
+        }
+    }
     head.push_str(&format!("<meta property=\"og:title\" content=\"{}\" />\n", esc(&meta.title)));
     head.push_str(&format!("<meta property=\"og:description\" content=\"{}\" />\n", esc(&meta.description)));
-    head.push_str(&format!("<meta property=\"og:url\" content=\"{}\" />\n<meta property=\"og:type\" content=\"website\" />\n", esc(&meta.canonical)));
+    head.push_str(&format!("<meta property=\"og:url\" content=\"{}\" />\n<meta property=\"og:type\" content=\"{}\" />\n", esc(&meta.canonical), meta.og_type));
+    head.push_str(&format!("<meta property=\"og:site_name\" content=\"{}\" />\n", esc(&meta.site_name)));
     head.push_str("<meta name=\"twitter:card\" content=\"summary_large_image\" />\n");
     if let Some(img) = &meta.image {
         head.push_str(&format!("<meta property=\"og:image\" content=\"{}\" />\n", esc(img)));
@@ -761,14 +773,18 @@ fn render(state: &AppState, meta: &PageMeta, data: &Value, fonts: &[String], lan
             q.join("&")
         ));
     }
+    for block in &meta.ld {
+        head.push_str(&site_seo::ld_block(block));
+    }
     // Published content for the first render (a data block, not a script: the page's JavaScript reads it).
     let data = data.to_string().replace('<', "\\u003c");
     head.push_str(&format!("<script type=\"application/json\" id=\"site-data\">{data}</script>\n"));
     let page = html
         .replacen("<title>Website</title>", &format!("<title>{}</title>", esc(&meta.title)), 1)
         .replacen("<!--SITE_HEAD-->", &head, 1)
-        .replacen("<html lang=\"en\">", &format!("<html lang=\"{}\">", esc(lang)), 1);
-    (
+        .replacen("<html lang=\"en\">", &format!("<html lang=\"{}\">", esc(lang)), 1)
+        .replacen("<div id=\"site-root\"></div>", &format!("<div id=\"site-root\">{}</div>", meta.seed), 1);
+    let mut res = (
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
             (header::CACHE_CONTROL, "no-cache".to_string()),
@@ -777,7 +793,11 @@ fn render(state: &AppState, meta: &PageMeta, data: &Value, fonts: &[String], lan
         ],
         page,
     )
-        .into_response()
+        .into_response();
+    if meta.noindex {
+        res.headers_mut().insert(header::HeaderName::from_static("x-robots-tag"), header::HeaderValue::from_static("noindex"));
+    }
+    res
 }
 
 /// Where a website lives: its active custom domain, else `/s/{slug}` on the S'Shop host.
@@ -786,15 +806,6 @@ fn site_root(state: &AppState, s: &Site) -> String {
         Some(d) => format!("https://{d}"),
         None => format!("{}/s/{}", state.cfg.public_url, s.slug),
     }
-}
-
-fn absolute(root: &str, url: &str) -> String {
-    if url.starts_with("http") {
-        return url.to_string();
-    }
-    // root may carry /s/{slug}; images live at the host root.
-    let host_root = root.split("/s/").next().unwrap_or(root);
-    format!("{host_root}{url}")
 }
 
 async fn site_data(state: &AppState, s: &Site) -> AppResult<Value> {
@@ -816,29 +827,90 @@ async fn site_data(state: &AppState, s: &Site) -> AppResult<Value> {
     }))
 }
 
+/// The path the root shows (the business's chosen landing page): one address per page, so that path points back to the root.
+fn landing_path(c: &SiteConfig) -> &'static str {
+    match c.landing.as_str() {
+        "products" => "/products",
+        "categories" => "/categories",
+        "services" => "/services",
+        _ => "/home",
+    }
+}
+
+fn nav_visible(c: &SiteConfig, key: &str) -> bool {
+    c.navigation.iter().any(|n| n.key == key && n.visible)
+}
+
+/// The categories this website shows, for links and the sitemap.
+async fn public_cats(state: &AppState, s: &Site) -> AppResult<Vec<Cat>> {
+    Ok(categories(state, s)
+        .await?
+        .iter()
+        .filter_map(|c| Some(Cat { id: c["id"].as_str()?.parse().ok()?, name: c["name"].as_str()?.to_string() }))
+        .collect())
+}
+
+/// One `<url>` of a sitemap.
+fn sitemap_url(loc: &str, lastmod: Option<DateTime<Utc>>) -> String {
+    let last = lastmod.map(|d| format!("<lastmod>{}</lastmod>", d.format("%Y-%m-%d"))).unwrap_or_default();
+    format!("  <url><loc>{}</loc>{last}</url>\n", esc(loc))
+}
+
+/// This website's indexable pages. A website kept out of search engines lists none; a page the root already shows is listed
+/// once, as the root; hidden sections, checkout and tracking are never listed.
 async fn sitemap(state: &AppState, s: &Site) -> AppResult<axum::response::Response> {
     let root = site_root(state, s);
-    let lastmod = s.published_at.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default();
-    let mut urls = vec![root.clone()];
-    for (key, path) in [("about", "/about"), ("products", "/products"), ("services", "/services"), ("contact", "/contact")] {
-        if s.config.navigation.iter().any(|n| n.key == key && n.visible) {
-            urls.push(format!("{root}{path}"));
-        }
-    }
-    for p in published(state, s).await? {
-        urls.push(format!("{root}/products/{}", p.slug));
-    }
     let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
-    for u in urls {
-        xml.push_str(&format!("  <url><loc>{}</loc>{}</url>\n", esc(&u), if lastmod.is_empty() { String::new() } else { format!("<lastmod>{lastmod}</lastmod>") }));
+    if !s.config.seo.noindex {
+        let landing = landing_path(&s.config);
+        xml.push_str(&sitemap_url(&root, s.published_at));
+        for (key, path) in [("about", "/about"), ("products", "/products"), ("categories", "/categories"), ("services", "/services"), ("contact", "/contact")] {
+            if path != landing && nav_visible(&s.config, key) {
+                xml.push_str(&sitemap_url(&format!("{root}{path}"), s.published_at));
+            }
+        }
+        if nav_visible(&s.config, "testimonials") && site_seo::shown_testimonials(&s.config).next().is_some() {
+            xml.push_str(&sitemap_url(&format!("{root}/testimonials"), s.published_at));
+        }
+        for c in public_cats(state, s).await? {
+            xml.push_str(&sitemap_url(&format!("{root}/categories/{}", c.id), s.published_at));
+        }
+        for p in published(state, s).await? {
+            xml.push_str(&sitemap_url(&format!("{root}/products/{}", p.slug), Some(p.updated_at.max(s.published_at.unwrap_or(p.updated_at)))));
+        }
     }
     xml.push_str("</urlset>\n");
     Ok(([(header::CONTENT_TYPE, "application/xml; charset=utf-8"), (header::CACHE_CONTROL, "public, max-age=3600")], xml).into_response())
 }
 
-/// Serves a website page (`/` … on a custom domain, `/s/{slug}/…` on the S'Shop host) with its title, description,
-/// canonical URL and social tags filled in by the server, so search engines and link previews see real content.
-async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &str) -> AppResult<axum::response::Response> {
+/// The S'Shop host's own sitemap: an index of the websites that live on it. A website on its own domain declares its sitemap
+/// there, and one kept out of search engines, switched off or suspended is not listed.
+async fn sitemap_index(state: &AppState) -> AppResult<axum::response::Response> {
+    let slugs: Vec<String> = sqlx::query_scalar(
+        "SELECT t.slug FROM websites w JOIN tenants t ON t.id = w.tenant_id
+          WHERE w.status = 'active' AND NOT COALESCE(w.billing_suspended, false) AND w.published IS NOT NULL AND t.status = 'active'
+            AND COALESCE((w.published->'seo'->>'noindex')::boolean, false) = false
+            AND NOT EXISTS (SELECT 1 FROM website_domains d WHERE d.tenant_id = t.id AND d.status = 'active' AND d.is_primary)
+          ORDER BY t.slug",
+    )
+    .fetch_all(&state.db)
+    .await?;
+    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+    for slug in slugs {
+        xml.push_str(&format!("  <sitemap><loc>{}</loc></sitemap>\n", esc(&format!("{}/s/{slug}/sitemap.xml", state.cfg.public_url))));
+    }
+    xml.push_str("</sitemapindex>\n");
+    Ok(([(header::CONTENT_TYPE, "application/xml; charset=utf-8"), (header::CACHE_CONTROL, "public, max-age=3600")], xml).into_response())
+}
+
+fn page_number(query: &str) -> usize {
+    query.trim_start_matches('?').split('&').find_map(|kv| kv.strip_prefix("page=")).and_then(|v| v.parse().ok()).filter(|n| *n >= 1).unwrap_or(1)
+}
+
+/// Serves a website page (`/` … on a custom domain, `/s/{slug}/…` on the S'Shop host). The server fills in its title,
+/// description, canonical URL, social tags, structured data and content (roadmap 53, 156), so search engines and link previews
+/// read the real page. Pages that do not exist answer 404, and one page has one address.
+async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &str, query: &str) -> AppResult<axum::response::Response> {
     let resolved = resolve(state, headers, slug, false).await?;
     let s = match resolved {
         Resolved::Unavailable { name, slug, has_logo } => {
@@ -848,6 +920,12 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
                 image: None,
                 canonical: format!("{}/s/{slug}", state.cfg.public_url),
                 noindex: true,
+                og_type: "website",
+                site_name: name.clone(),
+                ld: Vec::new(),
+                seed: String::new(),
+                prev: None,
+                next: None,
             };
             let data = json!({ "available": false, "business": { "name": name, "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")) } });
             let mut res = render(state, &meta, &data, &[], "en");
@@ -860,63 +938,195 @@ async fn page(state: &AppState, headers: &HeaderMap, slug: Option<&str>, rest: &
     match rest {
         "/sitemap.xml" => return sitemap(state, &s).await,
         "/robots.txt" => {
-            return Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], format!("User-agent: *\nAllow: /\nSitemap: {root}/sitemap.xml\n")).into_response());
+            return Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], site_seo::robots(&format!("{root}/sitemap.xml"), &[])).into_response());
         }
         _ => {}
+    }
+    // An earlier address of the business, or a trailing slash: forward to the one address.
+    let trimmed = if rest.len() > 1 { rest.trim_end_matches('/') } else { rest };
+    if slug.is_some_and(|x| x != s.slug) || trimmed != rest {
+        let q = if query.is_empty() { String::new() } else { query.to_string() };
+        return Ok(axum::response::Redirect::permanent(&format!("{root}{}{q}", if trimmed == "/" { "" } else { trimmed })).into_response());
     }
     let c = &s.config;
     let brand = if c.brand.name.trim().is_empty() { s.name.clone() } else { c.brand.name.clone() };
     let site_title = if c.seo.title.trim().is_empty() { brand.clone() } else { c.seo.title.clone() };
-    let site_desc = [c.seo.description.as_str(), c.brand.tagline.as_str(), c.hero.text.as_str()].into_iter().find(|x| !x.trim().is_empty()).unwrap_or("").to_string();
+    let site_desc = [c.seo.description.as_str(), c.brand.tagline.as_str(), c.hero.text.as_str()].into_iter().find(|x| !x.trim().is_empty()).map(str::to_string).unwrap_or_else(|| format!("{brand}: products, prices and how to reach us."));
     let share = c.seo.share_image.or(c.hero.image).map(|m| absolute(&root, &media_url(m)));
-    let mut meta = PageMeta { title: site_title.clone(), description: clip(&site_desc, 160), image: share, canonical: format!("{root}{}", if rest == "/" { "" } else { rest }), noindex: false };
-    let page_title = |label: &str| format!("{label} — {brand}");
-    match rest.trim_end_matches('/') {
-        // Roadmap 80: the root shows the business's chosen landing page.
-        "" => match c.landing.as_str() {
-            "products" => meta.title = page_title("Products"),
-            "categories" => meta.title = page_title("Categories"),
-            "services" => meta.title = page_title("Services"),
-            _ => {}
-        },
-        "/home" => meta.title = page_title("Home"),
+    let cats = public_cats(state, &s).await?;
+    let items = published(state, &s).await?;
+    let logo = c.brand.logo.map(media_url).or_else(|| s.has_logo.then(|| format!("/api/public/{}/logo", s.slug)));
+    let ctx = site_seo::Ctx { root: &root, brand: &brand, currency: &s.currency, config: c, cats: &cats, logo };
+    let page_title = |label: &str| format!("{label} | {brand}");
+    let landing = landing_path(c);
+    // The root shows the business's chosen landing page (roadmap 80), under the root's address.
+    let route = if rest == "/" { landing } else { rest };
+    let at_landing = route == landing;
+    let number = page_number(query);
+    let mut meta = PageMeta {
+        title: site_title.clone(),
+        description: clip(&site_desc, 160),
+        image: share,
+        canonical: if at_landing { root.clone() } else { format!("{root}{route}") },
+        noindex: false,
+        og_type: "website",
+        site_name: brand.clone(),
+        ld: Vec::new(),
+        seed: String::new(),
+        prev: None,
+        next: None,
+    };
+    let per = (c.products.per_page.clamp(1, 100)) as usize;
+    let mut missing = false;
+    let paged_list = |meta: &mut PageMeta, title: &str, base: &str, all: Vec<&PubProduct>| {
+        let last = all.len().div_ceil(per).max(1);
+        if number > last {
+            return true;
+        }
+        let shown: Vec<&PubProduct> = all.iter().skip((number - 1) * per).take(per).copied().collect();
+        let address = |n: usize| {
+            let page_root = if base == landing { root.clone() } else { format!("{root}{base}") };
+            if n > 1 { format!("{page_root}?page={n}") } else { page_root }
+        };
+        meta.canonical = address(number);
+        meta.prev = (number > 1).then(|| address(number - 1));
+        meta.next = (number < last).then(|| address(number + 1));
+        if number > 1 {
+            meta.title = format!("{} — page {number}", meta.title);
+            meta.description = clip(&format!("Page {number} of {last}. {}", meta.description), 160);
+        }
+        meta.seed = ctx.products_page(title, if base == landing { "/" } else { base }, &shown, number, last);
+        false
+    };
+    match route {
+        "/home" => {
+            if rest != "/" {
+                meta.title = page_title("Home");
+            }
+            let mut featured: Vec<&PubProduct> = items.iter().filter(|p| p.featured).collect();
+            if featured.is_empty() {
+                featured = items.iter().collect();
+            }
+            featured.truncate(per);
+            meta.seed = ctx.home_page(&featured);
+        }
         "/about" => {
             meta.title = page_title("About Us");
             if !c.about.intro.trim().is_empty() {
                 meta.description = clip(&c.about.intro, 160);
             }
+            meta.seed = ctx.about_page();
         }
-        "/products" => meta.title = page_title("Products"),
-        "/services" => meta.title = page_title("Services"),
-        "/contact" => meta.title = page_title("Contact"),
-        "/testimonials" => meta.title = page_title("Testimonials"),
+        "/products" => {
+            if rest != "/" {
+                meta.title = page_title("Products");
+            }
+            missing = paged_list(&mut meta, "Products", "/products", items.iter().collect());
+        }
+        "/categories" => {
+            if rest != "/" {
+                meta.title = page_title("Categories");
+            }
+            meta.seed = ctx.categories_page();
+        }
+        "/services" => {
+            if rest != "/" {
+                meta.title = page_title("Services");
+            }
+            meta.seed = ctx.services_page();
+        }
+        "/contact" => {
+            meta.title = page_title("Contact");
+            if !c.contact.intro.trim().is_empty() {
+                meta.description = clip(&c.contact.intro, 160);
+            }
+            meta.seed = ctx.contact_page();
+        }
+        "/testimonials" => {
+            if site_seo::shown_testimonials(c).next().is_none() {
+                missing = true;
+            } else {
+                meta.title = page_title("Testimonials");
+                meta.seed = ctx.testimonials_page();
+            }
+        }
         "/order" | "/orders" | "/cart" => {
             meta.title = page_title("Your order");
             meta.noindex = true;
         }
         p if p.starts_with("/products/") => {
-            let items = published(state, &s).await?;
-            match find_product(&items, &p["/products/".len()..]) {
+            let wanted = &p["/products/".len()..];
+            match find_product(&items, wanted) {
                 Some(prod) => {
-                    meta.title = if prod.seo_title.trim().is_empty() { format!("{} — {brand}", prod.name) } else { prod.seo_title.clone() };
-                    let d = if prod.seo_description.trim().is_empty() { prod.description.clone() } else { prod.seo_description.clone() };
-                    if !d.trim().is_empty() {
-                        meta.description = clip(&d, 160);
+                    // A product renamed keeps working at its earlier address, which forwards to the current one.
+                    if prod.slug != wanted {
+                        let to = format!("{root}/products/{}", prod.slug);
+                        return Ok(axum::response::Redirect::permanent(&to).into_response());
                     }
+                    meta.title = if prod.seo_title.trim().is_empty() { format!("{} | {brand}", prod.name) } else { prod.seo_title.clone() };
+                    let d = if prod.seo_description.trim().is_empty() { prod.description.clone() } else { prod.seo_description.clone() };
+                    meta.description = if d.trim().is_empty() { clip(&format!("{} from {brand}.", prod.name), 160) } else { clip(&d, 160) };
                     if let Some(img) = &prod.photo {
                         meta.image = Some(absolute(&root, img));
                     }
                     meta.canonical = format!("{root}/products/{}", prod.slug);
+                    meta.og_type = "product";
+                    meta.seed = ctx.product_page(prod);
+                    meta.ld.push(ctx.product(prod, &meta.canonical));
+                    let mut steps = vec![(brand.clone(), "/".to_string()), ("Products".to_string(), "/products".to_string())];
+                    if let (Some(id), Some(name)) = (prod.category_id, &prod.category_name) {
+                        steps.push((name.clone(), format!("/categories/{id}")));
+                    }
+                    steps.push((prod.name.clone(), format!("/products/{}", prod.slug)));
+                    meta.ld.push(ctx.breadcrumbs(&steps));
                 }
-                None => meta.noindex = true,
+                None => missing = true,
             }
         }
-        p if p.starts_with("/categories/") || p.starts_with("/track/") => meta.noindex = p.starts_with("/track/"),
-        _ => meta.noindex = true,
+        p if p.starts_with("/categories/") => {
+            let found = p["/categories/".len()..].parse::<Uuid>().ok().and_then(|id| cats.iter().find(|x| x.id == id));
+            match found {
+                Some(cat) => {
+                    meta.title = page_title(&cat.name);
+                    meta.description = clip(&format!("{} at {brand}. {site_desc}", cat.name), 160);
+                    let in_cat: Vec<&PubProduct> = items.iter().filter(|x| x.category_id == Some(cat.id)).collect();
+                    let base = format!("/categories/{}", cat.id);
+                    missing = paged_list(&mut meta, &cat.name, &base, in_cat);
+                    meta.ld.push(ctx.breadcrumbs(&[(brand.clone(), "/".to_string()), ("Categories".to_string(), "/categories".to_string()), (cat.name.clone(), base.clone())]));
+                }
+                None => missing = true,
+            }
+        }
+        p if p.starts_with("/track/") => {
+            meta.title = page_title("Your order");
+            meta.noindex = true;
+        }
+        _ => missing = true,
+    }
+    if missing {
+        meta.title = page_title("Page not found");
+        meta.noindex = true;
+        meta.ld.clear();
+        meta.prev = None;
+        meta.next = None;
+        meta.seed = ctx.not_found();
+    }
+    if rest == "/" && !missing {
+        meta.ld.push(ctx.organization());
+        meta.ld.push(ctx.website());
+    }
+    // The business chose to stay out of search engines (Website → SEO): every page says so.
+    if c.seo.noindex {
+        meta.noindex = true;
     }
     let data = site_data(state, &s).await?;
     let fonts = vec![c.theme.heading_font.clone(), c.theme.body_font.clone()];
-    Ok(render(state, &meta, &data, &fonts, "en"))
+    let lang = if c.seo.language.trim().is_empty() { "en" } else { c.seo.language.trim() };
+    let mut res = render(state, &meta, &data, &fonts, lang);
+    if missing {
+        *res.status_mut() = axum::http::StatusCode::NOT_FOUND;
+    }
+    Ok(res)
 }
 
 /// In front of the S'Shop app: requests for a business website (its custom domain, or `/s/{slug}` on the S'Shop host)
@@ -933,6 +1143,16 @@ pub async fn host_pages(
     let host = request_host(req.headers());
     let matched = domain_match(&state, &host).await.ok().flatten();
     let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
+    // Roadmap 156: the S'Shop host's own files for crawlers (a custom domain answers with its website's, below). On any other
+    // host reaching the app, the app itself is not indexed either.
+    if matched.is_none() && matches!(path.as_str(), "/robots.txt" | "/sitemap.xml") {
+        let root = state.cfg.public_url.trim_end_matches('/');
+        return if path == "/sitemap.xml" {
+            sitemap_index(&state).await.unwrap_or_else(IntoResponse::into_response)
+        } else {
+            ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], site_seo::robots(&format!("{root}/sitemap.xml"), &[])).into_response()
+        };
+    }
     // www ↔ bare twin of a connected domain: one address only (roadmap 74).
     if let Some((_, domain)) = matched.as_ref().filter(|(_, d)| *d != host) {
         return axum::response::Redirect::permanent(&format!("https://{domain}{path}{query}")).into_response();
@@ -968,20 +1188,43 @@ pub async fn host_pages(
         }
         (Some(slug.to_string()), rest)
     } else {
-        return next.run(req).await;
+        return app_page(&state, &host, &path, next.run(req).await);
     };
     let headers = req.headers().clone();
-    match page(&state, &headers, slug.as_deref(), &rest).await {
+    match page(&state, &headers, slug.as_deref(), &rest, &query).await {
         Ok(res) => res,
-        Err(AppError::NotFound(_)) => next.run(req).await,
+        Err(AppError::NotFound(_)) => {
+            let res = next.run(req).await;
+            app_page(&state, &host, &path, res)
+        }
         Err(e) => e.into_response(),
     }
+}
+
+/// Roadmap 156: the S'Shop app is private to the people using it. Its pages tell crawlers to stay out, except S'Shop's own
+/// front page on its own address (a second address reaching the app is never a competing copy).
+fn app_page(state: &AppState, host: &str, path: &str, mut res: axum::response::Response) -> axum::response::Response {
+    let own_host = state.cfg.public_url.split("://").nth(1).unwrap_or_default().split(['/', ':']).next().unwrap_or_default().eq_ignore_ascii_case(host);
+    let html = res.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("text/html"));
+    if html && !(own_host && path == "/") {
+        res.headers_mut().insert(header::HeaderName::from_static("x-robots-tag"), header::HeaderValue::from_static("noindex, nofollow"));
+    }
+    res
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::website::Testimonial;
+
+    #[test]
+    fn page_numbers_come_only_from_the_page_parameter() {
+        assert_eq!(page_number(""), 1);
+        assert_eq!(page_number("?page=3"), 3);
+        assert_eq!(page_number("?sort=name_asc&page=2"), 2);
+        assert_eq!(page_number("?page=0"), 1);
+        assert_eq!(page_number("?page=abc"), 1);
+    }
 
     fn item(published: bool, sample: bool) -> Testimonial {
         Testimonial { id: Uuid::new_v4(), name: "N".into(), quote: "Q".into(), published, sample, ..Default::default() }

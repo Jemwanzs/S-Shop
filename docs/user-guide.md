@@ -542,6 +542,13 @@ Setting up the business, people, rules, payments and the website.
 3. Tap Send for review, or, if you may publish, Publish article or Schedule.
 4. Once published, use Copy public link, WhatsApp, Facebook or LinkedIn to share it yourself. Nothing is posted for you.
 
+#### Get an AI-assisted draft of an article
+
+1. Settings → Website → SEO & Organic Growth → Articles & Content Automation. If it says it is not switched on, ask S'Shop support.
+2. Type a Topic or leave it empty, and tap AI-assisted draft. The draft opens for you to edit; it is not public.
+3. Check every fact and change what you like. The draft uses only your own details, but it can still be wrong, and you are responsible for what you publish.
+4. To get drafts on a schedule, switch on Enable automated article drafting and choose How often, the Day and the Time. Keep Require approval before publishing on.
+
 #### Connect M-Pesa (STK Push)
 
 1. Settings → M-Pesa & WhatsApp → Add account.

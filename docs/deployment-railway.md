@@ -64,6 +64,8 @@ the next `railway config apply` deletes it (see above).
 | `RAILWAY_API_TOKEN` | Optional; lets S'Shop attach businesses' verified website domains to this service automatically ([module 23](modules/23-website.md#56--custom-domains)). An account or team token; Railway supplies the project, environment and service ids itself. Without it, the platform owner adds each verified domain in Railway and records its CNAME target on the business page. Railway plans limit custom domains per service (Pro: 20 by default). |
 | `PEXELS_API_KEY` | Optional; product photos for the demo business ([module 20](modules/20-platform-and-demo.md)) |
 | `ACCESS_REQUEST_NOTIFY_EMAILS` | Optional; who is emailed about requests (default: the platform admins) |
+| `ANTHROPIC_API_KEY` | Optional. Claude API key for AI-assisted article drafts (roadmap 159). Without it the feature says it is not set up; nothing else is affected. Add it to `.railway/railway.ts` as `preserve()` as well |
+| `AI_MODEL` | Optional. The model for drafts (default `claude-opus-5-5`) |
 | `WEBAUTHN_RP_ID` | Optional; the domain Face ID / biometric passkeys belong to (default: the host of `PUBLIC_URL`). Changing it makes existing passkeys stop working ([module 37](modules/37-face-id-biometric-login.md)) |
 | `FX_URL`, `PAYSTACK_BASE_URL`, `RESEND_BASE_URL`, `MPESA_SANDBOX_URL`, `MPESA_PRODUCTION_URL` | **Test runs only**: point the exchange rates, Paystack, Resend and Daraja at the test suite's stand-in. Never set them in production |
 

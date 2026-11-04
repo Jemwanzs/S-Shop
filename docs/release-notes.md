@@ -11,6 +11,8 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ## 2026-11-04 (late afternoon)
 
+- **Articles** — a business can write and publish articles on its website: drafts, review, scheduling, its own search details and a place in the sitemap. Thin articles and near-copies are
+  stopped before publishing. Share buttons on articles and products open WhatsApp, Facebook or LinkedIn for the visitor to post. (158, [module 23](modules/23-website.md))
 - **SEO & Organic Growth** — Settings → Website has a new section for each business's search presence: its title and description with a
   preview, what it sells and where it serves in its own words, the address customers can visit, which branches to list, and a checklist for
   Google Business Profile. Products and categories get suggestions made only from what is on record. Nothing is published until you do. (157,

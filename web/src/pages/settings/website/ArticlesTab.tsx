@@ -2,7 +2,7 @@
  * life: draft → pending review → scheduled or published → archived. Anyone with SEO access writes; publishing needs `website.publish`. */
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Archive, CalendarClock, Copy, Eye, FilePlus2, Save, Send, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, Archive, CalendarClock, Copy, Eye, FilePlus2, Save, Send, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useSession } from "@/lib/session";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ActionButton } from "@/components/ActionButton";
-import { ConfirmDialog, Field } from "@/components/Form";
+import { ConfirmDialog, Field, Select, ToggleRow } from "@/components/Form";
 import { Pill, type Tone } from "@/components/Badges";
 import { Loading } from "@/components/Page";
 import { useCatalogue, type Overview } from "./data";
@@ -162,6 +162,72 @@ function Editor({ article, ov, onBack }: { article: Article; ov: Overview; onBac
   );
 }
 
+interface Automation {
+  enabled: boolean; frequency: "weekly" | "biweekly" | "monthly"; weekday: number; at_time: string; industry: string; categories: string[]; audience: string; area: string; language: string; tone: string;
+  length: "short" | "medium" | "long"; link_products: boolean; require_approval: boolean;
+}
+interface AutomationData { settings: Automation; gate: { available: boolean; reason: string | null; used: number; quota: number }; next_run_at: string | null; last_run_at: string | null }
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+/** Roadmap 159: one draft on demand, and the opt-in schedule. Drafts wait for a person unless the business chooses otherwise. */
+function AutomationPanel({ onDraft }: { onDraft: (a: Article) => void }) {
+  const qc = useQueryClient();
+  const { can } = useSession();
+  const q = useQuery({ queryKey: ["website-seo-automation"], queryFn: () => api<AutomationData>("/website/seo/automation") });
+  const [d, setD] = useState<Automation | null>(null);
+  const [topic, setTopic] = useState("");
+  const s = d ?? q.data?.settings;
+  const save = useMutation({
+    mutationFn: (b: Automation) => api("/website/seo/automation", { method: "PUT", body: b }),
+    onSuccess: () => { toast.success("Saved"); setD(null); qc.invalidateQueries({ queryKey: ["website-seo-automation"] }); },
+    onError: (e) => toast.error(e),
+  });
+  if (!q.data || !s) return null;
+  const g = q.data.gate;
+  const set = (patch: Partial<Automation>) => setD({ ...s, ...patch });
+  return (
+    <>
+      <Block title="AI-assisted draft" hint="A first draft from your own business details and published products. You check every fact, change what you like, and decide whether to publish.">
+        {g.reason && <p className="rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground">{t(g.reason)}</p>}
+        <p className="num text-xs text-muted-foreground">{count(g.used)} / {count(g.quota)} {t("drafts this month")}</p>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-48 flex-1"><Field label="Topic" optional hint="Leave empty to let it suggest one that suits your business"><Input value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} /></Field></div>
+          <ActionButton online busyLabel="Writing the draft…" blockedBy={[!g.available && "Not available"]} onAction={async () => {
+            try {
+              const a = await api<Article>("/website/articles/ai-draft", { body: { topic } });
+              qc.invalidateQueries({ queryKey: ["website-articles"] });
+              qc.invalidateQueries({ queryKey: ["website-seo-automation"] });
+              onDraft(a);
+            } catch (e) {
+              toast.error(e);
+            }
+          }}><Sparkles /> {t("AI-assisted draft")}</ActionButton>
+        </div>
+      </Block>
+      <Block title="Scheduled drafts" hint="Off unless you switch it on. Each draft counts against your monthly limit.">
+        <ToggleRow label="Enable automated article drafting" checked={s.enabled} onChange={(v) => set({ enabled: v })} />
+        {q.data.next_run_at && !d && <p className="text-xs text-muted-foreground">{t("Next draft")}: {dateTime(q.data.next_run_at)}</p>}
+        <Grid2>
+          <Field label="How often"><Select value={s.frequency} onChange={(v) => set({ frequency: v as Automation["frequency"] })}><option value="weekly">{t("Weekly")}</option><option value="biweekly">{t("Every two weeks")}</option><option value="monthly">{t("Monthly")}</option></Select></Field>
+          <Field label="Day"><Select value={String(s.weekday)} onChange={(v) => set({ weekday: Number(v) })}>{DAYS.map((day, i) => <option key={day} value={String(i)}>{t(day)}</option>)}</Select></Field>
+          <Field label="Time" hint="In your business's time zone"><Input type="time" value={s.at_time} onChange={(e) => set({ at_time: e.target.value })} /></Field>
+          <Field label="Length"><Select value={s.length} onChange={(v) => set({ length: v as Automation["length"] })}><option value="short">{t("Short")}</option><option value="medium">{t("Medium")}</option><option value="long">{t("Long")}</option></Select></Field>
+          <Field label="Your industry" optional hint="Empty uses your business category"><Input value={s.industry} maxLength={120} onChange={(e) => set({ industry: e.target.value })} /></Field>
+          <Field label="Your readers" optional><Input value={s.audience} maxLength={200} onChange={(e) => set({ audience: e.target.value })} /></Field>
+          <Field label="Area" optional hint="Empty uses your service area"><Input value={s.area} maxLength={200} onChange={(e) => set({ area: e.target.value })} /></Field>
+          <Field label="Language" optional hint="Empty uses your website's language"><Input value={s.language} maxLength={40} onChange={(e) => set({ language: e.target.value })} /></Field>
+          <Field label="Writing tone" optional><Input value={s.tone} maxLength={80} onChange={(e) => set({ tone: e.target.value })} /></Field>
+        </Grid2>
+        <Field label="Content categories" optional hint="One per line"><Textarea rows={2} value={s.categories.join("\n")} onChange={(e) => set({ categories: e.target.value.split("\n").map((x) => x.trimStart()).slice(0, 20) })} /></Field>
+        <ToggleRow label="Link to my products where they fit" checked={s.link_products} onChange={(v) => set({ link_products: v })} />
+        <ToggleRow label="Require approval before publishing" hint="Recommended. Off publishes each draft with no one checking it first." checked={s.require_approval} disabled={!s.require_approval ? false : !can("website.publish")}
+          onChange={(v) => { if (v || window.confirm(t("Publish every AI draft with no one checking it first? Mistakes would go straight to your customers."))) set({ require_approval: v }); }} />
+        {d && <ActionButton online busy={save.isPending} busyLabel="Saving…" onAction={() => save.mutateAsync(d)}><Save /> {t("Save")}</ActionButton>}
+      </Block>
+    </>
+  );
+}
+
 export function ArticlesTab({ ov }: { ov: Overview }) {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<Article["status"] | "">("");
@@ -176,6 +242,7 @@ export function ArticlesTab({ ov }: { ov: Overview }) {
   if (isLoading || !data) return <Loading />;
   const total = Object.values(data.counts).reduce((a, n) => a + n, 0);
   return (
+    <div className="space-y-4">
     <Block title="Articles" hint="Helpful articles bring people to your website. Nothing is public until someone with publishing rights publishes it." action={
       <ActionButton size="sm" online busy={create.isPending} onAction={() => create.mutateAsync()}><FilePlus2 /> {t("Create article")}</ActionButton>
     }>
@@ -202,5 +269,7 @@ export function ArticlesTab({ ov }: { ov: Overview }) {
         </ul>
       )}
     </Block>
+    <AutomationPanel onDraft={setOpen} />
+    </div>
   );
 }

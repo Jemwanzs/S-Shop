@@ -1,6 +1,6 @@
 # Architecture
 
-*Checked against the code on 2026-11-04 (migrations 0001–0045). Update this page when a component, table, integration
+*Checked against the code on 2026-11-04 (migrations 0001–0046). Update this page when a component, table, integration
 or security rule changes.*
 
 ## Overview
@@ -127,7 +127,7 @@ supplier_return, damage, loss, write_off, adjustment, count_variance`. Individua
 | Operations | `error_events`, `service_starts` |
 
 Approval requests carry the requester's reason (`note`) and, when created together, a shared `bulk_ref` (migration 0043).
-A business's website articles live in `website_articles` (migration 0045).
+A business's website articles live in `website_articles` (migration 0045). AI drafts: `seo_automation`, `seo_ai_usage`, `seo_tenant_limits` (migration 0046).
 Passkey challenges may start with no person (`user_id` null, kind `discover`) until the signed answer identifies them (migration 0044).
 
 Document numbers (`RCP-2026-000001`, `ORD-…`, `TRF-…`, `RTN-…`) come from `doc_counters` per business and year.
@@ -229,3 +229,7 @@ builds the page's content and structured data from the published website and cat
 in the `site.html` shell (`#site-root`, `application/ld+json` blocks); `createRoot` replaces the content when the React app starts
 (no hydration, so the two can never disagree in a way React would reject). The S'Shop host's `/robots.txt` and `/sitemap.xml`
 (an index) are answered in `host_pages`, which also marks app pages `noindex`.
+
+## AI-assisted drafts (roadmap 159)
+
+`routes/seo_ai.rs` calls Claude over HTTP from its own background loop (every 15 minutes, a few businesses at a time, so a slow draft never delays housekeeping) and on request. Each run is one row in `seo_ai_usage`, inserted first with a unique `run_key`, which is what makes a slot happen once. The prompt is built from one business's published website through the same `site::published` the public pages use, so nothing hidden from the public can reach it.

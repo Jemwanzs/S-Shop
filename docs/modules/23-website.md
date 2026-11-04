@@ -70,6 +70,21 @@ draft: each article has its own life, **draft → pending review → scheduled o
   an address keeps the old one forwarding. The *Articles* link appears once one is live.
 - **Sharing:** Copy link, native share, WhatsApp, Facebook and LinkedIn on article and product pages open each network's own share page. Nothing is posted for anyone, and S'Shop never says it was.
 
+## 159 — AI-assisted drafts
+
+`routes/seo_ai.rs`, tables `seo_automation`, `seo_ai_usage`, `seo_tenant_limits`, `platform_settings['seo_ai']`. Claude's Messages API over HTTP (there is no official Anthropic SDK for Rust), model
+`claude-opus-5-5` unless `AI_MODEL` says otherwise, with structured output and server-side fallback when a request is declined.
+
+**Three switches, all off or cautious by default:** the platform owner's (Settings → Platform → **AI content**), the key on the server (`ANTHROPIC_API_KEY`), the business's own. New businesses start with automation off and approval on, and existing ones change nothing.
+
+**What the AI sees:** one business's published name, category, description, topics, areas, product categories, up to 60 products (name, category, description, page) and its existing article titles. Never costs, stock, customers or another business, and hidden prices are not included. Those details are marked as data, not instructions. **What comes back** is checked here: links only to the business's own pages, products only from its own catalogue, lengths fitted, near-copies refused.
+
+**After a draft:** on demand it opens in the editor as a draft. A scheduled one goes to *Pending review* and the people who may publish are told. With *Require approval before publishing* off, which needs `website.publish` and a confirmation, it publishes if it passes the same checks as a person's. The public page says *Drafted with AI assistance*, and who reviewed it when someone did.
+
+**Limits:** drafts per business per month (platform default 4, or a per-business limit), and a platform monthly budget in US dollars, estimated from tokens. When either is reached, drafts stop until the next month, and the business is told once. A scheduled slot is claimed in one statement, and `run_key` means it runs once, even across restarts or two copies of the server. A busy service is tried again an hour later, three times in all, then reported in Errors & alerts.
+
+**The platform owner sees** drafts, failures, tokens and estimated cost per business, and never titles, topics or text. The costs are estimates from public prices, not an invoice.
+
 ## 52 — Management Centre
 
 Tabs: **Overview · Content · Design · Products · Categories · Services · Testimonials · Media · Users & Access · Domain ·

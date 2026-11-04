@@ -98,7 +98,7 @@ export function ArticlePage({ data }: { data: SiteData }) {
         <p className="muted">{[a.author, day(a.published_at)].filter(Boolean).join(" · ")}</p>
         {a.cover && <img className="article-cover" src={a.cover} alt={a.cover_alt} fetchPriority="high" />}
         <div className="prose article-body" dangerouslySetInnerHTML={{ __html: a.html }} />
-        {a.ai_assisted && <p className="muted"><small>Drafted with AI assistance{a.reviewed_by ? ` and reviewed by ${a.reviewed_by}` : " and reviewed by our team"}.</small></p>}
+        {a.ai_assisted && <p className="muted"><small>Drafted with AI assistance{a.reviewed_by ? ` and reviewed by ${a.reviewed_by}` : ""}.</small></p>}
         <ShareBar title={a.title} />
       </article>
       {res!.products.length > 0 && (

@@ -30,6 +30,18 @@ pub fn spawn(state: AppState) {
             }
         }
     });
+    // Roadmap 159: AI-assisted article drafts have their own loop: one can take a minute or two, and nothing else should wait.
+    let drafter = state.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(15 * 60));
+        loop {
+            tick.tick().await;
+            if let Err(e) = crate::routes::seo_ai::run_due(&drafter).await {
+                tracing::warn!(error = %format!("{e:#}"), "AI article drafts");
+                crate::alerts::report("job", "AI article drafts failed", format!("{e:#}"), "", "AI article drafts (every 15 min)");
+            }
+        }
+    });
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(30)).await;
         let mut tick = tokio::time::interval(Duration::from_secs(15 * 60));

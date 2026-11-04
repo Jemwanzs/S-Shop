@@ -70,6 +70,8 @@ PS = {}
 RS_KEY = os.environ.get("SMOKE_RESEND_KEY", "")
 RS_WEBHOOK = os.environ.get("SMOKE_RESEND_WEBHOOK_SECRET", "")
 EMAILS = []
+AI_REQUESTS = []
+AI_REPLY = {}
 # Daraja stand-in (roadmap 91): the server is started with MPESA_SANDBOX_URL pointing here. Only the consumer key and
 # secret below get a token; a prompt is accepted only with a password built from the right passkey. Every accepted
 # prompt is kept (with its callback URL) so the suite can answer as Safaricom would.
@@ -117,6 +119,24 @@ class _Paystack(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path.startswith("/mpesa/"):
             return self._daraja()
+        if self.path == "/v1/messages":
+            # Roadmap 159: stands in for Claude. Records each request so the suite can check what a business's prompt holds.
+            if self.headers.get("x-api-key") != "test-ai-stand-in" or not self.headers.get("anthropic-version"):
+                return self._send(401, {"error": {"message": "invalid x-api-key"}})
+            req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            AI_REQUESTS.append(req)
+            mode = AI_REPLY.get("mode")
+            if mode == "busy":
+                return self._send(529, {"error": {"message": "overloaded"}})
+            if mode == "refusal":
+                return self._send(200, {"model": req["model"], "stop_reason": "refusal", "content": [], "usage": {"input_tokens": 10, "output_tokens": 0}})
+            AI_REPLY["n"] = AI_REPLY.get("n", 0) + 1
+            n = "repeat" if mode == "repeat" else AI_REPLY["n"]
+            words = " ".join(f"point{n}x{i}" for i in range(120))
+            draft = {"title": f"A helpful guide {n}", "seo_title": f"A helpful guide {n}", "description": f"What to know, part {n}.", "slug": f"helpful-guide-{n}", "category": "Guides",
+                     "body": f"## First things\n\n{words}\n\nSee [this page]({AI_REPLY.get('link', '/products')}) and [elsewhere](https://rival.example/page).", "product_paths": AI_REPLY.get("paths", [])}
+            return self._send(200, {"model": req["model"], "stop_reason": "end_turn", "usage": {"input_tokens": 1000, "output_tokens": 500},
+                                    "content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": json.dumps(draft)}]})
         if self.path == "/emails":
             if not RS_KEY or self.headers.get("Authorization") != "Bearer " + RS_KEY:
                 return self._send(401, {"message": "API key is invalid"})
@@ -1919,6 +1939,67 @@ check("the list says how many in each state", call("GET", "/website/articles", *
 r = call("POST", "/website/articles", {"title": "No website"}, expect=422)
 check("articles need the website service", r["error"]["title"] == "Website not active", r)
 call("POST", f"/website/articles/{art['id']}/status", {"action": "archive"}, **T2)
+
+# Roadmap 159: AI-assisted drafts, off until the platform owner and the business both say so.
+r = call("POST", "/website/articles/ai-draft", {"topic": "anything"}, **T2, expect=422)
+check("roadmap 159: off by default, and nothing is sent to the AI service", "not switched on" in r["error"]["message"] and AI_REQUESTS == [], r)
+auto = call("GET", "/website/seo/automation", **T2)
+check("a business starts with automation off and approval on", auto["settings"]["enabled"] is False and auto["settings"]["require_approval"] is True and auto["settings"]["frequency"] == "weekly" and auto["gate"]["available"] is False, auto)
+r = call("PUT", "/website/seo/automation", {**auto["settings"], "enabled": True}, **T2, expect=422)
+check("it cannot be switched on before the platform allows it", r["error"]["title"] == "Not available", r)
+call("GET", "/platform/seo-ai", **T2, expect=403)
+call("PUT", "/platform/seo-ai", {"enabled": True, "monthly_quota": 100, "monthly_budget_usd": 1000}, **T2, expect=403)
+check("only the platform owner controls it", True)
+call("PUT", "/platform/seo-ai", {"enabled": True, "monthly_quota": 4, "monthly_budget_usd": 50})
+pf = call("GET", "/platform/seo-ai")
+check("the platform owner sees the key is set (never the key) and the model", pf["key_configured"] is True and pf["model"] == "claude-opus-5-5" and "test-ai-stand-in" not in json.dumps(pf), pf["model"])
+AI_REQUESTS.clear()
+AI_REPLY.update({"paths": [f'/products/{pbag["slug"]}'], "link": f'/products/{pbag["slug"]}'})
+d1 = call("POST", "/website/articles/ai-draft", {"topic": "How to look after it"}, **T2)
+req_ = AI_REQUESTS[-1]
+prompt_ = json.dumps(req_)
+check("a draft is a draft: marked, not public", d1["status"] == "draft" and d1["ai_assisted"] is True and crawl(f"{sroot}/articles/{d1['slug']}")[0] == 404, d1["status"])
+check("the request is the current API shape", req_["model"] == "claude-opus-5-5" and req_["fallbacks"] == "default" and req_["output_config"]["format"]["type"] == "json_schema" and "temperature" not in req_ and "thinking" not in req_, list(req_.keys()))
+check("the prompt holds this business's catalogue and the topic", f"Leather Bag {suffix}" in prompt_ and "How to look after it" in prompt_ and dk_name in prompt_)
+check("…never another business's, nor costs or stock", f"Nduma {suffix}" not in prompt_ and f"Classic Watch {suffix}" not in prompt_ and "cost_price" not in prompt_ and "on_hand" not in prompt_)
+check("only links inside the website survive", f'(/products/{pbag["slug"]})' in d1["body"] and "rival.example" not in d1["body"], d1["body"][-120:])
+check("the product it mentions is attached", d1["product_ids"] == [bag], d1["product_ids"])
+call("POST", "/website/articles/ai-draft", {"topic": "x"}, **WR)
+pf = call("GET", "/platform/seo-ai")
+row_ = next(x for x in pf["tenants"] if x["id"] == dk)
+check("usage is counted per business, with cost", row_["drafts"] == 2 and float(row_["cost_usd"]) > 0 and row_["tokens"] == 3000, row_)
+check("the platform view has totals, never content", "helpful guide" not in json.dumps(pf).lower() and "How to look after" not in json.dumps(pf))
+check("the business sees its own count against its limit", call("GET", "/website/seo/automation", **T2)["gate"]["used"] == 2)
+AI_REPLY["mode"] = "repeat"
+call("POST", "/website/articles/ai-draft", {"topic": "first of two the same"}, **T2)
+r = call("POST", "/website/articles/ai-draft", {"topic": "again"}, **T2, expect=422)
+check("a draft too close to an existing article is not saved", r["error"]["title"] == "Very similar article", r)
+AI_REPLY.pop("mode")
+r = call("POST", "/website/articles/ai-draft", {"topic": "over"}, **T2, expect=422)
+check("the monthly limit stops further drafts", "limit has been reached" in r["error"]["message"], r)
+call("PUT", f"/platform/tenants/{dk}/seo-ai", {"ai_enabled": None, "monthly_quota": 50})
+AI_REPLY["mode"] = "refusal"
+r = call("POST", "/website/articles/ai-draft", {"topic": "declined"}, **T2, expect=422)
+check("a declined request saves nothing and says so", "declined" in r["error"]["message"], r)
+AI_REPLY.pop("mode")
+call("PUT", f"/platform/tenants/{dk}/seo-ai", {"ai_enabled": False, "monthly_quota": 50})
+r = call("POST", "/website/articles/ai-draft", {"topic": "off"}, **T2, expect=422)
+check("the platform owner can switch one business off", "not switched on" in r["error"]["message"], r)
+call("PUT", f"/platform/tenants/{dk}/seo-ai", {"ai_enabled": None, "monthly_quota": None})
+call("PUT", f"/platform/tenants/{dk}/seo-ai", {"ai_enabled": None, "monthly_quota": 50})
+s_ = call("GET", "/website/seo/automation", **T2)["settings"]
+r = call("PUT", "/website/seo/automation", {**s_, "enabled": True, "frequency": "biweekly", "weekday": 2, "at_time": "10:30", "industry": "Bags and hats", "audience": "Commuters", "language": "French", "tone": "warm"}, **T2)
+check("a business opts in and gets its next slot", r["next_run_at"] is not None, r)
+check("its choices are kept", call("GET", "/website/seo/automation", **T2)["settings"]["frequency"] == "biweekly")
+call("PUT", "/website/seo/automation", {**s_, "enabled": True, "at_time": "25:00"}, **T2, expect=400)
+call("PUT", "/website/seo/automation", {**s_, "require_approval": False}, **WR, expect=403)
+check("automatic publishing needs someone who may publish", True)
+AI_REQUESTS.clear()
+call("POST", "/website/articles/ai-draft", {"topic": "with settings"}, **T2)
+check("its language and tone reach the prompt", "French" in AI_REQUESTS[-1]["messages"][0]["content"] and "warm" in AI_REQUESTS[-1]["messages"][0]["content"] and "Bags and hats" in AI_REQUESTS[-1]["messages"][0]["content"])
+call("PUT", "/website/seo/automation", {**s_, "enabled": False}, **T2)
+check("switched off: no next slot", call("GET", "/website/seo/automation", **T2)["next_run_at"] is None)
+call("PUT", "/platform/seo-ai", {"enabled": False, "monthly_quota": 4, "monthly_budget_usd": 50})
 # Roadmap 80: sorting by real data, paging counted in products, in-stock filter
 ids = lambda q_: [p["id"] for p in call("GET", f"/site/products?slug={dk_slug}{q_}", **PUB)["items"]]
 by_name = ids("&sort=name_desc")

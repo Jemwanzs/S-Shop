@@ -29,8 +29,7 @@ import {
   type LucideIcon,
   FileSpreadsheet,
   Palette,
-  Lock,
-} from "lucide-react";
+  Lock, Sparkles } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { BrandingSettings } from "./Branding";
 import { BooksSettings } from "./Books";
@@ -54,6 +53,7 @@ import { PlatformActivity } from "./PlatformActivity";
 import { ErrorsSettings } from "./Errors";
 import { PlatformBilling } from "./PlatformBilling";
 import { WebsiteSettings } from "./website/Website";
+import { PlatformSeoAi } from "./PlatformSeoAi";
 import { t } from "@/lib/i18n";
 
 const WEBSITE_PERMS = ["website.view", "website.content", "website.products", "website.photos", "website.categories", "website.media", "website.services",
@@ -97,6 +97,7 @@ const SECTIONS: SectionDef[] = [
   // "platform": only platform administrators (PLATFORM_ADMIN_EMAILS) see this section.
   { path: "tenants", label: "Tenants", group: "Platform", icon: Users2, perm: "platform", element: <TenantsSettings /> },
   { path: "platform-security", label: "Security & features", group: "Platform", icon: ShieldCheck, perm: "platform", element: <PlatformSecuritySettings /> },
+  { path: "platform-ai", label: "AI content", group: "Platform", icon: Sparkles, perm: "platform", element: <PlatformSeoAi /> },
   { path: "businesses", label: "Businesses", group: "Platform", icon: Network, perm: "platform", element: <BusinessesSettings /> },
   { path: "platform-billing", label: "Platform billing", group: "Platform", icon: Banknote, perm: "platform", element: <PlatformBilling /> },
   { path: "activity", label: "Activity", group: "Platform", icon: Activity, perm: "platform", element: <PlatformActivity /> },

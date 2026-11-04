@@ -564,6 +564,15 @@
           ]
         },
         {
+          "title": "Get an AI-assisted draft of an article",
+          "steps": [
+            "Settings → Website → SEO & Organic Growth → Articles & Content Automation. If it says it is not switched on, ask S'Shop support.",
+            "Type a Topic or leave it empty, and tap AI-assisted draft. The draft opens for you to edit; it is not public.",
+            "Check every fact and change what you like. The draft uses only your own details, but it can still be wrong, and you are responsible for what you publish.",
+            "To get drafts on a schedule, switch on Enable automated article drafting and choose How often, the Day and the Time. Keep Require approval before publishing on."
+          ]
+        },
+        {
           "title": "Connect M-Pesa (STK Push)",
           "steps": [
             "Settings → M-Pesa & WhatsApp → Add account.",

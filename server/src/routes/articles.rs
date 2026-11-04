@@ -61,7 +61,7 @@ pub struct ArticleRow {
     pub updated_at: DateTime<Utc>,
 }
 
-const COLUMNS: &str = "a.id, a.slug, a.title, a.seo_title, a.description, a.body, a.cover_media, a.cover_alt, a.category, a.author_name, a.product_ids, a.status, a.scheduled_at,
+pub const COLUMNS: &str = "a.id, a.slug, a.title, a.seo_title, a.description, a.body, a.cover_media, a.cover_alt, a.category, a.author_name, a.product_ids, a.status, a.scheduled_at,
     COALESCE(a.published_at, CASE WHEN a.status = 'scheduled' AND a.scheduled_at <= now() THEN a.scheduled_at END) AS published_at, a.ai_assisted, a.reviewed_by, a.views, a.created_at, a.updated_at";
 
 // ── Text → safe HTML ────────────────────────────────────────────────────────────────────────────────────────────────

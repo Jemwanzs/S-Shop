@@ -26,6 +26,7 @@ pub mod prefs;
 pub mod reports;
 pub mod sales;
 pub mod search;
+pub mod seo_ai;
 pub mod site;
 pub mod site_seo;
 pub mod stock;
@@ -86,6 +87,7 @@ pub fn api() -> Router<AppState> {
         .merge(website::routes())
         .merge(site::routes())
         .merge(articles::routes())
+        .merge(seo_ai::routes())
         .merge(crate::alerts::routes())
 }
 

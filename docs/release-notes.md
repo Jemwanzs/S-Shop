@@ -9,6 +9,13 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-18
+
+- **Camera scanning** — the same barcode counts again only 3 seconds after it was last counted, each barcode on its own clock; another barcode counts at once. While waiting the scanner shows *Please wait — same barcode ready in 2.1s*, with no sound. (163, [module 19](modules/19-barcode-scanning.md))
+- **Stock taking on or off** — Settings → Stock → Stock settings → *Enable stock taking* (on by default, every branch). Off hides *Stock take*; past counts and counts waiting for approval are kept. (164, [module 07](modules/07-stock.md))
+- **Quantity controls** — after a scan: a large quantity, green **+**, **−** and Delete; tap the quantity to set it or add to it. Products that give each item its own barcode keep + and − off and explain why. Also fixed: tapping a quantity no longer restarts the camera. (165, [module 19](modules/19-barcode-scanning.md))
+- **Security: PostgreSQL only** — SQLite and MySQL code removed from the server's dependencies (RUSTSEC-2026-0459 and RUSTSEC-2023-0071 gone), `zip` updated (RUSTSEC-2026-0548); no advisory is ignored any more. (166, [architecture](architecture.md))
+
 ## 2026-11-05
 
 - **Replacing a barcode label** — *Replace label* now shows the current barcode and the new one first, and the item changes only when you tap *Save Barcode* or *Save & Print*. Until then the old label keeps working, and Cancel leaves everything as it was. Printing and downloads never change a barcode, and print-only screens have *Done*. Businesses can require approval (*Item barcode replacement*, off by default). Product details can print a shared barcode's label, and the product form shows the current barcode before Generate replaces it. (162, [module 38](modules/38-item-barcodes-labels.md))

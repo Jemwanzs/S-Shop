@@ -2,6 +2,11 @@
 members = ["server"]
 resolver = "2"
 
+# PostgreSQL only: sqlx's optional SQLite and MySQL drivers are replaced by empty stand-ins (vendor/README.md).
+[patch.crates-io]
+sqlx-sqlite = { path = "vendor/sqlx-sqlite" }
+sqlx-mysql = { path = "vendor/sqlx-mysql" }
+
 [profile.release]
 lto = "thin"
 codegen-units = 4

@@ -14,7 +14,7 @@ or security rule changes.*
                                             ├─ /assets, /*       built React app (SPA fallback)
                                             └─ background jobs   every minute (STK) and every 15 min
                                                      │
-                                      PostgreSQL 16 (Railway) ◀── migrations run at start-up
+                                      PostgreSQL 16 (Railway) ◀── migrations run at start-up (the only database)
  Safaricom Daraja ◀── STK Push / status ──────────────┤
  Paystack ◀── platform billing payments ──────────────┤
  Resend ◀── onboarding & account emails ──────────────┤
@@ -171,7 +171,10 @@ Schema changes are numbered migrations in `server/migrations` (applied at start-
 - Strict CSP, HSTS and no framing.
 - Cost prices and item barcodes are masked for roles without the right permission.
 - CI runs `cargo audit` and `npm audit` on every push and weekly (reported, not gating deploys; advisories are fixed
-  as their own change).
+  as their own change). `.cargo/audit.toml` ignores nothing.
+- **PostgreSQL only (roadmap 166):** sqlx's optional SQLite and MySQL drivers are replaced by empty stand-ins
+  (`vendor/`, `[patch.crates-io]`), so neither is in `Cargo.lock` or the build; enabling either fails the build, and
+  CI's `scripts/postgres_only_check.py` fails if their code returns to the lockfile.
 
 **Operations**
 - Faults, failed background jobs, restarts and an unreachable database alert the platform owner in-app and by email,

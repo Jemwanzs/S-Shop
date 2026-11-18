@@ -39,6 +39,7 @@ cd web && npm run dev              # UI on :5173, proxies /api to :8080 (overrid
 | `python scripts/smoke_test.py <url> <email> <pin>` | End-to-end checks of every critical flow (**scratch database only** — it creates data). CI runs it on every push with stand-ins for Paystack, Resend, Daraja and exchange rates; see `.github/workflows/ci.yml` for the server variables |
 | `node scripts/manual/build.mjs` | Rebuild the Product User Manual PDF from `docs/manual/manual.json` ([module 31](modules/31-product-user-manual.md)) |
 | `python scripts/docs_check.py` | Documentation check (also in CI): every module doc indexed, no broken links between docs |
+| `python scripts/postgres_only_check.py` | PostgreSQL only (also in CI): no SQLite or MySQL code in `Cargo.lock` (roadmap 166, `vendor/README.md`) |
 
 ## Conventions
 

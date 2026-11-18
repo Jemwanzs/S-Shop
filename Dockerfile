@@ -14,6 +14,8 @@ FROM rust:1-bookworm AS server
 WORKDIR /src
 # Cache dependencies separately from application code.
 COPY Cargo.toml Cargo.lock ./
+# PostgreSQL only: empty stand-ins for sqlx's SQLite and MySQL drivers (vendor/README.md).
+COPY vendor/ vendor/
 COPY server/Cargo.toml server/Cargo.toml
 RUN mkdir -p server/src && echo "fn main() {}" > server/src/main.rs \
     && cargo build --release -p sshop \

@@ -57,6 +57,9 @@ jobs:
       # ── Documentation is part of done (roadmap 146): index, links, user guide, architecture ──
       - name: Docs — check
         run: python3 scripts/docs_check.py
+      # ── PostgreSQL only (roadmap 166): no SQLite or MySQL code in Cargo.lock ──
+      - name: PostgreSQL only — check
+        run: python3 scripts/postgres_only_check.py
 
       # ── Web app: types, lint, production build (the server serves web/dist) ──
       - uses: actions/setup-node@v4

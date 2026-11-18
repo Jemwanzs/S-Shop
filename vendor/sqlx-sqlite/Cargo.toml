@@ -1,0 +1,25 @@
+# S'Shop is PostgreSQL only. This empty crate stands in for sqlx's optional SQLite driver so that neither the driver nor
+# its dependencies are in Cargo.lock (see vendor/README.md). It has no code: if anything ever enables it, the build fails.
+[package]
+name = "sqlx-sqlite"
+version = "0.8.6"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+
+# The same feature names as the real driver, so sqlx's optional references still resolve. None of them does anything.
+[features]
+any = []
+bundled = []
+chrono = []
+json = []
+migrate = []
+offline = []
+preupdate-hook = []
+regexp = []
+time = []
+unbundled = []
+uuid = []

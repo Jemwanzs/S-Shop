@@ -65,21 +65,20 @@ export function devicePlatform(): DevicePlatform {
   return "other";
 }
 
-/** What this device calls it: the switch, its explanation, the button that starts the device's check, and sign-in. */
+/** What this device calls it: the card's title, the switch, its explanation, the button that starts the device's check, and
+ * sign-in. Roadmap 167: a name only where the device family settles it; where the exact method cannot be known (a Mac may
+ * have no Touch ID; Linux, ChromeOS and others), the generic *Device Authentication & Passkeys*. */
 export function passkeyWording(platform = devicePlatform()) {
   switch (platform) {
     case "iphone":
-      return { toggle: "Enable Face ID / Passkey Login", hint: "Use your iPhone's supported device authentication.", action: "Use Face ID / Passkey", signIn: "Sign in with Face ID / Passkey" };
     case "ipad":
-      return { toggle: "Enable Face ID / Passkey Login", hint: "Use your iPad's supported device authentication.", action: "Use Face ID / Passkey", signIn: "Sign in with Face ID / Passkey" };
+      return { title: "Face ID / Touch ID & Passkey Login", toggle: "Enable Face ID / Touch ID & Passkey Login", hint: `Use your ${platform === "ipad" ? "iPad" : "iPhone"}'s Face ID, Touch ID or passcode, whichever it is set up with.`, action: "Use Face ID / Touch ID", signIn: "Sign in with Passkey" };
     case "android":
-      return { toggle: "Enable Biometric / Passkey Login", hint: "Use fingerprint, supported face authentication or device screen lock.", action: "Use Biometric / Passkey", signIn: "Sign in with Biometric / Passkey" };
+      return { title: "Biometric & Passkey Login", toggle: "Enable Biometric & Passkey Login", hint: "Use your phone's fingerprint, face unlock or screen lock, whichever it is set up with.", action: "Use Biometric / Passkey", signIn: "Sign in with Passkey" };
     case "windows":
-      return { toggle: "Enable Windows Hello / Passkey Login", hint: "Use Windows Hello or another supported authenticator.", action: "Use Windows Hello / Passkey", signIn: "Sign in with Windows Hello / Passkey" };
-    case "mac":
-      return { toggle: "Enable Touch ID / Passkey Login", hint: "Use Touch ID, your Mac's password or another supported authenticator.", action: "Use Touch ID / Passkey", signIn: "Sign in with Touch ID / Passkey" };
+      return { title: "Windows Hello & Passkey Login", toggle: "Enable Windows Hello & Passkey Login", hint: "Use Windows Hello (face, fingerprint or PIN), a phone nearby or a security key.", action: "Use Windows Hello / Passkey", signIn: "Sign in with Passkey" };
     default:
-      return { toggle: "Enable Passkey Login", hint: "Use your device's screen lock or another supported authenticator.", action: "Use a Passkey", signIn: "Sign in with a Passkey" };
+      return { title: "Device Authentication & Passkeys", toggle: "Enable Device Authentication & Passkeys", hint: "Use your device's own check (Touch ID, password or screen lock), a phone nearby or a security key.", action: "Use a Passkey", signIn: "Sign in with Passkey" };
   }
 }
 

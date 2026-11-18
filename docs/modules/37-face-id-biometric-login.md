@@ -37,25 +37,44 @@ Sign in with the device's own **Face ID, Touch ID, fingerprint, Windows Hello or
 The wording follows the device family (`passkeyWording` in `lib/passkey.ts`), and never promises a specific biometric: the
 browser cannot say which check the device will use.
 
-| Device | Switch | Explanation |
+Roadmap 167: the card's title names the device's own check only where the device family settles it.
+
+| Device | Card title (switch: *Enable …*) | Explanation |
 |---|---|---|
-| iPhone, iPad | Enable Face ID / Passkey Login | Use your iPhone's (iPad's) supported device authentication. |
-| Android | Enable Biometric / Passkey Login | Use fingerprint, supported face authentication or device screen lock. |
-| Windows | Enable Windows Hello / Passkey Login | Use Windows Hello or another supported authenticator. |
-| Mac | Enable Touch ID / Passkey Login | Use Touch ID, your Mac's password or another supported authenticator. |
-| Other | Enable Passkey Login | Use your device's screen lock or another supported authenticator. |
+| iPhone, iPad | Face ID / Touch ID & Passkey Login | Use your iPhone's (iPad's) Face ID, Touch ID or passcode, whichever it is set up with. |
+| Android | Biometric & Passkey Login | Use your phone's fingerprint, face unlock or screen lock, whichever it is set up with. |
+| Windows | Windows Hello & Passkey Login | Use Windows Hello (face, fingerprint or PIN), a phone nearby or a security key. |
+| Mac, Linux, ChromeOS, other | Device Authentication & Passkeys | Use your device's own check (Touch ID, password or screen lock), a phone nearby or a security key. |
+
+A Mac may have no Touch ID, and no Android phone is called Face ID-capable. The sign-in button reads **Sign in with
+Passkey** everywhere; the device's own prompt shows its method.
 
 | State shown | Meaning |
 |---|---|
-| Ready to set up | Allowed here, no passkey yet |
-| Not configured | No passkey, and it cannot be set up from this session (limited session, other address) |
-| Enabled on this device | The server lists the passkey this browser remembers |
+| Ready to set up | No passkey yet (from a Quick PIN session the card says to sign in fully first) |
+| Setting up | The set-up dialog is open |
+| Enabled | The server lists the passkey this browser remembers |
 | Enabled on another device | The server lists passkeys, none known to this browser (it may still be on this device: Safari and the home-screen app do not share storage) |
-| Passkey unavailable | This browser remembers a passkey the server no longer has |
-| Unsupported browser or device · Not available | No WebAuthn here · switched off by the platform or the business, or not for this role |
-| Waiting for your device… · message in the dialog | Set-up in progress · cancelled, already on this device, or failed |
+| Credential removed | This browser remembers a passkey the server no longer has (removed, PIN changed, signed out everywhere) |
+| Setup failed | The last set-up here was refused by the device or the server (a cancel is not a failure) |
+| Authentication unavailable | No WebAuthn in this browser, another address than S'Shop's own, or switched off by the platform, the business or for this role |
 
-The switch always follows the server's list of passkeys, never a saved preference.
+The state always follows the server's list of passkeys, never the switch: turning it on opens set-up, and *Enabled*
+appears only after the server has verified the passkey.
+
+**Sign-in that does not go through (roadmap 167).** No session is ever opened without the server's verified answer.
+The sign-in page shows **Authentication unsuccessful** with the reason, **Try again** (a direct tap, so iPhones show the
+prompt) and **Use another sign-in method** (email and PIN, or the Quick PIN keypad):
+
+| Case | Message | Try again |
+|---|---|---|
+| Cancelled, timed out, or the device check not passed (the browser does not say which, on purpose) | The check was cancelled or timed out on your device. Nothing was sent. | Yes, with the same challenge |
+| Device or browser cannot (no passkey support, wrong address) | The device's reason | No |
+| Passkey removed or revoked | This device's passkey is no longer active. Sign in with your email and PIN, then set it up again. | No: the full sign-in opens |
+| Server refused the answer | We couldn't verify your device authentication. Please try again or use another sign-in method. | Yes, with a new challenge |
+| Too many attempts | The rate-limit message | No |
+
+S'Shop cannot tell whether a face matched: the device decides and only says the check passed.
 
 ## Why the tap matters, and the home-screen app
 

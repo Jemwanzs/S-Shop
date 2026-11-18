@@ -321,10 +321,10 @@
         {
           "title": "Turn on Face ID or fingerprint sign-in",
           "steps": [
-            "Open Preferences and find Face ID & Biometric Login. The switch is named for your device: Enable Face ID / Passkey Login on an iPhone, Enable Biometric / Passkey Login on Android, Enable Windows Hello / Passkey Login on Windows.",
+            "Open Preferences. The card is named for your device: Face ID / Touch ID & Passkey Login on an iPhone or iPad, Biometric & Passkey Login on Android, Windows Hello & Passkey Login on Windows, Device Authentication & Passkeys elsewhere.",
             "Turn the switch on (or tap Set up this device), enter your current PIN and tap Continue.",
-            "Tap the button that appears, such as Use Face ID / Passkey, and confirm when your device asks.",
-            "Check that it now says Enabled on this device. Next time, tap the button on the sign-in page, such as Sign in with Face ID / Passkey."
+            "Tap the button that appears, such as Use Face ID / Touch ID, and confirm when your device asks. Your device shows its own prompt.",
+            "Check that it now says Enabled. Next time, tap Sign in with Passkey on the sign-in page."
           ]
         },
         {
@@ -332,7 +332,7 @@
           "steps": [
             "iPhone: works in Safari and in S'Shop added to the Home Screen. A passkey set up in one is on the phone for both: tap the sign-in button and choose it.",
             "Android: use Chrome or the installed app. Your phone chooses fingerprint, face or screen lock.",
-            "If the check is cancelled or does not work, your email and PIN always sign you in.",
+            "If the check is cancelled or does not work, the sign-in page says Authentication unsuccessful: tap Try again, or Use another sign-in method (your email and PIN always work).",
             "Lost or replaced a device: sign in with your email and PIN on another device, open Preferences and remove it. Your other devices keep working."
           ]
         },

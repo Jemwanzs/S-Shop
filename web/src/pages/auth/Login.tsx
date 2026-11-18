@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
 import { PinPad } from "@/components/PinPad";
 import { forgetQuickDevice, preferredMethod, quickDevice, rememberMethod } from "@/lib/quick";
-import { finishSignIn, forgetPasskey, onPasskeySite, PasskeyCancelled, passkeyDevice, passkeysSupported, passkeyWording, platformAuthenticator, prepareSignIn, rememberPasskey, SIGN_IN_FRESH_MS, type PreparedSignIn } from "@/lib/passkey";
+import { finishSignIn, forgetPasskey, onPasskeySite, PasskeyCancelled, PasskeyProblem, passkeyDevice, passkeysSupported, passkeyWording, platformAuthenticator, prepareSignIn, rememberPasskey, SIGN_IN_FRESH_MS, type PreparedSignIn } from "@/lib/passkey";
 import { AuthLabel, AuthLayout } from "./AuthLayout";
 import { t } from "@/lib/i18n";
 import { SShopLoader } from "@/components/SShopLoader";
@@ -52,6 +52,8 @@ export default function LoginPage() {
   // Safari lives on the iPhone, but the home-screen app does not share Safari's storage.
   const [pkOffered, setPkOffered] = useState(false);
   const prepared = useRef<PreparedSignIn | null>(null);
+  // Roadmap 167: why the last passkey sign-in did not go through. `retry` false: trying again cannot work (no passkey left).
+  const [pkFail, setPkFail] = useState<{ reason: string; retry: boolean } | null>(null);
   const credentialId = pk?.credential_id;
   const prepare = useCallback(async () => {
     try {
@@ -163,15 +165,19 @@ export default function LoginPage() {
       return;
     }
     setError("");
+    setPkFail(null);
     setBusy(true);
     try {
       const res = await finishSignIn(ready);
       rememberPasskey({ credential_id: res.credential_id, email: res.profile.user.email, name: res.profile.user.name, business: res.profile.tenant.name, slug: res.profile.tenant.slug });
       enter(res);
     } catch (err) {
+      // Never signed in on a failure: only the server's verified answer opens a session.
       if (err instanceof PasskeyCancelled) {
         // Nothing reached the server: the same challenge can answer the next tap.
-        setError(t("Check cancelled or timed out — try again or use your PIN"));
+        setPkFail({ reason: "The check was cancelled or timed out on your device. Nothing was sent.", retry: true });
+      } else if (err instanceof PasskeyProblem) {
+        setPkFail({ reason: err.kind === "failed" ? "We couldn't verify your device authentication. Please try again or use another sign-in method." : err.message, retry: err.kind === "failed" });
       } else {
         prepared.current = null;
         // The passkey was removed or revoked (PIN changed, signed out everywhere): back to the full sign-in for good.
@@ -180,8 +186,12 @@ export default function LoginPage() {
           setPk(null);
           if (pk) setEmail(pk.email);
           setMode("full");
+          setPkFail({ reason: "This device's passkey is no longer active. Sign in with your email and PIN, then set it up again in your preferences.", retry: false });
+        } else if (err instanceof ApiError && err.code === "rate_limited") {
+          setPkFail({ reason: errorMessage(err), retry: false });
+        } else {
+          setPkFail({ reason: "We couldn't verify your device authentication. Please try again or use another sign-in method.", retry: true });
         }
-        setError(errorMessage(err));
         void prepare();
       }
     } finally {
@@ -193,6 +203,18 @@ export default function LoginPage() {
       <ScanFace /> {t(passkeyWording().signIn)}
     </Button>
   );
+  // Roadmap 167: a failed, cancelled or impossible device check — never a session — with the two ways on.
+  const passkeyFailure = pkFail && (
+    <div role="alert" className="space-y-2 rounded-lg bg-destructive/10 p-3 text-sm">
+      <p className="font-semibold text-destructive">{t("Authentication unsuccessful")}</p>
+      <p className="text-xs text-foreground/80">{t(pkFail.reason)}</p>
+      <div className="flex flex-wrap gap-2 pt-1">
+        {/* A direct tap starts the device's check again (iPhones need the tap). */}
+        {pkFail.retry && pkOffered && <Button type="button" size="sm" onClick={passkeyLogin} disabled={busy}><ScanFace /> {t("Try again")}</Button>}
+        <Button type="button" size="sm" variant="outline" onClick={() => { setPkFail(null); if (mode !== "quick") document.querySelector<HTMLInputElement>('input[type="email"]')?.focus(); }}>{t("Use another sign-in method")}</Button>
+      </div>
+    </div>
+  );
 
   if (mode === "quick" && device) {
     return (
@@ -203,6 +225,7 @@ export default function LoginPage() {
           <PinPad key={shake} value={quick} onChange={(v) => { setQuick(v); setError(""); }} onSubmit={quickLogin} disabled={busy} error={shake > 0 && !quick} />
           {busy && <SShopLoader size="md" className="mx-auto flex" label="Signing in…" />}
           {passkeyButton}
+          {passkeyFailure}
           {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">{error}</p>}
           <div className="flex items-center justify-between text-xs font-medium">
             <button type="button" className="text-primary hover:underline" onClick={() => { rememberMethod("full"); setEmail(device.email); setMode("full"); setError(""); }}>{t("Use password instead")}</button>
@@ -236,6 +259,7 @@ export default function LoginPage() {
           <div className="space-y-3">
             {pk && <p className="text-center text-sm text-muted-foreground">{t("Welcome back")}, <span className="text-foreground">{pk.name.split(" ")[0]}</span> · {pk.business}</p>}
             {passkeyButton}
+            {passkeyFailure}
             <p className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">{t("or use your email and PIN")}</p>
           </div>
         )}

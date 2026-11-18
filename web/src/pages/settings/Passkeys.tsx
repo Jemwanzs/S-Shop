@@ -1,5 +1,7 @@
 /** Face ID & Biometric Login (roadmap 132): the person's own passkeys (User preferences, below Quick Login PIN). The
- * device checks the face, fingerprint or screen lock itself — S'Shop never receives or stores biometric data. */
+ * device checks the face, fingerprint or screen lock itself — S'Shop never receives or stores biometric data.
+ * Roadmap 167: the title names this device's own check, and the state is one of Ready to set up, Setting up, Enabled,
+ * Authentication unavailable, Setup failed or Credential removed — from the server's list, never from the switch. */
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fingerprint, ScanFace, ShieldCheck, Trash2 } from "lucide-react";
@@ -29,8 +31,6 @@ interface Status {
   user_handle: string;
 }
 
-const TITLE = "Face ID & Biometric Login";
-
 export function PasskeyCard() {
   const qc = useQueryClient();
   const { profile } = useSession();
@@ -39,6 +39,10 @@ export function PasskeyCard() {
   const [confirmOff, setConfirmOff] = useState(false);
   const [here, setHere] = useState(passkeyDevice);
   const [builtIn, setBuiltIn] = useState<boolean | null>(null);
+  // The last set-up on this page failed (not a cancel): shown until the next attempt.
+  const [failed, setFailed] = useState(false);
+  const words = passkeyWording();
+  const TITLE = words.title;
   useEffect(() => { void platformAuthenticator().then(setBuiltIn); }, []);
   const refresh = () => qc.invalidateQueries({ queryKey: ["passkeys"] });
   const off = useMutation({
@@ -72,20 +76,19 @@ export function PasskeyCard() {
   // The browser remembers a passkey the server no longer has (removed elsewhere, PIN changed).
   const unavailable = !!here && !thisDevice;
   const canSetUp = s.available && !s.quick_session && supported && rightSite;
-  const words = passkeyWording();
-  // Roadmap 155: what the card says always follows the server's list of passkeys, never a saved preference.
-  const [state, tone]: [string, Tone] = !supported ? ["Unsupported browser or device", "neutral"]
-    : !s.available ? ["Not available", "neutral"]
-    : thisDevice ? ["Enabled on this device", "success"]
-    : unavailable ? ["Passkey unavailable", "warning"]
+  // Roadmap 155/167: what the card says always follows the server's list of passkeys, never the switch.
+  const [state, tone]: [string, Tone] = !supported || !s.available || !rightSite ? ["Authentication unavailable", "neutral"]
+    : setup ? ["Setting up", "info"]
+    : thisDevice ? ["Enabled", "success"]
+    : unavailable ? ["Credential removed", "warning"]
+    : failed ? ["Setup failed", "danger"]
     : s.enabled ? ["Enabled on another device", "info"]
-    : canSetUp ? ["Ready to set up", "info"]
-    : ["Not configured", "neutral"];
+    : ["Ready to set up", "info"];
   return (
     <Card title={TITLE} action={<Pill tone={tone}>{t(state)}</Pill>}>
       <div className="space-y-3 py-2 text-sm">
         <p className="text-muted-foreground">
-          {t("Sign in with your device's Face ID, fingerprint or screen lock. Your face and fingerprint never leave your device — S'Shop never sees or stores them.")}
+          {t("Sign in with your device's own check: face, fingerprint or screen lock, whichever it uses. Your face and fingerprint never leave your device — S'Shop never sees or stores them.")}
         </p>
         {!s.available ? (
           <p className="rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground">{t(s.reason ?? "Face ID & biometric sign-in is not available")}</p>
@@ -121,15 +124,16 @@ export function PasskeyCard() {
         </div>
       )}
       {setup && profile && (
-        <SetupDialog onClose={() => setSetup(false)} onDone={(credential_id) => {
+        <SetupDialog onClose={() => setSetup(false)} onFailed={setFailed} onDone={(credential_id) => {
           const d = { credential_id, email: profile.user.email, name: profile.user.name, business: profile.tenant.name, slug: profile.tenant.slug };
           rememberPasskey(d);
           setHere(d);
+          setFailed(false);
           setSetup(false);
           refresh();
         }} />
       )}
-      <ConfirmDialog open={confirmOff} onOpenChange={setConfirmOff} title="Switch off Face ID & Biometric Login?" description="Every registered device is removed. You can set it up again at any time."
+      <ConfirmDialog open={confirmOff} onOpenChange={setConfirmOff} title={`${t("Switch off")} ${t(TITLE)}?`} description="Every registered device is removed. You can set it up again at any time."
         confirmLabel="Switch off" destructive busy={off.isPending} onConfirm={() => off.mutate()} />
     </Card>
   );
@@ -138,7 +142,7 @@ export function PasskeyCard() {
 /** Roadmap 155: two steps on purpose. The PIN is checked first; the device's check then starts directly from its own tap,
  * because iPhones refuse to show the prompt after the page has waited on the network. The switch turns on only when the
  * server has verified the passkey. */
-function SetupDialog({ onClose, onDone }: { onClose: () => void; onDone: (credentialId: string) => void }) {
+function SetupDialog({ onClose, onDone, onFailed }: { onClose: () => void; onDone: (credentialId: string) => void; onFailed: (failed: boolean) => void }) {
   const [current, setCurrent] = useState("");
   const [name, setName] = useState("");
   const [prepared, setPrepared] = useState<PreparedRegistration | null>(null);
@@ -148,6 +152,7 @@ function SetupDialog({ onClose, onDone }: { onClose: () => void; onDone: (creden
   const askDevice = async () => {
     if (!prepared || waiting) return;
     setProblem(null);
+    onFailed(false);
     setWaiting(true);
     try {
       const r = await finishRegistration(prepared, name);
@@ -155,18 +160,19 @@ function SetupDialog({ onClose, onDone }: { onClose: () => void; onDone: (creden
       onDone(r.credential_id);
     } catch (e) {
       if (e instanceof PasskeyCancelled) setProblem(t("Set-up was cancelled, timed out or not allowed by the device. Nothing was changed — try again."));
-      else if (e instanceof PasskeyProblem) setProblem(t(e.message));
+      else if (e instanceof PasskeyProblem) { setProblem(t(e.message)); onFailed(true); }
       else {
         // The server refused the answer, which uses up the request: start again from the PIN.
         setProblem(`${t("Registration failed")}: ${errorMessage(e)}`);
         setPrepared(null);
+        onFailed(true);
       }
     } finally {
       setWaiting(false);
     }
   };
   return (
-    <ResponsiveDialog open onOpenChange={(o) => !o && onClose()} title="Set up Face ID & Biometric Login"
+    <ResponsiveDialog open onOpenChange={(o) => !o && onClose()} title={`${t("Set up")} ${t(words.title)}`}
       description={prepared ? words.hint : "Confirm it is you first."}
       footer={prepared ? (
         <Button className="w-full md:w-auto" disabled={waiting} onClick={askDevice}><ScanFace /> {t(waiting ? "Waiting for your device…" : words.action)}</Button>

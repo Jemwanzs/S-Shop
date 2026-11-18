@@ -356,7 +356,7 @@
           "steps": [
             "Open New Sale (phone: the Sales tab or the floating Record sale button).",
             "Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner. Scanning a shared barcode again adds another unit (with the camera, the same barcode counts again after 3 seconds; another barcode counts at once) and the counter shows how many; use − or + to correct it. An individually tracked item is one unit: scanned again it says Already scanned.",
-            "Tap the product, set the Quantity (and the Selling price if you give a discount), then Add to cart.",
+            "Tap the product, set the Quantity (and the Selling price if you give a discount), then Add to cart. After scanning, the green + adds one, − removes one, and tapping the quantity lets you set it or add to it.",
             "Optional: enter the Customer phone number so the customer earns loyalty points (first name for a new customer).",
             "Choose the payment: Cash, M-Pesa, Credit Sale or Split payment.",
             "Cash: enter Cash received to see the change. Tap Complete sale."
@@ -417,6 +417,16 @@
       "role": "Branch manager / Supervisor",
       "summary": "Stock, transfers, approvals, expenses, customers and reports for your branches.",
       "tasks": [
+        {
+          "title": "Several items with the same barcode",
+          "steps": [
+            "Scan the barcode once: 1 unit is captured.",
+            "Tap the green + for each further item, or − to take one off. Or tap the quantity, choose Set quantity to or Add to quantity, type the number and tap Confirm.",
+            "The camera counts the same barcode again only after 3 seconds; + and − work at once.",
+            "Nothing changes in stock until you tap Receive (or the sale is completed).",
+            "If + and − are greyed out, the product gives each item its own barcode. For items that share one barcode, switch the product to Shared barcode, or use Generate barcodes when receiving so each item gets its own label."
+          ]
+        },
         {
           "title": "Receive a delivery",
           "steps": [

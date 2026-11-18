@@ -48,4 +48,8 @@ export function useManualBarcodes(context: "sale" | "stock"): boolean {
 /** Roadmap 153: the same code again within this time is one trigger press reaching the page twice, not a second unit. */
 export const DOUBLE_READ_MS = 120;
 
+/** Roadmap 165: an individual barcode read again. It is one physical item; it is never a second unit. */
+export const UNIQUE_AGAIN = "Already captured: this item's own barcode counts once";
+export const UNIQUE_HINT = "Items that share one barcode are counted with Shared barcode tracking (set on the product).";
+
 export const TYPING_OFF = "Typing barcodes is switched off here — scan the label with the scanner or camera";

@@ -23,7 +23,7 @@ import { LabelsDialog } from "@/components/LabelsDialog";
 import { ScanCounter } from "@/components/ScanCounter";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
-import { useManualBarcodes, type ScanSource } from "@/lib/scan";
+import { UNIQUE_AGAIN, UNIQUE_HINT, useManualBarcodes, type ScanSource } from "@/lib/scan";
 import type { ScanCountLine } from "@/components/ScanCounter";
 
 interface ProductDetail {
@@ -148,7 +148,7 @@ export default function ReceiveStock() {
     // Roadmap 153: one physical item, however often its label is read.
     if (barcodesRef.current.includes(code)) {
       setLastScanned(code);
-      return { tone: "warning", title: "Already scanned — 1 unit captured" };
+      return { tone: "warning", title: UNIQUE_AGAIN, detail: UNIQUE_HINT };
     }
     const known = await api<{ product: Product; stock_item: { status: string; branch_name: string } | null }>("/products/lookup", { query: { code } }).catch(() => null);
     if (known?.stock_item && ["in_stock", "reserved", "in_transit"].includes(known.stock_item.status)) {
@@ -276,7 +276,7 @@ export default function ReceiveStock() {
   // One product open: each unit's label (individual barcodes), or the running count of its shared barcode.
   const productSession = !p ? undefined : tracked
     ? {
-        lines: barcodes.map((c): ScanCountLine => ({ key: c, name: p.name, barcode: c, kind: "unique", quantity: 1 })),
+        lines: barcodes.map((c): ScanCountLine => ({ key: c, name: p.name, barcode: c, kind: "unique", quantity: 1, productId: p.id })),
         activeKey: lastScanned,
         onRemove: (key: string) => { barcodesRef.current = barcodesRef.current.filter((x) => x !== key); setBarcodes(barcodesRef.current); },
       }

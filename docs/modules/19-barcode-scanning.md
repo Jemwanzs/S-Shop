@@ -24,9 +24,17 @@ it needs *Label existing stock*. Switching barcode management off never changes 
 ## Scanning sessions (roadmap 153)
 
 `ScanCounter` (`web/src/components/ScanCounter.tsx`) sits inside the camera scanner and under the inline field: product,
-barcode, model, **N units captured**, − / field / + / remove, the other products and the session total. A correction
-applies at once and focus returns to the scanning field; a code arriving at scanner speed in the quantity field is
-treated as a scan, never as a quantity.
+barcode, model, the other products and the session total. Roadmap 165: **Captured quantity** in large type, then green
+**+**, **−** and Delete (48 px). Tapping the quantity opens *Set quantity to* / *Add to quantity* with the result shown
+before *Confirm*; below the minimum or above the allowed maximum cannot be confirmed. A correction applies at once and
+focus returns to the scanning field; a code arriving at scanner speed in the quantity field is treated as a scan, never
+as a quantity. The controls never touch the camera's 3-second clock, and they never restart the camera.
+
+**Individual barcodes** (each physical item its own code): + and − are shown switched off with the reason and, for
+people who may edit products, *Use Shared barcode for this product*. Reading the same item's code again says *Already
+captured: this item's own barcode counts once*. Several items carrying one manufacturer barcode belong to the shared
+model, or, when each item must stay traceable, to *Generate barcodes* on receiving (one S'Shop label per item). S'Shop
+never changes a product's tracking or invents unit identities by itself.
 
 - **In order, none lost:** codes queue and run one at a time, each seeing the count the last one left; the field clears
   as soon as a code is submitted. The same code again within 120 ms is one trigger press reaching the page twice (handheld scanners and typing).

@@ -38,7 +38,7 @@ function RepeatWait({ until }: { until: number }) {
   }, [until]);
   if (left < -2000) return null;
   return left > 0
-    ? <span className="num text-white/85">{t("Please wait…")} {(left / 1000).toFixed(1)}s</span>
+    ? <span className="num text-white/85">{t("Please wait — same barcode ready in")} {(left / 1000).toFixed(1)}s</span>
     : <span className="text-emerald-300">{t("Ready to scan again")}</span>;
 }
 
@@ -164,6 +164,11 @@ export function BarcodeScanner({
     [runScan],
   );
 
+  // The camera calls the latest handler without restarting: a quantity tap re-renders the screen around the scanner, and
+  // restarting the camera on each one would make it flicker and miss reads (roadmap 165).
+  const processRef = useRef(process);
+  processRef.current = process;
+
   const scanAgain = () => {
     setOutcome(null);
     setDetected(false);
@@ -197,7 +202,7 @@ export function BarcodeScanner({
     let cancelled = false;
     setCamera({ state: "starting" });
     if (!video) return;
-    startScanning(video, (code) => process(code, "camera"), deviceId)
+    startScanning(video, (code) => processRef.current(code, "camera"), deviceId)
       .then((s) => {
         if (cancelled) return s.stop();
         session.current = s;
@@ -223,7 +228,7 @@ export function BarcodeScanner({
       session.current?.stop();
       session.current = null;
     };
-  }, [open, video, deviceId, run, process]);
+  }, [open, video, deviceId, run]);
 
   const toggleTorch = async () => {
     try {

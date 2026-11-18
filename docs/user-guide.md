@@ -378,7 +378,7 @@ Recording sales, payments, receipts, returns, credit and customer orders.
 
 1. Open New Sale (phone: the Sales tab or the floating Record sale button).
 2. Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner. Scanning a shared barcode again adds another unit (with the camera, the same barcode counts again after 3 seconds; another barcode counts at once) and the counter shows how many; use − or + to correct it. An individually tracked item is one unit: scanned again it says Already scanned.
-3. Tap the product, set the Quantity (and the Selling price if you give a discount), then Add to cart.
+3. Tap the product, set the Quantity (and the Selling price if you give a discount), then Add to cart. After scanning, the green + adds one, − removes one, and tapping the quantity lets you set it or add to it.
 4. Optional: enter the Customer phone number so the customer earns loyalty points (first name for a new customer).
 5. Choose the payment: Cash, M-Pesa, Credit Sale or Split payment.
 6. Cash: enter Cash received to see the change. Tap Complete sale.
@@ -426,6 +426,14 @@ Recording sales, payments, receipts, returns, credit and customer orders.
 ### Guide: Branch manager / Supervisor
 
 Stock, transfers, approvals, expenses, customers and reports for your branches.
+
+#### Several items with the same barcode
+
+1. Scan the barcode once: 1 unit is captured.
+2. Tap the green + for each further item, or − to take one off. Or tap the quantity, choose Set quantity to or Add to quantity, type the number and tap Confirm.
+3. The camera counts the same barcode again only after 3 seconds; + and − work at once.
+4. Nothing changes in stock until you tap Receive (or the sale is completed).
+5. If + and − are greyed out, the product gives each item its own barcode. For items that share one barcode, switch the product to Shared barcode, or use Generate barcodes when receiving so each item gets its own label.
 
 #### Receive a delivery
 

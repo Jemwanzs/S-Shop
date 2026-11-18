@@ -17,6 +17,7 @@ import { SearchInput } from "@/components/Filters";
 import type { ScanOutcome } from "@/components/BarcodeScanner";
 import { BarcodeInput, useBarcodeSettings } from "@/components/BarcodeInput";
 import { t } from "@/lib/i18n";
+import { UNIQUE_AGAIN } from "@/lib/scan";
 import type { ScanCountLine } from "@/components/ScanCounter";
 
 interface Lookup { product: Product; stock_item: { barcode: string; branch_name: string; status: string; in_current_branch: boolean } | null }
@@ -105,7 +106,7 @@ function StockTake() {
       }
       const have = sessionRef.current.units[p.id] ?? [];
       setLastScanned(code);
-      if (have.includes(code)) return { tone: "warning", title: "Already scanned — 1 unit captured", detail: `${p.name} · ${maskCode(code)}` };
+      if (have.includes(code)) return { tone: "warning", title: UNIQUE_AGAIN, detail: `${p.name} · ${maskCode(code)}` };
       change((s) => ({ ...s, units: { ...s.units, [p.id]: [...(s.units[p.id] ?? []), code] } }));
       return { tone: "success", title: `${p.name} · ${have.length + 1} counted` };
     }
@@ -126,7 +127,7 @@ function StockTake() {
   const scanSession = {
     lines: [
       ...session.scanned.filter((id) => session.counts[id] !== undefined && session.counts[id] !== "").map((id): ScanCountLine => ({ key: id, name: nameOf(id), barcode: session.codes?.[id], kind: "shared", quantity: parseInt(session.counts[id]) || 0, min: 0 })),
-      ...Object.entries(session.units).flatMap(([id, codes]) => codes.map((c): ScanCountLine => ({ key: c, name: nameOf(id), barcode: maskCode(c), kind: "unique", quantity: 1 }))),
+      ...Object.entries(session.units).flatMap(([id, codes]) => codes.map((c): ScanCountLine => ({ key: c, name: nameOf(id), barcode: maskCode(c), kind: "unique", quantity: 1, productId: id }))),
     ],
     activeKey: lastScanned,
     onSet: (key: string, quantity: number) => change((s) => ({ ...s, counts: { ...s.counts, [key]: String(quantity) } })),

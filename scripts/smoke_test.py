@@ -4908,6 +4908,28 @@ call("PUT", "/settings", {**st, "stock": {**st["stock"], "stock_taking": True}})
 r = call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": st_prod, "counted": 4}]})
 check("switched back on, stock takes work again", call("GET", "/settings")["settings"]["stock"]["stock_taking"] is True and st_level() == 4)
 
+step("Roadmap 165: one shared barcode, several items — received and sold by quantity")
+ean165 = f"88806{suffix[-7:]}".ljust(12, "0")[:12]
+perf = call("POST", "/products", {"name": f"Perfume 50ML {suffix}", "marked_price": 300, "cost_price": 150, "barcode": ean165})["result"]["id"]
+def perf_level():
+    return next(l for l in call("GET", f"/products/{perf}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"]
+before165 = len(call("GET", f"/products?q=Perfume 50ML {suffix}&status=all")["items"])
+call("POST", "/stock/receive", {"product_id": perf, "quantity": 5, "barcodes": [ean165], "barcode_sources": ["scanner"]})
+check("scanned once, quantity 5: five units in stock", perf_level() == 5, perf_level())
+check("…on the one product (no duplicate catalogue entries)", len(call("GET", f"/products?q=Perfume 50ML {suffix}&status=all")["items"]) == before165 == 1)
+look = call("GET", f"/products/lookup?code={ean165}")
+check("the shared barcode finds the product", look["product"]["id"] == perf and look.get("stock_item") is None, look)
+call("POST", "/sales", {"items": [{"product_id": perf, "quantity": 3, "unit_price": 300, "barcode": ean165, "scan_source": "scanner"}],
+                        "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+check("sold 3 with one scan: stock falls by exactly 3", perf_level() == 2, perf_level())
+r = call("POST", "/sales", {"items": [{"product_id": perf, "quantity": 3, "unit_price": 300, "barcode": ean165, "scan_source": "scanner"}],
+                            "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, expect=422)
+check("more than in stock is refused (negative stock off)", "error" in r and perf_level() == 2, r.get("error"))
+uniq = call("POST", "/products", {"name": f"Unique Watch {suffix}", "marked_price": 900, "cost_price": 400, "track_items": True})["result"]["id"]
+u1 = f"UW{suffix}01"
+r = call("POST", "/stock/receive", {"product_id": uniq, "quantity": 2, "barcodes": [u1, u1], "barcode_sources": ["scanner", "scanner"]}, expect=422)
+check("one individual barcode never counts as two items", "error" in r and next(l for l in call("GET", f"/products/{uniq}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"] == 0, r)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

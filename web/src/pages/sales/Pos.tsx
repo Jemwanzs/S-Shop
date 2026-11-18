@@ -28,7 +28,7 @@ import { ReceiptPanel } from "@/components/ReceiptPanel";
 import { ProductGrid } from "./pos/ProductGrid";
 import { RankStars } from "./pos/RankStars";
 import { SaleDateBar, todayIn } from "./pos/SaleDate";
-import { DOUBLE_READ_MS, TYPING_OFF, useKeyTiming, useManualBarcodes, type ScanSource } from "@/lib/scan";
+import { DOUBLE_READ_MS, TYPING_OFF, UNIQUE_AGAIN, UNIQUE_HINT, useKeyTiming, useManualBarcodes, type ScanSource } from "@/lib/scan";
 import { outcomeSound, scanFeedback } from "@/lib/scanner";
 import type { ScanCountLine } from "@/components/ScanCounter";
 
@@ -155,6 +155,7 @@ export default function Pos() {
     kind: l.product.track_items ? "unique" : "shared",
     quantity: l.quantity,
     max: l.product.track_items ? 1 : lineMax(l),
+    productId: l.product.id,
   }));
   const onScan = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
     if (waitingRef.current) return { tone: "error", title: "Waiting for the M-Pesa payment — the cart is locked until it is paid or you stop waiting" };
@@ -192,7 +193,7 @@ export default function Pos() {
       const scanned = lines.find((l) => l.barcode === code);
       if (scanned) {
         setLastScanned(scanned.key);
-        return { tone: "warning", title: "Already scanned — 1 unit captured", detail: p.name };
+        return { tone: "warning", title: UNIQUE_AGAIN, detail: `${p.name}. ${translate(UNIQUE_HINT)}` };
       }
       if (source === "manual" && !typingAllowed) return { tone: "error", title: translate(TYPING_OFF) };
       const unitKey = newRef();

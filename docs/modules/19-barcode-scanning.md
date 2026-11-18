@@ -15,7 +15,10 @@
 | Corrections | − / typed quantity / + / remove (the count only) | remove the unit, scan another |
 | Registered | the first receipt can save the code as the product barcode | only when stock is posted or finally approved |
 
-Products → Barcode shows both side by side (the second is the old *Track each item individually*). **Changing a saved
+**Which model a product gets (roadmap 168):** Settings → Products → *Allow Shared Barcodes Across Multiple Items* (default
+on) sets it for **new** products; the server applies it when no mode is chosen (form, API, import). Products → Edit →
+Barcode shows the product's model and whether it is the business default, with *Use … for this product* as the
+controlled exception. The setting never moves an existing product. **Changing a saved
 product's model** is checked first (`GET /api/products/{id}/tracking-check?individual=`) and again on save and on
 approval. Refused while stock requests for it wait for approval, transfers of it are open, units are reserved for
 orders (to individual) or units carry their own barcode (to shared). Going to individual with stock on hand warns that

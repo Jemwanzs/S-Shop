@@ -48,7 +48,7 @@ export interface Tier {
 export interface Settings {
   /** Roadmap 150: only the self-approval policy is read here (changed through its own endpoint). */
   security?: { admin_self_approval?: boolean };
-  product: { max_photos: number; auto_code_prefix: string; /** Roadmap 109 */ list_show_images?: boolean; list_show_prices?: boolean };
+  product: { max_photos: number; auto_code_prefix: string; /** Roadmap 109 */ list_show_images?: boolean; list_show_prices?: boolean; /** Roadmap 168: Allow Shared Barcodes Across Multiple Items (default on) */ shared_barcodes?: boolean };
   stock: {
     barcode_requirement: "required" | "optional" | "disabled";
     /** Roadmap 98: typed / pasted barcodes allowed; camera scanning offered; stock takes count barcoded products by barcode. */

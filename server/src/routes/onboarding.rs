@@ -352,6 +352,8 @@ struct Refs {
     allow_negative: bool,
     order_statuses: HashSet<String>,
     barcodes_on: bool,
+    /// Roadmap 168: a product with a blank Stock Tracking cell gets the business's default.
+    individual_default: bool,
     cutover: Option<NaiveDate>,
     today: NaiveDate,
     /// Roadmap 142 (stock balances): lower(branch name) → id, id → name, the branches this person works in, on-hand
@@ -450,6 +452,7 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
         allow_negative: s.stock.allow_negative,
         order_statuses: super::orders::FLOW.iter().filter(|f| s.order_status_enabled(f)).map(|f| f.to_string()).collect(),
         barcodes_on: s.stock.barcode_requirement != settings::BarcodeRequirement::Disabled,
+        individual_default: s.stock.barcode_requirement != settings::BarcodeRequirement::Disabled && !s.product.shared_barcodes,
         cutover,
         today: Utc::now().with_timezone(&ctx.tz).date_naive(),
         branch_names: branch_rows.iter().map(|(id, n)| (n.trim().to_lowercase(), *id)).collect(),
@@ -557,7 +560,8 @@ fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &R
                 }
                 let tracking = s(&d, "tracking").map(str::to_lowercase);
                 let individual = match tracking.as_deref() {
-                    None | Some("product barcode") | Some("product") => false,
+                    None => r.individual_default,
+                    Some("product barcode") | Some("product") | Some("shared barcode") | Some("shared") => false,
                     Some("individual items") | Some("individual") | Some("individual item") => true,
                     Some(other) => {
                         c.err("tracking", format!("Stock Tracking “{other}”: Product barcode or Individual items"));

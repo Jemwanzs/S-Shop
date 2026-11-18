@@ -523,6 +523,12 @@ Setting up the business, people, rules, payments and the website.
 2. S'Shop Workspace URL: tap Copy link to share your team's address. Staff still sign in and see only what their role allows.
 3. The business address (in the workspace URL, ordering link and website) is permanent; Change it only when necessary — old links keep working.
 
+#### Choose how your products share barcodes
+
+1. Settings → Products → Barcode & Quantity Tracking → Allow Shared Barcodes Across Multiple Items. On (the default): several items of a product share one barcode and are counted by scanning or with + and −. Off: each item gets its own barcode.
+2. Tap Save changes. Only products created from now on follow it; existing products keep their tracking and history.
+3. One product needs the other way? Open it → Edit → Barcode → Use a shared barcode (or individual barcodes) for this product. S'Shop says first if something stops the change, such as stock waiting for approval.
+
 #### Find unpriced products and deactivate several
 
 1. Products: Price status → Zero price, Missing price or Zero or missing price (0 and no price are different). Missing product image, the last option, lists products without a photo.

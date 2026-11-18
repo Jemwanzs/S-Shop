@@ -110,7 +110,8 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | Method | Path |
 |---|---|
 | GET | `/api/products` (`q`, `category_id`, `status` active/inactive/all, `price` all/set/missing — roadmap 140, `branch_id`, `limit`, `offset`) |
-| POST | `/api/products` |
+| POST | `/api/products` — `track_items` optional (roadmap 168): left out, the business default (`product.shared_barcodes`); on PUT, left out keeps the product's own |
+| GET | `/api/products/tracking-summary` — roadmap 168: active products per mode → `shared`, `individual` (`products.view`) |
 | GET | `/api/products/lookup` |
 | GET | `/api/products/{id}` |
 | PUT | `/api/products/{id}` |

@@ -21,6 +21,7 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { Card, SettingsPage, useSettingsDraft } from "./shared";
 import { HoursEditor, hoursLabel } from "@/components/Hours";
 import { t } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import { t as tr } from "@/lib/i18n";
 import { Receipt } from "@/components/Receipt";
 import type { ReceiptSnapshot } from "@/lib/receipt";
@@ -112,6 +113,32 @@ function NamedList({ endpoint, queryKey, title, extra }: { endpoint: string; que
   );
 }
 
+/** Roadmap 168: Barcode & Quantity Tracking — the mode a new product gets. Changing it moves no existing product. */
+function BarcodeTrackingCard({ s, saved, update }: { s: Settings; saved: boolean; update: (f: (x: Settings) => void) => void }) {
+  const on = s.product.shared_barcodes ?? true;
+  const changed = on !== saved;
+  const summary = useQuery({ queryKey: ["products-tracking-summary"], queryFn: () => api<{ shared: number; individual: number }>("/products/tracking-summary"), enabled: changed });
+  const barcodesOff = s.stock.barcode_requirement === "disabled";
+  const other = summary.data ? (on ? summary.data.individual : summary.data.shared) : 0;
+  return (
+    <Card title="Barcode & Quantity Tracking">
+      <ToggleRow label="Allow Shared Barcodes Across Multiple Items"
+        hint="When enabled, multiple units of the same product can share one barcode. Quantities can be adjusted during receiving, stock taking and sales."
+        checked={on} disabled={barcodesOff} onChange={(v) => update((x) => { x.product.shared_barcodes = v; })} />
+      <p className={cn("rounded-lg p-2.5 text-xs", on ? "bg-success/10 text-success" : "bg-primary/5 text-primary")}>
+        <span className="font-semibold">{t(on ? "On" : "Off")}:</span> {t(on ? "Shared barcode and quantity-based tracking enabled for new products." : "Unique barcode tracking is the default for newly configured products: each unit has its own barcode.")}
+      </p>
+      {barcodesOff && <p className="mt-2 text-xs text-muted-foreground">{t("Barcode management is off (Settings → Stock), so every product counts by quantity.")}</p>}
+      {changed && (
+        <p className="mt-2 rounded-lg bg-warning/10 p-2.5 text-xs text-warning">
+          {t("Only products created from now on follow this. Existing products keep their tracking, stock and barcode history.")}
+          {other > 0 && <> {count(other)} {t(on ? "product(s) use individual barcodes" : "product(s) use a shared barcode")}: {t("review them, and change any that need it from the product's own page (Edit → Barcode).")}</>}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 export function ProductSettings() {
   const d = useSettingsDraft();
   return (
@@ -128,6 +155,7 @@ export function ProductSettings() {
             <ToggleRow label="Show prices in the product list" hint="Independent of the website's price settings; prices are unchanged"
               checked={s.product.list_show_prices ?? true} onChange={(v) => d.update((x) => { x.product.list_show_prices = v; })} />
           </Card>
+          <BarcodeTrackingCard s={s} saved={d.query.data?.settings.product.shared_barcodes ?? true} update={d.update} />
           <FieldsCard kind="product" empty="No product fields yet — add things like Size, Colour, Brand or Expiry date." />
           <div className="grid gap-5 xl:grid-cols-2">
             <NamedList endpoint="/categories" queryKey="categories" title="Categories" />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLocation, useNavigate, useParams, useSearchParams } from "@/lib/router";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, ScanLine, X, Wand2 } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -62,11 +62,15 @@ export default function ProductForm() {
   const fromDetail = !!(useLocation().state as { fromDetail?: boolean } | null)?.fromDetail;
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { profile, can } = useSession();
+  const session = useSession();
+  const { profile, can } = session;
   // ?barcode= comes from a scanner's "Assign barcode" (unknown code scanned at the counter or when receiving).
   const [params] = useSearchParams();
   const assignBarcode = params.get("barcode")?.trim() || null;
-  const [f, setF] = useState<FormState>(() => (assignBarcode ? { ...EMPTY, barcode: assignBarcode } : EMPTY));
+  const [f, setF] = useState<FormState>(() => {
+    const start = { ...EMPTY, track_items: !(session.profile?.settings.product.shared_barcodes ?? true) && session.profile?.settings.stock.barcode_requirement !== "disabled" };
+    return assignBarcode ? { ...start, barcode: assignBarcode } : start;
+  });
   // The product as loaded, to tell whether an edit has anything to save.
   const [loaded, setLoaded] = useState<FormState | null>(null);
   const [scan, setScan] = useState(false);
@@ -74,6 +78,9 @@ export default function ProductForm() {
   // requests and open transfers before it can be chosen (and again by the server when saved).
   const [modelCheck, setModelCheck] = useState<{ blockers: string[]; notes: string[] } | null>(null);
   const [checkingModel, setCheckingModel] = useState(false);
+  // Roadmap 168: a new product follows the business's default unless someone chose another mode for it.
+  const defaultIndividual = !(profile?.settings.product.shared_barcodes ?? true) && profile?.settings.stock.barcode_requirement !== "disabled";
+  const [modeChosen, setModeChosen] = useState(false);
   const photos = usePendingPhotos();
   const [uploaded, setUploaded] = useState<number | null>(null);
   const [newCategory, setNewCategory] = useState<string | null>(null);
@@ -137,6 +144,8 @@ export default function ProductForm() {
     mutationFn: async () => {
       const body = {
         ...f,
+        // Roadmap 168: a new product without a chosen mode gets the business's default on the server.
+        track_items: editing || modeChosen ? f.track_items : undefined,
         code: f.code.trim() || null,
         category_id: f.category_id || null,
         supplier_id: f.supplier_id || null,
@@ -260,19 +269,21 @@ export default function ProductForm() {
                     : <>{t("Assigning scanned barcode")} <span className="num font-semibold">{assignBarcode}</span>{existing.data?.product.barcode && existing.data.product.barcode !== assignBarcode ? <> — it replaces <span className="num">{existing.data.product.barcode}</span></> : null}. Save to apply.</>}
                 </p>
               )}
-              {/* Roadmap 153: the two tracking models (`track_items`), side by side. Changing a saved product's model is checked first. */}
-              <div className="mb-3 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t("Barcode tracking")}>
-                {([
-                  [false, "Shared barcode / Quantity tracking", "Multiple units share one barcode. Each scan counts one more unit."],
-                  [true, "Individual barcode tracking", "Each unit must have a unique barcode, scanned when received and when sold."],
-                ] as const).map(([individual, title, hint]) => (
-                  <button key={title} type="button" role="radio" aria-checked={f.track_items === individual} disabled={checkingModel}
-                    onClick={() => chooseModel(individual)}
-                    className={cn("rounded-xl border p-3 text-start transition-colors", f.track_items === individual ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-accent")}>
-                    <span className="block text-sm font-semibold">{t(title)}</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">{t(hint)}{individual ? <> ({t("Track each item individually")})</> : null}</span>
-                  </button>
-                ))}
+              {/* Roadmap 168: the business sets the mode for new products (Settings → Products); a product that genuinely needs the
+                  other one is changed here, checked against its stock, waiting requests and open transfers first. */}
+              <div className="mb-3 rounded-xl border p-3" data-testid="barcode-tracking">
+                <p className="label-caps text-[10px]">{t("Barcode tracking")}</p>
+                <p className="mt-0.5 text-sm font-semibold">{t(f.track_items ? "Individual barcode tracking" : "Shared barcode / Quantity tracking")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t(f.track_items ? "Each unit has its own barcode, scanned when received and when sold." : "Units share one barcode. Each scan, or +, counts one more unit.")}{" "}
+                  {f.track_items === defaultIndividual
+                    ? <>{t("Your business's default")} (<Link to="/settings/products" className="underline">{t("Settings → Products")}</Link>).</>
+                    : <span className="font-medium text-warning">{t("An exception to your business's default.")}</span>}
+                </p>
+                <Button type="button" size="sm" variant="ghost" className="mt-1 h-auto px-0 text-primary hover:bg-transparent hover:underline" disabled={checkingModel}
+                  onClick={() => { setModeChosen(true); void chooseModel(!f.track_items); }}>
+                  {t(f.track_items ? "Use a shared barcode for this product" : "Use individual barcodes for this product")}
+                </Button>
               </div>
               {modelCheck && (
                 <div className={cn("mb-3 space-y-1 rounded-xl p-3 text-xs", modelCheck.blockers.length ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning")} role="status">

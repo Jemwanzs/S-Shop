@@ -11,7 +11,7 @@ one document with a sticky *Save changes* bar; every save is audited (before/aft
 | | Branches | module 13 |
 | | Workspace & hours | Working days (Mon–Sun), opening and closing time, sales outside trading hours: allow / block — see below |
 | | Users · Roles & permissions | module 14 |
-| Configuration | Products | Photos per product (default 5), auto code prefix, **product fields**, categories, suppliers |
+| Configuration | Products | Photos per product (default 5), auto code prefix, **Barcode & Quantity Tracking** (*Allow Shared Barcodes Across Multiple Items*, default on: the mode of new products, roadmap 168), **product fields**, categories, suppliers |
 | | Sales & payments | Quantity entry, barcode clearance, payment methods (add custom), manual M-Pesa, credit on/off & default days, receipt footer |
 | | Stock | Enable stock taking (164), barcode requirement, quantity entry, capture cost, valuation, low-stock default, transfer receipt control, allow negative stock |
 | | Orders & ordering link | Link open, fulfilling branch, reserve stock, sale stage (Delivered/Completed), WhatsApp verification, show out-of-stock, show product prices, **order status names & optional steps** |

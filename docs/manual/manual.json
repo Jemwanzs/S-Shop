@@ -539,6 +539,14 @@
           ]
         },
         {
+          "title": "Choose how your products share barcodes",
+          "steps": [
+            "Settings → Products → Barcode & Quantity Tracking → Allow Shared Barcodes Across Multiple Items. On (the default): several items of a product share one barcode and are counted by scanning or with + and −. Off: each item gets its own barcode.",
+            "Tap Save changes. Only products created from now on follow it; existing products keep their tracking and history.",
+            "One product needs the other way? Open it → Edit → Barcode → Use a shared barcode (or individual barcodes) for this product. S'Shop says first if something stops the change, such as stock waiting for approval."
+          ]
+        },
+        {
           "title": "Find unpriced products and deactivate several",
           "steps": [
             "Products: Price status → Zero price, Missing price or Zero or missing price (0 and no price are different). Missing product image, the last option, lists products without a photo.",

@@ -176,10 +176,13 @@ pub struct ProductSettings {
     pub list_show_images: bool,
     /// Prices in the product list (independent of the public website's price settings).
     pub list_show_prices: bool,
+    /// Roadmap 168: Allow Shared Barcodes Across Multiple Items — the tracking a new product gets when none is chosen:
+    /// on, one barcode for all its units (quantities); off, each unit its own barcode. Existing products keep theirs.
+    pub shared_barcodes: bool,
 }
 impl Default for ProductSettings {
     fn default() -> Self {
-        Self { max_photos: 5, auto_code_prefix: "PRD".into(), list_show_images: false, list_show_prices: true }
+        Self { max_photos: 5, auto_code_prefix: "PRD".into(), list_show_images: false, list_show_prices: true, shared_barcodes: true }
     }
 }
 

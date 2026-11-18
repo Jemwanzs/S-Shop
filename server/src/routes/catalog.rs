@@ -31,6 +31,7 @@ pub fn routes() -> Router<AppState> {
         .route("/products/{id}", get(detail).put(update))
         .route("/products/{id}/status", post(set_status))
         .route("/products/{id}/tracking-check", get(tracking_check))
+        .route("/products/tracking-summary", get(tracking_summary))
         .route("/products/matching-ids", get(matching_ids))
         .route("/products/bulk-preview", post(bulk_preview))
         .route("/products/bulk-deactivate", post(bulk_deactivate))
@@ -427,8 +428,9 @@ pub struct ProductBody {
     pub max_discount: Option<Decimal>,
     pub cost_price: Option<Decimal>,
     pub barcode: Option<String>,
+    /// Roadmap 168: none = the business's default for a new product (Settings → Products), the product's own on an edit.
     #[serde(default)]
-    pub track_items: bool,
+    pub track_items: Option<bool>,
     #[serde(default = "yes")]
     pub is_active: bool,
     #[serde(default = "yes")]
@@ -501,7 +503,10 @@ async fn validate(conn: &mut PgConnection, ctx: &Ctx, b: &mut ProductBody, exist
     }
     let s = settings::load(conn, ctx.tenant_id).await?;
     if s.stock.barcode_requirement == settings::BarcodeRequirement::Disabled {
-        b.track_items = false;
+        b.track_items = Some(false);
+    } else if existing.is_none() && b.track_items.is_none() {
+        // Roadmap 168: a new product follows the business's barcode setting unless a mode was chosen for it.
+        b.track_items = Some(!s.product.shared_barcodes);
     }
     let code = b.code.as_ref().map(|c| c.trim().to_uppercase()).filter(|c| !c.is_empty());
     b.code = match code {
@@ -559,7 +564,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Produ
     .bind(b.max_discount)
     .bind(b.cost_price)
     .bind(&b.barcode)
-    .bind(b.track_items)
+    .bind(b.track())
     .bind(desired_active && !gated)
     .bind(b.available_for_orders)
     .bind(b.transfer_allowed)
@@ -620,11 +625,11 @@ async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
     b.is_active = current_active;
     // Roadmap 153: a product never changes tracking model by accident (barcodes being switched off keeps its model), and
     // an edit that could not be applied is refused now, not after someone approved it.
-    if settings::load(&mut tx, ctx.tenant_id).await?.stock.barcode_requirement == settings::BarcodeRequirement::Disabled {
-        b.track_items = current_track;
+    if b.track_items.is_none() || settings::load(&mut tx, ctx.tenant_id).await?.stock.barcode_requirement == settings::BarcodeRequirement::Disabled {
+        b.track_items = Some(current_track);
     }
-    if b.track_items != current_track {
-        let check = tracking_change(&mut tx, ctx.tenant_id, id, b.track_items, None).await?;
+    if b.track() != current_track {
+        let check = tracking_change(&mut tx, ctx.tenant_id, id, b.track(), None).await?;
         if let Some(first) = check.blockers.first() {
             return Err(refused("Tracking cannot change yet", first.clone()));
         }
@@ -660,6 +665,13 @@ async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
 pub struct TrackingChange {
     blockers: Vec<String>,
     notes: Vec<String>,
+}
+
+impl ProductBody {
+    /// The tracking mode to save: resolved before saving (business default for a new product, its own on an edit).
+    fn track(&self) -> bool {
+        self.track_items.unwrap_or(false)
+    }
 }
 
 async fn tracking_change(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid, to_individual: bool, excluding: Option<Uuid>) -> AppResult<TrackingChange> {
@@ -715,6 +727,18 @@ async fn tracking_change(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid, to_
     Ok(TrackingChange { blockers, notes })
 }
 
+/// Roadmap 168: how this business's products are tracked now, for the settings page (changing the default moves none).
+async fn tracking_summary(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    ctx.require("products.view")?;
+    let (shared, individual): (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*) FILTER (WHERE NOT track_items), COUNT(*) FILTER (WHERE track_items) FROM products WHERE tenant_id = $1 AND is_active",
+    )
+    .bind(ctx.tenant_id)
+    .fetch_one(&state.db)
+    .await?;
+    Ok(Json(json!({ "shared": shared, "individual": individual })))
+}
+
 #[derive(Deserialize)]
 struct TrackingQuery {
     individual: bool,
@@ -734,8 +758,10 @@ async fn apply_update(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, b: &ProductB
         .fetch_one(&mut *conn)
         .await?;
     // Roadmap 135/153: checked again here — an approved edit may arrive after stock moved.
-    if before.get("track_items").and_then(Value::as_bool) != Some(b.track_items) {
-        let check = tracking_change(conn, ctx.tenant_id, id, b.track_items, approval_id).await?;
+    // Roadmap 168: an edit without a tracking mode keeps the product's own; it is never reset to a default.
+    let track = b.track_items.or_else(|| before.get("track_items").and_then(Value::as_bool)).unwrap_or(false);
+    if b.track_items.is_some() && before.get("track_items").and_then(Value::as_bool) != b.track_items {
+        let check = tracking_change(conn, ctx.tenant_id, id, b.track(), approval_id).await?;
         if let Some(first) = check.blockers.first() {
             return Err(rule(first.clone()));
         }
@@ -759,7 +785,7 @@ async fn apply_update(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, b: &ProductB
     .bind(b.max_discount)
     .bind(b.cost_price)
     .bind(&b.barcode)
-    .bind(b.track_items)
+    .bind(track)
     .bind(b.available_for_orders)
     .bind(b.transfer_allowed)
     .bind(b.loyalty_eligible)

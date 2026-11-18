@@ -4930,6 +4930,37 @@ u1 = f"UW{suffix}01"
 r = call("POST", "/stock/receive", {"product_id": uniq, "quantity": 2, "barcodes": [u1, u1], "barcode_sources": ["scanner", "scanner"]}, expect=422)
 check("one individual barcode never counts as two items", "error" in r and next(l for l in call("GET", f"/products/{uniq}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"] == 0, r)
 
+step("Roadmap 168: the business's barcode tracking default (Settings → Products)")
+s168 = call("GET", "/settings")["settings"]
+check("Allow Shared Barcodes Across Multiple Items is on by default", s168["product"]["shared_barcodes"] is True)
+trk = lambda pid: call("GET", f"/products/{pid}")["product"]["track_items"]
+p_shared = call("POST", "/products", {"name": f"Default Shared {suffix}", "marked_price": 10})["result"]["id"]
+check("a new product with no mode chosen gets a shared barcode", trk(p_shared) is False)
+p_unit = call("POST", "/products", {"name": f"Chosen Unit {suffix}", "marked_price": 10, "track_items": True})["result"]["id"]
+check("…unless a mode is chosen for it (an exception)", trk(p_unit) is True)
+sum0 = call("GET", "/products/tracking-summary")
+call("PUT", "/settings", {**s168, "product": {**s168["product"], "shared_barcodes": False}}, token=clerk, expect=403)
+check("only people who may change product settings can switch it", call("GET", "/settings")["settings"]["product"]["shared_barcodes"] is True)
+call("PUT", "/settings", {**s168, "product": {**s168["product"], "shared_barcodes": False}})
+check("switched off, and it stays off", call("GET", "/settings")["settings"]["product"]["shared_barcodes"] is False)
+p_default_unit = call("POST", "/products", {"name": f"Default Unit {suffix}", "marked_price": 10})["result"]["id"]
+check("off: a new product gets individual barcodes", trk(p_default_unit) is True)
+p_exc = call("POST", "/products", {"name": f"Exception Shared {suffix}", "marked_price": 10, "track_items": False})["result"]["id"]
+check("…a shared barcode can still be chosen for one product", trk(p_exc) is False)
+check("existing products keep their mode when the default changes", trk(p_shared) is False and trk(p_unit) is True)
+call("PUT", f"/products/{p_unit}", {"name": f"Chosen Unit {suffix} renamed", "marked_price": 12})
+check("an edit that does not mention tracking never changes it", trk(p_unit) is True)
+call("PUT", f"/products/{p_shared}", {"name": f"Default Shared {suffix} renamed", "marked_price": 12})
+check("…either way", trk(p_shared) is False)
+sum1 = call("GET", "/products/tracking-summary")
+check("the settings page counts products per mode", sum1["individual"] == sum0["individual"] + 1 and sum1["shared"] == sum0["shared"] + 1, (sum0, sum1))
+check("another business keeps its own default", call("GET", "/settings", token=t2["token"], branch="none")["settings"]["product"]["shared_barcodes"] is True)
+call("PUT", "/settings", {**s168, "stock": {**s168["stock"], "barcode_requirement": "disabled"}, "product": {**s168["product"], "shared_barcodes": False}})
+p_nobarcodes = call("POST", "/products", {"name": f"No Barcodes {suffix}", "marked_price": 10})["result"]["id"]
+check("with barcode management off every new product counts by quantity", trk(p_nobarcodes) is False)
+call("PUT", "/settings", s168)
+check("back on", call("GET", "/settings")["settings"]["product"]["shared_barcodes"] is True and trk(p_unit) is True)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

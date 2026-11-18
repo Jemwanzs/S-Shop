@@ -355,7 +355,7 @@
           "title": "Record a sale",
           "steps": [
             "Open New Sale (phone: the Sales tab or the floating Record sale button).",
-            "Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner. Scanning a shared barcode again adds another unit and the counter shows how many; use − or + to correct it. An individually tracked item is one unit: scanned again it says Already scanned.",
+            "Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner. Scanning a shared barcode again adds another unit (with the camera, the same barcode counts again after 3 seconds; another barcode counts at once) and the counter shows how many; use − or + to correct it. An individually tracked item is one unit: scanned again it says Already scanned.",
             "Tap the product, set the Quantity (and the Selling price if you give a discount), then Add to cart.",
             "Optional: enter the Customer phone number so the customer earns loyalty points (first name for a new customer).",
             "Choose the payment: Cash, M-Pesa, Credit Sale or Split payment.",
@@ -439,9 +439,17 @@
           ]
         },
         {
+          "title": "Switch stock taking on or off",
+          "steps": [
+            "Settings → Stock → Stock settings → Enable stock taking. It is on unless you switch it off, and applies to every branch.",
+            "Off hides the Stock take button. Past counts, balances and the audit trail are kept, and counts waiting for approval stay in Approvals.",
+            "Receiving, transfers, adjustments and sales are not affected. Tap Save changes."
+          ]
+        },
+        {
           "title": "Count stock (stock take)",
           "steps": [
-            "Open Stock and tap Stock take.",
+            "Open Stock and tap Stock take. No button? Your business has switched stock taking off (Settings → Stock → Stock settings).",
             "Enter the Reason for the count, then scan or type what is on the shelf for each product. Each scan of a shared barcode counts one more; correct it with − or +.",
             "Individually tracked items: scan each label once. Check Labels to check (misplaced or unknown labels) and the units shown as Missing before submitting.",
             "Check Expected, Counted and Variance, then Submit count. Variances wait for approval where required."

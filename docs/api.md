@@ -150,7 +150,8 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | GET | `/api/stock/barcode/{code}` |
 | GET | `/api/stock/adjustments` |
 | POST | `/api/stock/adjustments` |
-| POST | `/api/stock/count` |
+| POST | `/api/stock/count` — refused (*Stock taking is off*) when `stock.stock_taking` is false (roadmap 164) |
+| GET | `/api/stock/count/pending` — roadmap 164: count adjustments waiting for approval, business-wide → `pending` (`stock.view`) |
 | POST | `/api/stock/count/compare` — roadmap 153: `{product_id, branch_id, barcodes}` → `expected`, `found`, `missing` (masked), `unexpected` (`kind`: misplaced / unexpected / unknown); changes nothing |
 | GET | `/api/stock/position` |
 

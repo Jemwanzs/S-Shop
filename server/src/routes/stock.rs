@@ -37,6 +37,7 @@ pub fn routes() -> Router<AppState> {
         .route("/stock/adjustments", get(list_adjustments).post(create_adjustment))
         .route("/stock/count", post(stock_count))
         .route("/stock/count/compare", post(count_compare))
+        .route("/stock/count/pending", get(count_pending))
         .route("/stock/position", get(position))
 }
 
@@ -976,10 +977,29 @@ struct CompareBody {
 
 /// Roadmap 153: individually tracked stock take — the units scanned against the units expected at this branch: which
 /// are missing, and which do not belong here (masked; nothing changes). Unknown to this business stays `unknown`.
+/// Roadmap 164: refused when the business has switched stock taking off. Checked on the server, so no request can get round it.
+async fn require_stock_taking(conn: &mut sqlx::PgConnection, tenant: Uuid) -> AppResult<()> {
+    if settings::load(conn, tenant).await?.stock.stock_taking {
+        return Ok(());
+    }
+    Err(refused("Stock taking is off", "This business has switched stock taking off. An administrator can switch it on in Settings → Stock."))
+}
+
+/// Roadmap 164: count adjustments waiting for approval across the business (shown before stock taking is switched off).
+async fn count_pending(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    ctx.require("stock.view")?;
+    let pending: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM stock_adjustments WHERE tenant_id = $1 AND kind = 'count' AND status = 'pending'")
+        .bind(ctx.tenant_id)
+        .fetch_one(&state.db)
+        .await?;
+    Ok(Json(json!({ "pending": pending })))
+}
+
 async fn count_compare(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CompareBody>) -> AppResult<Json<Value>> {
     ctx.require("stock.adjust")?;
     let branch = ctx.branch_or_current(b.branch_id)?;
     let mut conn = state.db.acquire().await?;
+    require_stock_taking(&mut conn, ctx.tenant_id).await?;
     let here: Vec<String> = sqlx::query_scalar("SELECT barcode FROM stock_items WHERE tenant_id = $1 AND product_id = $2 AND branch_id = $3 AND status = 'in_stock' ORDER BY barcode")
         .bind(ctx.tenant_id)
         .bind(b.product_id)
@@ -1009,6 +1029,7 @@ async fn count_compare(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Co
 /// Physical stock take: one count adjustment per line with a variance.
 async fn stock_count(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CountBody>) -> AppResult<Json<Value>> {
     ctx.require("stock.adjust")?;
+    require_stock_taking(&mut *state.db.acquire().await?, ctx.tenant_id).await?;
     crate::geo::require_on_site(&mut *state.db.acquire().await?, &ctx, "stock").await?;
     let branch = ctx.branch_or_current(b.branch_id)?;
     if b.lines.is_empty() {

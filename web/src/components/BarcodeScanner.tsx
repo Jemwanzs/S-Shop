@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { SShopLoader } from "@/components/SShopLoader";
 import { ScanCounter, type ScanCounterProps } from "@/components/ScanCounter";
 import { DOUBLE_READ_MS, TYPING_OFF, useKeyTiming, useManualBarcodes, type ScanSource } from "@/lib/scan";
+import { RepeatGuard } from "@/lib/scanRepeat";
 
 /** What a scan led to, shown inside the scanner so the user never has to leave it. */
 export interface ScanOutcome {
@@ -23,6 +24,23 @@ export interface ScanOutcome {
 }
 /** `source` (roadmap 137): how the code arrived — handheld scanner, camera or typed. */
 export type ScanHandler = (code: string, source?: ScanSource) => void | ScanOutcome | Promise<void | ScanOutcome>;
+
+/** Roadmap 163: the same barcode seen again too soon. Counts down by itself, so the scanner does not re-render each tick. */
+function RepeatWait({ until }: { until: number }) {
+  const [left, setLeft] = useState(() => until - performance.now());
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const l = until - performance.now();
+      setLeft(l);
+      if (l < -2000) window.clearInterval(id);
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [until]);
+  if (left < -2000) return null;
+  return left > 0
+    ? <span className="num text-white/85">{t("Please wait…")} {(left / 1000).toFixed(1)}s</span>
+    : <span className="text-emerald-300">{t("Ready to scan again")}</span>;
+}
 
 /**
  * The one barcode scanner used across S'Shop: phone camera (full screen on phones), handheld scanners
@@ -73,6 +91,11 @@ export function BarcodeScanner({
   const timing = useKeyTiming();
   const paused = useRef(false);
   const last = useRef({ code: "", at: 0 });
+  // Roadmap 163: camera reads of the same barcode, 3 s apart; other barcodes are never held back.
+  const repeat = useRef(new RepeatGuard());
+  const [wait, setWait] = useState<{ code: string; until: number } | null>(null);
+  const waitRef = useRef(wait);
+  waitRef.current = wait;
   const handler = useRef(onDetected);
   handler.current = onDetected;
 
@@ -97,6 +120,8 @@ export function BarcodeScanner({
       // One sound per scan, once its result is known.
       scanFeedback(outcomeSound(result ? result.tone : "success"));
       if (result && result.tone === "error") {
+        // Refused, so not counted: after "Scan again" the same barcode may be tried at once.
+        repeat.current.release(code);
         setOutcome({ ...result, code });
         return; // stays paused until "Scan again"
       }
@@ -105,11 +130,10 @@ export function BarcodeScanner({
         return;
       }
       setOutcome(result ? { ...result, code } : { tone: "success", title: t("Scanned"), code });
+      // Ready for the next barcode at once; the green frame stays a moment as confirmation.
+      paused.current = false;
       window.clearTimeout(resume.current);
-      resume.current = window.setTimeout(() => {
-        setDetected(false);
-        paused.current = false;
-      }, 700);
+      resume.current = window.setTimeout(() => setDetected(false), 700);
     },
     [continuous, close],
   );
@@ -119,14 +143,19 @@ export function BarcodeScanner({
       const code = raw.trim();
       if (!code || (fromCamera && paused.current)) return;
       const now = Date.now();
-      // The camera sees the same label many times a second: count it once until it leaves view for a moment.
-      if (fromCamera && code === last.current.code && now - last.current.at < 1500) {
-        last.current.at = now;
-        return;
+      if (fromCamera) {
+        // The camera sees a label many times a second: the same barcode counts again only 3 s after it was accepted.
+        const c = repeat.current.claim(code);
+        if (!c.ok) {
+          if (waitRef.current?.code !== code || waitRef.current.until !== c.until) setWait({ code, until: c.until });
+          return; // no count, no sound
+        }
+        if (waitRef.current) setWait(null);
+      } else {
+        // A handheld trigger press can reach the page twice; the same code again this fast is one scan.
+        if (code === last.current.code && now - last.current.at < DOUBLE_READ_MS) return;
+        last.current = { code, at: now };
       }
-      // A handheld trigger press can reach the page twice; the same code again this fast is one scan.
-      if (!fromCamera && code === last.current.code && now - last.current.at < DOUBLE_READ_MS) return;
-      last.current = { code, at: now };
       paused.current = true;
       setBusy(true);
       setDetected(true);
@@ -138,20 +167,28 @@ export function BarcodeScanner({
   const scanAgain = () => {
     setOutcome(null);
     setDetected(false);
+    setWait(null);
     last.current = { code: "", at: 0 };
     paused.current = false;
   };
 
-  // Reset each time the scanner opens.
+  // A fresh start each time the scanner opens; nothing is kept once it closes.
   useEffect(() => {
     if (open) {
       setOutcome(null);
       setDetected(false);
+      setWait(null);
       setManual("");
       setTorchOn(false);
       paused.current = false;
       last.current = { code: "", at: 0 };
+      repeat.current.clear();
     }
+    const guard = repeat.current;
+    return () => {
+      guard.clear();
+      window.clearTimeout(resume.current);
+    };
   }, [open]);
 
   // Camera lifecycle.
@@ -275,9 +312,10 @@ export function BarcodeScanner({
                 </div>
                 <p className="mt-4 rounded-full bg-black/55 px-3 py-1 text-xs font-medium backdrop-blur-sm">
                   {busy ? <span className="inline-flex items-center gap-1.5"><SShopLoader size="sm" />{t("Checking…")}</span>
-                    : frameState === "ok" ? <span className="inline-flex items-center gap-1.5 text-emerald-300"><Check className="h-3.5 w-3.5" />{t("Barcode detected")}</span>
+                    : frameState === "ok" ? <span className="inline-flex items-center gap-1.5 text-emerald-300"><Check className="h-3.5 w-3.5" />{t(outcome?.tone === "success" ? "Scan accepted" : "Barcode detected")}</span>
                     : frameState === "error" ? t("Scanning paused")
-                    : t(counted ? "Move the barcode away and back to count another" : "Position the barcode inside the frame")}
+                    : wait ? <RepeatWait key={`${wait.code}-${wait.until}`} until={wait.until} />
+                    : t(counted ? "Scan the next barcode. The same one counts again after 3 seconds" : "Position the barcode inside the frame")}
                 </p>
               </div>
             )}

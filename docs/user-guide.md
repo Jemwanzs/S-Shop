@@ -377,7 +377,7 @@ Recording sales, payments, receipts, returns, credit and customer orders.
 #### Record a sale
 
 1. Open New Sale (phone: the Sales tab or the floating Record sale button).
-2. Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner. Scanning a shared barcode again adds another unit and the counter shows how many; use − or + to correct it. An individually tracked item is one unit: scanned again it says Already scanned.
+2. Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner. Scanning a shared barcode again adds another unit (with the camera, the same barcode counts again after 3 seconds; another barcode counts at once) and the counter shows how many; use − or + to correct it. An individually tracked item is one unit: scanned again it says Already scanned.
 3. Tap the product, set the Quantity (and the Selling price if you give a discount), then Add to cart.
 4. Optional: enter the Customer phone number so the customer earns loyalty points (first name for a new customer).
 5. Choose the payment: Cash, M-Pesa, Credit Sale or Split payment.
@@ -444,9 +444,15 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 4. Cancel leaves everything as it was. If your business requires approval, tap Send for approval: the item keeps its barcode until the final approval, then use Reprint label.
 5. Reprint label, and Print label on a product with a shared barcode, only print. Tap Done when finished.
 
+#### Switch stock taking on or off
+
+1. Settings → Stock → Stock settings → Enable stock taking. It is on unless you switch it off, and applies to every branch.
+2. Off hides the Stock take button. Past counts, balances and the audit trail are kept, and counts waiting for approval stay in Approvals.
+3. Receiving, transfers, adjustments and sales are not affected. Tap Save changes.
+
 #### Count stock (stock take)
 
-1. Open Stock and tap Stock take.
+1. Open Stock and tap Stock take. No button? Your business has switched stock taking off (Settings → Stock → Stock settings).
 2. Enter the Reason for the count, then scan or type what is on the shelf for each product. Each scan of a shared barcode counts one more; correct it with − or +.
 3. Individually tracked items: scan each label once. Check Labels to check (misplaced or unknown labels) and the units shown as Missing before submitting.
 4. Check Expected, Counted and Variance, then Submit count. Variances wait for approval where required.

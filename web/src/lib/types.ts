@@ -55,6 +55,8 @@ export interface Settings {
     manual_barcode_entry: boolean;
     camera_scanning: boolean;
     require_barcode_stocktake: boolean;
+    /** Roadmap 164: the Stock take button and new stock takes. */
+    stock_taking: boolean;
     quantity_entry: "editable" | "locked";
     capture_cost: boolean;
     valuation: "cost" | "selling";

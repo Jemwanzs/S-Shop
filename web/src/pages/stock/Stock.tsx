@@ -25,7 +25,7 @@ type Tab = "levels" | "position" | "movements" | "adjustments" | "barcodes";
 const LIMIT = 50;
 
 export default function Stock() {
-  const { can, branch } = useSession();
+  const { can, branch, profile } = useSession();
   const [params, setParams] = useSearchParams();
   // Roadmap 142: download / upload stock balances (Excel).
   const [balances, setBalances] = useState(false);
@@ -40,7 +40,7 @@ export default function Stock() {
         actions={
           <>
             {can("stock.adjust") && <Button variant="outline" onClick={() => setAdjusting(true)}><SlidersHorizontal /> {tr("Adjust")}</Button>}
-            {can("stock.adjust") && <Button variant="outline" asChild><Link to="/stock/count"><ClipboardCheck /> {tr("Stock take")}</Link></Button>}
+            {can("stock.adjust") && profile?.settings.stock.stock_taking !== false && <Button variant="outline" asChild><Link to="/stock/count"><ClipboardCheck /> {tr("Stock take")}</Link></Button>}
             {can("stock.adjust") && <Button variant="outline" onClick={() => setBalances(true)}><FileSpreadsheet /> {tr("Stock balances")}</Button>}
             {can("stock.add") && <Button asChild><Link to="/stock/receive"><PackagePlus /> {tr("Receive stock")}</Link></Button>}
           </>

@@ -4872,6 +4872,42 @@ check("paged across the whole catalogue", page["total"] >= 2 and len(page["items
 upload_file(f"/products/{no_photo}/photos", tiny_png(), "p.png", "image/png")
 check("once a photo is saved the product leaves the list", missing("all") == [no_photo_off], missing("all"))
 
+step("Roadmap 164: switching stock taking on and off")
+st = call("GET", "/settings")["settings"]
+check("stock taking is on by default", st["stock"]["stock_taking"] is True)
+st_prod = call("POST", "/products", {"name": f"Count Switch {suffix}", "marked_price": 50, "cost_price": 20})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": st_prod, "quantity": 5})
+def st_level():
+    return next(l for l in call("GET", f"/products/{st_prod}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"]
+call("PUT", "/settings/workflows/stock.adjust", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+r = call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": st_prod, "counted": 3}]})
+held = next(a_ for a_ in call("GET", "/approvals?status=pending")["items"] if a_["action"] == "stock.adjust" and "Count Switch" in a_["summary"])
+pend0 = call("GET", "/stock/count/pending")["pending"]
+check("a count waiting for approval is counted for the warning", pend0 >= 1 and st_level() == 5, pend0)
+call("PUT", "/settings", {**st, "stock": {**st["stock"], "stock_taking": False}}, token=clerk, expect=403)
+check("only people who may change stock settings can switch it", call("GET", "/settings")["settings"]["stock"]["stock_taking"] is True)
+call("PUT", "/settings", {**st, "stock": {**st["stock"], "stock_taking": False}})
+check("switched off, and it stays off when read again", call("GET", "/settings")["settings"]["stock"]["stock_taking"] is False)
+check("the profile every signed-in person loads says so", call("GET", "/auth/me")["settings"]["stock"]["stock_taking"] is False)
+r = call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": st_prod, "counted": 4}]}, expect=422)
+check("off: a new stock take is refused by the server", r["error"]["title"] == "Stock taking is off", r)
+r = call("POST", "/stock/count/compare", {"product_id": st_prod, "barcodes": []}, expect=422)
+check("…and so is comparing scanned items", r["error"]["title"] == "Stock taking is off", r)
+check("…the count waiting for approval is kept", call("GET", "/stock/count/pending")["pending"] == pend0 and st_level() == 5)
+call("POST", f"/approvals/{held['id']}/approve", {"comments": ""})
+check("…and can still be approved", st_level() == 3)
+call("PUT", "/settings/workflows/stock.adjust", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+before_ = st_level()
+wo = call("POST", "/stock/adjustments", {"product_id": st_prod, "kind": "write_off", "quantity": 1, "reason": "Broken"})
+call("POST", "/stock/receive", {"product_id": st_prod, "quantity": 2})
+check("receiving and adjustments still work", "error" not in wo and st_level() in (before_ + 1, before_ + 2), (before_, st_level()))
+hist = call("GET", "/stock/adjustments?period=month&limit=100")["items"]
+check("past counts stay in the history", any(h["product_name"] == f"Count Switch {suffix}" and h["kind"] == "count" for h in hist))
+check("another business keeps its own setting", call("GET", "/settings", token=t2["token"], branch="none")["settings"]["stock"]["stock_taking"] is True)
+call("PUT", "/settings", {**st, "stock": {**st["stock"], "stock_taking": True}})
+r = call("POST", "/stock/count", {"reason": "Shelf count", "lines": [{"product_id": st_prod, "counted": 4}]})
+check("switched back on, stock takes work again", call("GET", "/settings")["settings"]["stock"]["stock_taking"] is True and st_level() == 4)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

@@ -254,6 +254,9 @@ pub struct StockSettings {
     pub manual_barcode_entry: bool,
     pub camera_scanning: bool,
     pub require_barcode_stocktake: bool,
+    /// Roadmap 164: stock takes may be started (all branches of the business). Off keeps every past count and every
+    /// count waiting for approval; only new stock takes are refused.
+    pub stock_taking: bool,
     pub quantity_entry: QuantityEntry,
     pub capture_cost: bool,
     pub valuation: Valuation,
@@ -291,6 +294,7 @@ impl Default for StockSettings {
             manual_barcode_entry: true,
             camera_scanning: true,
             require_barcode_stocktake: false,
+            stock_taking: true,
             quantity_entry: QuantityEntry::Editable,
             capture_cost: true,
             valuation: Valuation::Cost,

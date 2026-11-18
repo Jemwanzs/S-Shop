@@ -5,7 +5,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { titleCase, toNum } from "@/lib/format";
+import { count, titleCase, toNum } from "@/lib/format";
 import type { CustomField, MedalTargets, Settings } from "@/lib/types";
 import { useCustomFields, type FieldKind } from "@/components/CustomFields";
 
@@ -241,6 +241,24 @@ export function SalesSettings() {
   );
 }
 
+/** Roadmap 164: Enable Stock Taking (every branch). Switching it off says what happens to counts waiting for approval. */
+function StockTakingRow({ s, update, saved }: { s: Settings; update: (f: (x: Settings) => void) => void; saved: boolean }) {
+  const turningOff = saved && !s.stock.stock_taking;
+  const pending = useQuery({ queryKey: ["stock-count-pending"], queryFn: () => api<{ pending: number }>("/stock/count/pending"), enabled: turningOff });
+  return (
+    <>
+      <ToggleRow label="Enable stock taking" hint="Allow your business to conduct physical stock counts and reconcile inventory balances." checked={s.stock.stock_taking}
+        onChange={(v) => update((x) => { x.stock.stock_taking = v; })} />
+      {!s.stock.stock_taking && (
+        <p className="rounded-lg bg-warning/10 p-3 text-xs text-warning">
+          {!!pending.data?.pending && <>{count(pending.data.pending)} {t("count adjustment(s) are waiting for approval. They stay in Approvals for an authorised person to decide.")} </>}
+          {t("Off for every branch: the Stock take button is hidden and no new stock take can start. Past counts, balances and the audit trail are kept; receiving, transfers, adjustments and sales are unchanged.")}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function StockSettings() {
   const d = useSettingsDraft();
   return (
@@ -249,7 +267,8 @@ export function StockSettings() {
         <>
         <BarcodeSettingsCard s={s} update={d.update} />
         {s.stock.barcode_requirement !== "disabled" && <BarcodeHardwareCard s={s} update={d.update} />}
-        <Card>
+        <Card title="Stock settings">
+          <StockTakingRow s={s} update={d.update} saved={d.query.data?.settings.stock.stock_taking ?? true} />
           <Row label="Quantity entry when receiving" hint="Locked = capture each physical item individually">
             <Select value={s.stock.quantity_entry} onChange={(v) => d.update((x) => { x.stock.quantity_entry = v as "editable"; })}>
               <option value="editable">{tr("Editable")}</option><option value="locked">Locked to 1</option>

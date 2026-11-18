@@ -42,6 +42,11 @@ request and adds stock only on final approval; rejected, it adds nothing. Prices
 a product on its own to change them with the receipt. With quantity entry locked each product stays at 1.
 
 ## Stock take
+**On or off (roadmap 164):** Settings → Stock → Stock settings → *Enable stock taking* (default on, every branch,
+*settings.stock*). Off hides the button and the server refuses new stock takes (`POST /stock/count`, `/stock/count/compare`:
+*Stock taking is off*). Past counts, balances, the audit trail and counts waiting for approval are kept; approvers still
+decide those in Approvals. Receiving, transfers, adjustments (including a recount in *Adjust*) and sales are unchanged.
+
 `/stock/count`: a count sheet of all quantity-tracked products; enter counted quantities, see variances live, submit →
 one recount adjustment per variance (applied or sent for approval).
 

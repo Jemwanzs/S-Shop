@@ -29,8 +29,11 @@ applies at once and focus returns to the scanning field; a code arriving at scan
 treated as a scan, never as a quantity.
 
 - **In order, none lost:** codes queue and run one at a time, each seeing the count the last one left; the field clears
-  as soon as a code is submitted. The same code again within 120 ms is one trigger press reaching the page twice. The
-  camera still counts a label once until it has been out of view for 1.5 seconds (*Move the barcode away and back*).
+  as soon as a code is submitted. The same code again within 120 ms is one trigger press reaching the page twice (handheld scanners and typing).
+- **Camera, roadmap 163:** the same barcode counts again only 3 seconds after the camera last accepted it, each barcode
+  on its own clock (`RepeatGuard` in `web/src/lib/scanRepeat.ts`, monotonic time). A different barcode counts at once.
+  Reads ignored while waiting give no count and no sound; the scanner shows *Please wait… 2.1s*, then *Ready to scan
+  again*. A refused scan does not start the clock. Closing the scanner forgets every clock.
 - **One sound per scan**, once the result is known (`scanFeedback` in `scanner.ts`): beep (accepted), two mid tones
   (already scanned), low tone (refused). A correction gives a visual confirmation only. Phones allow sound only after a
   touch, so the first touch of the page unlocks it.

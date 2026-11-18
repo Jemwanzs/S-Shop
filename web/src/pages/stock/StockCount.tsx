@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ClipboardCheck, Eraser, X } from "lucide-react";
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
-import { Loading, PageHeader } from "@/components/Page";
+import { EmptyState, Loading, PageHeader } from "@/components/Page";
 import { SearchInput } from "@/components/Filters";
 import type { ScanOutcome } from "@/components/BarcodeScanner";
 import { BarcodeInput, useBarcodeSettings } from "@/components/BarcodeInput";
@@ -36,7 +36,25 @@ interface Compare { expected: number; found: number; missing: string[]; unexpect
 
 /** Physical stock take: count by barcode (scanned or typed), by product, or unit by unit for tracked products.
  * Nothing changes live stock until submitted; variances become count / loss adjustments (with approval if configured). */
+/** Roadmap 164: with stock taking switched off nothing can be started here (the server refuses it too). The profile is
+ * fetched again on opening, so a change made by an administrator applies without signing out. */
 export default function StockCount() {
+  const { profile, can } = useSession();
+  const qc = useQueryClient();
+  useEffect(() => { void qc.invalidateQueries({ queryKey: ["me"] }); }, [qc]);
+  if (profile && profile.settings.stock.stock_taking === false) {
+    return (
+      <>
+        <PageHeader back="/stock" title="Stock take" />
+        <EmptyState icon={ClipboardCheck} title="Stock taking is switched off"
+          hint={can("settings.stock") ? "Switch it on in Settings → Stock. Past counts and counts waiting for approval are kept." : "An administrator can switch it on in Settings → Stock. Past counts and counts waiting for approval are kept."} />
+      </>
+    );
+  }
+  return <StockTake />;
+}
+
+function StockTake() {
   const { branch, profile } = useSession();
   const navigate = useNavigate();
   const qc = useQueryClient();

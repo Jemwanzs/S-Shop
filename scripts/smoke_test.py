@@ -3278,8 +3278,9 @@ le = call("POST", "/barcodes/label-existing", {"product_id": shirt, "branch_id":
 check("existing stock gets one barcode per unit on hand (stock unchanged)", len(le["codes"]) == 2 and call("GET", f"/stock/items?product_id={shirt}&status=in_stock")["total"] == 2)
 call("POST", "/barcodes/label-existing", {"product_id": shirt, "branch_id": BRANCH}, expect=422)
 check("…only once", True)
-r = call("PUT", f"/products/{shirt}", {"name": f"Silk Shirt {suffix}", "marked_price": 1200, "cost_price": 600, "track_items": False}, expect=422)
-check("units with their own barcode cannot lose it by switching back to a shared barcode", "own barcode" in r["error"]["message"], r)
+call("PUT", f"/products/{shirt}", {"name": f"Silk Shirt {suffix}", "marked_price": 1200, "cost_price": 600, "track_items": False})
+check("roadmap 170: switching back to one shared barcode keeps the stock; the units' labels stay on record as converted",
+      call("GET", f"/stock/items?product_id={shirt}&status=in_stock")["total"] == 0 and call("GET", f"/stock/barcode/{le['codes'][0]}")["items"][0]["status"] == "converted")
 # Platform capacity
 cap = call("GET", "/platform/barcodes/capacity")
 check("roadmap 133: platform capacity of the seven-digit namespace", cap["capacity"] == 9000000 and cap["used"] >= 46 and cap["remaining"] == cap["capacity"] - cap["used"], cap)
@@ -4799,7 +4800,7 @@ waiting = [x for x in call("GET", "/approvals?status=pending&limit=50", **DA)["i
 a1 = next(x["id"] for x in waiting if x["entity_id"] == s1)
 a2 = next(x["id"] for x in waiting if x["entity_id"] == s2)
 r = call("GET", f"/products/{s1}/tracking-check?individual=true", **DA)
-check("a stock request waiting blocks changing the tracking model", any("waiting for approval" in m for m in r["blockers"]), r)
+check("a stock request waiting blocks changing the tracking model", any("waiting for approval" in m for m in r["blockers"] + r.get("review", [])), r)
 body153 = {k: v for k, v in call("GET", f"/products/{s1}", **DA)["product"].items() if k in ("name", "code", "marked_price", "cost_price", "barcode")}
 r = call("PUT", f"/products/{s1}", {**body153, "track_items": True}, **DA, expect=422)
 check("the server refuses that change too", r["error"]["title"] == "Tracking cannot change yet", r)
@@ -4843,7 +4844,8 @@ r = call("POST", "/stock/count", {"reason": "t", "lines": [{"product_id": u1, "b
 check("a unit counted twice is refused", r["error"]["title"] == "Scanned twice", r)
 # Tracking model: controlled, both ways.
 r = call("GET", f"/products/{u1}/tracking-check?individual=false", **DA)
-check("individual to shared is blocked while units carry their own barcode", any("carry their own barcode" in m for m in r["blockers"]), r)
+check("roadmap 170: individual to shared is allowed with units in stock, and says their labels stay on record",
+      not r["blockers"] and not r["review"] and any("keep their count" in m for m in r["notes"]), r)
 r = call("GET", f"/products/{s1}/tracking-check?individual=true", **DA)
 check("shared to individual warns about stock without labels", not r["blockers"] and any("Label existing stock" in m for m in r["notes"]), r)
 fresh = call("POST", "/products", {"name": f"{sc} Fresh", "marked_price": 10, "cost_price": 5}, **DA)["result"]["id"]
@@ -4967,7 +4969,7 @@ n169 = f"NAT{suffix}"
 ind_a = call("POST", "/products", {"name": f"{n169} Perfume A", "marked_price": 10, "track_items": True})["result"]["id"]
 ind_b = call("POST", "/products", {"name": f"{n169} Watch B", "marked_price": 10, "track_items": True})["result"]["id"]
 shr_c = call("POST", "/products", {"name": f"{n169} Soap C", "marked_price": 10})["result"]["id"]
-# Watch B has a unit in stock carrying its own barcode: it cannot become shared without a migration.
+# Watch B has a unit in stock carrying its own barcode (roadmap 170: it can still become shared — the unit is converted).
 u169 = call("POST", "/barcodes/generate", {"product_id": ind_b, "quantity": 1})["codes"][0]
 call("POST", "/stock/receive", {"product_id": ind_b, "quantity": 1, "barcodes": [u169], "labels_attached": True, "labels_verified": True})
 summ = call("GET", "/products/tracking-summary")
@@ -4979,8 +4981,8 @@ mm = call("GET", f"/products/matching-ids?q={n169}&status=all&tracking=individua
 check("select all matching follows the tracking filter", sorted(mm["ids"]) == sorted([ind_a, ind_b]), mm)
 pv = call("POST", "/products/tracking/preview", {"ids": [ind_a, ind_b, shr_c], "individual": False})
 st = {i["id"]: i for i in pv["items"]}
-check("preview: an eligible product, a flagged one with its reason, and one already shared",
-      st[ind_a]["status"] == "eligible" and st[ind_b]["status"] == "blocked" and "own barcode" in " ".join(st[ind_b]["reasons"]) and st[shr_c]["status"] == "already", pv)
+check("preview: products ready to convert (with stock too, explained) and one already shared",
+      st[ind_a]["status"] == "eligible" and st[ind_b]["status"] == "eligible" and "keep their count" in " ".join(st[ind_b]["notes"]) and st[shr_c]["status"] == "already", pv)
 check("…nothing changes on a preview", trk169(ind_a) is True)
 role169 = next(r_ for r_ in call("GET", "/roles") if "products.edit" not in (r_.get("permissions") or []) and "*" not in (r_.get("permissions") or []))
 mail169 = f"nature{suffix.lower()}@sshop.test"
@@ -4994,8 +4996,9 @@ ap = call("POST", "/products/tracking/apply", {"ids": [ind_a, ind_b, shr_c], "in
 out = {i["id"]: i["outcome"] for i in ap["items"]}
 check("apply: the eligible product becomes shared", out[ind_a] == "changed" and trk169(ind_a) is False, ap["summary"])
 check("…without being made to have a product barcode", call("GET", f"/products/{ind_a}")["product"]["barcode"] is None)
-check("…the flagged one is left exactly as it was", out[ind_b] == "blocked" and trk169(ind_b) is True)
-check("…its unit keeps its own barcode and stock", call("GET", f"/stock/barcode/{u169}")["items"][0]["status"] == "in_stock")
+check("…the one with stock converts too", out[ind_b] == "changed" and trk169(ind_b) is False)
+check("…its unit is kept on record as converted, its stock unchanged", call("GET", f"/stock/barcode/{u169}")["items"][0]["status"] == "converted"
+      and next(l for l in call("GET", f"/products/{ind_b}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"] == 1)
 check("…and the shared one is reported, not touched", out[shr_c] == "already")
 again = call("POST", "/products/tracking/apply", {"ids": [ind_a], "individual": False})
 check("applying again changes nothing more", again["items"][0]["outcome"] == "already")
@@ -5008,6 +5011,10 @@ call("POST", f"/approvals/{pend['items'][0]['approval_id']}/approve", {"comments
 check("…and applies on approval", trk169(ind_a) is False)
 call("PUT", "/settings/workflows/product.edit", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
 # Excel: Update existing products now applies Stock Tracking (and a blank cell keeps the product's own)
+ind_b = call("POST", "/products", {"name": f"{n169} Watch B2", "marked_price": 10, "track_items": True})["result"]["id"]
+call("PUT", "/settings/workflows/stock.add", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+held169 = call("POST", "/stock/receive", {"product_id": ind_b, "quantity": 1, "barcodes": [call("POST", "/barcodes/generate", {"product_id": ind_b, "quantity": 1})["codes"][0]], "labels_attached": True, "labels_verified": True})
+call("PUT", "/settings/workflows/stock.add", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
 code_a = call("GET", f"/products/{ind_a}")["product"]["code"]
 code_b = call("GET", f"/products/{ind_b}")["product"]["code"]
 code_c = call("GET", f"/products/{shr_c}")["product"]["code"]
@@ -5018,7 +5025,45 @@ msgs = {r_["row_no"]: " | ".join(m["message"] for m in r_["messages"]) for r_ in
 check("the import preview says which tracking changes and which cannot", any("changes to Individual items" in m for m in msgs.values()) and any("cannot change yet" in m for m in msgs.values()), msgs)
 done = import_now(upx["batch"]["id"], {"skip_invalid": True})
 check("posted: Perfume A is individual again from the file", trk169(ind_a) is True, done.get("status"))
-check("…Watch B (flagged) and Soap C (blank cell) keep theirs", trk169(ind_b) is True and trk169(shr_c) is False)
+check("…Watch B2 (a stock request waiting) and Soap C (blank cell) keep theirs", trk169(ind_b) is True and trk169(shr_c) is False)
+call("POST", f"/approvals/{held169['approval_id']}/reject", {"comments": "test"})
+
+step("Roadmap 170: products with stock switch to one shared barcode — stock and history kept")
+p170 = call("POST", "/products", {"name": f"Creed Aventus {suffix}", "marked_price": 30000, "track_items": True})["result"]["id"]
+units170 = call("POST", "/barcodes/generate", {"product_id": p170, "quantity": 3})["codes"]
+call("POST", "/stock/receive", {"product_id": p170, "quantity": 3, "barcodes": units170, "labels_attached": True, "labels_verified": True})
+lvl170 = lambda: next(l for l in call("GET", f"/products/{p170}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"]
+moves170 = lambda: call("GET", f"/stock/movements?product_id={p170}&period=year&limit=100")["total"]
+m0 = moves170()
+pv170 = call("POST", "/products/tracking/preview", {"ids": [p170], "individual": False})["items"][0]
+check("3 items in stock with their own barcodes: ready to convert, not blocked", pv170["status"] == "eligible", pv170)
+ap170 = call("POST", "/products/tracking/apply", {"ids": [p170], "individual": False})
+check("converted to one shared barcode", ap170["items"][0]["outcome"] == "changed" and call("GET", f"/products/{p170}")["product"]["track_items"] is False, ap170)
+check("…3 still in stock, no stock movement added", lvl170() == 3 and moves170() == m0, (lvl170(), moves170(), m0))
+check("…each unit kept on record as converted, its history traceable", all(call("GET", f"/stock/barcode/{c}")["items"][0]["status"] == "converted" for c in units170))
+lk = call("GET", f"/products/lookup?code={units170[0]}")
+check("an old unit label still scans to the product (by quantity)", lk["product"]["id"] == p170 and lk.get("stock_item") is None, lk.get("stock_item"))
+call("POST", "/stock/receive", {"product_id": p170, "quantity": 5, "barcodes": [units170[0]], "barcode_sources": ["scanner"]})
+check("receive 5 more with one shared barcode: 3 + 5 = 8, nothing lost or counted twice", lvl170() == 8, lvl170())
+call("POST", "/stock/receive", {"product_id": p170, "quantity": 1, "barcodes": [units170[1]], "barcode_sources": ["scanner"]})
+check("…another old label of it is accepted as the product too", lvl170() == 9, lvl170())
+call("POST", "/sales", {"items": [{"product_id": p170, "quantity": 2, "unit_price": 30000, "barcode": units170[2], "scan_source": "scanner"}],
+                        "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+check("sold 2 by scanning an old label: stock falls by 2", lvl170() == 7, lvl170())
+r = call("POST", "/stock/receive", {"product_id": p170, "quantity": 1, "barcodes": [u169], "barcode_sources": ["scanner"]}, expect=422)
+check("another product's old label is still refused", "does not match" in r["error"]["message"], r)
+q170 = call("POST", "/products", {"name": f"Bvlgari Gemme {suffix}", "marked_price": 20000, "track_items": True})["result"]["id"]
+call("PUT", "/settings/workflows/stock.add", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+held170 = call("POST", "/stock/receive", {"product_id": q170, "quantity": 1, "barcodes": [call("POST", "/barcodes/generate", {"product_id": q170, "quantity": 1})["codes"][0]], "labels_attached": True, "labels_verified": True})
+call("PUT", "/settings/workflows/stock.add", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+pq = call("POST", "/products/tracking/preview", {"ids": [q170], "individual": False})["items"][0]
+check("work in progress: Conversion requires review, with the reason", pq["status"] == "review" and "waiting for approval" in " ".join(pq["reasons"]), pq)
+aq = call("POST", "/products/tracking/apply", {"ids": [q170, p170], "individual": False})
+check("…left as it is in a bulk change, counted as review", aq["summary"]["review"] == 1 and aq["summary"]["already"] == 1 and call("GET", f"/products/{q170}")["product"]["track_items"] is True, aq["summary"])
+call("POST", f"/approvals/{held170['approval_id']}/reject", {"comments": "test"})
+back170 = call("POST", "/products/tracking/apply", {"ids": [p170], "individual": True})
+check("back to individual items: the converted labels are not brought back as units", back170["items"][0]["outcome"] == "changed"
+      and call("GET", f"/stock/barcode/{units170[0]}")["items"][0]["status"] == "converted")
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

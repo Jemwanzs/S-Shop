@@ -1298,7 +1298,7 @@ async fn store_validation(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, datas
             if let Ok(Some(v)) = tracking_cell(s(d, "tracking")) {
                 if v != own && !r.tracking_blocked.contains_key(&id) {
                     let check = super::catalog::tracking_change(conn, ctx.tenant_id, id, v, None).await?;
-                    if let Some(first) = check.blockers.first() {
+                    if let Some(first) = check.stop() {
                         r.tracking_blocked.insert(id, first.clone());
                     }
                 }
@@ -2749,7 +2749,7 @@ async fn post_product(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, mode: &st
         // Roadmap 169: the file's Stock Tracking, when it changes the product (checked again now; refused rows never get here).
         if d.get("tracking_change").and_then(Value::as_bool) == Some(true) {
             let check = super::catalog::tracking_change(conn, ctx.tenant_id, id, individual, None).await?;
-            if let Some(first) = check.blockers.first() {
+            if let Some(first) = check.stop() {
                 return Err(refused("Tracking cannot change yet", format!("{}: {first}", s(d, "name").unwrap_or_default())));
             }
             sqlx::query("UPDATE products SET track_items = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2")
@@ -2758,6 +2758,9 @@ async fn post_product(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, mode: &st
                 .bind(individual)
                 .execute(&mut *conn)
                 .await?;
+            if !individual {
+                super::catalog::convert_units(conn, ctx.tenant_id, id).await?;
+            }
         }
         new = false;
     } else {

@@ -21,18 +21,19 @@ import { SearchInput, Segments } from "@/components/Filters";
 import { Loading } from "@/components/Page";
 
 type Filter = "individual" | "shared" | "all";
-interface PreviewItem { id: string; name: string | null; status: "eligible" | "already" | "blocked" | "not_found"; reasons?: string[]; notes?: string[] }
+interface PreviewItem { id: string; name: string | null; status: "eligible" | "already" | "review" | "blocked" | "not_found"; reasons?: string[]; notes?: string[] }
 interface Result {
-  summary: { selected: number; changed: number; pending_approval: number; already: number; blocked: number; failed: number };
+  summary: { selected: number; changed: number; pending_approval: number; already: number; review: number; blocked: number; failed: number };
   items: { id: string; name: string | null; outcome: string; reasons?: string[]; message?: string }[];
 }
 
 const STATE: Record<string, [Tone, string]> = {
-  eligible: ["info", "Will change"],
+  eligible: ["success", "Ready to convert"],
   changed: ["success", "Changed"],
   pending_approval: ["warning", "Waiting for approval"],
   already: ["neutral", "Already this way"],
-  blocked: ["danger", "Cannot change yet"],
+  review: ["warning", "Conversion requires review"],
+  blocked: ["danger", "Blocked"],
   not_found: ["neutral", "Not found"],
   failed: ["danger", "Failed"],
 };
@@ -117,7 +118,7 @@ function NatureDialog({ onClose }: { onClose: () => void }) {
       <ResponsiveDialog open onOpenChange={(o) => !o && onClose()} title="Product Barcode Nature" confirmDiscard={false} wide
         footer={<Button onClick={onClose}>{t("Done")}</Button>}>
         <p className="mb-2 flex items-center gap-2 text-sm"><CheckCircle2 className="h-4 w-4 text-success" />
-          {count(result.summary.changed)} {t("changed")} · {count(result.summary.pending_approval)} {t("waiting for approval")} · {count(result.summary.blocked)} {t("cannot change yet")} · {count(result.summary.already)} {t("already this way")}</p>
+          {count(result.summary.changed)} {t("changed")} · {count(result.summary.pending_approval)} {t("waiting for approval")} · {count(result.summary.review)} {t("require review")} · {count(result.summary.blocked)} {t("blocked")} · {count(result.summary.already)} {t("already this way")}</p>
         <Outcomes items={result.items.map((i) => ({ id: i.id, name: i.name, status: i.outcome, reasons: i.reasons ?? (i.message ? [i.message] : undefined) }))} />
       </ResponsiveDialog>
     );
@@ -136,8 +137,9 @@ function NatureDialog({ onClose }: { onClose: () => void }) {
           </div>
         }>
         {preview.needs_approval && <p className="mb-2 rounded-lg bg-warning/10 p-2.5 text-xs text-warning">{t("Product edits need approval in your business: each change waits for approval, and the product stays as it is until then.")}</p>}
-        <p className="mb-2 text-xs text-muted-foreground">{t("Barcodes already given, stock balances and past sales are not changed. Products that cannot change yet are left as they are, with the reason.")}</p>
-        <Outcomes items={preview.items.map((i) => ({ id: i.id, name: i.name, status: i.status, reasons: i.status === "blocked" ? i.reasons : i.notes }))} />
+        <p className="mb-2 text-xs text-muted-foreground">{t("Stock in hand stays: items with their own barcodes keep their count, and their labels stay on record and still scan to the product. Past sales are not changed. Products that require review or are blocked are left as they are, with the reason.")}</p>
+        <p className="mb-2 text-xs font-medium">{count(eligible)} {t("ready to convert")} · {count(preview.items.filter((i) => i.status === "review").length)} {t("require review")} · {count(preview.items.filter((i) => i.status === "blocked").length)} {t("blocked")} · {count(preview.items.filter((i) => i.status === "already").length)} {t("already this way")}</p>
+        <Outcomes items={preview.items.map((i) => ({ id: i.id, name: i.name, status: i.status, reasons: i.status === "blocked" || i.status === "review" ? i.reasons : i.notes }))} />
       </ResponsiveDialog>
     );
   }
@@ -192,7 +194,7 @@ function NatureDialog({ onClose }: { onClose: () => void }) {
 }
 
 function Outcomes({ items }: { items: { id: string; name: string | null; status: string; reasons?: string[] }[] }) {
-  const order = ["blocked", "failed", "eligible", "changed", "pending_approval", "already", "not_found"];
+  const order = ["blocked", "review", "failed", "eligible", "changed", "pending_approval", "already", "not_found"];
   const sorted = [...items].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
   return (
     <ul className="max-h-[50vh] divide-y overflow-y-auto rounded-lg border" data-testid="nature-outcomes">
@@ -204,7 +206,7 @@ function Outcomes({ items }: { items: { id: string; name: string | null; status:
               <span className="min-w-0 truncate">{i.name ?? "—"}</span>
               <Pill tone={tone}>{t(label)}</Pill>
             </div>
-            {!!i.reasons?.length && <ul className={cn("mt-1 space-y-0.5 text-xs", i.status === "blocked" ? "text-destructive" : "text-muted-foreground")}>{i.reasons.map((r) => <li key={r}>{t(r)}</li>)}</ul>}
+            {!!i.reasons?.length && <ul className={cn("mt-1 space-y-0.5 text-xs", i.status === "blocked" ? "text-destructive" : i.status === "review" ? "text-warning" : "text-muted-foreground")}>{i.reasons.map((r) => <li key={r}>{t(r)}</li>)}</ul>}
           </li>
         );
       })}

@@ -26,10 +26,17 @@ products*: search, filter by model, select (or all matching, up to 500), choose 
 confirm. Each change is an ordinary product edit with only `track_items` changed (safeguards below, *Product edit*
 approval, audit); products needing a migration are flagged, never converted. Going to shared needs no product barcode.
 In the Excel import, *Update existing products* applies a changed *Stock Tracking* the same way; a blank cell keeps the
-product's own. **Changing a saved
-product's model** is checked first (`GET /api/products/{id}/tracking-check?individual=`) and again on save and on
-approval. Refused while stock requests for it wait for approval, transfers of it are open, units are reserved for
-orders (to individual) or units carry their own barcode (to shared). Going to individual with stock on hand warns that
+product's own.
+
+**Products with stock (roadmap 170):** units in stock no longer stop a move to one shared barcode. Each becomes
+`converted` (`stock_items.status`): record, label and history kept; no longer an active unit; the stock carries on by
+quantity (no movement, nothing counted twice). An old label still scans to the product at the till, when receiving and
+in lookups. Preview outcomes: *Ready to convert*, *Conversion requires review* (units reserved or in transit, stock
+requests waiting, open transfers), *Blocked* (barcode conflict). **Changing a saved
+product's model** is checked first (`GET /api/products/{id}/tracking-check?individual=` → `blockers`, `review`,
+`notes`) and again on save and on approval. Refused while stock requests for it wait for approval, transfers of it are
+open, units are reserved for orders or in transit, or (to shared) its barcode is another product's; units in stock are
+converted (roadmap 170). Going to individual with stock on hand warns that
 it needs *Label existing stock*. Switching barcode management off never changes a product's model.
 
 ## Scanning sessions (roadmap 153)

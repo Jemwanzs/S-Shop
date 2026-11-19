@@ -533,7 +533,7 @@ Setting up the business, people, rules, payments and the website.
 
 1. Settings → Products → Barcode & Quantity Tracking → Product Barcode Nature shows how many products use Individual Items and Product Barcode (Shared). Tap Review and change products.
 2. Search or filter, tick the products (or Select all), then tap Switch to Product Barcode (Shared) — or Switch to Individual Items.
-3. Check the list: Will change, Already this way, or Cannot change yet with the reason (for example items in stock that carry their own barcode). Nothing has changed yet.
+3. Check the list: Ready to convert, Conversion requires review (for example a delivery waiting for approval, or an open transfer), Blocked (a barcode conflict) or Already this way, each with the reason. Products with stock can convert: the stock stays and old labels still scan. Nothing has changed yet.
 4. Tap Change. Barcodes, stock and past sales stay as they are; no product barcode has to be added. Where product edits need approval, each change waits for it.
 5. In Excel, Update existing products also changes Stock Tracking when the column says so.
 

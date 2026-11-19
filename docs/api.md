@@ -113,8 +113,8 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | POST | `/api/products` — `track_items` optional (roadmap 168): left out, the business default (`product.shared_barcodes`); on PUT, left out keeps the product's own |
 | GET | `/api/products/tracking-summary` — roadmap 168/169: every product per mode → `shared`, `individual` (`products.view`) |
 | GET | `/api/products?tracking=` and `/api/products/matching-ids?tracking=` — roadmap 169: `all`, `shared`, `individual` |
-| POST | `/api/products/tracking/preview` `{ids, individual}` — roadmap 169: per product `status` `eligible` (with `notes`), `already`, `blocked` (with `reasons`), `not_found`; `needs_approval` (`products.edit`) |
-| POST | `/api/products/tracking/apply` `{ids, individual}` — roadmap 169: each through the product edit path → `changed`, `pending_approval` (`approval_id`), `already`, `blocked`, `failed`; `summary`, `bulk_ref` (`products.edit`, up to 500) |
+| POST | `/api/products/tracking/preview` `{ids, individual}` — roadmap 169/170: per product `status` `eligible` (*Ready to convert*, with `notes`), `review` (work in progress, with `reasons`), `blocked` (conflict, with `reasons`), `already`, `not_found`; `needs_approval` (`products.edit`) |
+| POST | `/api/products/tracking/apply` `{ids, individual}` — roadmap 169: each through the product edit path → `changed`, `pending_approval` (`approval_id`), `already`, `review`, `blocked`, `failed`; `summary`, `bulk_ref` (`products.edit`, up to 500). Units in stock become `converted` (roadmap 170) |
 | GET | `/api/products/lookup` |
 | GET | `/api/products/{id}` |
 | PUT | `/api/products/{id}` |

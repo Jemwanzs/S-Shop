@@ -221,6 +221,16 @@ pub fn mask(code: &str) -> String {
     format!("****{}", code.chars().skip(n - 3).collect::<String>())
 }
 
+/// Roadmap 170: `code` is the label of one of `product`'s units converted to its shared barcode — it identifies the product.
+pub async fn converted_label(conn: &mut PgConnection, tenant: Uuid, product: Uuid, code: &str) -> AppResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM stock_items WHERE tenant_id = $1 AND product_id = $2 AND barcode = $3 AND status = 'converted')")
+        .bind(tenant)
+        .bind(product)
+        .bind(code)
+        .fetch_one(&mut *conn)
+        .await?)
+}
+
 /// Masks every `barcode` / `barcodes` value inside a JSON document (approval payloads shown to people).
 pub fn mask_payload(v: &mut Value) {
     match v {

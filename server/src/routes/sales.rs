@@ -464,7 +464,7 @@ async fn prepare_lines(
         } else if s.sales.require_barcode_clearance && !trusted_prices {
             if let Some(expected) = &p.barcode {
                 match &barcode {
-                    Some(code) => check_product_barcode(conn, ctx.tenant_id, &p.name, expected, code).await?,
+                    Some(code) => check_product_barcode(conn, ctx.tenant_id, l.product_id, &p.name, expected, code).await?,
                     None => return Err(refused("Scan required", format!("Scan {} to clear it before selling.", p.name))),
                 }
             }
@@ -1027,8 +1027,8 @@ async fn product_with_barcode(conn: &mut PgConnection, tenant_id: Uuid, code: &s
 }
 
 /// Products cleared by their product barcode (not tracked per unit).
-async fn check_product_barcode(conn: &mut PgConnection, tenant_id: Uuid, name: &str, expected: &str, code: &str) -> AppResult<()> {
-    if code == expected {
+async fn check_product_barcode(conn: &mut PgConnection, tenant_id: Uuid, product: Uuid, name: &str, expected: &str, code: &str) -> AppResult<()> {
+    if code == expected || super::barcodes::converted_label(conn, tenant_id, product, code).await? {
         return Ok(());
     }
     let owner = match product_with_barcode(conn, tenant_id, code).await? {
@@ -1075,7 +1075,7 @@ async fn check_barcode(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Ch
         return Ok(Json(json!({ "ok": true, "barcode": code, "stock_item_id": id })));
     }
     match expected {
-        Some(expected) => check_product_barcode(&mut conn, ctx.tenant_id, &name, &expected, code).await?,
+        Some(expected) => check_product_barcode(&mut conn, ctx.tenant_id, b.product_id, &name, &expected, code).await?,
         None => return Err(refused("No barcode registered", format!("{name} has no barcode on record, so it cannot be cleared by scanning."))),
     }
     Ok(Json(json!({ "ok": true, "barcode": code })))

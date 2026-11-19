@@ -165,9 +165,15 @@ export default function ReceiveStock() {
   };
   // Roadmap 153: this product's shared barcode, scanned again and again: each read is one more unit. The first read
   // confirms the quantity already showing when nothing was typed yet.
-  const addSharedUnit = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
+  const addSharedUnit = async (scanned: string, source?: ScanSource): Promise<ScanOutcome> => {
+    let code = scanned;
     const expected = p?.barcode ?? barcodesRef.current[0];
-    if (expected && code !== expected) return { tone: "error", title: "Scanned barcode does not match", detail: `${p?.name} (${expected})` };
+    if (expected && code !== expected) {
+      // Roadmap 170: a label of this product's units from before it moved to one shared barcode still counts as the product.
+      const same = await api<{ product: Product; stock_item: unknown }>("/products/lookup", { query: { code } }).catch(() => null);
+      if (!same || same.product.id !== p?.id || same.stock_item) return { tone: "error", title: "Scanned barcode does not match", detail: `${p?.name} (${expected})` };
+      code = expected;
+    }
     if (!expected) {
       const other = await api<{ product: Product }>("/products/lookup", { query: { code } }).catch(() => null);
       if (other && other.product.id !== p?.id) return { tone: "error", title: "That barcode belongs to another product", detail: other.product.name };

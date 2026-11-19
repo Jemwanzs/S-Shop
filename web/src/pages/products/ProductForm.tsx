@@ -76,7 +76,7 @@ export default function ProductForm() {
   const [scan, setScan] = useState(false);
   // Roadmap 153: moving a saved product between shared and individual tracking is checked against its stock, waiting
   // requests and open transfers before it can be chosen (and again by the server when saved).
-  const [modelCheck, setModelCheck] = useState<{ blockers: string[]; notes: string[] } | null>(null);
+  const [modelCheck, setModelCheck] = useState<{ blockers: string[]; review: string[]; notes: string[] } | null>(null);
   const [checkingModel, setCheckingModel] = useState(false);
   // Roadmap 168: a new product follows the business's default unless someone chose another mode for it.
   const defaultIndividual = !(profile?.settings.product.shared_barcodes ?? true) && profile?.settings.stock.barcode_requirement !== "disabled";
@@ -97,9 +97,11 @@ export default function ProductForm() {
     }
     setCheckingModel(true);
     try {
-      const r = await api<{ blockers: string[]; notes: string[] }>(`/products/${id}/tracking-check`, { query: { individual } });
-      setModelCheck(r);
-      if (!r.blockers.length) set("track_items", individual);
+      const r = await api<{ blockers: string[]; review: string[]; notes: string[] }>(`/products/${id}/tracking-check`, { query: { individual } });
+      // Roadmap 170: a conflict (blocked) or unfinished work (review) stops the change; stock alone does not.
+      const stops = [...r.blockers, ...(r.review ?? [])];
+      setModelCheck({ ...r, blockers: stops, review: r.review ?? [] });
+      if (!stops.length) set("track_items", individual);
     } catch (e) {
       toast.error(e);
     } finally {

@@ -663,7 +663,7 @@ async fn update_product(state: &AppState, ctx: &Ctx, id: Uuid, mut b: ProductBod
     }
     if b.track() != current_track {
         let check = tracking_change(&mut tx, ctx.tenant_id, id, b.track(), None).await?;
-        if let Some(first) = check.blockers.first() {
+        if let Some(first) = check.stop() {
             return Err(refused("Tracking cannot change yet", first.clone()));
         }
     }
@@ -695,8 +695,30 @@ async fn update_product(state: &AppState, ctx: &Ctx, id: Uuid, mut b: ProductBod
 /// person should know before going ahead. `excluding` is the approval carrying this very change.
 #[derive(Serialize)]
 pub struct TrackingChange {
+    /// Roadmap 170: a conflict that prevents the change (*Blocked*).
     pub(crate) blockers: Vec<String>,
+    /// Roadmap 170: work in progress to finish first (*Conversion requires review*).
+    pub(crate) review: Vec<String>,
     pub(crate) notes: Vec<String>,
+}
+
+impl TrackingChange {
+    /// What stops the change, if anything: a conflict first, then unfinished work.
+    pub(crate) fn stop(&self) -> Option<&String> {
+        self.blockers.first().or(self.review.first())
+    }
+}
+
+/// Roadmap 170: a product leaving individual tracking keeps its units' records. The units in stock become 'converted' —
+/// labels and history kept, still scanning to the product — and the stock they made up carries on by quantity
+/// (`stock_levels` already counts them: no movement, nothing counted twice). Returns how many were converted.
+pub(crate) async fn convert_units(conn: &mut PgConnection, tenant_id: Uuid, product: Uuid) -> AppResult<u64> {
+    Ok(sqlx::query("UPDATE stock_items SET status = 'converted', updated_at = now() WHERE tenant_id = $1 AND product_id = $2 AND status = 'in_stock'")
+        .bind(tenant_id)
+        .bind(product)
+        .execute(&mut *conn)
+        .await?
+        .rows_affected())
 }
 
 impl ProductBody {
@@ -707,7 +729,7 @@ impl ProductBody {
 }
 
 pub(crate) async fn tracking_change(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid, to_individual: bool, excluding: Option<Uuid>) -> AppResult<TrackingChange> {
-    let (mut blockers, mut notes) = (Vec::new(), Vec::new());
+    let (mut blockers, mut review, mut notes) = (Vec::new(), Vec::new(), Vec::new());
     let pending: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM approvals WHERE tenant_id = $1 AND status = 'pending' AND action LIKE 'stock.%'
             AND (entity_id = $2 OR payload->>'product_id' = $2::text) AND id IS DISTINCT FROM $3",
@@ -718,7 +740,7 @@ pub(crate) async fn tracking_change(conn: &mut PgConnection, tenant_id: Uuid, id
     .fetch_one(&mut *conn)
     .await?;
     if pending > 0 {
-        blockers.push(format!("{pending} stock request(s) for this product are waiting for approval — approve or reject them first"));
+        review.push(format!("{pending} stock request(s) for this product are waiting for approval — approve or reject them first"));
     }
     let transfers: i64 = sqlx::query_scalar(
         "SELECT COUNT(DISTINCT t.id) FROM transfers t JOIN transfer_items ti ON ti.transfer_id = t.id
@@ -729,34 +751,57 @@ pub(crate) async fn tracking_change(conn: &mut PgConnection, tenant_id: Uuid, id
     .fetch_one(&mut *conn)
     .await?;
     if transfers > 0 {
-        blockers.push(format!("{transfers} transfer(s) of this product are still open — receive or cancel them first"));
+        review.push(format!("{transfers} transfer(s) of this product are still open — receive or cancel them first"));
     }
     let (on_hand, reserved): (i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(on_hand), 0)::bigint, COALESCE(SUM(reserved), 0)::bigint FROM stock_levels WHERE tenant_id = $1 AND product_id = $2")
         .bind(tenant_id)
         .bind(id)
         .fetch_one(&mut *conn)
         .await?;
-    let units: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM stock_items WHERE tenant_id = $1 AND product_id = $2 AND status IN ('in_stock','reserved','in_transit')")
-        .bind(tenant_id)
-        .bind(id)
-        .fetch_one(&mut *conn)
-        .await?;
+    let (units, busy_units): (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*) FILTER (WHERE status = 'in_stock'), COUNT(*) FILTER (WHERE status IN ('reserved','in_transit'))
+           FROM stock_items WHERE tenant_id = $1 AND product_id = $2",
+    )
+    .bind(tenant_id)
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
     if to_individual {
         if reserved > 0 {
-            blockers.push(format!("{reserved} unit(s) are reserved for orders — complete or cancel those orders first"));
+            review.push(format!("{reserved} unit(s) are reserved for orders — complete or cancel those orders first"));
         }
         if on_hand > 0 {
             notes.push(format!("{on_hand} unit(s) on hand have no barcode of their own yet: after saving, open the product → Barcode labels → Label existing stock before counting or selling them"));
         }
         notes.push("From then on every unit is received and sold by its own barcode; the shared barcode no longer identifies a unit".into());
     } else {
-        // Units with their own barcode cannot lose them by switching the product back to one shared barcode (roadmap 135).
+        // Roadmap 170: units in stock no longer stop the change — they are converted (labels and history kept). Units
+        // reserved for an order or on the way to another branch are part of a transaction still running.
+        if busy_units > 0 {
+            review.push(format!("{busy_units} item(s) are reserved for orders or in transit — complete those orders or transfers first"));
+        }
         if units > 0 {
-            blockers.push(format!("{units} item(s) of this product carry their own barcode — sell, transfer or write them off before switching to one shared barcode"));
+            notes.push(format!("{units} item(s) in stock keep their count; their own barcodes stay on record and still scan to this product"));
+        }
+        // The product's barcode, if it has one, becomes the shared barcode: it must not be another product's, or an active unit's.
+        let clash: Option<String> = sqlx::query_scalar(
+            "SELECT COALESCE((SELECT o.name FROM products o WHERE o.tenant_id = p.tenant_id AND o.id <> p.id AND o.barcode = p.barcode LIMIT 1),
+                             (SELECT o.name FROM stock_items si JOIN products o ON o.id = si.product_id
+                               WHERE si.tenant_id = p.tenant_id AND si.barcode = p.barcode AND si.product_id <> p.id
+                                 AND si.status IN ('in_stock','reserved','in_transit') LIMIT 1))
+               FROM products p WHERE p.id = $1 AND p.tenant_id = $2 AND p.barcode IS NOT NULL",
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .flatten();
+        if let Some(other) = clash {
+            blockers.push(format!("This product's barcode is also used by {other} — give one of them another barcode first"));
         }
         notes.push("From then on one barcode identifies the product and each scan counts one unit; the history of earlier unit barcodes is kept".into());
     }
-    Ok(TrackingChange { blockers, notes })
+    Ok(TrackingChange { blockers, review, notes })
 }
 
 /// Roadmap 168/169: how this business's products are tracked now (all of them, active or not), for Settings → Products.
@@ -797,6 +842,9 @@ async fn tracking_outcome(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, to_indiv
     if !check.blockers.is_empty() {
         return Ok((name, false, json!({ "status": "blocked", "reasons": check.blockers })));
     }
+    if !check.review.is_empty() {
+        return Ok((name, false, json!({ "status": "review", "reasons": check.review })));
+    }
     Ok((name, true, json!({ "status": "eligible", "notes": check.notes })))
 }
 
@@ -832,7 +880,7 @@ async fn tracking_apply(State(state): State<AppState>, ctx: Ctx, Json(b): Json<B
     let barcodes_on = settings::load(&mut *state.db.acquire().await?, ctx.tenant_id).await?.stock.barcode_requirement != settings::BarcodeRequirement::Disabled;
     let mut items = Vec::new();
     let mut approvals = Vec::new();
-    let (mut changed, mut pending, mut already, mut blocked, mut failed) = (0, 0, 0, 0, 0);
+    let (mut changed, mut pending, mut already, mut review, mut blocked, mut failed) = (0, 0, 0, 0, 0, 0);
     for id in ids {
         let mut conn = state.db.acquire().await?;
         let (name, eligible, v) = match tracking_outcome(&mut conn, &ctx, id, b.individual, barcodes_on).await {
@@ -844,7 +892,11 @@ async fn tracking_apply(State(state): State<AppState>, ctx: Ctx, Json(b): Json<B
             }
         };
         if !eligible {
-            if v["status"] == "already" { already += 1 } else { blocked += 1 }
+            match v["status"].as_str() {
+                Some("already") => already += 1,
+                Some("review") => review += 1,
+                _ => blocked += 1,
+            }
             items.push(json!({ "id": id, "name": name, "outcome": v["status"], "reasons": v.get("reasons") }));
             continue;
         }
@@ -892,7 +944,7 @@ async fn tracking_apply(State(state): State<AppState>, ctx: Ctx, Json(b): Json<B
         &ctx,
         Entry::new("products", "bulk_tracking", "product", bulk_ref).after(json!({
             "bulk_ref": bulk_ref, "to": if b.individual { "individual" } else { "shared" }, "selected": items.len(),
-            "changed": changed, "pending_approval": pending, "already": already, "blocked": blocked, "failed": failed,
+            "changed": changed, "pending_approval": pending, "already": already, "review": review, "blocked": blocked, "failed": failed,
             "items": items.iter().map(|i| json!({ "id": i["id"], "name": i["name"], "outcome": i["outcome"] })).collect::<Vec<_>>(),
         })),
     )
@@ -903,7 +955,7 @@ async fn tracking_apply(State(state): State<AppState>, ctx: Ctx, Json(b): Json<B
     }
     Ok(Json(json!({
         "bulk_ref": bulk_ref,
-        "summary": { "selected": items.len(), "changed": changed, "pending_approval": pending, "already": already, "blocked": blocked, "failed": failed },
+        "summary": { "selected": items.len(), "changed": changed, "pending_approval": pending, "already": already, "review": review, "blocked": blocked, "failed": failed },
         "items": items,
     })))
 }
@@ -931,10 +983,11 @@ async fn apply_update(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, b: &ProductB
     let track = b.track_items.or_else(|| before.get("track_items").and_then(Value::as_bool)).unwrap_or(false);
     if b.track_items.is_some() && before.get("track_items").and_then(Value::as_bool) != b.track_items {
         let check = tracking_change(conn, ctx.tenant_id, id, b.track(), approval_id).await?;
-        if let Some(first) = check.blockers.first() {
+        if let Some(first) = check.stop() {
             return Err(rule(first.clone()));
         }
     }
+    let leaving_units = before.get("track_items").and_then(Value::as_bool) == Some(true) && !track;
     sqlx::query(
         "UPDATE products SET code=$3, name=$4, nickname=$5, description=$6, category_id=$7, supplier_id=$8, marked_price=$9,
              max_discount=$10, cost_price=$11, barcode=$12, track_items=$13, available_for_orders=$14, transfer_allowed=$15,
@@ -966,6 +1019,13 @@ async fn apply_update(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, b: &ProductB
     .execute(&mut *conn)
     .await?;
     write_branches(conn, id, b).await?;
+    // Roadmap 170: in the same transaction as the product, so the units and the product never disagree.
+    if leaving_units {
+        let n = convert_units(conn, ctx.tenant_id, id).await?;
+        if n > 0 {
+            audit::record(conn, ctx, Entry::new("products", "units_converted", "product", id).after(json!({ "units": n, "to": "shared" })).approval(approval_id)).await?;
+        }
+    }
     audit::record(conn, ctx, Entry::new("products", "update", "product", id).before(before).after(b).approval(approval_id)).await
 }
 
@@ -1271,9 +1331,26 @@ async fn lookup(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LookupQ
     .fetch_optional(&state.db)
     .await?;
 
-    let product_id: Option<Uuid> = match &item {
-        Some((_, pid, ..)) => Some(*pid),
-        None => sqlx::query_scalar(
+    // Roadmap 170: a converted unit's label still identifies its product — counted by quantity now, not as a unit.
+    let item = item.filter(|i| i.4 != "converted");
+    let converted: Option<Uuid> = if item.is_none() {
+        // A product whose own barcode this is comes first (an old label may since have become another product's barcode).
+        sqlx::query_scalar(
+            "SELECT product_id FROM stock_items WHERE tenant_id = $1 AND barcode = $2 AND status = 'converted'
+               AND NOT EXISTS (SELECT 1 FROM products WHERE tenant_id = $1 AND barcode = $2)
+             ORDER BY updated_at DESC LIMIT 1",
+        )
+            .bind(ctx.tenant_id)
+            .bind(code)
+            .fetch_optional(&state.db)
+            .await?
+    } else {
+        None
+    };
+    let product_id: Option<Uuid> = match (&item, converted) {
+        (Some((_, pid, ..)), _) => Some(*pid),
+        (None, Some(pid)) => Some(pid),
+        (None, None) => sqlx::query_scalar(
             "SELECT id FROM products WHERE tenant_id = $1 AND (barcode = $2 OR upper(code) = upper($2)) ORDER BY is_active DESC LIMIT 1",
         )
         .bind(ctx.tenant_id)

@@ -68,6 +68,7 @@ const LABELS: Record<string, string> = {
   partially_recalled: "Part recalled",
   recalled: "Recalled",
   written_off: "Written off",
+  converted: "Converted to shared barcode",
   in_transit: "In transit",
   in_stock: "In stock",
 };

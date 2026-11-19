@@ -269,7 +269,8 @@ async fn check_receipt(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b
             return Err(rule("A barcode is required for this product"));
         }
         if let (Some(scanned), Some(existing)) = (scanned, &p.barcode) {
-            if scanned != existing {
+            // Roadmap 170: an old unit label of this product (converted to its shared barcode) counts as the product.
+            if scanned != existing && !super::barcodes::converted_label(conn, ctx.tenant_id, b.product_id, scanned).await? {
                 return Err(rule(format!("Scanned barcode does not match {} ({existing})", p.name)));
             }
         }

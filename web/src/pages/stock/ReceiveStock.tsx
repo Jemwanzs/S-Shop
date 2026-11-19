@@ -202,8 +202,9 @@ export default function ReceiveStock() {
     return {
       tone: "error",
       title: "This barcode is not on this product yet",
-      detail: `${code} — ${p.name}`,
-      actions: can("products.edit") ? [{
+      detail: (s.product.multiple_barcodes ?? true) ? `${code} — ${p.name}` : `${code} — ${t("Your business allows one barcode per product.")}`,
+      // Roadmap 174: offered only where the business allows several barcodes per product.
+      actions: can("products.edit") && (s.product.multiple_barcodes ?? true) ? [{
         label: "Add barcode to this product",
         onClick: async () => {
           try {

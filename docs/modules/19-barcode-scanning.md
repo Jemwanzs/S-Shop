@@ -34,6 +34,10 @@ receiving; one barcode still identifies one product per business. Receive stock 
 (the total is the quantity; one movement, noting the breakdown). An unknown code offers *Add barcode to this product*
 (*products.edit*); another product's code is refused with its name. Product details list them, with add and remove.
 
+**Allow Multiple Barcodes per Product (roadmap 174):** Settings → Products, default on. Off: a product keeps one
+barcode (a first one may still be given); no new extra barcode anywhere (server: *One barcode per product*). Extra
+barcodes already given keep working and can be removed; the switch deletes nothing.
+
 **Released barcodes (roadmap 172):** an item deleted as captured in error (`voided`) frees its barcode, unless an
 active unit carries it, a waiting request names it or it is a product's shared barcode; the "never reused" rule no longer
 counts voided units, so the code can be received again.

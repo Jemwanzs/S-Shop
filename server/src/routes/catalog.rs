@@ -876,6 +876,13 @@ async fn add_barcode(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uui
     if let Some(other) = barcode_taken_by(&mut tx, ctx.tenant_id, id, &code).await? {
         return Err(refused("Barcode already in use", format!("{code} belongs to {other}. One barcode identifies one product.")));
     }
+    // Roadmap 174: with multiple barcodes switched off a product keeps one; the first one may still be given.
+    if main.is_some() && !settings::load(&mut tx, ctx.tenant_id).await?.product.multiple_barcodes {
+        return Err(refused(
+            "One barcode per product",
+            format!("{name} already has its barcode. Your business allows one barcode per product (Settings → Products → Allow Multiple Barcodes per Product)."),
+        ));
+    }
     if main.is_none() {
         sqlx::query("UPDATE products SET barcode = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).bind(&code).execute(&mut *tx).await?;
     } else {
@@ -914,13 +921,16 @@ async fn remove_barcode(State(state): State<AppState>, ctx: Ctx, Path((id, code)
 /// Roadmap 168/169: how this business's products are tracked now (all of them, active or not), for Settings → Products.
 async fn tracking_summary(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
     ctx.require("products.view")?;
-    let (shared, individual): (i64, i64) = sqlx::query_as(
-        "SELECT COUNT(*) FILTER (WHERE NOT track_items), COUNT(*) FILTER (WHERE track_items) FROM products WHERE tenant_id = $1",
+    let (shared, individual, multiple): (i64, i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*) FILTER (WHERE NOT track_items), COUNT(*) FILTER (WHERE track_items),
+                COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM product_barcodes pb WHERE pb.product_id = products.id))
+           FROM products WHERE tenant_id = $1",
     )
     .bind(ctx.tenant_id)
     .fetch_one(&state.db)
     .await?;
-    Ok(Json(json!({ "shared": shared, "individual": individual })))
+    // Roadmap 174: `multiple` — products with more than one barcode (kept when multiple barcodes are switched off).
+    Ok(Json(json!({ "shared": shared, "individual": individual, "multiple": multiple })))
 }
 
 #[derive(Deserialize)]

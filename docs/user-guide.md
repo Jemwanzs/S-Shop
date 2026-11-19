@@ -433,6 +433,7 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 2. Receive stock: tap Scan Barcode. Each barcode of the product gets its own line and count; the quantity received is their total.
 3. A barcode the product does not have yet shows This barcode is not on this product yet: tap Add barcode to this product to add it and count the item. A barcode of another product is refused with that product's name.
 4. At the till, any of the product's barcodes finds it. Removing a barcode from the product frees it for another product.
+5. To keep one barcode per product, switch off Settings → Products → Allow Multiple Barcodes per Product. Barcodes already given keep working; no new ones can be added.
 
 #### Several items with the same barcode
 

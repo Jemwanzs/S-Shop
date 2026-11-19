@@ -115,10 +115,13 @@ function NamedList({ endpoint, queryKey, title, extra }: { endpoint: string; que
 }
 
 /** Roadmap 168: Barcode & Quantity Tracking — the mode a new product gets. Changing it moves no existing product. */
-function BarcodeTrackingCard({ s, saved, update }: { s: Settings; saved: boolean; update: (f: (x: Settings) => void) => void }) {
+function BarcodeTrackingCard({ s, saved, savedMultiple, update }: { s: Settings; saved: boolean; savedMultiple: boolean; update: (f: (x: Settings) => void) => void }) {
   const on = s.product.shared_barcodes ?? true;
   const changed = on !== saved;
-  const summary = useQuery({ queryKey: ["products-tracking-summary"], queryFn: () => api<{ shared: number; individual: number }>("/products/tracking-summary"), enabled: changed });
+  // Roadmap 174: several barcodes on one product.
+  const multiple = s.product.multiple_barcodes ?? true;
+  const multipleOff = savedMultiple && !multiple;
+  const summary = useQuery({ queryKey: ["products-tracking-summary"], queryFn: () => api<{ shared: number; individual: number; multiple: number }>("/products/tracking-summary"), enabled: changed || multipleOff });
   const barcodesOff = s.stock.barcode_requirement === "disabled";
   const other = summary.data ? (on ? summary.data.individual : summary.data.shared) : 0;
   return (
@@ -136,6 +139,20 @@ function BarcodeTrackingCard({ s, saved, update }: { s: Settings; saved: boolean
           {other > 0 && <> {count(other)} {t(on ? "product(s) use individual barcodes" : "product(s) use a shared barcode")}: {t("review them below in Product Barcode Nature.")}</>}
         </p>
       )}
+      <div className="mt-3 border-t pt-1">
+        <ToggleRow label="Allow Multiple Barcodes per Product"
+          hint="Allow one product to have multiple different barcodes, with each barcode representing one or more physical units."
+          checked={multiple} disabled={barcodesOff} onChange={(v) => update((x) => { x.product.multiple_barcodes = v; })} />
+        <p className={cn("rounded-lg p-2.5 text-xs", multiple ? "bg-success/10 text-success" : "bg-primary/5 text-primary")}>
+          <span className="font-semibold">{t(multiple ? "On" : "Off")}:</span> {t(multiple ? "A product can have several barcodes (other packaging, another supplier); each can represent many units." : "A product can have only one shared barcode. Products with their own barcode per item are not affected.")}
+        </p>
+        {multipleOff && (
+          <p className="mt-2 rounded-lg bg-warning/10 p-2.5 text-xs text-warning">
+            {t("No new extra barcodes can be added. Barcodes already given keep working — nothing is deleted and stock is not touched.")}
+            {!!summary.data?.multiple && <> {count(summary.data.multiple)} {t("product(s) have more than one barcode: review them on each product's page, where an extra barcode can be removed.")}</>}
+          </p>
+        )}
+      </div>
       <BarcodeNatureSummary />
     </Card>
   );
@@ -157,7 +174,7 @@ export function ProductSettings() {
             <ToggleRow label="Show prices in the product list" hint="Independent of the website's price settings; prices are unchanged"
               checked={s.product.list_show_prices ?? true} onChange={(v) => d.update((x) => { x.product.list_show_prices = v; })} />
           </Card>
-          <BarcodeTrackingCard s={s} saved={d.query.data?.settings.product.shared_barcodes ?? true} update={d.update} />
+          <BarcodeTrackingCard s={s} saved={d.query.data?.settings.product.shared_barcodes ?? true} savedMultiple={d.query.data?.settings.product.multiple_barcodes ?? true} update={d.update} />
           <FieldsCard kind="product" empty="No product fields yet — add things like Size, Colour, Brand or Expiry date." />
           <div className="grid gap-5 xl:grid-cols-2">
             <NamedList endpoint="/categories" queryKey="categories" title="Categories" />

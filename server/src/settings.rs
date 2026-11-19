@@ -179,10 +179,13 @@ pub struct ProductSettings {
     /// Roadmap 168: Allow Shared Barcodes Across Multiple Items — the tracking a new product gets when none is chosen:
     /// on, one barcode for all its units (quantities); off, each unit its own barcode. Existing products keep theirs.
     pub shared_barcodes: bool,
+    /// Roadmap 174: Allow Multiple Barcodes per Product — a shared-barcode product may gain more barcodes than its main one.
+    /// Off: no new extra barcodes; the ones already given keep working until reviewed (never deleted by this switch).
+    pub multiple_barcodes: bool,
 }
 impl Default for ProductSettings {
     fn default() -> Self {
-        Self { max_photos: 5, auto_code_prefix: "PRD".into(), list_show_images: false, list_show_prices: true, shared_barcodes: true }
+        Self { max_photos: 5, auto_code_prefix: "PRD".into(), list_show_images: false, list_show_prices: true, shared_barcodes: true, multiple_barcodes: true }
     }
 }
 

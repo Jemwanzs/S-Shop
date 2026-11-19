@@ -33,7 +33,9 @@ interface Detail {
 /** Roadmap 173: a product with several shared barcodes (other packaging, another supplier). Each identifies it; its units are
  * counted together. Adding refuses a barcode another product or an item in stock already uses; removing releases it. */
 function OtherBarcodes({ productId, main, others, onChanged }: { productId: string; main: string | null; others: string[]; onChanged: () => void }) {
-  const { can } = useSession();
+  const { can, profile } = useSession();
+  // Roadmap 174: adding another barcode only where the business allows several (the first one is always allowed).
+  const mayAdd = can("products.edit") && (!main || (profile?.settings.product.multiple_barcodes ?? true));
   const [code, setCode] = useState("");
   const add = useMutation({
     mutationFn: () => api(`/products/${productId}/barcodes`, { body: { barcode: code.trim() } }),
@@ -45,7 +47,7 @@ function OtherBarcodes({ productId, main, others, onChanged }: { productId: stri
     onSuccess: () => { toast.success("Barcode removed — it can now be given to another product"); onChanged(); },
     onError: (e) => toast.error(e),
   });
-  if (!main && !others.length && !can("products.edit")) return null;
+  if (!others.length && !mayAdd) return null;
   return (
     <div className="space-y-1.5 py-1" data-testid="other-barcodes">
       {others.length > 0 && (
@@ -61,13 +63,13 @@ function OtherBarcodes({ productId, main, others, onChanged }: { productId: stri
           </ul>
         </>
       )}
-      {can("products.edit") && (
+      {mayAdd && (
         <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) add.mutate(); }}>
           <Input className="num h-9" value={code} placeholder={t("Add a barcode")} onChange={(e) => setCode(e.target.value)} />
           <Button type="submit" size="sm" variant="outline" disabled={!code.trim() || add.isPending}>{t("Add")}</Button>
         </form>
       )}
-      <p className="text-[11px] text-muted-foreground">{t("The same product in other packaging or from another supplier. Each identifies this product; units are counted together.")}</p>
+      <p className="text-[11px] text-muted-foreground">{t(mayAdd || !others.length ? "The same product in other packaging or from another supplier. Each identifies this product; units are counted together." : "Your business allows one barcode per product: these still work, and can be removed.")}</p>
     </div>
   );
 }

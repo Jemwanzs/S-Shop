@@ -111,7 +111,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 |---|---|
 | GET | `/api/products` (`q`, `category_id`, `status` active/inactive/all, `price` all/set/missing — roadmap 140, `branch_id`, `limit`, `offset`) |
 | POST | `/api/products` — `track_items` optional (roadmap 168): left out, the business default (`product.shared_barcodes`); on PUT, left out keeps the product's own |
-| POST | `/api/products/{id}/barcodes` `{barcode}` — roadmap 173: another shared barcode for the product (first one becomes its main); refused when another product or an item in stock uses it (`products.edit`) |
+| POST | `/api/products/{id}/barcodes` `{barcode}` — roadmap 173: another shared barcode for the product (first one becomes its main); refused when another product or an item in stock uses it, or (roadmap 174) when *Allow Multiple Barcodes per Product* is off and the product already has one (`products.edit`) |
 | DELETE | `/api/products/{id}/barcodes/{code}` — removes (releases) one of its other barcodes |
 | GET | `/api/products/{id}` → `barcodes` (its other barcodes); `/api/products/lookup` → `barcode_match` (the code is one of the product's barcodes) |
 | GET | `/api/products/tracking-summary` — roadmap 168/169: every product per mode → `shared`, `individual` (`products.view`) |

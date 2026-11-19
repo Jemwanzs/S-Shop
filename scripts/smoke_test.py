@@ -5217,6 +5217,39 @@ call("GET", f"/products/lookup?code={bc1}", token=t2["token"], branch="none", ex
 call("POST", f"/products/{pa}/barcodes", {"barcode": "123"}, token=t2["token"], branch="none", expect=404)
 check("another business neither finds nor changes these barcodes", True)
 
+step("Roadmap 174: Allow Multiple Barcodes per Product")
+s174 = call("GET", "/settings")["settings"]
+check("Allow Multiple Barcodes per Product is on by default", s174["product"]["multiple_barcodes"] is True)
+m1, m2, m3 = f"41{suffix[-6:]}741", f"41{suffix[-6:]}742", f"41{suffix[-6:]}743"
+pm = call("POST", "/products", {"name": f"Multi {suffix}", "marked_price": 40, "barcode": m1})["result"]["id"]
+call("POST", f"/products/{pm}/barcodes", {"barcode": m2})
+lv174 = lambda: next(l for l in call("GET", f"/products/{pm}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"]
+call("PUT", "/settings", {**s174, "product": {**s174["product"], "multiple_barcodes": False}}, token=clerk, expect=403)
+check("only people who may change product settings can switch it", call("GET", "/settings")["settings"]["product"]["multiple_barcodes"] is True)
+call("PUT", "/settings", {**s174, "product": {**s174["product"], "multiple_barcodes": False}})
+check("switched off, and it stays off", call("GET", "/settings")["settings"]["product"]["multiple_barcodes"] is False)
+r = call("POST", f"/products/{pm}/barcodes", {"barcode": m3}, expect=422)
+check("off: no new extra barcode on a product that has one", r["error"]["title"] == "One barcode per product", r)
+fresh174 = call("POST", "/products", {"name": f"Multi Fresh {suffix}", "marked_price": 40})["result"]["id"]
+call("POST", f"/products/{fresh174}/barcodes", {"barcode": m3})
+check("…a product's first barcode is still allowed", call("GET", f"/products/{fresh174}")["product"]["barcode"] == m3)
+check("existing extra barcodes are kept", call("GET", f"/products/{pm}")["barcodes"] == [m2])
+check("…still found by a scan", call("GET", f"/products/lookup?code={m2}")["product"]["id"] == pm)
+call("POST", "/stock/receive", {"product_id": pm, "quantity": 4, "barcodes": [m1, m2], "barcode_counts": {m1: 2, m2: 2}})
+check("…still received under (2 + 2 = 4, stock untouched otherwise)", lv174() == 4, lv174())
+call("POST", "/sales", {"items": [{"product_id": pm, "quantity": 1, "unit_price": 40, "barcode": m2, "scan_source": "scanner"}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+check("…still sold at the till", lv174() == 3)
+summ174 = call("GET", "/products/tracking-summary")
+check("the settings page counts products with more than one barcode", summ174["multiple"] >= 1, summ174)
+call("DELETE", f"/products/{pm}/barcodes/{m2}")
+check("an extra barcode can still be removed while off", call("GET", f"/products/{pm}")["barcodes"] == [])
+r = call("POST", f"/products/{pm}/barcodes", {"barcode": m2}, expect=422)
+check("…and not added back while off", r["error"]["title"] == "One barcode per product")
+check("another business keeps its own setting", call("GET", "/settings", token=t2["token"], branch="none")["settings"]["product"]["multiple_barcodes"] is True)
+call("PUT", "/settings", s174)
+call("POST", f"/products/{pm}/barcodes", {"barcode": m2})
+check("on again: extra barcodes can be added", call("GET", f"/products/{pm}")["barcodes"] == [m2])
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

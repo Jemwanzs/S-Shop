@@ -27,7 +27,8 @@ Price changes update the catalogue and are audited. Optionally approval-gated (*
 
 ## Adjustments
 Types: Damaged · Lost · Write-off · Customer return (back to stock) · Returned to supplier · Recount (set exact
-quantity) · Manual correction (±). A **reason is always required**; user, time, previous quantity, change, new quantity
+quantity) · Manual correction (±) · **Others** (roadmap 171: last; *Added to stock* or *Removed from stock*, and
+*Specify Adjustment Reason* — at least 10 characters — kept as the reason; shown as *Others* followed by it). A **reason is always required**; user, time, previous quantity, change, new quantity
 and approver are recorded. Tracked items are adjusted one scanned barcode at a time. A recount re-calculates the
 variance at the moment it is applied (sales in between are respected). Approval workflows: *Stock adjustment* and
 *Stock write-off*.

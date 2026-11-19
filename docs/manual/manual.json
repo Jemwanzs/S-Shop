@@ -470,6 +470,7 @@
           "steps": [
             "Open Stock and tap Adjust.",
             "Find the product, choose the Type (Damaged, Lost / missing, Write-off, Customer return, Returned to supplier or Recount), the quantity and the Reason.",
+            "None of these fits? Choose Others (the last type), say whether stock was Added to stock or Removed from stock, and write what happened under Specify Adjustment Reason.",
             "Tap Save adjustment. Nothing is overwritten — every adjustment is kept with who, when and why."
           ]
         },

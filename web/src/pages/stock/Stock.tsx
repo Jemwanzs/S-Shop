@@ -232,6 +232,9 @@ function Movements({ productId }: { productId?: string }) {
 
 interface AdjRow { id: string; created_at: string; branch_name: string; product_name: string; barcode: string | null; kind: string; previous_qty: number; delta: number; new_qty: number; reason: string; status: string; created_by_name: string | null; decided_by_name: string | null }
 
+/** Roadmap 171: "other" reads as "Others" (its explanation is the reason beside it). */
+const adjustmentKind = (k: string) => (k === "other" ? tr("Others") : titleCase(k));
+
 function Adjustments() {
   const [period, setPeriod] = useState<PeriodValue>({ period: "month" });
   const [offset, setOffset] = useState(0);
@@ -250,13 +253,13 @@ function Adjustments() {
         columns={[
           { key: "date", header: "When", cell: (r) => <span className="whitespace-nowrap text-muted-foreground">{dateTime(r.created_at)}</span> },
           { key: "product", header: "Product", cell: (r) => <div><div className="font-medium">{r.product_name}</div>{r.barcode && <div className="num text-xs text-muted-foreground">{r.barcode}</div>}</div> },
-          { key: "kind", header: "Type", cell: (r) => titleCase(r.kind) },
+          { key: "kind", header: "Type", cell: (r) => adjustmentKind(r.kind) },
           { key: "change", header: "Before → after", align: "right", cell: (r) => <span className="num whitespace-nowrap">{r.previous_qty} → {r.new_qty} <span className={r.delta > 0 ? "text-success" : "text-destructive"}>({signed(r.delta)})</span></span> },
           { key: "reason", header: "Reason", cell: (r) => r.reason, hideBelow: "lg" },
           { key: "by", header: "By / approved", cell: (r) => <span className="text-sm">{r.created_by_name}{r.decided_by_name && r.decided_by_name !== r.created_by_name && <span className="text-muted-foreground"> · ✓ {r.decided_by_name}</span>}</span>, hideBelow: "xl" },
           { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
         ]}
-        mobile={(r) => <CardRow title={r.product_name} subtitle={`${titleCase(r.kind)} · ${r.reason}`} value={signed(r.delta)} meta={<StatusBadge status={r.status} />} />}
+        mobile={(r) => <CardRow title={r.product_name} subtitle={`${adjustmentKind(r.kind)} · ${r.reason}`} value={signed(r.delta)} meta={<StatusBadge status={r.status} />} />}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}
       />
     </>

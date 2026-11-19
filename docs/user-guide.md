@@ -469,7 +469,8 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 
 1. Open Stock and tap Adjust.
 2. Find the product, choose the Type (Damaged, Lost / missing, Write-off, Customer return, Returned to supplier or Recount), the quantity and the Reason.
-3. Tap Save adjustment. Nothing is overwritten — every adjustment is kept with who, when and why.
+3. None of these fits? Choose Others (the last type), say whether stock was Added to stock or Removed from stock, and write what happened under Specify Adjustment Reason.
+4. Tap Save adjustment. Nothing is overwritten — every adjustment is kept with who, when and why.
 
 #### Update stock balances from Excel
 

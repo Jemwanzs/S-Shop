@@ -5065,6 +5065,41 @@ back170 = call("POST", "/products/tracking/apply", {"ids": [p170], "individual":
 check("back to individual items: the converted labels are not brought back as units", back170["items"][0]["outcome"] == "changed"
       and call("GET", f"/stock/barcode/{units170[0]}")["items"][0]["status"] == "converted")
 
+step("Roadmap 171: stock adjustment type Others, with a direction and a written explanation")
+o171 = call("POST", "/products", {"name": f"Others Jar {suffix}", "marked_price": 50, "cost_price": 20})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": o171, "quantity": 10})
+lv171 = lambda: next(l for l in call("GET", f"/products/{o171}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"]
+why = "Stock correction following physical verification and reconciliation."
+r = call("POST", "/stock/adjustments", {"product_id": o171, "kind": "other", "quantity": 2, "reason": why}, expect=400)
+check("Others needs a direction (added or removed)", "added or removed" in r["error"]["message"], r)
+r = call("POST", "/stock/adjustments", {"product_id": o171, "kind": "other", "direction": "out", "quantity": 2, "reason": "   "}, expect=400)
+check("…and an explanation, never only spaces", lv171() == 10, r)
+r = call("POST", "/stock/adjustments", {"product_id": o171, "kind": "other", "direction": "out", "quantity": 2, "reason": "fix it"}, expect=400)
+check("…that says something (at least 10 characters)", "Specify the adjustment reason" in r["error"]["message"] and lv171() == 10, r)
+call("POST", "/stock/adjustments", {"product_id": o171, "kind": "other", "direction": "out", "quantity": 2, "reason": why})
+check("Others, removed 2: stock 10 → 8", lv171() == 8, lv171())
+call("POST", "/stock/adjustments", {"product_id": o171, "kind": "other", "direction": "in", "quantity": 3, "reason": "Found 3 jars in the back store after a recount"})
+check("Others, added 3: stock 8 → 11", lv171() == 11, lv171())
+r = call("POST", "/stock/adjustments", {"product_id": o171, "kind": "other", "direction": "out", "quantity": 50, "reason": why}, expect=422)
+check("the usual quantity checks apply (no negative stock)", lv171() == 11, r["error"])
+hist171 = [h for h in call("GET", "/stock/adjustments?period=month&limit=100")["items"] if h["product_name"] == f"Others Jar {suffix}"]
+check("history keeps the type and the explanation with who, branch, quantity and time",
+      any(h["kind"] == "other" and h["reason"] == why and h["delta"] == -2 and h["created_by_name"] and h["branch_name"] for h in hist171), hist171[:2])
+call("PUT", "/settings/workflows/stock.adjust", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+pend171 = call("POST", "/stock/adjustments", {"product_id": o171, "kind": "other", "direction": "out", "quantity": 1, "reason": "Sample given to a wholesale buyer for testing"})
+req171 = next(a_ for a_ in call("GET", "/approvals?status=pending")["items"] if a_["id"] == pend171["approval_id"])
+check("approvers see Others and the explanation before deciding; stock unchanged", req171["summary"].startswith("Others") and "wholesale buyer" in req171["summary"] and lv171() == 11, req171["summary"])
+call("POST", f"/approvals/{pend171['approval_id']}/approve", {"comments": ""})
+check("…applied on approval", lv171() == 10)
+call("PUT", "/settings/workflows/stock.adjust", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+u171p = call("POST", "/products", {"name": f"Others Watch {suffix}", "marked_price": 900, "track_items": True})["result"]["id"]
+u171 = call("POST", "/barcodes/generate", {"product_id": u171p, "quantity": 1})["codes"][0]
+call("POST", "/stock/receive", {"product_id": u171p, "quantity": 1, "barcodes": [u171], "labels_attached": True, "labels_verified": True})
+call("POST", "/stock/adjustments", {"product_id": u171p, "kind": "other", "direction": "out", "quantity": 1, "barcode": u171, "reason": "Unit kept as a display piece, not for sale"})
+check("an item with its own barcode: Others removes that unit", call("GET", f"/stock/barcode/{u171}")["items"][0]["status"] == "written_off")
+call("POST", "/stock/adjustments", {"product_id": o171, "kind": "other", "direction": "out", "quantity": 1, "reason": why}, token=t2["token"], branch="none", expect=404)
+check("another business cannot adjust it", lv171() == 10)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

@@ -16,6 +16,7 @@ import { SearchInput } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { t } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import { useManualBarcodes } from "@/lib/scan";
 
 const KINDS = [
@@ -26,7 +27,12 @@ const KINDS = [
   ["supplier_return", "Returned to supplier"],
   ["count", "Recount (set exact quantity)"],
   ["manual", "Manual correction (+/−)"],
+  // Roadmap 171: last, with a direction and a written explanation.
+  ["other", "Others"],
 ] as const;
+
+/** Roadmap 171: an "Others" explanation counts once it says something (at least 10 characters, spaces not counted). */
+const explained = (s: string) => s.replace(/\s/g, "").length >= 10;
 
 /** Every adjustment records reason, user, time, before/after — never a silent overwrite. */
 export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; onOpenChange: (o: boolean) => void; initial?: Product | null }) {
@@ -40,6 +46,8 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
   const [barcode, setBarcode] = useState("");
   const typingAllowed = useManualBarcodes("stock");
   const [reason, setReason] = useState("");
+  const [direction, setDirection] = useState<"in" | "out" | null>(null);
+  const other = kind === "other";
   const [scan, setScan] = useState(false);
   const results = useQuery({ queryKey: ["products", "adjust", term], queryFn: () => api<Paged<Product>>("/products", { query: { q: term, limit: 8 } }), enabled: open && !!term && !product });
   const current = product ?? initial ?? null;
@@ -52,6 +60,7 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
     setQty("");
     setBarcode("");
     setReason("");
+    setDirection(null);
   };
   const save = useMutation({
     mutationFn: () =>
@@ -62,6 +71,7 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
           counted_qty: kind === "count" ? parseInt(qty) : undefined,
           quantity: kind === "count" ? undefined : tracked ? 1 : parseInt(qty),
           barcode: tracked ? barcode : undefined,
+          direction: other ? direction : undefined,
           reason,
         },
       }),
@@ -74,7 +84,7 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
     },
     onError: (e) => toast.error(e),
   });
-  const valid = current && reason.trim() && (tracked ? barcode.trim() : qty !== "" && (kind === "manual" ? parseInt(qty) !== 0 : parseInt(qty) >= 0));
+  const valid = current && reason.trim() && (!other || (direction && explained(reason))) && (tracked ? barcode.trim() : qty !== "" && (kind === "manual" ? parseInt(qty) !== 0 : other ? parseInt(qty) > 0 : parseInt(qty) >= 0));
 
   return (
     <>
@@ -83,7 +93,8 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
         onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}
         title="Adjust stock"
         description="Sensitive adjustments may need approval."
-        footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…" blockedBy={[!valid && REASONS.completeFields]}
+        footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…"
+          blockedBy={[other && !direction && "Choose add or remove", other && !explained(reason) && "Specify the adjustment reason", !valid && REASONS.completeFields]}
           onAction={() => save.mutateAsync()}>{t("Save adjustment")}</ActionButton>}
       >
         <div className="space-y-4">
@@ -110,6 +121,16 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
               {kinds.map(([k, label]) => <option key={k} value={k}>{t(label)}</option>)}
             </Select>
           </Field>
+          {other && (
+            <Field group label="Stock is">
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t("Stock is")}>
+                {([["in", "Added to stock"], ["out", "Removed from stock"]] as const).map(([d, label]) => (
+                  <button key={d} type="button" role="radio" aria-checked={direction === d} onClick={() => setDirection(d)}
+                    className={cn("h-11 rounded-xl border text-sm font-medium", direction === d ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-card hover:bg-accent")}>{t(label)}</button>
+                ))}
+              </div>
+            </Field>
+          )}
           {tracked ? (
             <Field label="Item barcode">
               <div className="flex gap-2">
@@ -123,7 +144,13 @@ export function AdjustDialog({ open, onOpenChange, initial }: { open: boolean; o
               <Input inputMode={kind === "manual" ? "text" : "numeric"} className="num" value={qty} onChange={(e) => setQty(e.target.value.replace(kind === "manual" ? /[^\d-]/g : /\D/g, ""))} />
             </Field>
           )}
-          <Field label="Reason"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What happened?" /></Field>
+          {other ? (
+            <Field label="Specify Adjustment Reason" hint={explained(reason) || !reason ? "Kept with the adjustment, shown to approvers and in the history" : "Explain what happened (at least 10 characters)"}>
+              <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("e.g. Stock correction following physical verification and reconciliation.")} />
+            </Field>
+          ) : (
+            <Field label="Reason"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What happened?" /></Field>
+          )}
         </div>
       </ResponsiveDialog>
       <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={setBarcode} />

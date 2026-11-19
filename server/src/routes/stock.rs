@@ -692,8 +692,11 @@ async fn trace(state: &AppState, ctx: &Ctx, code: &str) -> AppResult<Json<Value>
 pub struct AdjustBody {
     pub product_id: Uuid,
     pub branch_id: Option<Uuid>,
-    /// count | damage | loss | customer_return | supplier_return | manual | write_off
+    /// count | damage | loss | customer_return | supplier_return | manual | write_off | other
     pub kind: String,
+    /// Roadmap 171: for `other`, `in` (added to stock) or `out` (removed).
+    #[serde(default)]
+    pub direction: Option<String>,
     /// For `count`: the physically counted quantity.
     pub counted_qty: Option<i32>,
     /// Units affected (positive) for damage/loss/returns/write-off; signed delta for `manual`.
@@ -805,6 +808,10 @@ async fn submit_adjustment(conn: &mut PgConnection, ctx: &Ctx, b: AdjustBody) ->
     if b.reason.trim().is_empty() {
         return Err(bad("A reason is required for every adjustment"));
     }
+    // Roadmap 171: "Others" says in words what happened — a real explanation, not a placeholder.
+    if b.kind == "other" && b.reason.split_whitespace().collect::<String>().chars().count() < 10 {
+        return Err(bad("Specify the adjustment reason: explain what happened (at least 10 characters)"));
+    }
     let branch = ctx.branch_or_current(b.branch_id)?;
     let p = product_info(conn, ctx.tenant_id, b.product_id).await?;
     let level = inventory::lock(conn, ctx.tenant_id, branch, b.product_id).await?;
@@ -815,7 +822,12 @@ async fn submit_adjustment(conn: &mut PgConnection, ctx: &Ctx, b: AdjustBody) ->
         "damage" | "loss" | "write_off" | "supplier_return" if qty > 0 => -qty,
         "customer_return" if qty > 0 => qty,
         "manual" if qty != 0 => qty,
-        "damage" | "loss" | "write_off" | "supplier_return" | "customer_return" | "manual" => {
+        "other" if qty > 0 => match b.direction.as_deref() {
+            Some("in") => qty,
+            Some("out") => -qty,
+            _ => return Err(bad("Choose whether stock is added or removed")),
+        },
+        "damage" | "loss" | "write_off" | "supplier_return" | "customer_return" | "manual" | "other" => {
             return Err(bad("Enter the quantity affected"))
         }
         _ => return Err(bad("Unknown adjustment type")),
@@ -874,7 +886,7 @@ async fn submit_adjustment(conn: &mut PgConnection, ctx: &Ctx, b: AdjustBody) ->
                 entity_type: "stock_adjustment",
                 entity_id: adj_id,
                 branch_id: Some(branch),
-                summary: format!("{} {:+} × {} — {}", b.kind.replace('_', " "), delta, p.name, b.reason.trim()),
+                summary: format!("{} {:+} × {} — {}", if b.kind == "other" { "Others".to_string() } else { b.kind.replace('_', " ") }, delta, p.name, b.reason.trim()),
                 amount: None,
                 payload: json!({}),
             },
@@ -908,6 +920,8 @@ async fn apply_adjustment(conn: &mut PgConnection, ctx: &Ctx, adj_id: Uuid, appr
         if let Some(item_id) = item {
             let new_status = match kind.as_str() {
                 "customer_return" => "in_stock",
+                // Roadmap 171: "Others" adding a unit brings it back into stock; removing one writes it off.
+                "other" if delta > 0 => "in_stock",
                 "supplier_return" => "returned_to_supplier",
                 _ => "written_off",
             };
@@ -1110,6 +1124,7 @@ async fn stock_count(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Coun
             }
             for code in &missing {
                 let body = AdjustBody {
+                    direction: None,
                     product_id: line.product_id,
                     branch_id: Some(branch),
                     kind: "loss".into(),
@@ -1139,6 +1154,7 @@ async fn stock_count(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Coun
             continue;
         }
         let body = AdjustBody {
+                    direction: None,
             product_id: line.product_id,
             branch_id: Some(branch),
             kind: "count".into(),

@@ -354,6 +354,8 @@ struct Refs {
     barcodes_on: bool,
     /// Roadmap 168: a product with a blank Stock Tracking cell gets the business's default.
     individual_default: bool,
+    /// Roadmap 169: existing products whose Stock Tracking the file changes but that cannot change yet → the reason.
+    tracking_blocked: HashMap<Uuid, String>,
     cutover: Option<NaiveDate>,
     today: NaiveDate,
     /// Roadmap 142 (stock balances): lower(branch name) → id, id → name, the branches this person works in, on-hand
@@ -453,6 +455,7 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
         order_statuses: super::orders::FLOW.iter().filter(|f| s.order_status_enabled(f)).map(|f| f.to_string()).collect(),
         barcodes_on: s.stock.barcode_requirement != settings::BarcodeRequirement::Disabled,
         individual_default: s.stock.barcode_requirement != settings::BarcodeRequirement::Disabled && !s.product.shared_barcodes,
+        tracking_blocked: HashMap::new(),
         cutover,
         today: Utc::now().with_timezone(&ctx.tz).date_naive(),
         branch_names: branch_rows.iter().map(|(id, n)| (n.trim().to_lowercase(), *id)).collect(),
@@ -512,6 +515,16 @@ fn money(d: &Map<String, Value>, k: &str) -> Option<Decimal> {
 }
 
 /// Validates every row; returns the per-row (normalised data, check). `seen` catches duplicates within the file.
+/// A Stock Tracking cell: none (blank), shared (false) or individual (true); anything else is returned to be reported.
+fn tracking_cell(v: Option<&str>) -> Result<Option<bool>, String> {
+    match v.map(str::to_lowercase).as_deref() {
+        None => Ok(None),
+        Some("product barcode") | Some("product") | Some("shared barcode") | Some("shared") => Ok(Some(false)),
+        Some("individual items") | Some("individual") | Some("individual item") => Ok(Some(true)),
+        Some(_) => Err(v.unwrap_or_default().to_string()),
+    }
+}
+
 fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &Refs) -> Vec<(Map<String, Value>, Check)> {
     let mut seen: HashMap<String, u32> = HashMap::new();
     // Sales history: every line of a receipt must agree on these (first line wins).
@@ -558,16 +571,30 @@ fn validate(dataset: &str, mode: &str, rows: &[(u32, Map<String, Value>)], r: &R
                 if d.get("low_stock").and_then(|v| v.as_i64()).is_some_and(|v| v < 0) {
                     c.err("low_stock", "Low-Stock Alert cannot be negative");
                 }
-                let tracking = s(&d, "tracking").map(str::to_lowercase);
-                let individual = match tracking.as_deref() {
-                    None => r.individual_default,
-                    Some("product barcode") | Some("product") | Some("shared barcode") | Some("shared") => false,
-                    Some("individual items") | Some("individual") | Some("individual item") => true,
-                    Some(other) => {
+                // Roadmap 169: on an update a blank cell keeps the product's own tracking (never the business default).
+                let existing = s(&d, "code").and_then(|code| r.products.get(code)).map(|p| (p.0, p.1));
+                let individual = match tracking_cell(s(&d, "tracking")) {
+                    Ok(None) => match (mode, existing) {
+                        ("update", Some((_, own))) => own,
+                        _ => r.individual_default,
+                    },
+                    Ok(Some(v)) => v,
+                    Err(other) => {
                         c.err("tracking", format!("Stock Tracking “{other}”: Product barcode or Individual items"));
                         false
                     }
                 };
+                if let ("update", Some((id, own)), Ok(Some(v))) = (mode, existing, tracking_cell(s(&d, "tracking"))) {
+                    if v != own {
+                        match r.tracking_blocked.get(&id) {
+                            Some(reason) => c.err("tracking", format!("Stock Tracking cannot change yet: {reason}")),
+                            None => {
+                                d.insert("tracking_change".into(), json!(true));
+                                c.warn("tracking", if v { "Stock Tracking changes to Individual items" } else { "Stock Tracking changes to Product barcode" });
+                            }
+                        }
+                    }
+                }
                 if individual && !r.barcodes_on {
                     c.err("tracking", "Individual items need barcode management (Settings → Stock → Barcode settings)");
                 }
@@ -1262,7 +1289,22 @@ async fn store_validation(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, datas
         .map(|(n, v)| (n as u32, v))
         .collect();
     let parsed: Vec<(u32, Map<String, Value>)> = rows.into_iter().map(|(n, v)| (n, raw_fields(dataset, v))).collect();
-    let r = refs(conn, ctx).await?;
+    let mut r = refs(conn, ctx).await?;
+    // Roadmap 169: an update that changes a product's Stock Tracking runs the same checks as Products → Edit.
+    if dataset == "products" && mode == "update" {
+        for (_, d) in &parsed {
+            let code = s(d, "code").map(str::to_uppercase);
+            let Some((id, own)) = code.as_deref().and_then(|c| r.products.get(c)).map(|p| (p.0, p.1)) else { continue };
+            if let Ok(Some(v)) = tracking_cell(s(d, "tracking")) {
+                if v != own && !r.tracking_blocked.contains_key(&id) {
+                    let check = super::catalog::tracking_change(conn, ctx.tenant_id, id, v, None).await?;
+                    if let Some(first) = check.blockers.first() {
+                        r.tracking_blocked.insert(id, first.clone());
+                    }
+                }
+            }
+        }
+    }
     let checked = validate(dataset, mode, &parsed, &r);
     let (mut valid, mut warn, mut invalid) = (0, 0, 0);
     for ((row_no, _), (d, c)) in parsed.iter().zip(checked) {
@@ -2704,6 +2746,19 @@ async fn post_product(conn: &mut PgConnection, ctx: &Ctx, batch: Uuid, mode: &st
         .bind(all)
         .fetch_one(&mut *conn)
         .await?;
+        // Roadmap 169: the file's Stock Tracking, when it changes the product (checked again now; refused rows never get here).
+        if d.get("tracking_change").and_then(Value::as_bool) == Some(true) {
+            let check = super::catalog::tracking_change(conn, ctx.tenant_id, id, individual, None).await?;
+            if let Some(first) = check.blockers.first() {
+                return Err(refused("Tracking cannot change yet", format!("{}: {first}", s(d, "name").unwrap_or_default())));
+            }
+            sqlx::query("UPDATE products SET track_items = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2")
+                .bind(id)
+                .bind(ctx.tenant_id)
+                .bind(individual)
+                .execute(&mut *conn)
+                .await?;
+        }
         new = false;
     } else {
         let code = match s(d, "code") {

@@ -28,6 +28,7 @@ import type { ReceiptSnapshot } from "@/lib/receipt";
 import { redemptionBlocked } from "@/lib/loyalty";
 import { LANDING_PAGES } from "@/lib/landing";
 import { BarcodeHardwareCard } from "./BarcodeHardware";
+import { BarcodeNatureSummary } from "./BarcodeNature";
 
 type Draft = ReturnType<typeof useSettingsDraft>;
 
@@ -132,9 +133,10 @@ function BarcodeTrackingCard({ s, saved, update }: { s: Settings; saved: boolean
       {changed && (
         <p className="mt-2 rounded-lg bg-warning/10 p-2.5 text-xs text-warning">
           {t("Only products created from now on follow this. Existing products keep their tracking, stock and barcode history.")}
-          {other > 0 && <> {count(other)} {t(on ? "product(s) use individual barcodes" : "product(s) use a shared barcode")}: {t("review them, and change any that need it from the product's own page (Edit → Barcode).")}</>}
+          {other > 0 && <> {count(other)} {t(on ? "product(s) use individual barcodes" : "product(s) use a shared barcode")}: {t("review them below in Product Barcode Nature.")}</>}
         </p>
       )}
+      <BarcodeNatureSummary />
     </Card>
   );
 }

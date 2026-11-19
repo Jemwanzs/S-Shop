@@ -4961,6 +4961,65 @@ check("with barcode management off every new product counts by quantity", trk(p_
 call("PUT", "/settings", s168)
 check("back on", call("GET", "/settings")["settings"]["product"]["shared_barcodes"] is True and trk(p_unit) is True)
 
+step("Roadmap 169: Product Barcode Nature — see and change several products' tracking")
+trk169 = lambda pid: call("GET", f"/products/{pid}")["product"]["track_items"]
+n169 = f"NAT{suffix}"
+ind_a = call("POST", "/products", {"name": f"{n169} Perfume A", "marked_price": 10, "track_items": True})["result"]["id"]
+ind_b = call("POST", "/products", {"name": f"{n169} Watch B", "marked_price": 10, "track_items": True})["result"]["id"]
+shr_c = call("POST", "/products", {"name": f"{n169} Soap C", "marked_price": 10})["result"]["id"]
+# Watch B has a unit in stock carrying its own barcode: it cannot become shared without a migration.
+u169 = call("POST", "/barcodes/generate", {"product_id": ind_b, "quantity": 1})["codes"][0]
+call("POST", "/stock/receive", {"product_id": ind_b, "quantity": 1, "barcodes": [u169], "labels_attached": True, "labels_verified": True})
+summ = call("GET", "/products/tracking-summary")
+check("the counts cover every product per mode", summ["individual"] >= 2 and summ["shared"] >= 1, summ)
+lst = call("GET", f"/products?q={n169}&status=all&tracking=individual")["items"]
+check("the list filters by tracking", sorted(x["id"] for x in lst) == sorted([ind_a, ind_b]), [x["name"] for x in lst])
+call("GET", "/products?tracking=sideways", expect=400)
+mm = call("GET", f"/products/matching-ids?q={n169}&status=all&tracking=individual")
+check("select all matching follows the tracking filter", sorted(mm["ids"]) == sorted([ind_a, ind_b]), mm)
+pv = call("POST", "/products/tracking/preview", {"ids": [ind_a, ind_b, shr_c], "individual": False})
+st = {i["id"]: i for i in pv["items"]}
+check("preview: an eligible product, a flagged one with its reason, and one already shared",
+      st[ind_a]["status"] == "eligible" and st[ind_b]["status"] == "blocked" and "own barcode" in " ".join(st[ind_b]["reasons"]) and st[shr_c]["status"] == "already", pv)
+check("…nothing changes on a preview", trk169(ind_a) is True)
+role169 = next(r_ for r_ in call("GET", "/roles") if "products.edit" not in (r_.get("permissions") or []) and "*" not in (r_.get("permissions") or []))
+mail169 = f"nature{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Nature Viewer", "email": mail169, "pin": "4321", "role_id": role169["id"], "all_branches": True, "branch_ids": []})
+viewer169 = call("POST", "/auth/login", {"email": mail169, "pin": "4321"})["token"]
+call("POST", "/products/tracking/apply", {"ids": [ind_a], "individual": False}, token=viewer169, expect=403)
+check("only people who may edit products can change it", trk169(ind_a) is True)
+r = call("POST", "/products/tracking/preview", {"ids": [ind_a], "individual": False}, token=t2["token"], branch="none")
+check("another business cannot see these products", r["items"][0]["status"] == "not_found", r)
+ap = call("POST", "/products/tracking/apply", {"ids": [ind_a, ind_b, shr_c], "individual": False})
+out = {i["id"]: i["outcome"] for i in ap["items"]}
+check("apply: the eligible product becomes shared", out[ind_a] == "changed" and trk169(ind_a) is False, ap["summary"])
+check("…without being made to have a product barcode", call("GET", f"/products/{ind_a}")["product"]["barcode"] is None)
+check("…the flagged one is left exactly as it was", out[ind_b] == "blocked" and trk169(ind_b) is True)
+check("…its unit keeps its own barcode and stock", call("GET", f"/stock/barcode/{u169}")["items"][0]["status"] == "in_stock")
+check("…and the shared one is reported, not touched", out[shr_c] == "already")
+again = call("POST", "/products/tracking/apply", {"ids": [ind_a], "individual": False})
+check("applying again changes nothing more", again["items"][0]["outcome"] == "already")
+back = call("POST", "/products/tracking/apply", {"ids": [ind_a], "individual": True})
+check("and back to individual items", back["items"][0]["outcome"] == "changed" and trk169(ind_a) is True)
+call("PUT", "/settings/workflows/product.edit", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+pend = call("POST", "/products/tracking/apply", {"ids": [ind_a], "individual": False})
+check("with product edits under approval the change waits, the product unchanged", pend["items"][0]["outcome"] == "pending_approval" and trk169(ind_a) is True, pend)
+call("POST", f"/approvals/{pend['items'][0]['approval_id']}/approve", {"comments": ""})
+check("…and applies on approval", trk169(ind_a) is False)
+call("PUT", "/settings/workflows/product.edit", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+# Excel: Update existing products now applies Stock Tracking (and a blank cell keeps the product's own)
+code_a = call("GET", f"/products/{ind_a}")["product"]["code"]
+code_b = call("GET", f"/products/{ind_b}")["product"]["code"]
+code_c = call("GET", f"/products/{shr_c}")["product"]["code"]
+book = make_xlsx(["Product Code", "Product Name", "Category", "Stock Tracking"],
+                 [[code_a, f"{n169} Perfume A", "Kitchen", "Individual items"], [code_b, f"{n169} Watch B", "Kitchen", "Product barcode"], [code_c, f"{n169} Soap C", "Kitchen", ""]])
+upx = upload_xlsx("products", book, mode="update", name=f"nature-{suffix}.xlsx")
+msgs = {r_["row_no"]: " | ".join(m["message"] for m in r_["messages"]) for r_ in upx["rows"]}
+check("the import preview says which tracking changes and which cannot", any("changes to Individual items" in m for m in msgs.values()) and any("cannot change yet" in m for m in msgs.values()), msgs)
+done = import_now(upx["batch"]["id"], {"skip_invalid": True})
+check("posted: Perfume A is individual again from the file", trk169(ind_a) is True, done.get("status"))
+check("…Watch B (flagged) and Soap C (blank cell) keep theirs", trk169(ind_b) is True and trk169(shr_c) is False)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

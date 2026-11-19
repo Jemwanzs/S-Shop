@@ -547,6 +547,16 @@
           ]
         },
         {
+          "title": "Change many products to shared barcodes at once",
+          "steps": [
+            "Settings → Products → Barcode & Quantity Tracking → Product Barcode Nature shows how many products use Individual Items and Product Barcode (Shared). Tap Review and change products.",
+            "Search or filter, tick the products (or Select all), then tap Switch to Product Barcode (Shared) — or Switch to Individual Items.",
+            "Check the list: Will change, Already this way, or Cannot change yet with the reason (for example items in stock that carry their own barcode). Nothing has changed yet.",
+            "Tap Change. Barcodes, stock and past sales stay as they are; no product barcode has to be added. Where product edits need approval, each change waits for it.",
+            "In Excel, Update existing products also changes Stock Tracking when the column says so."
+          ]
+        },
+        {
           "title": "Find unpriced products and deactivate several",
           "steps": [
             "Products: Price status → Zero price, Missing price or Zero or missing price (0 and no price are different). Missing product image, the last option, lists products without a photo.",

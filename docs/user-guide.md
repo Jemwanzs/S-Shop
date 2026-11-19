@@ -529,6 +529,14 @@ Setting up the business, people, rules, payments and the website.
 2. Tap Save changes. Only products created from now on follow it; existing products keep their tracking and history.
 3. One product needs the other way? Open it → Edit → Barcode → Use a shared barcode (or individual barcodes) for this product. S'Shop says first if something stops the change, such as stock waiting for approval.
 
+#### Change many products to shared barcodes at once
+
+1. Settings → Products → Barcode & Quantity Tracking → Product Barcode Nature shows how many products use Individual Items and Product Barcode (Shared). Tap Review and change products.
+2. Search or filter, tick the products (or Select all), then tap Switch to Product Barcode (Shared) — or Switch to Individual Items.
+3. Check the list: Will change, Already this way, or Cannot change yet with the reason (for example items in stock that carry their own barcode). Nothing has changed yet.
+4. Tap Change. Barcodes, stock and past sales stay as they are; no product barcode has to be added. Where product edits need approval, each change waits for it.
+5. In Excel, Update existing products also changes Stock Tracking when the column says so.
+
 #### Find unpriced products and deactivate several
 
 1. Products: Price status → Zero price, Missing price or Zero or missing price (0 and no price are different). Missing product image, the last option, lists products without a photo.

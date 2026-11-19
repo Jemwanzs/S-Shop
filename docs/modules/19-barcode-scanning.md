@@ -18,7 +18,15 @@
 **Which model a product gets (roadmap 168):** Settings → Products → *Allow Shared Barcodes Across Multiple Items* (default
 on) sets it for **new** products; the server applies it when no mode is chosen (form, API, import). Products → Edit →
 Barcode shows the product's model and whether it is the business default, with *Use … for this product* as the
-controlled exception. The setting never moves an existing product. **Changing a saved
+controlled exception. The setting never moves an existing product.
+
+**Product Barcode Nature (roadmap 169):** the same card counts products per model and opens *Review and change
+products*: search, filter by model, select (or all matching, up to 500), choose *Product Barcode (Shared)* or
+*Individual Items*, see each product's outcome (*Will change* / *Already this way* / *Cannot change yet* + reason), then
+confirm. Each change is an ordinary product edit with only `track_items` changed (safeguards below, *Product edit*
+approval, audit); products needing a migration are flagged, never converted. Going to shared needs no product barcode.
+In the Excel import, *Update existing products* applies a changed *Stock Tracking* the same way; a blank cell keeps the
+product's own. **Changing a saved
 product's model** is checked first (`GET /api/products/{id}/tracking-check?individual=`) and again on save and on
 approval. Refused while stock requests for it wait for approval, transfers of it are open, units are reserved for
 orders (to individual) or units carry their own barcode (to shared). Going to individual with stock on hand warns that

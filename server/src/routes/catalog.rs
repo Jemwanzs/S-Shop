@@ -32,6 +32,8 @@ pub fn routes() -> Router<AppState> {
         .route("/products/{id}/status", post(set_status))
         .route("/products/{id}/tracking-check", get(tracking_check))
         .route("/products/tracking-summary", get(tracking_summary))
+        .route("/products/tracking/preview", post(tracking_preview))
+        .route("/products/tracking/apply", post(tracking_apply))
         .route("/products/matching-ids", get(matching_ids))
         .route("/products/bulk-preview", post(bulk_preview))
         .route("/products/bulk-deactivate", post(bulk_deactivate))
@@ -105,6 +107,8 @@ struct ListQuery {
     /// | zero_or_missing | above_zero. A price of 0 and no price are different things and stay different.
     /// Roadmap 154: missing_image (no stored photo with image data — a photo failing to load in a browser is not missing).
     price: Option<String>,
+    /// Roadmap 169: all | shared | individual (Product Barcode Nature).
+    tracking: Option<String>,
     #[serde(flatten)]
     page: Page,
 }
@@ -113,6 +117,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     ctx.require_any(&["products.view", "stock.view", "sales.create"])?;
     let branch = ctx.branch_or_current(q.branch_id)?;
     check_price_filter(&q.price)?;
+    check_tracking_filter(&q.tracking)?;
     let select = PRODUCT_SELECT.replacen("SELECT", "SELECT COUNT(*) OVER() AS total_count,", 1);
     let mut rows: Vec<Counted<ProductRow>> = sqlx::query_as(&format!(
         "{select} WHERE p.tenant_id = $1
@@ -120,6 +125,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
            AND ($4::uuid IS NULL OR p.category_id = $4)
            AND ($5::text IS NULL OR $5 = 'all' OR ($5 = 'active' AND p.is_active) OR ($5 = 'inactive' AND NOT p.is_active))
            AND {PRICE_FILTER}
+           AND {TRACKING_FILTER}
          ORDER BY p.is_active DESC, p.name LIMIT $6 OFFSET $7"
     ))
     .bind(ctx.tenant_id)
@@ -130,6 +136,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .bind(q.page.limit())
     .bind(q.page.offset())
     .bind(&q.price)
+    .bind(&q.tracking)
     .fetch_all(&state.db)
     .await?;
     if costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
@@ -144,6 +151,17 @@ const PRICE_FILTER: &str = "($8::text IS NULL OR $8 = 'all'
             OR ($8 = 'zero' AND p.marked_price = 0) OR ($8 = 'zero_or_missing' AND (p.marked_price IS NULL OR p.marked_price = 0))
             OR ($8 = 'above_zero' AND p.marked_price > 0)
             OR ($8 = 'missing_image' AND NOT EXISTS (SELECT 1 FROM product_photos ph WHERE ph.product_id = p.id AND octet_length(ph.data) > 0 AND ph.mime LIKE 'image/%')))";
+
+/// Roadmap 169: the barcode-tracking filter (`$9`).
+const TRACKING_FILTER: &str = "($9::text IS NULL OR $9 = 'all' OR ($9 = 'individual' AND p.track_items) OR ($9 = 'shared' AND NOT p.track_items))";
+
+fn check_tracking_filter(tracking: &Option<String>) -> AppResult<()> {
+    if matches!(tracking.as_deref(), None | Some("all" | "shared" | "individual")) {
+        Ok(())
+    } else {
+        Err(bad("Tracking: all, shared or individual"))
+    }
+}
 
 fn check_price_filter(price: &Option<String>) -> AppResult<()> {
     if matches!(price.as_deref(), None | Some("all" | "set" | "missing" | "zero" | "zero_or_missing" | "above_zero" | "missing_image")) {
@@ -161,12 +179,14 @@ const BULK_PRODUCTS_MAX: usize = 500;
 async fn matching_ids(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Value>> {
     ctx.require("products.view")?;
     check_price_filter(&q.price)?;
+    check_tracking_filter(&q.tracking)?;
     let rows: Vec<(Uuid, i64)> = sqlx::query_as(&format!(
         "SELECT p.id, COUNT(*) OVER() FROM products p WHERE p.tenant_id = $1 AND $2::uuid IS NOT DISTINCT FROM $2
            AND ($3::text IS NULL OR p.name ILIKE $3 OR p.nickname ILIKE $3 OR p.code ILIKE $3 OR p.barcode ILIKE $3)
            AND ($4::uuid IS NULL OR p.category_id = $4)
            AND ($5::text IS NULL OR $5 = 'all' OR ($5 = 'active' AND p.is_active) OR ($5 = 'inactive' AND NOT p.is_active))
            AND {PRICE_FILTER}
+           AND {TRACKING_FILTER}
          ORDER BY p.is_active DESC, p.name LIMIT $6 OFFSET $7"
     ))
     .bind(ctx.tenant_id)
@@ -177,6 +197,7 @@ async fn matching_ids(State(state): State<AppState>, ctx: Ctx, Query(q): Query<L
     .bind(BULK_PRODUCTS_MAX as i64)
     .bind(0i64)
     .bind(&q.price)
+    .bind(&q.tracking)
     .fetch_all(&state.db)
     .await?;
     let total = rows.first().map(|r| r.1).unwrap_or(0);
@@ -603,8 +624,20 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<Produ
     Ok(Json(Outcome::done(json!({ "id": id, "code": b.code }))))
 }
 
-async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(mut b): Json<ProductBody>) -> AppResult<Json<Outcome<Value>>> {
+async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<ProductBody>) -> AppResult<Json<Outcome<Value>>> {
     ctx.require("products.edit")?;
+    match update_product(&state, &ctx, id, b).await? {
+        Some(approval) => {
+            super::approvals::notify_approvers(&state, &ctx, approval).await;
+            Ok(Json(Outcome::pending(approval)))
+        }
+        None => Ok(Json(Outcome::done(json!({ "id": id })))),
+    }
+}
+
+/// One product's edit, checked and applied — or sent for approval, whose id is returned (the caller tells approvers).
+async fn update_product(state: &AppState, ctx: &Ctx, id: Uuid, mut b: ProductBody) -> AppResult<Option<Uuid>> {
+    let ctx = ctx.clone();
     let mut tx = state.db.begin().await?;
     let (current_active, current_code, current_cost, current_track): (bool, String, Option<Decimal>, bool) =
         sqlx::query_as("SELECT is_active, code, cost_price, track_items FROM products WHERE id=$1 AND tenant_id=$2")
@@ -651,20 +684,19 @@ async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
         )
         .await?;
         tx.commit().await?;
-        super::approvals::notify_approvers(&state, &ctx, approval).await;
-        return Ok(Json(Outcome::pending(approval)));
+        return Ok(Some(approval));
     }
     apply_update(&mut tx, &ctx, id, &b, None).await?;
     tx.commit().await?;
-    Ok(Json(Outcome::done(json!({ "id": id }))))
+    Ok(None)
 }
 
 /// Roadmap 153: what a change of barcode tracking model runs into. `blockers` refuse the change; `notes` are what the
 /// person should know before going ahead. `excluding` is the approval carrying this very change.
 #[derive(Serialize)]
 pub struct TrackingChange {
-    blockers: Vec<String>,
-    notes: Vec<String>,
+    pub(crate) blockers: Vec<String>,
+    pub(crate) notes: Vec<String>,
 }
 
 impl ProductBody {
@@ -674,7 +706,7 @@ impl ProductBody {
     }
 }
 
-async fn tracking_change(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid, to_individual: bool, excluding: Option<Uuid>) -> AppResult<TrackingChange> {
+pub(crate) async fn tracking_change(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid, to_individual: bool, excluding: Option<Uuid>) -> AppResult<TrackingChange> {
     let (mut blockers, mut notes) = (Vec::new(), Vec::new());
     let pending: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM approvals WHERE tenant_id = $1 AND status = 'pending' AND action LIKE 'stock.%'
@@ -727,16 +759,153 @@ async fn tracking_change(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid, to_
     Ok(TrackingChange { blockers, notes })
 }
 
-/// Roadmap 168: how this business's products are tracked now, for the settings page (changing the default moves none).
+/// Roadmap 168/169: how this business's products are tracked now (all of them, active or not), for Settings → Products.
 async fn tracking_summary(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
     ctx.require("products.view")?;
     let (shared, individual): (i64, i64) = sqlx::query_as(
-        "SELECT COUNT(*) FILTER (WHERE NOT track_items), COUNT(*) FILTER (WHERE track_items) FROM products WHERE tenant_id = $1 AND is_active",
+        "SELECT COUNT(*) FILTER (WHERE NOT track_items), COUNT(*) FILTER (WHERE track_items) FROM products WHERE tenant_id = $1",
     )
     .bind(ctx.tenant_id)
     .fetch_one(&state.db)
     .await?;
     Ok(Json(json!({ "shared": shared, "individual": individual })))
+}
+
+#[derive(Deserialize)]
+struct BulkTracking {
+    ids: Vec<Uuid>,
+    /// true: Individual Items · false: Product Barcode (shared)
+    individual: bool,
+}
+
+/// Roadmap 169: one product's outcome for a bulk change of barcode nature — already that way, cannot change yet (the
+/// same safeguards as Products → Edit), or can change (with what the person should know).
+async fn tracking_outcome(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, to_individual: bool, barcodes_on: bool) -> AppResult<(String, bool, Value)> {
+    let (name, track): (String, bool) = sqlx::query_as("SELECT name, track_items FROM products WHERE id = $1 AND tenant_id = $2")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or(AppError::NotFound("Product"))?;
+    if track == to_individual {
+        return Ok((name, false, json!({ "status": "already" })));
+    }
+    if to_individual && !barcodes_on {
+        return Ok((name, false, json!({ "status": "blocked", "reasons": ["Barcode management is off (Settings → Stock)"] })));
+    }
+    let check = tracking_change(conn, ctx.tenant_id, id, to_individual, None).await?;
+    if !check.blockers.is_empty() {
+        return Ok((name, false, json!({ "status": "blocked", "reasons": check.blockers })));
+    }
+    Ok((name, true, json!({ "status": "eligible", "notes": check.notes })))
+}
+
+/// Roadmap 169: what a bulk change of barcode nature would do, product by product — shown before it is confirmed.
+async fn tracking_preview(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkTracking>) -> AppResult<Json<Value>> {
+    ctx.require("products.edit")?;
+    let ids = bulk_ids(&b.ids)?;
+    let mut conn = state.db.acquire().await?;
+    let barcodes_on = settings::load(&mut conn, ctx.tenant_id).await?.stock.barcode_requirement != settings::BarcodeRequirement::Disabled;
+    let mut items = Vec::new();
+    for id in ids {
+        match tracking_outcome(&mut conn, &ctx, id, b.individual, barcodes_on).await {
+            Ok((name, _, mut v)) => {
+                v["id"] = json!(id);
+                v["name"] = json!(name);
+                items.push(v);
+            }
+            Err(AppError::NotFound(_)) => items.push(json!({ "id": id, "name": null, "status": "not_found" })),
+            Err(e) => return Err(e),
+        }
+    }
+    let approval = workflow::needs_approval(&mut conn, &ctx, "product.edit", workflow::Gate::default()).await?;
+    Ok(Json(json!({ "items": items, "needs_approval": approval })))
+}
+
+/// Roadmap 169: change the barcode nature of several products. Each goes through the same edit path as Products → Edit
+/// (validation, safeguards checked again, approval when the business asks for it, audit), with only its tracking
+/// changed; barcodes, stock and history stay as they are. Every product gets an outcome; nothing is converted silently.
+async fn tracking_apply(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkTracking>) -> AppResult<Json<Value>> {
+    ctx.require("products.edit")?;
+    let ids = bulk_ids(&b.ids)?;
+    let bulk_ref = Uuid::new_v4();
+    let barcodes_on = settings::load(&mut *state.db.acquire().await?, ctx.tenant_id).await?.stock.barcode_requirement != settings::BarcodeRequirement::Disabled;
+    let mut items = Vec::new();
+    let mut approvals = Vec::new();
+    let (mut changed, mut pending, mut already, mut blocked, mut failed) = (0, 0, 0, 0, 0);
+    for id in ids {
+        let mut conn = state.db.acquire().await?;
+        let (name, eligible, v) = match tracking_outcome(&mut conn, &ctx, id, b.individual, barcodes_on).await {
+            Ok(r) => r,
+            Err(e) => {
+                failed += 1;
+                items.push(json!({ "id": id, "name": null, "outcome": "failed", "message": super::approvals::bulk_failure(&e, "Barcode nature") }));
+                continue;
+            }
+        };
+        if !eligible {
+            if v["status"] == "already" { already += 1 } else { blocked += 1 }
+            items.push(json!({ "id": id, "name": name, "outcome": v["status"], "reasons": v.get("reasons") }));
+            continue;
+        }
+        // The product as it is, with only its tracking changed.
+        let body = async {
+            let mut row: Value = sqlx::query_scalar("SELECT to_jsonb(p) FROM products p WHERE id = $1 AND tenant_id = $2")
+                .bind(id)
+                .bind(ctx.tenant_id)
+                .fetch_one(&mut *conn)
+                .await?;
+            let branches: Vec<Uuid> = sqlx::query_scalar("SELECT branch_id FROM product_branches WHERE product_id = $1").bind(id).fetch_all(&mut *conn).await?;
+            row["branch_ids"] = json!(branches);
+            row["track_items"] = json!(b.individual);
+            serde_json::from_value::<ProductBody>(row).map_err(|e| AppError::Other(anyhow::anyhow!("product {id}: {e}")))
+        }
+        .await;
+        drop(conn);
+        let result = match body {
+            Ok(body) => update_product(&state, &ctx, id, body).await,
+            Err(e) => Err(e),
+        };
+        match result {
+            Ok(None) => {
+                changed += 1;
+                items.push(json!({ "id": id, "name": name, "outcome": "changed" }));
+            }
+            Ok(Some(approval)) => {
+                pending += 1;
+                approvals.push(approval);
+                items.push(json!({ "id": id, "name": name, "outcome": "pending_approval", "approval_id": approval }));
+            }
+            Err(AppError::Refused { title, message }) => {
+                blocked += 1;
+                items.push(json!({ "id": id, "name": name, "outcome": "blocked", "reasons": [format!("{title}: {message}")] }));
+            }
+            Err(e) => {
+                failed += 1;
+                items.push(json!({ "id": id, "name": name, "outcome": "failed", "message": super::approvals::bulk_failure(&e, "Barcode nature") }));
+            }
+        }
+    }
+    let mut tx = state.db.begin().await?;
+    audit::record(
+        &mut tx,
+        &ctx,
+        Entry::new("products", "bulk_tracking", "product", bulk_ref).after(json!({
+            "bulk_ref": bulk_ref, "to": if b.individual { "individual" } else { "shared" }, "selected": items.len(),
+            "changed": changed, "pending_approval": pending, "already": already, "blocked": blocked, "failed": failed,
+            "items": items.iter().map(|i| json!({ "id": i["id"], "name": i["name"], "outcome": i["outcome"] })).collect::<Vec<_>>(),
+        })),
+    )
+    .await?;
+    tx.commit().await?;
+    if !approvals.is_empty() {
+        super::approvals::notify_approvers_bulk(&state, &ctx, &approvals, "Barcode nature change").await;
+    }
+    Ok(Json(json!({
+        "bulk_ref": bulk_ref,
+        "summary": { "selected": items.len(), "changed": changed, "pending_approval": pending, "already": already, "blocked": blocked, "failed": failed },
+        "items": items,
+    })))
 }
 
 #[derive(Deserialize)]

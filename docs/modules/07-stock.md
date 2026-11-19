@@ -44,7 +44,8 @@ a product on its own to change them with the receipt. With quantity entry locked
 
 ## Deleting inventory captured in error (roadmap 172)
 Stock → Movements → **⋯** on a receipt line, or Barcoded items → an item → *Request inventory deletion* (*stock.adjust*).
-Shows product, branch, barcode, quantity and stock before → after; a reason is required. Goes through **Inventory
+Shows product, branch, barcode, quantity and stock before → after; a reason is required (any non-blank reason, e.g.
+"Error" — roadmap 175; the button is *Request Deletion*). Goes through **Inventory
 deletion** approval (on by default); nothing changes while it waits; one request per line. On final approval it is
 checked again and reversed by a `receipt_reversal` movement — the original stays, marked **Reversed** — and an item's
 barcode is released for reuse unless something still needs it (an active unit, a waiting request, a shared product

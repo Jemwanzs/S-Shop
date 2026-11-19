@@ -3918,6 +3918,7 @@ export const DICT: Record<string, [string, string, string]> = {
   "Deletion sent for approval — stock unchanged until it is approved": ["Kufuta kumetumwa kwa idhini — hisa haibadiliki hadi kuidhinishwe", "Suppression envoyée pour approbation — stock inchangé d'ici là", "أُرسل الحذف للموافقة — المخزون دون تغيير حتى الموافقة"],
   "Stock deleted and the barcode released where possible": ["Hisa imefutwa na msimbo umeachiliwa inapowezekana", "Stock supprimé et code-barres libéré si possible", "حُذف المخزون وأُطلق الباركود حيث أمكن"],
   "Submit deletion request": ["Tuma ombi la kufuta", "Envoyer la demande de suppression", "إرسال طلب الحذف"],
+  "Request Deletion": ["Omba kufuta", "Demander la suppression", "طلب الحذف"],
   "Stock impact": ["Athari kwa hisa", "Effet sur le stock", "الأثر على المخزون"],
   "on hand": ["zilizopo", "en stock", "متوفر"],
   "Quantity to delete": ["Idadi ya kufuta", "Quantité à supprimer", "الكمية المراد حذفها"],

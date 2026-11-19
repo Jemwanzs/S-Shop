@@ -11,6 +11,7 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ## 2026-11-19
 
+- **Fix: a short reason is enough to delete stock** — *Request inventory deletion* accepts any reason, such as "Error" or "Duplicate"; the button now reads *Request Deletion*. It still goes for approval first. (175, [module 07](modules/07-stock.md))
 - **Allow Multiple Barcodes per Product** — Settings → Products: on by default. Off keeps one barcode per product; barcodes already given keep working and can be removed. (174, [module 19](modules/19-barcode-scanning.md))
 - **One product, several barcodes** — the same product in other packaging can carry another barcode: each finds it at the till and when receiving, counted on its own line and added up. An unknown code offers *Add barcode to this product*; another product's code is refused with its name. Receive stock has a large *Scan Barcode* button. (173, [module 19](modules/19-barcode-scanning.md))
 - **Products with stock can move to one shared barcode** — no need to sell or write anything off first. Stock stays, old item labels still scan to the product, and the preview says *Ready to convert*, *Conversion requires review* (work in progress, with the reason) or *Blocked*. (170, [module 19](modules/19-barcode-scanning.md))

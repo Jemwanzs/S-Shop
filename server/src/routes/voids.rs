@@ -166,8 +166,9 @@ async fn request_item(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
 async fn request(state: &AppState, ctx: &Ctx, movement: Uuid, b: RequestBody) -> AppResult<Json<Outcome<Value>>> {
     ctx.require("stock.adjust")?;
     let reason = b.reason.trim().to_string();
-    if reason.split_whitespace().collect::<String>().chars().count() < 10 {
-        return Err(bad("Give the reason for deleting this stock (at least 10 characters)"));
+    // Roadmap 175: any reason that says something ("Error", "Duplicate") is enough; blank or spaces only is refused.
+    if reason.is_empty() {
+        return Err(bad("Give the reason for deleting this stock"));
     }
     let mut tx = state.db.begin().await?;
     // The line is locked so two requests cannot be made at the same moment.

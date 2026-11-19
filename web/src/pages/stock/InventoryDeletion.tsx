@@ -32,7 +32,8 @@ export interface VoidableRow {
   barcode: string | null; notes: string; user_name: string | null; void_status: string | null; reversed_qty: number;
 }
 
-const explained = (s: string) => s.replace(/\s/g, "").length >= 10;
+/** Roadmap 175: the same rule as the server — any reason with at least one non-space character. */
+const explained = (s: string) => s.trim().length > 0;
 
 /** The state of a line's deletion, shown beside it. */
 export function voidState(r: VoidableRow): [Tone, string] | null {
@@ -110,7 +111,7 @@ export function DeletionDialog({ path, onClose, onDone }: { path: string; onClos
                 toast.error(e);
                 throw e;
               }
-            }}><Trash2 /> {t("Submit deletion request")}</ActionButton>
+            }}><Trash2 /> {t("Request Deletion")}</ActionButton>
         </div>
       }>
       {check.isLoading || !c ? <Loading /> : (

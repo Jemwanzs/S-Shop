@@ -5108,8 +5108,8 @@ mv = lambda pid: [m for m in call("GET", f"/stock/movements?product_id={pid}&per
 rec = next(m for m in mv(v172) if m["kind"] == "received")
 chk = call("GET", f"/stock/movements/{rec['id']}/void")
 check("the check shows product, branch, quantity and stock now", chk["eligible"] and chk["max_quantity"] == 5 and chk["on_hand"] == 5 and chk["product"] == f"Void Soap {suffix}", chk)
-r = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": "oops", "quantity": 2}, expect=400)
-check("a written reason is required", "reason" in r["error"]["message"])
+r = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": "   ", "quantity": 2}, expect=400)
+check("a written reason is required (spaces only refused)", "reason" in r["error"]["message"])
 why172 = "Received twice by mistake on the same delivery note"
 p1 = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": why172, "quantity": 2})
 check("inventory deletion goes to approval by default; stock unchanged meanwhile", p1.get("pending_approval") and lv172() == 5, p1)
@@ -5173,6 +5173,19 @@ call("PUT", "/settings/workflows/stock.void", {"enabled": False, "levels": [{"ap
 d172 = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": why172, "quantity": 1})
 check("with the approval switched off the deletion applies at once", not d172.get("pending_approval") and lv172() == 2, d172)
 call("PUT", "/settings/workflows/stock.void", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+
+step("Roadmap 175: a short deletion reason is enough")
+v175 = call("POST", "/products", {"name": f"Void Short {suffix}", "marked_price": 5})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": v175, "quantity": 3})
+rec175 = next(m for m in mv(v175) if m["kind"] == "received")
+r = call("POST", f"/stock/movements/{rec175['id']}/void", {"reason": "", "quantity": 1}, expect=400)
+check("an empty reason is refused", "reason" in r["error"]["message"])
+p175 = call("POST", f"/stock/movements/{rec175['id']}/void", {"reason": "Error", "quantity": 1})
+check("'Error' is accepted and goes to approval; stock unchanged until approved", p175.get("pending_approval") and lv172(v175) == 3, p175)
+ap175 = next(a_ for a_ in call("GET", "/approvals?status=pending")["items"] if a_["id"] == p175["approval_id"])
+check("the reason is kept in the approval request", "Error" in ap175["summary"], ap175["summary"])
+call("POST", f"/approvals/{p175['approval_id']}/approve", {"comments": ""})
+check("approved: then the stock changes (3 → 2)", lv172(v175) == 2)
 
 step("Roadmap 173: one product with several shared barcodes")
 bc1, bc2 = f"321{suffix[-6:]}6", f"321{suffix[-6:]}7"

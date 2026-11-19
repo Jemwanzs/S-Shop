@@ -476,7 +476,7 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 #### Delete stock received by mistake
 
 1. Stock → Movements: tap ⋯ on the receipt line → Request inventory deletion. For one item: Barcoded items → the item → Request inventory deletion.
-2. Check the product, branch, barcode and what the stock will be. For a shared barcode, enter how many to delete. Write the reason, then Submit deletion request.
+2. Check the product, branch, barcode and what the stock will be. For a shared barcode, enter how many to delete. Write the reason (a word such as Error is enough), then Request Deletion.
 3. Nothing changes until it is approved. After approval the stock is taken off, the original receipt stays in history marked Reversed, and the item's barcode can be used again.
 4. Stock already sold, moved or written off is not deleted: use a return or a stock adjustment.
 

@@ -156,7 +156,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | GET | `/api/stock/items` |
 | GET | `/api/stock/barcode/{code}` |
 | GET | `/api/stock/adjustments` |
-| GET / POST | `/api/stock/movements/{id}/void` — roadmap 172: what deleting this receipt line would do (`eligible`, `problem`, `max_quantity`, `on_hand`, masked `barcode`) / request it `{reason, quantity?}` → pending approval (`stock.void`) or done (`stock.adjust`) |
+| GET / POST | `/api/stock/movements/{id}/void` — roadmap 172: what deleting this receipt line would do (`eligible`, `problem`, `max_quantity`, `on_hand`, masked `barcode`) / request it `{reason, quantity?}` (roadmap 175: any reason that is not blank) → pending approval (`stock.void`) or done (`stock.adjust`) |
 | GET / POST | `/api/stock/items/{id}/void` — the same for the receipt of one item in stock |
 | POST | `/api/stock/receive` — roadmap 173: a shared-barcode product may list several of its barcodes, with `barcode_counts` `{code: units}` adding up to `quantity` |
 | POST | `/api/stock/adjustments` — `kind` … or `other` (roadmap 171) with `direction` `in`/`out` and a `reason` of at least 10 characters |

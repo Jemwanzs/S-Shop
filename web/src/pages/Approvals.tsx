@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { count } from "@/lib/format";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { t } from "@/lib/i18n";
+import { TransferApprovalLines, isTransferPayload } from "@/pages/transfers/TransferPrices";
 
 const ACTION_LABEL: Record<string, string> = {
   "product.create": "New product",
@@ -182,6 +183,7 @@ export default function Approvals() {
                 </div>
                 <div>
                   <p className="font-medium">{a.summary}</p>
+                  {a.action === "stock.transfer" && isTransferPayload(a.payload) && <div className="mt-2"><TransferApprovalLines p={a.payload} /></div>}
                   {a.note && <p className="mt-0.5 text-xs text-muted-foreground">{t("Reason")}: {a.note}</p>}
                   {a.amount !== null && <p className="num mt-1 text-lg font-semibold">{money(a.amount)}</p>}
                 </div>
@@ -256,6 +258,7 @@ export default function Approvals() {
               </>}
               {details.decided_by_name && <><dt className="text-muted-foreground">{t("Decided by")}</dt><dd>{details.decided_by_name} · {dateTime(details.decided_at)}</dd></>}
             </dl>
+            {details.action === "stock.transfer" && isTransferPayload(details.payload) && <TransferApprovalLines p={details.payload} open />}
             <StuckNote a={details} />
             <WhyNote a={details} />
             <div>

@@ -64,6 +64,9 @@ pub struct LevelRow {
     pub primary_photo_id: Option<Uuid>,
     /// Roadmap 98: the product has a product-level barcode (stock takes may require counting it by barcode).
     pub has_barcode: bool,
+    /// Roadmap 176: with *All accessible branches*, the branches holding it (name, on hand, available).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branches: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -71,57 +74,76 @@ struct LevelQuery {
     q: Option<String>,
     category_id: Option<Uuid>,
     branch_id: Option<Uuid>,
+    /// Roadmap 176: every branch the person may see, added up (`branch_id` is then ignored).
+    all: Option<bool>,
     /// in | low | out | all
     status: Option<String>,
     #[serde(flatten)]
     page: Page,
 }
 
-fn value_expr(v: Valuation) -> &'static str {
+/// The unit value of stock at `branch` (an SQL expression): cost, or the selling price at that branch (roadmap 176).
+fn value_expr(v: Valuation, branch: &str) -> String {
     match v {
-        Valuation::Cost => "COALESCE(p.cost_price, p.marked_price)",
-        Valuation::Selling => "p.marked_price",
+        Valuation::Cost => format!("COALESCE(p.cost_price, effective_price(p.id, {branch}, p.marked_price))"),
+        Valuation::Selling => format!("effective_price(p.id, {branch}, p.marked_price)"),
     }
 }
 
 async fn levels(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LevelQuery>) -> AppResult<Json<Paged<LevelRow>>> {
     ctx.require("stock.view")?;
-    let branch = ctx.branch_or_current(q.branch_id)?;
+    // Roadmap 176: one branch (default: the Current Branch) or every branch the person may see, added up. Filtering only
+    // changes what is shown — never the branch stock is received, adjusted or transferred at.
+    let all = q.all.unwrap_or(false);
+    let branches = if all { ctx.branch_ids.clone() } else { vec![ctx.branch_or_current(q.branch_id)?] };
     let mut conn = state.db.acquire().await?;
     let s = settings::load(&mut conn, ctx.tenant_id).await?;
-    let price = value_expr(s.stock.valuation);
+    let price = value_expr(s.stock.valuation, "sl.branch_id");
     let mut rows: Vec<Counted<LevelRow>> = sqlx::query_as(&format!(
-        "SELECT COUNT(*) OVER() AS total_count, p.id AS product_id, p.code, p.name, p.nickname, c.name AS category_name,
-                p.track_items, p.is_active, p.marked_price, p.cost_price,
-                COALESCE(sl.on_hand,0) AS on_hand, COALESCE(sl.reserved,0) AS reserved,
-                COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) AS available,
+        "WITH lv AS (
+             SELECT sl.product_id, SUM(sl.on_hand)::int AS on_hand, SUM(sl.reserved)::int AS reserved,
+                    SUM(GREATEST(sl.on_hand,0) * {price}) AS value,
+                    jsonb_agg(jsonb_build_object('branch_id', b.id, 'branch_name', b.name, 'on_hand', sl.on_hand,
+                              'available', sl.on_hand - sl.reserved) ORDER BY b.created_at)
+                        FILTER (WHERE sl.on_hand <> 0 OR sl.reserved <> 0) AS branches
+             FROM stock_levels sl JOIN products p ON p.id = sl.product_id JOIN branches b ON b.id = sl.branch_id
+             WHERE sl.tenant_id = $1 AND sl.branch_id = ANY($2)
+             GROUP BY sl.product_id)
+         SELECT COUNT(*) OVER() AS total_count, p.id AS product_id, p.code, p.name, p.nickname, c.name AS category_name,
+                p.track_items, p.is_active,
+                CASE WHEN cardinality($2::uuid[]) = 1 THEN effective_price(p.id, ($2::uuid[])[1], p.marked_price) ELSE p.marked_price END AS marked_price,
+                p.cost_price,
+                COALESCE(lv.on_hand,0) AS on_hand, COALESCE(lv.reserved,0) AS reserved,
+                COALESCE(lv.on_hand,0) - COALESCE(lv.reserved,0) AS available,
                 COALESCE(p.low_stock_threshold, $4) AS low_threshold,
-                (GREATEST(COALESCE(sl.on_hand,0),0) * {price})::numeric(14,2) AS value,
+                COALESCE(lv.value, 0)::numeric(14,2) AS value,
                 (SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order LIMIT 1) AS primary_photo_id,
-                p.barcode IS NOT NULL AS has_barcode
+                p.barcode IS NOT NULL AS has_barcode,
+                CASE WHEN $9 THEN COALESCE(lv.branches, '[]'::jsonb) END AS branches
          FROM products p
          LEFT JOIN categories c ON c.id = p.category_id
-         LEFT JOIN stock_levels sl ON sl.product_id = p.id AND sl.branch_id = $2
+         LEFT JOIN lv ON lv.product_id = p.id
          WHERE p.tenant_id = $1
-           AND (p.all_branches OR EXISTS (SELECT 1 FROM product_branches pb WHERE pb.product_id = p.id AND pb.branch_id = $2))
+           AND (p.all_branches OR EXISTS (SELECT 1 FROM product_branches pb WHERE pb.product_id = p.id AND pb.branch_id = ANY($2)))
            AND ($3::text IS NULL OR p.name ILIKE $3 OR p.code ILIKE $3 OR p.nickname ILIKE $3 OR p.barcode ILIKE $3)
            AND ($5::uuid IS NULL OR p.category_id = $5)
            AND (CASE $6
-                  WHEN 'out' THEN COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) <= 0
-                  WHEN 'low' THEN COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) > 0
-                              AND COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) <= COALESCE(p.low_stock_threshold, $4)
-                  WHEN 'in' THEN COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) > 0
+                  WHEN 'out' THEN COALESCE(lv.on_hand,0) - COALESCE(lv.reserved,0) <= 0
+                  WHEN 'low' THEN COALESCE(lv.on_hand,0) - COALESCE(lv.reserved,0) > 0
+                              AND COALESCE(lv.on_hand,0) - COALESCE(lv.reserved,0) <= COALESCE(p.low_stock_threshold, $4)
+                  WHEN 'in' THEN COALESCE(lv.on_hand,0) - COALESCE(lv.reserved,0) > 0
                   ELSE true END)
          ORDER BY p.is_active DESC, p.name LIMIT $7 OFFSET $8"
     ))
     .bind(ctx.tenant_id)
-    .bind(branch)
+    .bind(&branches)
     .bind(like(&q.q))
     .bind(s.stock.low_stock_threshold)
     .bind(q.category_id)
     .bind(q.status.as_deref().unwrap_or("all"))
     .bind(q.page.limit())
     .bind(q.page.offset())
+    .bind(all)
     .fetch_all(&mut *conn)
     .await?;
     if super::costs_hidden(&mut conn, &ctx).await? {
@@ -195,6 +217,10 @@ pub struct ReceiveBody {
     /// `quantity`, and are noted on the movement).
     #[serde(default)]
     pub barcode_counts: std::collections::BTreeMap<String, i32>,
+    /// Roadmap 176: set by the server (never taken from the client) when the receipt changes the selling price —
+    /// `branch` (the receiving branch's own price: it has one, or the business has several branches) or `default`.
+    #[serde(default)]
+    pub price_scope: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -369,6 +395,7 @@ async fn receive_batch(State(state): State<AppState>, ctx: Ctx, Json(body): Json
         let name = name.ok_or(AppError::NotFound("Product"))?;
         let mut b = ReceiveBody {
             barcode_counts: Default::default(),
+            price_scope: None,
             product_id: l.product_id,
             branch_id: Some(branch),
             quantity: l.quantity,
@@ -415,9 +442,23 @@ async fn receive_batch(State(state): State<AppState>, ctx: Ctx, Json(body): Json
 async fn receive_line(tx: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &mut ReceiveBody) -> AppResult<Outcome<Value>> {
     let branch = b.branch_id.unwrap_or(ctx.branch_id);
     inventory::ensure_product_in_branch(&mut *tx, ctx.tenant_id, b.product_id, branch).await?;
-    let p = product_info(&mut *tx, ctx.tenant_id, b.product_id).await?;
+    let mut p = product_info(&mut *tx, ctx.tenant_id, b.product_id).await?;
     if !s.stock.capture_cost {
         b.cost_price = None;
+    }
+    // Roadmap 176: the price shown when receiving is the receiving branch's price; only a different one is a change — it
+    // needs *Set selling prices* and, with several branches, changes this branch's price only.
+    let (own, default) = super::prices::at(&mut *tx, ctx.tenant_id, b.product_id, branch).await?;
+    p.marked_price = own.or(default);
+    b.price_scope = None;
+    if b.marked_price.is_some() && b.marked_price != p.marked_price {
+        if !ctx.can("products.price") {
+            return Err(crate::error::AppError::Forbidden("You cannot change selling prices — leave the price as it is".into()));
+        }
+        let branches: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM branches WHERE tenant_id = $1 AND is_active").bind(ctx.tenant_id).fetch_one(&mut *tx).await?;
+        b.price_scope = Some(if own.is_some() || branches > 1 { "branch" } else { "default" }.to_string());
+    } else {
+        b.marked_price = None;
     }
     // Roadmap 137: with manual entry during receiving switched off, barcodes are scanned or generated, never typed.
     if !s.stock.manual_barcode_entry && b.barcode_sources.iter().any(|x| x == "manual") {
@@ -462,7 +503,16 @@ async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, ap
     let branch = b.branch_id.unwrap_or(ctx.branch_id);
     let p = product_info(conn, ctx.tenant_id, b.product_id).await?;
     let kind = b.kind.as_deref().unwrap_or("received");
-    let marked = b.marked_price.or(p.marked_price);
+    // Roadmap 176: a price change captured with the receipt applies to the receiving branch's own price, or (one branch)
+    // to the default price.
+    let to_branch = b.price_scope.as_deref() == Some("branch");
+    if to_branch && b.marked_price.is_some() {
+        super::prices::set(conn, ctx, b.product_id, branch, b.marked_price, approval_id, "Price changed when receiving stock").await?;
+    }
+    let marked = match b.marked_price {
+        Some(m) => Some(m),
+        None => super::prices::effective(conn, ctx.tenant_id, b.product_id, branch).await?,
+    };
 
     // Price changes captured with the receipt update the catalogue (audited below).
     sqlx::query(
@@ -473,7 +523,7 @@ async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, ap
     )
     .bind(b.product_id)
     .bind(ctx.tenant_id)
-    .bind(b.marked_price)
+    .bind(if to_branch { None } else { b.marked_price })
     .bind(b.max_discount)
     .bind(b.cost_price)
     .bind(if p.track_items { None } else { b.barcodes.first().cloned() })
@@ -1329,9 +1379,16 @@ pub async fn position_rows(conn: &mut PgConnection, ctx: &Ctx, q: &PositionQuery
     let branches = ctx.branch_scope(q.branch_id)?;
     let (from, to) = q.period.resolve(ctx.today(), "month");
     let s = settings::load(conn, ctx.tenant_id).await?;
-    let price = value_expr(s.stock.valuation);
+    let price = value_expr(s.stock.valuation, "mb.branch_id");
     let rows = sqlx::query_as(&format!(
-        "WITH m AS (
+        "WITH mb AS (
+            SELECT product_id, branch_id, SUM(quantity) FILTER (WHERE business_date <= $4) AS closing
+            FROM stock_movements WHERE tenant_id = $1 AND branch_id = ANY($2) GROUP BY product_id, branch_id),
+         val AS (
+            -- Roadmap 176: closing stock valued at each branch's own price.
+            SELECT mb.product_id, SUM(GREATEST(COALESCE(mb.closing,0),0) * {price}) AS value
+            FROM mb JOIN products p ON p.id = mb.product_id GROUP BY mb.product_id),
+         m AS (
             SELECT product_id,
               SUM(quantity) FILTER (WHERE business_date < $3) AS opening,
               SUM(quantity) FILTER (WHERE business_date BETWEEN $3 AND $4 AND kind IN ('received','opening')) AS added,
@@ -1353,10 +1410,10 @@ pub async fn position_rows(conn: &mut PgConnection, ctx: &Ctx, q: &PositionQuery
                 COALESCE(m.closing,0)::bigint AS closing, COALESCE(lv.reserved,0)::bigint AS reserved,
                 COALESCE(lv.available,0)::bigint AS available_now,
                 COALESCE(p.low_stock_threshold, $5) AS low_threshold,
-                (GREATEST(COALESCE(m.closing,0),0) * {price})::numeric(14,2) AS value
+                COALESCE(val.value,0)::numeric(14,2) AS value
          FROM products p
          LEFT JOIN categories c ON c.id = p.category_id
-         LEFT JOIN m ON m.product_id = p.id LEFT JOIN lv ON lv.product_id = p.id
+         LEFT JOIN m ON m.product_id = p.id LEFT JOIN lv ON lv.product_id = p.id LEFT JOIN val ON val.product_id = p.id
          WHERE p.tenant_id = $1 AND ($6::uuid IS NULL OR p.category_id = $6) AND ($7::uuid IS NULL OR p.id = $7)
            AND (m.product_id IS NOT NULL OR p.is_active)
            AND (CASE $8 WHEN 'out' THEN COALESCE(lv.available,0) <= 0

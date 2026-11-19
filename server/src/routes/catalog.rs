@@ -60,8 +60,13 @@ pub struct ProductRow {
     pub category_name: Option<String>,
     pub supplier_id: Option<Uuid>,
     pub supplier_name: Option<String>,
-    /// Roadmap 131: None = no selling price set yet.
+    /// Roadmap 131: None = no selling price set yet. Roadmap 176: the selling price **at the branch** (its own price,
+    /// else the default) — what the till, orders and lists use.
     pub marked_price: Option<Decimal>,
+    /// Roadmap 176: the product's default price (branches without their own price use it) — what the product form edits.
+    pub default_price: Option<Decimal>,
+    /// Roadmap 176: the branch has its own price for this product.
+    pub has_branch_price: bool,
     pub max_discount: Option<Decimal>,
     pub cost_price: Option<Decimal>,
     pub barcode: Option<String>,
@@ -81,12 +86,19 @@ pub struct ProductRow {
     pub primary_photo_id: Option<Uuid>,
     pub photo_count: i64,
     pub updated_at: DateTime<Utc>,
+    /// Roadmap 176: with *All accessible branches*, each branch's stock and price (the row's stock is their total).
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branches: Option<Vec<Value>>,
 }
 
-/// Shared SELECT for product rows with stock for branch `$2`.
+/// Shared SELECT for product rows with stock and price for branch `$2`.
 pub const PRODUCT_SELECT: &str = "
     SELECT p.id, p.code, p.name, p.nickname, p.description, p.category_id, c.name AS category_name,
-           p.supplier_id, s.name AS supplier_name, p.marked_price, p.max_discount, p.cost_price, p.barcode,
+           p.supplier_id, s.name AS supplier_name, effective_price(p.id, $2, p.marked_price) AS marked_price,
+           p.marked_price AS default_price,
+           EXISTS (SELECT 1 FROM product_branch_prices bp WHERE bp.product_id = p.id AND bp.branch_id = $2) AS has_branch_price,
+           p.max_discount, p.cost_price, p.barcode,
            p.track_items, p.is_active, p.available_for_orders, p.transfer_allowed, p.loyalty_eligible,
            p.loyalty_threshold, p.loyalty_points_per, p.low_stock_threshold, p.all_branches, p.custom_fields,
            COALESCE(sl.on_hand, 0) AS on_hand, COALESCE(sl.reserved, 0) AS reserved,
@@ -111,8 +123,27 @@ struct ListQuery {
     price: Option<String>,
     /// Roadmap 169: all | shared | individual (Product Barcode Nature).
     tracking: Option<String>,
+    /// Roadmap 176: the catalogue's branch filter — `branch` (products sold at `branch_id`, else the Current Branch, with
+    /// that branch's stock and price) or `all` (products sold at any branch the person may see, stock added up, each
+    /// branch's stock and price in `branches`). Absent: every product, priced at the branch (other screens' searches).
+    available_at: Option<String>,
     #[serde(flatten)]
     page: Page,
+}
+
+/// Roadmap 176: products sold at one of `$11` (`$10` = branch | all); with `all`, also products not yet given a branch.
+const AVAILABILITY_FILTER: &str = "($10::text IS NULL OR p.all_branches
+            OR EXISTS (SELECT 1 FROM product_branches pb WHERE pb.product_id = p.id AND pb.branch_id = ANY($11))
+            OR ($10 = 'all' AND NOT EXISTS (SELECT 1 FROM product_branches pb WHERE pb.product_id = p.id)))";
+
+/// The availability mode and the branches it covers.
+fn availability(ctx: &Ctx, mode: &Option<String>, branch: Uuid) -> AppResult<(Option<&'static str>, Vec<Uuid>)> {
+    match mode.as_deref() {
+        None | Some("") => Ok((None, vec![])),
+        Some("branch") => Ok((Some("branch"), vec![branch])),
+        Some("all") => Ok((Some("all"), ctx.branch_ids.clone())),
+        Some(_) => Err(bad("Branch filter: branch or all")),
+    }
 }
 
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Paged<ProductRow>>> {
@@ -120,6 +151,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     let branch = ctx.branch_or_current(q.branch_id)?;
     check_price_filter(&q.price)?;
     check_tracking_filter(&q.tracking)?;
+    let (mode, scope) = availability(&ctx, &q.available_at, branch)?;
     let select = PRODUCT_SELECT.replacen("SELECT", "SELECT COUNT(*) OVER() AS total_count,", 1);
     let mut rows: Vec<Counted<ProductRow>> = sqlx::query_as(&format!(
         "{select} WHERE p.tenant_id = $1
@@ -128,6 +160,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
            AND ($5::text IS NULL OR $5 = 'all' OR ($5 = 'active' AND p.is_active) OR ($5 = 'inactive' AND NOT p.is_active))
            AND {PRICE_FILTER}
            AND {TRACKING_FILTER}
+           AND {AVAILABILITY_FILTER}
          ORDER BY p.is_active DESC, p.name LIMIT $6 OFFSET $7"
     ))
     .bind(ctx.tenant_id)
@@ -139,19 +172,63 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .bind(q.page.offset())
     .bind(&q.price)
     .bind(&q.tracking)
+    .bind(mode)
+    .bind(&scope)
     .fetch_all(&state.db)
     .await?;
     if costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
         rows.iter_mut().for_each(|r| r.row.cost_price = None);
     }
+    if mode == Some("all") {
+        across_branches(&mut *state.db.acquire().await?, &ctx, &mut rows).await?;
+    }
     Ok(Json(rows.into()))
 }
 
+/// Roadmap 176: *All accessible branches* — each product's stock and price at every branch the person may see that
+/// sells it; the row's stock is their total, its price the default (each branch's own price is in `branches`).
+async fn across_branches(conn: &mut PgConnection, ctx: &Ctx, rows: &mut [Counted<ProductRow>]) -> AppResult<()> {
+    let ids: Vec<Uuid> = rows.iter().map(|r| r.row.id).collect();
+    let per: Vec<(Uuid, Uuid, String, i32, i32, Option<Decimal>, bool)> = sqlx::query_as(
+        "SELECT p.id, b.id, b.name, COALESCE(sl.on_hand,0), COALESCE(sl.reserved,0), effective_price(p.id, b.id, p.marked_price),
+                EXISTS (SELECT 1 FROM product_branch_prices bp WHERE bp.product_id = p.id AND bp.branch_id = b.id)
+         FROM products p JOIN branches b ON b.tenant_id = p.tenant_id AND b.is_active AND b.id = ANY($3)
+         LEFT JOIN stock_levels sl ON sl.product_id = p.id AND sl.branch_id = b.id
+         WHERE p.tenant_id = $1 AND p.id = ANY($2)
+           AND (p.all_branches OR EXISTS (SELECT 1 FROM product_branches pb WHERE pb.product_id = p.id AND pb.branch_id = b.id))
+         ORDER BY b.created_at",
+    )
+    .bind(ctx.tenant_id)
+    .bind(&ids)
+    .bind(&ctx.branch_ids)
+    .fetch_all(&mut *conn)
+    .await?;
+    for r in rows.iter_mut() {
+        let mine: Vec<_> = per.iter().filter(|x| x.0 == r.row.id).collect();
+        r.row.on_hand = mine.iter().map(|x| x.3).sum();
+        r.row.reserved = mine.iter().map(|x| x.4).sum();
+        r.row.available = r.row.on_hand - r.row.reserved;
+        r.row.marked_price = r.row.default_price;
+        r.row.has_branch_price = mine.iter().any(|x| x.6);
+        r.row.branches = Some(
+            mine.iter()
+                .map(|(_, bid, name, on_hand, reserved, price, own)| json!({
+                    "branch_id": bid, "branch_name": name, "on_hand": on_hand, "available": on_hand - reserved, "price": price, "own_price": own,
+                }))
+                .collect(),
+        );
+    }
+    Ok(())
+}
+
 /// Roadmap 151: the price-status filter, shared by the list and "select all matching" (`$8`).
+/// Roadmap 176: the price at branch `$2` (its own price, else the default; the default when `$2` is NULL).
 const PRICE_FILTER: &str = "($8::text IS NULL OR $8 = 'all'
-            OR ($8 = 'set' AND p.marked_price IS NOT NULL) OR ($8 = 'missing' AND p.marked_price IS NULL)
-            OR ($8 = 'zero' AND p.marked_price = 0) OR ($8 = 'zero_or_missing' AND (p.marked_price IS NULL OR p.marked_price = 0))
-            OR ($8 = 'above_zero' AND p.marked_price > 0)
+            OR ($8 = 'set' AND effective_price(p.id, $2, p.marked_price) IS NOT NULL)
+            OR ($8 = 'missing' AND effective_price(p.id, $2, p.marked_price) IS NULL)
+            OR ($8 = 'zero' AND effective_price(p.id, $2, p.marked_price) = 0)
+            OR ($8 = 'zero_or_missing' AND (effective_price(p.id, $2, p.marked_price) IS NULL OR effective_price(p.id, $2, p.marked_price) = 0))
+            OR ($8 = 'above_zero' AND effective_price(p.id, $2, p.marked_price) > 0)
             OR ($8 = 'missing_image' AND NOT EXISTS (SELECT 1 FROM product_photos ph WHERE ph.product_id = p.id AND octet_length(ph.data) > 0 AND ph.mime LIKE 'image/%')))";
 
 /// Roadmap 169: the barcode-tracking filter (`$9`).
@@ -182,6 +259,9 @@ async fn matching_ids(State(state): State<AppState>, ctx: Ctx, Query(q): Query<L
     ctx.require("products.view")?;
     check_price_filter(&q.price)?;
     check_tracking_filter(&q.tracking)?;
+    // Roadmap 176: the same branch filter as the list (and the price filter at that branch).
+    let branch = ctx.branch_or_current(q.branch_id)?;
+    let (mode, scope) = availability(&ctx, &q.available_at, branch)?;
     let rows: Vec<(Uuid, i64)> = sqlx::query_as(&format!(
         "SELECT p.id, COUNT(*) OVER() FROM products p WHERE p.tenant_id = $1 AND $2::uuid IS NOT DISTINCT FROM $2
            AND ($3::text IS NULL OR p.name ILIKE $3 OR p.nickname ILIKE $3 OR p.code ILIKE $3 OR p.barcode ILIKE $3)
@@ -189,10 +269,11 @@ async fn matching_ids(State(state): State<AppState>, ctx: Ctx, Query(q): Query<L
            AND ($5::text IS NULL OR $5 = 'all' OR ($5 = 'active' AND p.is_active) OR ($5 = 'inactive' AND NOT p.is_active))
            AND {PRICE_FILTER}
            AND {TRACKING_FILTER}
+           AND {AVAILABILITY_FILTER}
          ORDER BY p.is_active DESC, p.name LIMIT $6 OFFSET $7"
     ))
     .bind(ctx.tenant_id)
-    .bind(Option::<Uuid>::None)
+    .bind(if mode == Some("all") { None } else { Some(branch) })
     .bind(like(&q.q))
     .bind(q.category_id)
     .bind(&q.status)
@@ -200,6 +281,8 @@ async fn matching_ids(State(state): State<AppState>, ctx: Ctx, Query(q): Query<L
     .bind(0i64)
     .bind(&q.price)
     .bind(&q.tracking)
+    .bind(mode)
+    .bind(&scope)
     .fetch_all(&state.db)
     .await?;
     let total = rows.first().map(|r| r.1).unwrap_or(0);
@@ -428,8 +511,13 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
         .bind(ctx.tenant_id)
         .fetch_all(&state.db)
         .await?;
+    // Roadmap 176: its price at each branch the person may see, and how many branches the business has.
+    let prices = super::prices::for_product(&mut *state.db.acquire().await?, &ctx, id).await?;
+    let branch_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM branches WHERE tenant_id = $1 AND is_active").bind(ctx.tenant_id).fetch_one(&state.db).await?;
     Ok(Json(json!({
         "product": product,
+        "prices": prices,
+        "branch_count": branch_count,
         // Roadmap 173: its other shared barcodes (the main one is `product.barcode`).
         "barcodes": barcodes,
         "photos": photos.into_iter().map(|(id, p)| json!({ "id": id, "is_primary": p, "url": format!("/api/photos/{id}") })).collect::<Vec<_>>(),
@@ -651,8 +739,8 @@ async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
 async fn update_product(state: &AppState, ctx: &Ctx, id: Uuid, mut b: ProductBody) -> AppResult<Option<Uuid>> {
     let ctx = ctx.clone();
     let mut tx = state.db.begin().await?;
-    let (current_active, current_code, current_cost, current_track): (bool, String, Option<Decimal>, bool) =
-        sqlx::query_as("SELECT is_active, code, cost_price, track_items FROM products WHERE id=$1 AND tenant_id=$2")
+    let (current_active, current_code, current_cost, current_track, current_price): (bool, String, Option<Decimal>, bool, Option<Decimal>) =
+        sqlx::query_as("SELECT is_active, code, cost_price, track_items, marked_price FROM products WHERE id=$1 AND tenant_id=$2")
         .bind(id)
         .bind(ctx.tenant_id)
         .fetch_optional(&mut *tx)
@@ -665,6 +753,19 @@ async fn update_product(state: &AppState, ctx: &Ctx, id: Uuid, mut b: ProductBod
     validate(&mut tx, &ctx, &mut b, Some(id)).await?;
     if b.code.is_none() {
         b.code = Some(current_code);
+    }
+    // Roadmap 176: the default price is every branch's price unless a branch has its own — changing it needs *Set selling
+    // prices* and every branch it would change among the person's branches.
+    if b.marked_price != current_price {
+        if !ctx.can("products.price") {
+            return Err(AppError::Forbidden("You cannot change selling prices".into()));
+        }
+        if let Some(branch) = super::prices::default_blocked_by(&mut tx, &ctx, id).await? {
+            return Err(refused(
+                "Default price",
+                format!("The default price is also the price at {branch}, which is not one of your branches. Set the price for your branch instead."),
+            ));
+        }
     }
     // Activation changes go through /status (their own permission and workflow).
     b.is_active = current_active;
@@ -1207,6 +1308,8 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
             let active = a.payload["is_active"].as_bool().unwrap_or(true);
             apply_status(conn, ctx, a.entity_id, active, Some(a.id)).await
         }
+        // Roadmap 176: a branch price change waiting for the *Product edit* approval.
+        "product.edit" if a.payload.get("branch_prices").is_some() => super::prices::on_approved(conn, ctx, a.entity_id, &a.payload, a.id).await,
         "product.edit" => {
             let b: ProductBody = serde_json::from_value(a.payload.clone()).map_err(|_| bad("Stored product change is invalid"))?;
             apply_update(conn, ctx, a.entity_id, &b, Some(a.id)).await

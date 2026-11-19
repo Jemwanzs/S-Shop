@@ -106,7 +106,8 @@ async fn pos_products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<P
              SELECT product_id, CASE $9 WHEN 'value' THEN value WHEN 'sales' THEN sales::numeric ELSE qty::numeric END AS score FROM sold),
          ranked AS (
              SELECT product_id, score, ROW_NUMBER() OVER (ORDER BY score DESC, product_id) AS rank FROM scored WHERE score > 0)
-         SELECT p.id, p.code, p.name, p.nickname, c.name AS category_name, p.barcode, p.track_items, p.marked_price, p.max_discount,
+         SELECT p.id, p.code, p.name, p.nickname, c.name AS category_name, p.barcode, p.track_items,
+                effective_price(p.id, $2, p.marked_price) AS marked_price, p.max_discount,
                 p.loyalty_eligible, p.loyalty_threshold, p.loyalty_points_per,
                 COALESCE(sl.on_hand,0) AS on_hand, COALESCE(sl.reserved,0) AS reserved,
                 COALESCE(sl.on_hand,0) - COALESCE(sl.reserved,0) AS available,
@@ -390,12 +391,14 @@ async fn prepare_lines(
     let mut seen_items: Vec<Uuid> = Vec::new();
 
     for l in &input.lines {
+        // Roadmap 176: the marked price is the price at the sale's branch (its own price, else the default).
         let p: SaleProduct = sqlx::query_as(
-            "SELECT name, is_active, track_items, barcode, marked_price, max_discount, cost_price, loyalty_eligible,
-                    loyalty_threshold, loyalty_points_per FROM products WHERE id = $1 AND tenant_id = $2",
+            "SELECT name, is_active, track_items, barcode, effective_price(id, $3, marked_price) AS marked_price, max_discount, cost_price,
+                    loyalty_eligible, loyalty_threshold, loyalty_points_per FROM products WHERE id = $1 AND tenant_id = $2",
         )
         .bind(l.product_id)
         .bind(ctx.tenant_id)
+        .bind(input.branch_id)
         .fetch_optional(&mut *conn)
         .await?
         .ok_or(AppError::NotFound("Product"))?;

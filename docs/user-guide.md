@@ -98,6 +98,7 @@ One master catalogue shared by all branches, with photos, pricing rules and your
 - Item barcodes stay concealed (****047) on screens, reports and exports; printing, reprinting, replacing and revealing them are permission-controlled and recorded
 - Filters — set, missing, zero, zero-or-missing and above zero prices (a price of 0 and no price stay different), and Missing product image; select products and deactivate them together, with approval when required
 - Your filters, search, page and scroll position are kept while you open and edit products — fix missing prices one after another without choosing the filters again
+- One product in every branch with its own price per branch where needed: a default price, a branch's own price, and a branch filter to see the catalogue of one branch or of all your branches
 
 <a id="module-7"></a>
 
@@ -113,6 +114,7 @@ Accurate stock built from a complete ledger of movements, never a number someone
 - Stock valuation for people allowed to see financial figures
 - Seven-digit barcodes generated for each individually tracked item, printed on stickers (business name, barcode, number, product) and confirmed attached before stock is received
 - Stock balances in Excel: download a sheet prefilled with every product and branch, count and correct it, upload it, review each difference and apply — quantities are the counted balances, never additions
+- A branch filter: your branch by default, another of your branches, or all of them added up — viewing only, receiving and transfers stay at your working branch
 
 <a id="module-8"></a>
 
@@ -125,6 +127,7 @@ Move stock between branches with a controlled, traceable workflow.
 - The receiving branch confirms what arrived, including short or damaged items
 - Individually tracked items followed unit by unit
 - Notifications to receivers and to the person who created the transfer
+- Both branches' selling prices shown on each transfer: keep the destination's price (the default), use the source's or set a new one — confirmed, authorised by someone who sets prices there and applied only when the stock arrives
 
 <a id="module-9"></a>
 
@@ -205,6 +208,7 @@ Give every person exactly the access they need, with maker-checker approval for 
 - Sale ownership changes handled through approvals
 - New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes
 - Several approvers per level — the first decision counts and the others are told; Tenant Administrators may approve their own requests (switchable), never refunds, expenses or write-offs
+- Transfer approvals list every product, quantity, both branches' prices and the proposed price change, not only the transfer number
 
 <a id="module-15"></a>
 
@@ -500,6 +504,19 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 2. Choose the To branch, the Transfer date and a reason, then Submit for approval (or Save draft).
 3. After approval the sending branch taps Dispatch; the receiving branch taps Confirm receipt, or Receive with discrepancies to record anything short or damaged.
 
+#### See another branch's stock or products
+
+1. Stock or Products: use the Branch filter next to the other filters. It starts on your working branch.
+2. Choose another of your branches, or All accessible branches to see the stock added up with the branches holding it (products: each branch's price).
+3. This only changes what you see. Receiving, adjusting and transfers still happen at your working branch, as the page reminds you.
+
+#### Confirm the selling price when moving stock
+
+1. Stock → Transfers → New transfer: choose From branch (if you work at several) and To branch, then add the products.
+2. Selling prices at the destination shows each product's price at both branches. Keep Destination Price is the default.
+3. To change it, choose Use Source Branch Price or Set Custom Destination Price and tick I confirm the new selling price. Submit.
+4. If you cannot set prices at the destination, the change waits as a request: someone who can opens the transfer and taps Authorise price or Decline. The new price applies only when the stock is received.
+
 #### Approve or reject requests
 
 1. Open Approvals. Waiting lists what needs a decision; each card shows who it is Assigned to.
@@ -559,6 +576,13 @@ Setting up the business, people, rules, payments and the website.
 2. Tick the products (or the box for the whole page, then Select all N matching), and tap Deactivate.
 3. Check the list (already inactive or already waiting products are skipped and shown), add a reason and confirm.
 4. If deactivation needs approval, the products stay active until approved; the result shows each product's outcome.
+
+#### Give a branch its own selling price
+
+1. Open the product → Edit → Pricing. Marked selling price — your branch is the price there; a change applies only to that branch and other branches keep their prices.
+2. Default selling price is used by every branch without its own price. Use the default price returns a branch to it.
+3. Other branches you work at are listed: Set own price or Use default. Save changes.
+4. Only people with Set selling prices (Settings → Roles) can change prices, and only at their own branches. If someone else changed the price meanwhile, you are asked to reload first.
 
 #### Add a user
 

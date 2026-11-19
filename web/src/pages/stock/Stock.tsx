@@ -20,6 +20,7 @@ import { AdjustDialog } from "./AdjustDialog";
 import { ItemBarcodeActions } from "@/components/ItemBarcodes";
 import { DeletionDialog, MovementActions, voidState } from "./InventoryDeletion";
 import { StockBalancesDialog } from "./StockBalancesDialog";
+import { ALL_BRANCHES, BranchFilter, BranchViewNote, branchQuery, useBranchFilter } from "@/components/BranchFilter";
 import { t as tr } from "@/lib/i18n";
 
 type Tab = "levels" | "position" | "movements" | "adjustments" | "barcodes";
@@ -32,11 +33,14 @@ export default function Stock() {
   const [balances, setBalances] = useState(false);
   const tab = (params.get("tab") as Tab) ?? "levels";
   const [adjusting, setAdjusting] = useState(false);
+  // Roadmap 176: the branch whose stock is shown (viewing only — actions keep the working branch).
+  const [view, setView] = useBranchFilter();
+  const viewName = view === ALL_BRANCHES ? tr("All accessible branches") : profile?.branches.find((b) => b.id === view)?.name ?? branch?.name;
   return (
     <>
       {balances && <StockBalancesDialog onClose={() => setBalances(false)} />}
       <PageHeader
-        eyebrow={branch?.name}
+        eyebrow={viewName}
         title="Stock & inventory"
         actions={
           <>
@@ -47,7 +51,7 @@ export default function Stock() {
           </>
         }
       />
-      <div className="mb-4">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <Segments
           value={tab}
           onChange={(t) => setParams({ tab: t })}
@@ -59,18 +63,20 @@ export default function Stock() {
             { value: "barcodes", label: "Barcoded items" },
           ]}
         />
+        <BranchFilter value={view} onChange={setView} className="lg:w-64" />
       </div>
-      {tab === "levels" && <Levels />}
-      {tab === "position" && <Position />}
-      {tab === "movements" && <Movements productId={params.get("product") ?? undefined} />}
-      {tab === "adjustments" && <Adjustments />}
-      {tab === "barcodes" && <Barcodes productId={params.get("product") ?? undefined} />}
+      <BranchViewNote value={view} />
+      {tab === "levels" && <Levels view={view} />}
+      {tab === "position" && <Position view={view} />}
+      {tab === "movements" && <Movements view={view} productId={params.get("product") ?? undefined} />}
+      {tab === "adjustments" && <Adjustments view={view} />}
+      {tab === "barcodes" && <Barcodes view={view} productId={params.get("product") ?? undefined} />}
       <AdjustDialog open={adjusting} onOpenChange={setAdjusting} />
     </>
   );
 }
 
-function Levels() {
+function Levels({ view }: { view: string }) {
   const { profile, can } = useSession();
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -79,8 +85,11 @@ function Levels() {
   const [category, setCategory] = useState("");
   const [offset, setOffset] = useState(0);
   const term = useDebounced(q);
-  const query = { q: term, status, category_id: category, limit: LIMIT, offset };
+  const all = view === ALL_BRANCHES;
+  const query = { q: term, status, category_id: category, limit: LIMIT, offset, ...(all ? { all: true } : branchQuery(view)) };
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["stock", "levels", query], queryFn: () => api<Paged<StockLevel>>("/stock", { query }), placeholderData: (p) => p });
+  // Roadmap 176: across branches, which branches hold the stock.
+  const held = (r: StockLevel) => (r.branches ?? []).map((b) => `${b.branch_name} ${count(b.on_hand)}`).join(" · ");
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => api<Category[]>("/categories") });
   const showValue = can("sales.view_financials") || profile?.settings.stock.valuation === "selling";
   return (
@@ -105,6 +114,7 @@ function Levels() {
         empty={<EmptyState icon={Boxes} title="No stock matches" />}
         columns={[
           { key: "name", header: "Product", cell: (r) => <div><div className="font-medium">{r.name}</div><div className="text-xs text-muted-foreground">{r.code}{r.track_items && " · per item"}</div></div> },
+          ...(all ? [{ key: "branches", header: "Branches", cell: (r: StockLevel) => <span className="num text-xs text-muted-foreground">{held(r) || "—"}</span> }] : []),
           { key: "category", header: "Category", cell: (r) => r.category_name ?? "—", hideBelow: "xl" },
           { key: "on_hand", header: "Physical", align: "right", cell: (r) => <span className="num">{count(r.on_hand)}</span> },
           { key: "reserved", header: "Reserved", align: "right", cell: (r) => <span className="num text-muted-foreground">{count(r.reserved)}</span>, hideBelow: "lg" },
@@ -115,7 +125,7 @@ function Levels() {
         mobile={(r) => (
           <CardRow
             title={r.name}
-            subtitle={`${r.code}${r.reserved ? ` · ${count(r.reserved)} reserved` : ""}`}
+            subtitle={`${r.code}${r.reserved ? ` · ${count(r.reserved)} reserved` : ""}${all && held(r) ? ` · ${held(r)}` : ""}`}
             value={<span className={cn(r.available <= 0 ? "text-destructive" : r.available <= r.low_threshold ? "text-warning" : "")}>{count(r.available)}</span>}
             meta={r.available <= 0 ? "out of stock" : "available"}
           />
@@ -132,12 +142,12 @@ interface PositionRow {
   available_now: number; low_threshold: number; value: Money | null;
 }
 
-function Position() {
+function Position({ view }: { view: string }) {
   const { can } = useSession();
   const navigate = useNavigate();
   const [period, setPeriod] = useState<PeriodValue>({ period: "month" });
   const [status, setStatus] = useState<"all" | "low" | "out">("all");
-  const query = { ...period, status: status === "all" ? undefined : status };
+  const query = { ...period, status: status === "all" ? undefined : status, ...branchQuery(view) };
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["stock", "position", query], queryFn: () => api<{ rows: PositionRow[]; total_value: Money | null }>("/stock/position", { query }) });
   const n = (v: number, tone?: boolean) => <span className={cn("num", tone && v > 0 && "text-success", tone && v < 0 && "text-destructive")}>{v === 0 ? "·" : count(v)}</span>;
   return (
@@ -190,12 +200,12 @@ function refLink(r: MovementRow) {
   return null;
 }
 
-function Movements({ productId }: { productId?: string }) {
+function Movements({ productId, view }: { productId?: string; view: string }) {
   const navigate = useNavigate();
   const [period, setPeriod] = useState<PeriodValue>({ period: productId ? "year" : "week" });
   const [kind, setKind] = useState("");
   const [offset, setOffset] = useState(0);
-  const query = { ...period, kind, product_id: productId, limit: LIMIT, offset };
+  const query = { ...period, kind, product_id: productId, limit: LIMIT, offset, ...branchQuery(view) };
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["stock", "movements", query], queryFn: () => api<Paged<MovementRow>>("/stock/movements", { query }), placeholderData: (p) => p });
   return (
     <>
@@ -239,10 +249,10 @@ interface AdjRow { id: string; created_at: string; branch_name: string; product_
 /** Roadmap 171: "other" reads as "Others" (its explanation is the reason beside it). */
 const adjustmentKind = (k: string) => (k === "other" ? tr("Others") : titleCase(k));
 
-function Adjustments() {
+function Adjustments({ view }: { view: string }) {
   const [period, setPeriod] = useState<PeriodValue>({ period: "month" });
   const [offset, setOffset] = useState(0);
-  const query = { ...period, limit: LIMIT, offset };
+  const query = { ...period, limit: LIMIT, offset, ...branchQuery(view) };
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["stock", "adjustments", query], queryFn: () => api<Paged<AdjRow>>("/stock/adjustments", { query }), placeholderData: (p) => p });
   return (
     <>
@@ -260,6 +270,7 @@ function Adjustments() {
           { key: "kind", header: "Type", cell: (r) => adjustmentKind(r.kind) },
           { key: "change", header: "Before → after", align: "right", cell: (r) => <span className="num whitespace-nowrap">{r.previous_qty} → {r.new_qty} <span className={r.delta > 0 ? "text-success" : "text-destructive"}>({signed(r.delta)})</span></span> },
           { key: "reason", header: "Reason", cell: (r) => r.reason, hideBelow: "lg" },
+          ...(view === ALL_BRANCHES ? [{ key: "branch", header: "Branch", cell: (r: AdjRow) => r.branch_name, hideBelow: "lg" as const }] : []),
           { key: "by", header: "By / approved", cell: (r) => <span className="text-sm">{r.created_by_name}{r.decided_by_name && r.decided_by_name !== r.created_by_name && <span className="text-muted-foreground"> · ✓ {r.decided_by_name}</span>}</span>, hideBelow: "xl" },
           { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
         ]}
@@ -273,7 +284,7 @@ function Adjustments() {
 interface ItemRow { id: string; barcode: string; status: string; product_id: string; product_name: string; branch_name: string; created_at: string; updated_at: string }
 interface History { barcode: string; items: ItemRow[]; history: MovementRow[]; product_barcode_of: { id: string; name: string } | null }
 
-function Barcodes({ productId }: { productId?: string }) {
+function Barcodes({ productId, view }: { productId?: string; view: string }) {
   const [status, setStatus] = useState("in_stock");
   const [q, setQ] = useState("");
   const [offset, setOffset] = useState(0);
@@ -284,7 +295,7 @@ function Barcodes({ productId }: { productId?: string }) {
   // Roadmap 172: an item in stock whose receipt is being deleted.
   const [deletingItem, setDeletingItem] = useState<string | null>(null);
   const term = useDebounced(q);
-  const query = { status: status || undefined, q: term, product_id: productId, limit: LIMIT, offset };
+  const query = { status: status || undefined, q: term, product_id: productId, limit: LIMIT, offset, ...branchQuery(view) };
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["stock", "items", query], queryFn: () => api<Paged<ItemRow>>("/stock/items", { query }), placeholderData: (p) => p });
   const history = useQuery({
     queryKey: ["stock", "barcode", lookup],

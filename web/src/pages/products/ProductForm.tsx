@@ -6,7 +6,8 @@ import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { PhotoPicker, photosValid, uploadPhotos, usePendingPhotos } from "@/components/PhotoPicker";
-import type { Category, Outcome, Product, Supplier } from "@/lib/types";
+import type { BranchPrice, Category, Outcome, Product, Supplier } from "@/lib/types";
+import { BranchPricing, branchChanges, initialEdits, type BranchEdits } from "./BranchPricing";
 import { Button } from "@/components/ui/button";
 import { ActionButton, REASONS, isDirty } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
@@ -87,7 +88,13 @@ export default function ProductForm() {
   const [newSupplier, setNewSupplier] = useState<string | null>(null);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((s) => ({ ...s, [k]: v }));
 
-  const existing = useQuery({ queryKey: ["product", id], queryFn: () => api<{ product: Product; branch_ids: string[] }>(`/products/${id}`), enabled: editing });
+  const existing = useQuery({ queryKey: ["product", id], queryFn: () => api<{ product: Product; branch_ids: string[]; prices: BranchPrice[]; branch_count: number }>(`/products/${id}`), enabled: editing });
+  // Roadmap 176: each branch's own price (several branches only).
+  const [edits, setEdits] = useState<BranchEdits>({});
+  const prices = existing.data?.prices ?? [];
+  const multiBranch = editing && (existing.data?.branch_count ?? 1) > 1 && prices.length > 0;
+  const priceChanges = multiBranch ? branchChanges(prices, edits) : [];
+  const mayPrice = can("products.price");
   const chooseModel = async (individual: boolean) => {
     const saved = existing.data?.product.track_items;
     if (!editing || saved === undefined || saved === individual) {
@@ -119,7 +126,8 @@ export default function ProductForm() {
     if (!p) return;
     const next: FormState = {
       code: p.code, name: p.name, nickname: p.nickname, description: p.description, category_id: str(p.category_id), supplier_id: str(p.supplier_id),
-      marked_price: str(p.marked_price), max_discount: str(p.max_discount), cost_price: str(p.cost_price), barcode: str(p.barcode),
+      // Roadmap 176: the form edits the default price (marked_price is the price at the Current Branch).
+      marked_price: str(p.default_price !== undefined ? p.default_price : p.marked_price), max_discount: str(p.max_discount), cost_price: str(p.cost_price), barcode: str(p.barcode),
       track_items: p.track_items, is_active: p.is_active, available_for_orders: p.available_for_orders, transfer_allowed: p.transfer_allowed,
       loyalty_eligible: p.loyalty_eligible, loyalty_threshold: str(p.loyalty_threshold), loyalty_points_per: str(p.loyalty_points_per),
       low_stock_threshold: str(p.low_stock_threshold), all_branches: p.all_branches, branch_ids: existing.data!.branch_ids,
@@ -128,6 +136,7 @@ export default function ProductForm() {
     };
     setF(next);
     setLoaded(next);
+    setEdits(initialEdits(existing.data!.prices ?? []));
   }, [existing.data, assignBarcode]);
 
   const quickAdd = async (kind: "categories" | "suppliers", name: string) => {
@@ -160,8 +169,16 @@ export default function ProductForm() {
         loyalty_points_per: numOrNull(f.loyalty_points_per),
         low_stock_threshold: numOrNull(f.low_stock_threshold),
       };
-      const r = await api<Outcome<{ id: string }>>(editing ? `/products/${id}` : "/products", { method: editing ? "PUT" : "POST", body });
+      const productChanged = !editing || !loaded || isDirty(loaded, f);
+      const r = productChanged
+        ? await api<Outcome<{ id: string }>>(editing ? `/products/${id}` : "/products", { method: editing ? "PUT" : "POST", body })
+        : ({ pending_approval: false, result: { id: id! } } as Outcome<{ id: string }>);
       const productId = editing ? id! : (r.result?.id ?? null);
+      // Roadmap 176: branch prices change only where the person changed them (each checked against the price they saw).
+      if (editing && priceChanges.length) {
+        const pr = await api<Outcome<unknown>>(`/products/${id}/branch-prices`, { method: "PUT", body: { changes: priceChanges } });
+        if (pr.pending_approval) r.pending_approval = true;
+      }
       // New products: the product is saved first; each photo then succeeds or fails on its own, so a photo
       // problem never makes a saved product look failed (and the form is left, so it is never created twice).
       let upload = null;
@@ -253,8 +270,18 @@ export default function ProductForm() {
           </Section>
 
           <Section title="Pricing">
+            {multiBranch && (
+              <div className="mb-4">
+                <BranchPricing prices={prices} edits={edits} onChange={setEdits} defaultPrice={f.marked_price} onDefaultChange={(v) => set("marked_price", v)} disabled={!mayPrice} />
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-3">
-              <Field label="Marked selling price" hint="Leave blank if not set yet — shown as Price on Request; 0 means free"><Input inputMode="decimal" className="num" value={f.marked_price} onChange={(e) => set("marked_price", e.target.value.replace(/[^\d.]/g, ""))} placeholder={t("Not set")} /></Field>
+              {!multiBranch && (
+                <Field label="Marked selling price"
+                  hint={(profile?.branches.length ?? 1) > 1 && !editing ? "The price at every branch. After saving, a branch can be given its own price." : "Leave blank if not set yet — shown as Price on Request; 0 means free"}>
+                  <Input inputMode="decimal" className="num" disabled={editing && !mayPrice} value={f.marked_price} onChange={(e) => set("marked_price", e.target.value.replace(/[^\d.]/g, ""))} placeholder={t("Not set")} />
+                </Field>
+              )}
               <Field label="Maximum discount" optional hint="Above this needs supervisor approval"><Input inputMode="decimal" className="num" value={f.max_discount} onChange={(e) => set("max_discount", e.target.value.replace(/[^\d.]/g, ""))} placeholder="Optional" /></Field>
               {(profile?.settings.stock.capture_cost ?? true) && can("sales.view_financials") && (
                 <Field label="Cost price" optional hint="Used for profit reports"><Input inputMode="decimal" className="num" value={f.cost_price} onChange={(e) => set("cost_price", e.target.value.replace(/[^\d.]/g, ""))} placeholder="Optional" /></Field>
@@ -368,7 +395,7 @@ export default function ProductForm() {
               busyLabel={uploaded !== null ? `${t("Uploading…")} ${uploaded}/${photos.items.length}` : "Saving…"}
               blockedBy={[
                 !valid && REASONS.completeFields,
-                editing && loaded && !isDirty(loaded, f) && REASONS.nothingToSave,
+                editing && loaded && !isDirty(loaded, f) && !priceChanges.length && REASONS.nothingToSave,
                 !editing && !photosValid(photos.items, maxPhotos) && "Check the photos",
               ]}>
               {editing ? "Save changes" : "Create product"}

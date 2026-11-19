@@ -1338,13 +1338,17 @@ async fn analytics(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Anal
 /// website editor works without any stock, sales or product-management permission.
 async fn catalogue(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
     ctx.require_any(&["website.products", "website.categories", "website.content", "website.view"])?;
+    // Roadmap 176: the price the website shows — at the branch that fulfils its orders.
+    let t = super::portal::tenant_by_id(&state, ctx.tenant_id).await?;
+    let branch = super::portal::portal_branch(&state, &t).await.ok();
     let products: Vec<(Uuid, String, String, Option<Uuid>, Option<String>, Option<rust_decimal::Decimal>, bool, bool, Vec<Uuid>)> = sqlx::query_as(
-        "SELECT p.id, p.name, p.code, p.category_id, c.name, p.marked_price, p.is_active, p.available_for_orders,
+        "SELECT p.id, p.name, p.code, p.category_id, c.name, effective_price(p.id, $2, p.marked_price), p.is_active, p.available_for_orders,
                 ARRAY(SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order)
          FROM products p LEFT JOIN categories c ON c.id = p.category_id
          WHERE p.tenant_id = $1 ORDER BY p.is_active DESC, p.name",
     )
     .bind(ctx.tenant_id)
+    .bind(branch)
     .fetch_all(&state.db)
     .await?;
     let categories: Vec<(Uuid, String, bool)> = sqlx::query_as("SELECT id, name, is_active FROM categories WHERE tenant_id = $1 ORDER BY name")

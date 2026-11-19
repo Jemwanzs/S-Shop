@@ -75,7 +75,8 @@ The requester sees “Sent for approval”; approvers are notified (bell + live 
 ## Approvals page
 Tabs: Waiting · My requests · Approved · Rejected. Cards show the action, summary, amount, requester, branch and age,
 “Level X of Y” for multi-level requests, the decision trail, and *View*, *Approve* / *Reject* (optional comment) or
-*Withdraw*. Only people who may decide the **current** level see Approve / Reject. Approval decisions are written to the audit trail
+*Withdraw*. A **stock transfer** card (roadmap 176) also lists every product with its quantity, the route, the source
+and destination price and the proposed price action (*Show all* for long transfers). Only people who may decide the **current** level see Approve / Reject. Approval decisions are written to the audit trail
 together with the executed action.
 
 ### Bulk decisions (roadmap 151)

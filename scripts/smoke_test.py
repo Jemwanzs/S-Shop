@@ -5263,6 +5263,147 @@ call("PUT", "/settings", s174)
 call("POST", f"/products/{pm}/barcodes", {"barcode": m2})
 check("on again: extra barcodes can be added", call("GET", f"/products/{pm}")["barcodes"] == [m2])
 
+step("Roadmap 176: one product, a price per branch; branch filters; transfer price confirmation")
+bA = BRANCH
+bB = call("POST", "/branches", {"name": f"Branch B {suffix}", "code": f"BB{suffix}"})["id"]
+bC = call("POST", "/branches", {"name": f"Branch C {suffix}", "code": f"BC{suffix}"})["id"]
+code176 = f"76{suffix[-6:]}176"
+pA = call("POST", "/products", {"name": f"Product A {suffix} 176", "marked_price": 100000, "barcode": code176})["result"]["id"]
+bp = lambda pid=pA: {x["branch_id"]: x for x in call("GET", f"/products/{pid}/branch-prices")["branches"]}
+check("a new product has its default price at every branch", bp()[bA]["price"] == "100000.00" and bp()[bB]["uses_default"] is True, bp()[bB])
+call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bB, "price": 120000, "expected": None}]})
+check("Branch B gets its own price (120,000); Branch A keeps 100,000 — one product record",
+      bp()[bB]["price"] == "120000.00" and bp()[bB]["uses_default"] is False and bp()[bA]["price"] == "100000.00"
+      and len(call("GET", f"/products?q=Product A {suffix} 176&status=all")["items"]) == 1)
+r = call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bB, "price": 125000, "expected": None}]}, expect=422)
+check("a change made on a stale price is refused (no silent overwrite)", r["error"]["title"] == "Price changed meanwhile" and "120,000" in r["error"]["message"] and bp()[bB]["price"] == "120000.00", r)
+aud = call("GET", f"/audit?entity_id={pA}&limit=10")
+row176 = next((e for e in aud["items"] if e["action"] == "branch_price"), None)
+check("the change is audited: before, after, branch, person", row176 is not None and "100000" in json.dumps(row176) and "120000" in json.dumps(row176) and row176.get("branch_name"), row176)
+mgrA = clerk  # a Manager at Branch A only
+r = call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bB, "price": 1, "expected": 120000}]}, token=mgrA, expect=403)
+check("a person cannot set the price at a branch that is not theirs", bp()[bB]["price"] == "120000.00")
+call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bA, "price": 101000, "expected": None}]}, token=mgrA)
+check("…but can at their own branch, without touching Branch B", bp()[bA]["price"] == "101000.00" and bp()[bB]["price"] == "120000.00")
+call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bA, "price": None, "expected": 101000}]})
+check("a branch can go back to the default price", bp()[bA]["price"] == "100000.00" and bp()[bA]["uses_default"] is True)
+body176 = {"name": f"Product A {suffix} 176", "marked_price": 99000, "barcode": code176}
+r = call("PUT", f"/products/{pA}", body176, token=mgrA, expect=422)
+check("the default price (other branches use it) cannot be changed by someone without those branches", r["error"]["title"] == "Default price" and "not one of your branches" in r["error"]["message"], r)
+smail = f"seller176{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Seller 176", "email": smail, "pin": "4321", "role_id": next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Salesperson"), "all_branches": True, "branch_ids": []})
+seller176 = call("POST", "/auth/login", {"email": smail, "pin": "4321"})["token"]
+call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bA, "price": 1, "expected": None}]}, token=seller176, expect=403)
+check("without Set selling prices, no price can be changed", bp()[bA]["price"] == "100000.00")
+check("Set selling prices is a permission of its own", any(p_[0] == "products.price" for g in call("GET", "/permissions") for p_ in g["permissions"]))
+
+# The till prices by the transaction's branch
+pos = lambda br: next(x for x in call("GET", f"/pos/products?q=Product A {suffix} 176&all=true", branch=br) if x["id"] == pA)
+check("the till at Branch A shows 100,000; at Branch B 120,000", pos(bA)["marked_price"] == "100000.00" and pos(bB)["marked_price"] == "120000.00", (pos(bA)["marked_price"], pos(bB)["marked_price"]))
+lk = lambda br: call("GET", f"/products/lookup?code={code176}", branch=br)["product"]
+check("scanning the same barcode: the same product, each branch's price", lk(bA)["id"] == lk(bB)["id"] == pA and lk(bA)["marked_price"] == "100000.00" and lk(bB)["marked_price"] == "120000.00")
+call("POST", "/stock/receive", {"product_id": pA, "quantity": 3, "branch_id": bA})
+call("POST", "/stock/receive", {"product_id": pA, "quantity": 2, "branch_id": bB, "marked_price": 120000}, branch=bB)
+check("receiving at Branch B at its own price changes no price", bp()[bB]["price"] == "120000.00" and bp()[bA]["price"] == "100000.00")
+sB = call("POST", "/sales", {"items": [{"product_id": pA, "quantity": 1, "unit_price": 120000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, branch=bB)
+sA = call("POST", "/sales", {"items": [{"product_id": pA, "quantity": 1, "unit_price": 100000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+check("a sale at Branch B is priced 120,000 with no discount; at Branch A 100,000", float(sB["items"][0]["marked_price"]) == 120000 and float(sB["items"][0]["discount"]) == 0
+      and float(sA["items"][0]["marked_price"]) == 100000, (sB["items"][0], sA["items"][0]))
+sB2 = call("POST", "/sales", {"items": [{"product_id": pA, "quantity": 1, "unit_price": 100000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, branch=bB)
+check("…selling at Branch A's price in Branch B is a 20,000 discount, checked by the server", float(sB2["items"][0]["marked_price"]) - float(sB2["items"][0]["unit_price"]) == 20000, sB2["items"][0])
+call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bB, "price": 130000, "expected": 120000}]})
+check("a later price change leaves completed sales at their recorded price", float(call("GET", f"/sales/{sB['sale']['id']}")["items"][0]["marked_price"]) == 120000)
+call("POST", "/stock/receive", {"product_id": pA, "quantity": 1, "branch_id": bA, "marked_price": 98000})
+check("a new price typed when receiving at Branch A changes Branch A only (several branches)", bp()[bA]["price"] == "98000.00" and bp()[bA]["uses_default"] is False
+      and bp()[bB]["price"] == "130000.00" and bp()[bC]["price"] == "100000.00")
+call("POST", "/stock/receive", {"product_id": pA, "quantity": 1, "branch_id": bA, "marked_price": 97000}, token=seller176, expect=403)
+check("…and needs Set selling prices", bp()[bA]["price"] == "98000.00")
+call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bA, "price": None, "expected": 98000}, {"branch_id": bB, "price": 120000, "expected": 130000}]})
+check("several branches' prices change together", bp()[bA]["price"] == "100000.00" and bp()[bB]["price"] == "120000.00")
+
+# Branch filters: stock and catalogue
+lvl = lambda **q: next((x for x in call("GET", "/stock?q=Product A " + suffix + " 176&" + "&".join(f"{k}={v}" for k, v in q.items()))["items"] if x["product_id"] == pA), None)
+check("Stock: the Current Branch by default (Branch A: 3 − 1 sold + 1 = 3)", lvl()["on_hand"] == 3, lvl())
+check("Stock: another branch without changing the working branch (Branch B: 2 − 2 sold = 0)", lvl(branch_id=bB)["on_hand"] == 0)
+allv = lvl(all="true")
+check("Stock: All accessible branches adds up and names the branches", allv["on_hand"] == 3 and any(b_["branch_id"] == bA for b_ in allv["branches"]), allv)
+call("GET", f"/stock?branch_id={bB}", token=mgrA, expect=403)
+check("a person restricted to Branch A cannot open Branch B's stock", True)
+mine_all = next(x for x in call("GET", f"/stock?q=Product A {suffix} 176&all=true", token=mgrA)["items"] if x["product_id"] == pA)
+check("…and All accessible branches means theirs only", [b_["branch_id"] for b_ in mine_all["branches"]] == [bA], mine_all["branches"])
+mv176 = call("GET", f"/stock/movements?product_id={pA}&period=year&branch_id={bB}")["items"]
+check("Movements filter by branch", mv176 and all(m["branch_name"] == f"Branch B {suffix}" for m in mv176))
+pB = call("POST", "/products", {"name": f"Only B {suffix} 176", "marked_price": 50, "all_branches": False, "branch_ids": [bB]})["result"]["id"]
+cat = lambda **q: [x["id"] for x in call("GET", "/products?q=176&status=all&" + "&".join(f"{k}={v}" for k, v in q.items()))["items"]]
+check("Catalogue at Branch A: products sold there (Only B left out)", pA in cat(available_at="branch") and pB not in cat(available_at="branch"))
+check("Catalogue at Branch B: Only B included, priced for Branch B", pB in cat(available_at="branch", branch_id=bB)
+      and next(x for x in call("GET", f"/products?q=176&available_at=branch&branch_id={bB}")["items"] if x["id"] == pA)["marked_price"] == "120000.00")
+row_all = next(x for x in call("GET", "/products?q=176&available_at=all")["items"] if x["id"] == pA)
+check("Catalogue across branches: one row per product, each branch's price listed", pB in cat(available_at="all") and row_all["marked_price"] == "100000.00"
+      and {b_["branch_id"]: b_["price"] for b_ in row_all["branches"]}[bB] == "120000.00", row_all)
+check("…a person at Branch A only never sees Only B", pB not in [x["id"] for x in call("GET", "/products?q=176&available_at=all", token=mgrA)["items"]])
+check("Select all matching follows the branch filter", pB not in call("GET", "/products/matching-ids?q=176&available_at=branch")["ids"] and pB in call("GET", "/products/matching-ids?q=176&available_at=all")["ids"])
+check("without the filter other screens still find every product", pB in cat())
+
+# Transfers: destination price confirmation
+pc = call("GET", f"/transfers/prices?to_branch_id={bB}&products={pA}")
+check("a transfer shows both branches' prices", pc["items"][0]["source_price"] == "100000.00" and pc["items"][0]["dest_price"] == "120000.00" and pc["may_set_price"] is True, pc)
+call("PUT", "/settings/workflows/stock.transfer", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+tk = call("POST", "/transfers", {"to_branch_id": bB, "items": [{"product_id": pA, "quantity": 1}], "submit": True})
+apv = next(x for x in call("GET", "/approvals?status=pending")["items"] if x["id"] == tk["approval_id"])
+check("the approval names the product, quantity and route — not only the number", f"1 × Product A {suffix} 176" in apv["summary"] and f"Branch B {suffix}" in apv["summary"], apv["summary"])
+check("…with each line's prices and the proposed price action (Keep Destination Price by default)",
+      apv["payload"]["lines"][0]["source_price"] == "100000.00" and apv["payload"]["lines"][0]["dest_price"] == "120000.00" and apv["payload"]["lines"][0]["price_action"] == "keep", apv["payload"])
+call("POST", f"/approvals/{tk['approval_id']}/approve", {"comments": ""})
+call("POST", f"/transfers/{tk['id']}/dispatch")
+call("POST", f"/transfers/{tk['id']}/receive", branch=bB)
+check("by default the destination keeps its price", bp()[bB]["price"] == "120000.00" and call("GET", f"/transfers/{tk['id']}")["prices"][0]["status"] == "unchanged")
+call("PUT", "/settings/workflows/stock.transfer", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+r = call("POST", "/transfers", {"to_branch_id": bB, "items": [{"product_id": pA, "quantity": 1, "price_action": "source"}], "submit": True}, expect=422)
+check("changing the destination price needs explicit confirmation", r["error"]["title"] == "Confirm the price change", r)
+ts = call("POST", "/transfers", {"to_branch_id": bB, "items": [{"product_id": pA, "quantity": 1, "price_action": "source"}], "submit": True, "price_confirmed": True})
+pl = call("GET", f"/transfers/{ts['id']}")["prices"][0]
+check("Use Source Branch Price: authorised by someone allowed, not applied before the stock arrives", pl["status"] == "authorized" and pl["new_price"] == "100000.00" and bp()[bB]["price"] == "120000.00", pl)
+call("POST", f"/transfers/{ts['id']}/dispatch")
+call("POST", f"/transfers/{ts['id']}/receive", branch=bB)
+check("…applied when received: Branch B now 100,000, Branch A unchanged", bp()[bB]["price"] == "100000.00" and bp()[bA]["price"] == "100000.00"
+      and call("GET", f"/transfers/{ts['id']}")["prices"][0]["status"] == "applied")
+call("POST", "/stock/receive", {"product_id": pA, "quantity": 5, "branch_id": bA})
+tr_ = call("POST", "/transfers", {"to_branch_id": bB, "items": [{"product_id": pA, "quantity": 1, "price_action": "custom", "new_price": 115000}], "submit": True, "price_confirmed": True}, token=mgrA)
+check("someone without rights at the destination can only request the price change", call("GET", f"/transfers/{tr_['id']}")["prices"][0]["status"] == "requested")
+call("POST", f"/transfers/{tr_['id']}/prices/{pA}", {"decision": "authorize"}, token=mgrA, expect=403)
+call("POST", f"/transfers/{tr_['id']}/dispatch", token=mgrA)
+call("POST", f"/transfers/{tr_['id']}/receive", branch=bB)
+check("a requested change is not applied on receipt", bp()[bB]["price"] == "100000.00")
+call("POST", f"/transfers/{tr_['id']}/prices/{pA}", {"decision": "authorize"})
+check("authorised after receipt by someone allowed at Branch B: applied at once (115,000)", bp()[bB]["price"] == "115000.00" and call("GET", f"/transfers/{tr_['id']}")["prices"][0]["status"] == "applied")
+td = call("POST", "/transfers", {"to_branch_id": bB, "items": [{"product_id": pA, "quantity": 1, "price_action": "custom", "new_price": 90000}], "submit": True, "price_confirmed": True}, token=mgrA)
+call("POST", f"/transfers/{td['id']}/prices/{pA}", {"decision": "decline"})
+check("a declined change leaves the destination price", bp()[bB]["price"] == "115000.00" and call("GET", f"/transfers/{td['id']}")["prices"][0]["status"] == "declined")
+tst = call("POST", "/transfers", {"to_branch_id": bB, "items": [{"product_id": pA, "quantity": 1, "price_action": "custom", "new_price": 111000}], "submit": True, "price_confirmed": True})
+call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bB, "price": 116000, "expected": 115000}]})
+call("POST", f"/transfers/{tst['id']}/dispatch")
+call("POST", f"/transfers/{tst['id']}/receive", branch=bB)
+pl = call("GET", f"/transfers/{tst['id']}")["prices"][0]
+check("a destination price changed meanwhile is not overwritten: back to requested, with the reason", bp()[bB]["price"] == "116000.00" and pl["status"] == "requested" and "changed" in pl["note"], pl)
+tc = call("POST", "/transfers", {"to_branch_id": bB, "items": [{"product_id": pA, "quantity": 1, "price_action": "custom", "new_price": 1}], "submit": True, "price_confirmed": True})
+call("POST", f"/transfers/{tc['id']}/cancel", {"reason": "Not needed"})
+check("a cancelled transfer changes no price", call("GET", f"/transfers/{tc['id']}")["prices"][0]["status"] == "not_applied" and bp()[bB]["price"] == "116000.00")
+same = call("POST", "/transfers", {"to_branch_id": bB, "items": [{"product_id": pA, "quantity": 1, "price_action": "custom", "new_price": 116000}], "submit": True})
+check("a 'change' to the price the destination already has is no change", call("GET", f"/transfers/{same['id']}")["prices"][0]["status"] == "unchanged")
+call("POST", f"/transfers/{same['id']}/cancel", {"reason": "Test"})
+
+# Approval of branch prices follows Product edit; tenancy
+call("PUT", "/settings/workflows/product.edit", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+pe = call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bB, "price": 117000, "expected": 116000}]})
+check("with Product edit approval on, a branch price waits for approval", pe.get("pending_approval") and bp()[bB]["price"] == "116000.00", pe)
+call("POST", f"/approvals/{pe['approval_id']}/approve", {"comments": ""})
+check("…and applies once approved", bp()[bB]["price"] == "117000.00")
+call("PUT", "/settings/workflows/product.edit", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+call("GET", f"/products/{pA}/branch-prices", token=t2["token"], branch="none", expect=404)
+call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bB, "price": 1, "expected": 117000}]}, token=t2["token"], branch="none", expect=403)
+check("another business neither sees nor changes these prices", bp()[bB]["price"] == "117000.00")
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

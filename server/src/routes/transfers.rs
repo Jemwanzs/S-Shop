@@ -8,6 +8,7 @@ use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, NaiveDate, Utc};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::PgConnection;
@@ -16,7 +17,8 @@ use uuid::Uuid;
 use super::{Counted, Page, Paged, Period};
 use crate::audit::{self, Entry};
 use crate::auth::Ctx;
-use crate::error::{bad, rule, AppError, AppResult};
+use crate::error::{bad, refused, rule, AppError, AppResult};
+use crate::routes::prices;
 use crate::inventory::{self, Check, Movement};
 use crate::notify::{self, Note};
 use crate::routes::approvals::ApprovalRow;
@@ -33,6 +35,8 @@ pub fn routes() -> Router<AppState> {
         .route("/transfers/{id}/dispatch", post(dispatch))
         .route("/transfers/{id}/receive", post(receive))
         .route("/transfers/{id}/cancel", post(cancel))
+        .route("/transfers/prices", get(price_check))
+        .route("/transfers/{id}/prices/{product_id}", post(decide_price))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -134,7 +138,10 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     .bind(id)
     .fetch_all(&mut *conn)
     .await?;
+    let prices = price_lines(&mut conn, &t).await?;
     let can = json!({
+        // Roadmap 176: authorise or decline a requested destination price change.
+        "decide_price": ctx.can("products.price") && ctx.has_branch(t.to_branch_id) && !["cancelled", "rejected"].contains(&t.status.as_str()),
         "submit": t.status == "draft" && ctx.can("stock.transfer") && ctx.has_branch(t.from_branch_id),
         "dispatch": t.status == "approved" && ctx.can("stock.transfer") && ctx.has_branch(t.from_branch_id),
         "receive": t.status == "dispatched" && ctx.can("stock.receive_transfer") && ctx.has_branch(t.to_branch_id),
@@ -146,8 +153,256 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
             "id": id, "product_id": pid, "product_name": name, "product_code": code, "quantity": qty, "barcode": barcode,
             "short_qty": short, "damaged_qty": damaged, "received_qty": qty - short - damaged,
         })).collect::<Vec<_>>(),
+        "prices": prices,
         "can": can,
     })))
+}
+
+// ───────────────────────────── Destination prices (roadmap 176) ─────────────────────────────
+
+/// Per product on the transfer: its price at the source and at the destination when the transfer was made, the
+/// destination's price now, and what the transfer proposes for it.
+async fn price_lines(conn: &mut PgConnection, t: &TransferRow) -> AppResult<Vec<Value>> {
+    let rows: Vec<(Uuid, String, String, Option<Decimal>, Option<Decimal>, Option<Decimal>, String, Option<Decimal>, String, Option<String>, Option<DateTime<Utc>>, String)> = sqlx::query_as(
+        "SELECT tp.product_id, p.name, p.code, tp.source_price, tp.dest_price, effective_price(p.id, $2, p.marked_price),
+                tp.action, tp.new_price, tp.status, u.name, tp.decided_at, tp.note
+         FROM transfer_prices tp JOIN products p ON p.id = tp.product_id LEFT JOIN users u ON u.id = tp.decided_by
+         WHERE tp.transfer_id = $1 ORDER BY p.name",
+    )
+    .bind(t.id)
+    .bind(t.to_branch_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(pid, name, code, source, dest, now, action, new, status, by, at, note)| json!({
+            "product_id": pid, "product_name": name, "product_code": code, "source_price": source, "dest_price": dest,
+            "dest_price_now": now, "action": action, "new_price": new, "status": status, "decided_by_name": by, "decided_at": at, "note": note,
+        }))
+        .collect())
+}
+
+#[derive(Deserialize)]
+struct PriceCheckQuery {
+    from_branch_id: Option<Uuid>,
+    to_branch_id: Uuid,
+    /// Comma-separated product ids.
+    products: String,
+}
+
+/// Before a transfer is submitted: each product's selling price at the source and at the destination, and whether the
+/// person may change the destination's price (otherwise they can only request it).
+async fn price_check(State(state): State<AppState>, ctx: Ctx, Query(q): Query<PriceCheckQuery>) -> AppResult<Json<Value>> {
+    ctx.require("stock.transfer")?;
+    let from = ctx.branch_or_current(q.from_branch_id)?;
+    let ids: Vec<Uuid> = q.products.split(',').filter(|s| !s.trim().is_empty()).map(|s| s.trim().parse()).collect::<Result<_, _>>().map_err(|_| bad("Unknown product"))?;
+    let rows: Vec<(Uuid, String, Option<Decimal>, Option<Decimal>, bool)> = sqlx::query_as(
+        "SELECT p.id, p.name, effective_price(p.id, $2, p.marked_price), effective_price(p.id, $3, p.marked_price),
+                EXISTS (SELECT 1 FROM product_branch_prices bp WHERE bp.product_id = p.id AND bp.branch_id = $3)
+         FROM products p JOIN branches b ON b.id = $3 AND b.tenant_id = $1 WHERE p.tenant_id = $1 AND p.id = ANY($4) ORDER BY p.name",
+    )
+    .bind(ctx.tenant_id)
+    .bind(from)
+    .bind(q.to_branch_id)
+    .bind(&ids)
+    .fetch_all(&state.db)
+    .await?;
+    let may_set = ctx.can("products.price") && ctx.has_branch(q.to_branch_id);
+    Ok(Json(json!({
+        "may_set_price": may_set,
+        "items": rows.into_iter().map(|(id, name, source, dest, own)| json!({
+            "product_id": id, "product_name": name, "source_price": source, "dest_price": dest, "dest_has_own_price": own,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
+/// Records what the transfer proposes for each product's price at the destination. By default nothing changes (*Keep
+/// destination price*); a change is explicit, confirmed, and authorised by someone allowed to set prices there — the
+/// person making the transfer if they are, otherwise it waits as a request.
+async fn record_prices(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, from: Uuid, to: Uuid, items: &[ItemBody], confirmed: bool) -> AppResult<()> {
+    let to_name: String = sqlx::query_scalar("SELECT name FROM branches WHERE id = $1").bind(to).fetch_one(&mut *conn).await?;
+    let mut done: Vec<Uuid> = Vec::new();
+    for item in items {
+        if done.contains(&item.product_id) {
+            continue;
+        }
+        done.push(item.product_id);
+        let name: String = sqlx::query_scalar("SELECT name FROM products WHERE id = $1 AND tenant_id = $2").bind(item.product_id).bind(ctx.tenant_id).fetch_one(&mut *conn).await?;
+        let source = prices::effective(conn, ctx.tenant_id, item.product_id, from).await?;
+        let dest = prices::effective(conn, ctx.tenant_id, item.product_id, to).await?;
+        let action = item.price_action.as_deref().unwrap_or("keep");
+        let new = match action {
+            "keep" => None,
+            "source" => Some(source.ok_or_else(|| bad(format!("{name} has no selling price at the source branch to use")))?),
+            "custom" => {
+                let p = item.new_price.ok_or_else(|| bad(format!("Enter the new price of {name} at {to_name}")))?;
+                if p < Decimal::ZERO {
+                    return Err(bad("A price cannot be negative"));
+                }
+                Some(p)
+            }
+            _ => return Err(bad("Price action: keep, source or custom")),
+        };
+        // The same price as the destination already has is no change.
+        let (action, new) = if new.is_none() || new == dest { ("keep", None) } else { (action, new) };
+        if action != "keep" && !confirmed {
+            return Err(refused("Confirm the price change", format!("Confirm the new price of {name} at {to_name} ({} → {})", prices::show(dest), prices::show(new))));
+        }
+        let authorised = action != "keep" && ctx.can("products.price") && ctx.has_branch(to);
+        let status = if action == "keep" { "unchanged" } else if authorised { "authorized" } else { "requested" };
+        sqlx::query(
+            "INSERT INTO transfer_prices (transfer_id, product_id, source_price, dest_price, action, new_price, status, decided_by, decided_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        )
+        .bind(id)
+        .bind(item.product_id)
+        .bind(source)
+        .bind(dest)
+        .bind(action)
+        .bind(new)
+        .bind(status)
+        .bind(authorised.then_some(ctx.user_id))
+        .bind(authorised.then(Utc::now))
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Applies the authorised destination prices of a received transfer. A price that changed at the destination since the
+/// transfer was made is not overwritten: the change goes back to *requested* for a fresh decision.
+async fn apply_prices(conn: &mut PgConnection, ctx: &Ctx, t: &TransferRow) -> AppResult<()> {
+    let rows: Vec<(Uuid, Option<Decimal>, Option<Decimal>, Option<String>)> = sqlx::query_as(
+        "SELECT tp.product_id, tp.dest_price, tp.new_price, u.name FROM transfer_prices tp LEFT JOIN users u ON u.id = tp.decided_by
+         WHERE tp.transfer_id = $1 AND tp.status = 'authorized' ORDER BY tp.product_id FOR UPDATE OF tp",
+    )
+    .bind(t.id)
+    .fetch_all(&mut *conn)
+    .await?;
+    for (product, dest, new, by) in rows {
+        apply_one(conn, ctx, t, product, dest, new, by.as_deref().unwrap_or("")).await?;
+    }
+    Ok(())
+}
+
+async fn apply_one(conn: &mut PgConnection, ctx: &Ctx, t: &TransferRow, product: Uuid, dest: Option<Decimal>, new: Option<Decimal>, by: &str) -> AppResult<bool> {
+    // One price change per product at a time (the same lock as Product → branch prices).
+    sqlx::query("SELECT id FROM products WHERE id = $1 AND tenant_id = $2 FOR UPDATE").bind(product).bind(ctx.tenant_id).execute(&mut *conn).await?;
+    let now = prices::effective(conn, ctx.tenant_id, product, t.to_branch_id).await?;
+    if now != dest {
+        sqlx::query("UPDATE transfer_prices SET status = 'requested', note = $3 WHERE transfer_id = $1 AND product_id = $2")
+            .bind(t.id)
+            .bind(product)
+            .bind(format!("The price at {} changed after the transfer was made (now {}) — decide again", t.to_branch_name, prices::show(now)))
+            .execute(&mut *conn)
+            .await?;
+        return Ok(false);
+    }
+    let why = format!("Transfer {} from {} (authorised by {by})", t.transfer_no, t.from_branch_name);
+    prices::set(conn, ctx, product, t.to_branch_id, new, None, &why).await?;
+    sqlx::query("UPDATE transfer_prices SET status = 'applied', note = '' WHERE transfer_id = $1 AND product_id = $2").bind(t.id).bind(product).execute(&mut *conn).await?;
+    Ok(true)
+}
+
+#[derive(Deserialize)]
+struct PriceDecision {
+    /// authorize | decline
+    decision: String,
+}
+
+/// Someone allowed to set prices at the destination authorises or declines a requested price change. Authorised before
+/// the stock arrives, it applies on receipt; after, at once.
+async fn decide_price(State(state): State<AppState>, ctx: Ctx, Path((id, product)): Path<(Uuid, Uuid)>, Json(b): Json<PriceDecision>) -> AppResult<Json<Value>> {
+    ctx.require("products.price")?;
+    let mut tx = state.db.begin().await?;
+    let t = load(&mut tx, &ctx, id, true).await?;
+    if !ctx.has_branch(t.to_branch_id) {
+        return Err(AppError::Forbidden(format!("Only someone who can set prices at {} decides its price", t.to_branch_name)));
+    }
+    if ["cancelled", "rejected"].contains(&t.status.as_str()) {
+        return Err(rule("This transfer was not completed — its price change does not apply"));
+    }
+    let row: Option<(String, Option<Decimal>, Option<Decimal>)> =
+        sqlx::query_as("SELECT status, dest_price, new_price FROM transfer_prices WHERE transfer_id = $1 AND product_id = $2 FOR UPDATE")
+            .bind(id)
+            .bind(product)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let (status, dest, new) = row.ok_or(AppError::NotFound("Price change"))?;
+    if status != "requested" {
+        return Err(rule("This price change has already been decided"));
+    }
+    let outcome = match b.decision.as_str() {
+        "decline" => {
+            sqlx::query("UPDATE transfer_prices SET status = 'declined', decided_by = $3, decided_at = now(), note = '' WHERE transfer_id = $1 AND product_id = $2")
+                .bind(id)
+                .bind(product)
+                .bind(ctx.user_id)
+                .execute(&mut *tx)
+                .await?;
+            "declined"
+        }
+        "authorize" => {
+            // Decided against the price the destination has now (a stale request was sent back with a note).
+            let now = prices::effective(&mut tx, ctx.tenant_id, product, t.to_branch_id).await?;
+            sqlx::query("UPDATE transfer_prices SET status = 'authorized', dest_price = $3, decided_by = $4, decided_at = now(), note = '' WHERE transfer_id = $1 AND product_id = $2")
+                .bind(id)
+                .bind(product)
+                .bind(now)
+                .bind(ctx.user_id)
+                .execute(&mut *tx)
+                .await?;
+            if t.status == "received" {
+                apply_one(&mut tx, &ctx, &t, product, now, new, &ctx.name).await?;
+                "applied"
+            } else {
+                "authorized"
+            }
+        }
+        _ => return Err(bad("Decision: authorize or decline")),
+    };
+    audit::record(&mut tx, &ctx, Entry::new("transfers", "price_decision", "transfer", id).branch(t.to_branch_id).after(json!({
+        "product_id": product, "decision": outcome, "dest_price": dest, "new_price": new,
+    })))
+    .await?;
+    tx.commit().await?;
+    state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": t.to_branch_id }));
+    Ok(Json(json!({ "status": outcome })))
+}
+
+/// A transfer that will not complete changes no price.
+async fn close_prices(conn: &mut PgConnection, id: Uuid) -> AppResult<()> {
+    sqlx::query("UPDATE transfer_prices SET status = 'not_applied' WHERE transfer_id = $1 AND status IN ('requested','authorized')")
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+/// What approvers see: each product, its quantity and the proposed price treatment at the destination.
+async fn approval_payload(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<(String, Value)> {
+    let t = load(conn, ctx, id, false).await?;
+    let lines: Vec<(Uuid, String, String, i64, Option<Decimal>, Option<Decimal>, Option<String>, Option<Decimal>, Option<String>)> = sqlx::query_as(
+        "SELECT ti.product_id, p.name, p.code, SUM(ti.quantity)::bigint, tp.source_price, tp.dest_price, tp.action, tp.new_price, tp.status
+         FROM transfer_items ti JOIN products p ON p.id = ti.product_id
+         LEFT JOIN transfer_prices tp ON tp.transfer_id = ti.transfer_id AND tp.product_id = ti.product_id
+         WHERE ti.transfer_id = $1 GROUP BY ti.product_id, p.name, p.code, tp.source_price, tp.dest_price, tp.action, tp.new_price, tp.status
+         ORDER BY p.name",
+    )
+    .bind(id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let first = lines.first().map(|l| format!("{} × {}", l.3, l.1)).unwrap_or_default();
+    let more = if lines.len() > 1 { format!(" (+{} more)", lines.len() - 1) } else { String::new() };
+    let summary = format!("Transfer {} · {first}{more} · {} → {}", t.transfer_no, t.from_branch_name, t.to_branch_name);
+    let payload = json!({
+        "transfer_no": t.transfer_no, "from_branch_name": t.from_branch_name, "to_branch_name": t.to_branch_name, "total_units": t.total_units,
+        "lines": lines.into_iter().map(|(pid, name, code, qty, source, dest, action, new, status)| json!({
+            "product_id": pid, "product_name": name, "product_code": code, "quantity": qty, "source_price": source, "dest_price": dest,
+            "price_action": action.unwrap_or_else(|| "keep".into()), "new_price": new, "price_status": status.unwrap_or_else(|| "unchanged".into()),
+        })).collect::<Vec<_>>(),
+    });
+    Ok((summary, payload))
 }
 
 #[derive(Deserialize)]
@@ -156,6 +411,11 @@ struct ItemBody {
     quantity: i32,
     #[serde(default)]
     barcodes: Vec<String>,
+    /// Roadmap 176: the destination's price — keep (default) | source (the source branch's price) | custom (`new_price`).
+    #[serde(default)]
+    price_action: Option<String>,
+    #[serde(default)]
+    new_price: Option<Decimal>,
 }
 
 #[derive(Deserialize)]
@@ -168,6 +428,9 @@ struct CreateBody {
     items: Vec<ItemBody>,
     #[serde(default)]
     submit: bool,
+    /// Roadmap 176: the person confirmed the destination price changes shown to them.
+    #[serde(default)]
+    price_confirmed: bool,
 }
 
 async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBody>) -> AppResult<Json<Value>> {
@@ -265,6 +528,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
                 .await?;
         }
     }
+    record_prices(&mut tx, &ctx, id, from, b.to_branch_id, &b.items, b.price_confirmed).await?;
     audit::record(&mut tx, &ctx, Entry::new("transfers", "create", "transfer", id).branch(from).after(json!({
         "transfer_no": transfer_no, "to_branch_id": b.to_branch_id, "items": b.items.len()
     })))
@@ -275,9 +539,29 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
     if b.submit {
         (status, approval) = submit_inner(&mut tx, &ctx, id, from, &transfer_no).await?;
     }
+    let requested: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM transfer_prices WHERE transfer_id = $1 AND status = 'requested'")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
     tx.commit().await?;
     if let Some(a) = approval {
         super::approvals::notify_approvers(&state, &ctx, a).await;
+    }
+    // Roadmap 176: a price change the person could not authorise waits for someone who sets prices at the destination.
+    if requested > 0 {
+        notify::to_permission(
+            &state,
+            ctx.tenant_id,
+            Some(b.to_branch_id),
+            "products.price",
+            Note::new(
+                "transfer_price_request",
+                format!("Price change requested with transfer {transfer_no}"),
+                format!("{} asks to change the selling price of {requested} product(s) — authorise or decline it on the transfer", ctx.name),
+                format!("/transfers/{id}"),
+            ),
+        )
+        .await;
     }
     Ok(Json(json!({ "id": id, "transfer_no": transfer_no, "status": status, "approval_id": approval })))
 }
@@ -285,6 +569,8 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
 async fn submit_inner(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, from: Uuid, no: &str) -> AppResult<(&'static str, Option<Uuid>)> {
     if workflow::needs_approval(conn, ctx, "stock.transfer", workflow::Gate::branch(from)).await? {
         sqlx::query("UPDATE transfers SET status = 'pending_approval' WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).execute(&mut *conn).await?;
+        // Roadmap 176: approvers see the products, quantities and proposed prices — not only the transfer number.
+        let (summary, payload) = approval_payload(conn, ctx, id).await.unwrap_or_else(|_| (format!("Stock transfer {no}"), json!({})));
         let approval = workflow::submit(
             conn,
             ctx,
@@ -293,9 +579,9 @@ async fn submit_inner(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, from: Uuid, 
                 entity_type: "transfer",
                 entity_id: id,
                 branch_id: Some(from),
-                summary: format!("Stock transfer {no}"),
+                summary,
                 amount: None,
-                payload: json!({}),
+                payload,
             },
         )
         .await?;
@@ -376,6 +662,7 @@ async fn dispatch(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
     let mut status = "dispatched";
     if !s.stock.transfer_receipt_control {
         receive_inner(&mut tx, &ctx, &t, &items, &Receipt::default()).await?;
+        apply_prices(&mut tx, &ctx, &t).await?;
         status = "received";
     }
     tx.commit().await?;
@@ -498,6 +785,7 @@ async fn receive(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
     }
     let items = transfer_items(&mut tx, id).await?;
     receive_inner(&mut tx, &ctx, &t, &items, &receipt).await?;
+    apply_prices(&mut tx, &ctx, &t).await?;
     tx.commit().await?;
     let (short, damaged): (i32, i32) = receipt.lines.iter().fold((0, 0), |a, l| (a.0 + l.short, a.1 + l.damaged));
     let people: Vec<Uuid> = sqlx::query_scalar::<_, Option<Uuid>>("SELECT unnest(ARRAY[created_by, dispatched_by]) FROM transfers WHERE id = $1")
@@ -545,6 +833,7 @@ async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, b
         return Err(rule("A dispatched transfer cannot be cancelled — receive it, then transfer it back"));
     }
     sqlx::query("UPDATE transfers SET status='cancelled' WHERE id=$1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).execute(&mut *tx).await?;
+    close_prices(&mut tx, id).await?;
     sqlx::query("UPDATE approvals SET status='cancelled', decided_by=$2, decided_at=now() WHERE entity_id=$1 AND status='pending' AND tenant_id = $3")
         .bind(id)
         .bind(ctx.user_id)

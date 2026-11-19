@@ -184,8 +184,14 @@ export interface Product {
   category_name: string | null;
   supplier_id: Id | null;
   supplier_name: string | null;
-  /** Roadmap 131: null = no selling price set yet. */
+  /** Roadmap 131: null = no selling price set yet. Roadmap 176: the price at the branch (its own, else the default). */
   marked_price: Money | null;
+  /** Roadmap 176: the default price — branches without their own price use it (what the product form edits). */
+  default_price?: Money | null;
+  /** Roadmap 176: the branch has its own price. */
+  has_branch_price?: boolean;
+  /** Roadmap 176: with All accessible branches, each branch's stock and price. */
+  branches?: { branch_id: Id; branch_name: string; on_hand: number; available: number; price: Money | null; own_price: boolean }[];
   max_discount: Money | null;
   cost_price: Money | null;
   barcode: string | null;
@@ -428,6 +434,21 @@ export interface StockLevel {
   primary_photo_id: Id | null;
   /** Roadmap 98: has a product-level barcode. */
   has_barcode?: boolean;
+  /** Roadmap 176: with All accessible branches, the branches holding it. */
+  branches?: { branch_id: Id; branch_name: string; on_hand: number; available: number }[];
+}
+
+/** Roadmap 176: a product's price at one branch. */
+export interface BranchPrice {
+  branch_id: Id;
+  branch_name: string;
+  own_price: Money | null;
+  price: Money | null;
+  uses_default: boolean;
+  is_current: boolean;
+  sells_here: boolean;
+  updated_at: string | null;
+  updated_by_name: string | null;
 }
 
 export interface Approval {
@@ -438,6 +459,8 @@ export interface Approval {
   branch_id: Id | null;
   branch_name: string | null;
   summary: string;
+  /** What the request carries (roadmap 176: a transfer's products, quantities and prices). */
+  payload?: unknown;
   amount: Money | null;
   status: string;
   requested_by_name: string | null;

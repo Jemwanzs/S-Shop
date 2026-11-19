@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, Check, PackageCheck, Send, Truck, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
-import { count, date, dateTime } from "@/lib/format";
+import { count, date, dateTime, money } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ActionButton, REASONS } from "@/components/ActionButton";
@@ -17,6 +17,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Segments } from "@/components/Filters";
 import { t as tr } from "@/lib/i18n";
 import type { TransferRow } from "./TransfersList";
+import type { Money } from "@/lib/types";
+import { Pill } from "@/components/Badges";
+import { PRICE_ACTION, PRICE_STATUS, type PriceAction } from "./TransferPrices";
 
 interface Detail {
   transfer: TransferRow;
@@ -24,8 +27,15 @@ interface Detail {
     id: string; product_id: string; product_name: string; product_code: string; quantity: number; barcode: string | null;
     short_qty: number; damaged_qty: number; received_qty: number;
   }[];
-  can: { submit: boolean; dispatch: boolean; receive: boolean; cancel: boolean };
+  /** Roadmap 176: what the transfer does to each product's price at the destination. */
+  prices?: {
+    product_id: string; product_name: string; product_code: string; source_price: Money | null; dest_price: Money | null; dest_price_now: Money | null;
+    action: PriceAction; new_price: Money | null; status: string; decided_by_name: string | null; decided_at: string | null; note: string;
+  }[];
+  can: { submit: boolean; dispatch: boolean; receive: boolean; cancel: boolean; decide_price?: boolean };
 }
+
+const price = (v: Money | null) => (v == null ? tr("Not set") : money(v));
 
 const STEPS = [
   ["draft", "Draft"],
@@ -50,6 +60,17 @@ export default function TransferDetail() {
       qc.invalidateQueries({ queryKey: ["transfer", id] });
       qc.invalidateQueries({ queryKey: ["transfers"] });
       qc.invalidateQueries({ queryKey: ["stock"] });
+    },
+    onError: (e) => toast.error(e),
+  });
+
+  // Roadmap 176: someone allowed to set prices at the destination decides a requested price change.
+  const decide = useMutation({
+    mutationFn: ({ product, decision }: { product: string; decision: "authorize" | "decline" }) =>
+      api<{ status: string }>(`/transfers/${id}/prices/${product}`, { body: { decision } }),
+    onSuccess: (r) => {
+      toast.success(r.status === "applied" ? "Destination price changed" : r.status === "authorized" ? "Price change authorised — it applies when the stock is received" : "Price change declined");
+      qc.invalidateQueries({ queryKey: ["transfer", id] });
     },
     onError: (e) => toast.error(e),
   });
@@ -106,6 +127,37 @@ export default function TransferDetail() {
           </ul>
         </Section>
         <div className="space-y-5">
+          {!!data.prices?.length && (
+            <Section title={`${tr("Selling prices at")} ${t.to_branch_name}`}>
+              <ul className="divide-y" data-testid="transfer-price-decisions">
+                {data.prices.map((p) => {
+                  const [tone, label] = PRICE_STATUS[p.status] ?? ["neutral", p.status];
+                  return (
+                    <li key={p.product_id} className="space-y-1.5 py-2.5 text-sm">
+                      <div className="font-medium">{p.product_name}</div>
+                      <div className="num text-xs text-muted-foreground">{t.from_branch_name} {price(p.source_price)} · {t.to_branch_name} {price(p.dest_price)}
+                        {p.dest_price_now !== p.dest_price && Number(p.dest_price_now) !== Number(p.dest_price) && ` (${tr("now")} ${price(p.dest_price_now)})`}</div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Pill tone={p.action === "keep" ? "neutral" : "warning"}>{tr(PRICE_ACTION[p.action])}</Pill>
+                        {p.action !== "keep" && <span className="num font-medium">→ {price(p.new_price)}</span>}
+                        <Pill tone={tone}>{tr(label)}</Pill>
+                      </div>
+                      {p.decided_by_name && p.status !== "unchanged" && <div className="text-xs text-muted-foreground">{p.decided_by_name}{p.decided_at && ` · ${dateTime(p.decided_at)}`}</div>}
+                      {p.note && <p className="rounded-md bg-warning/10 p-2 text-xs text-warning">{tr(p.note)}</p>}
+                      {p.status === "requested" && data.can.decide_price && (
+                        <div className="flex gap-2 pt-1">
+                          <ActionButton size="sm" variant="success" online busy={decide.isPending && decide.variables?.product === p.product_id} disabled={decide.isPending}
+                            onAction={() => decide.mutateAsync({ product: p.product_id, decision: "authorize" })}><Check /> {tr("Authorise price")}</ActionButton>
+                          <Button size="sm" variant="outline" className="text-destructive" disabled={decide.isPending}
+                            onClick={() => decide.mutate({ product: p.product_id, decision: "decline" })}><X /> {tr("Decline")}</Button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </Section>
+          )}
           <Section title="Route">
             <div className="mb-3 flex items-center gap-2 font-medium">{t.from_branch_name} <ArrowRight className="h-4 w-4 text-muted-foreground" /> {t.to_branch_name}</div>
             <KV label="Transfer date">{date(t.transfer_date)}</KV>

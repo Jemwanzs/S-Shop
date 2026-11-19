@@ -16,7 +16,15 @@ in/out, customer return, sale reversal, supplier return, damage, loss, write-off
 | **Adjustments** | Every adjustment with before → after, reason, requester, approver, status. |
 | **Barcoded items** | Individually tracked units by status; **Trace barcode** shows the full life of a code. |
 
-*Values need financial permission unless valuation is “at selling price”.
+*Values need financial permission unless valuation is “at selling price”. At selling price, each branch's stock is valued at
+that branch's price (roadmap 176).
+
+**Branch filter** (roadmap 176, people with several branches): every tab shows the Current Branch by default, another of
+the person's branches, or *All accessible branches* (Levels adds the branches up and lists those holding the stock).
+Viewing only — receiving, adjusting and transfers keep the working branch, as the page says while another is shown.
+
+**Receiving and prices** (roadmap 176): the price shown is the receiving branch's; typing a different one changes that
+branch's own price (several branches) or the default price (one branch), and needs *Set selling prices*.
 
 ## Receive stock (Add stock)
 Pick a product (search or **scan**) → shown: name, current quantity and value at the chosen branch, marked price, photos.

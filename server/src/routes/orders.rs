@@ -270,10 +270,11 @@ pub async fn create_order(
             return Err(bad("Choose a valid quantity"));
         }
         let (name, price, active, for_orders): (String, Option<Decimal>, bool, bool) = sqlx::query_as(
-            "SELECT name, marked_price, is_active, available_for_orders FROM products WHERE id = $1 AND tenant_id = $2",
+            "SELECT name, effective_price(id, $3, marked_price), is_active, available_for_orders FROM products WHERE id = $1 AND tenant_id = $2",
         )
         .bind(l.product_id)
         .bind(tenant_id)
+        .bind(branch_id)
         .fetch_optional(&mut *conn)
         .await?
         .ok_or(AppError::NotFound("Product"))?;

@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { AddPhotosDialog } from "@/components/PhotoPicker";
 import { count, dateTime, money, signed, titleCase } from "@/lib/format";
-import type { Outcome, Paged, Product } from "@/lib/types";
+import type { BranchPrice, Outcome, Paged, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,9 @@ interface Detail {
   pending_approval_id: string | null;
   /** Roadmap 173: the product's other shared barcodes. */
   barcodes?: string[];
+  /** Roadmap 176: its price at each branch the person may see; the business's number of branches. */
+  prices?: BranchPrice[];
+  branch_count?: number;
 }
 
 /** Roadmap 173: a product with several shared barcodes (other packaging, another supplier). Each identifies it; its units are
@@ -89,7 +92,7 @@ export default function ProductDetail() {
   const { id } = useParams();
   // Roadmap 143: Back returns to the catalogue as it was (filters, page, scroll).
   const catalogue = useCatalogueHref();
-  const { can, profile } = useSession();
+  const { can, profile, branch } = useSession();
   const qc = useQueryClient();
   const [gallery, setGallery] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -129,6 +132,8 @@ export default function ProductDetail() {
   const canPhotos = can("products.edit") || can("products.create");
   const maxPhotos = profile?.settings.product.max_photos ?? 5;
   const totalOnHand = data.stock_by_branch.reduce((a, b) => a + b.on_hand, 0);
+  // Roadmap 176: several branches — prices may differ per branch.
+  const multiPrice = (data.branch_count ?? 1) > 1 && !!data.prices?.length;
 
   return (
     <>
@@ -149,7 +154,7 @@ export default function ProductDetail() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="surface card-body"><p className="label-caps">{t("Marked price")}</p><p className="num mt-1 text-2xl font-semibold">{p.marked_price == null ? t("Not set") : money(p.marked_price)}</p></div>
+            <div className="surface card-body"><p className="label-caps">{t("Marked price")}{multiPrice && ` · ${branch?.name ?? ""}`}</p><p className="num mt-1 text-2xl font-semibold">{p.marked_price == null ? t("Not set") : money(p.marked_price)}</p>{multiPrice && <p className="text-xs text-muted-foreground">{p.has_branch_price ? t("Branch price") : t("Default price")}</p>}</div>
             <div className="surface card-body"><p className="label-caps">{t("Here now")}</p><p className="num mt-1 text-2xl font-semibold">{count(p.available)}</p><p className="num text-xs text-muted-foreground">{count(p.reserved)} reserved</p></div>
             <div className="surface card-body"><p className="label-caps">{t("All branches")}</p><p className="num mt-1 text-2xl font-semibold">{count(totalOnHand)}</p></div>
           </div>
@@ -201,6 +206,19 @@ export default function ProductDetail() {
         </div>
 
         <div className="space-y-5">
+          {multiPrice && (
+            <Section title="Price by branch">
+              <ul className="divide-y" data-testid="price-by-branch">
+                {data.prices!.filter((b) => b.sells_here).map((b) => (
+                  <li key={b.branch_id} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+                    <span>{b.branch_name}{b.is_current && <span className="text-muted-foreground"> ({t("current")})</span>}</span>
+                    <span className="text-end"><span className="num font-medium">{b.price == null ? t("Not set") : money(b.price)}</span>
+                      <span className="block text-[11px] text-muted-foreground">{b.uses_default ? t("default") : t("branch price")}</span></span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
           <Section title="Stock by branch">
             <ul className="divide-y">
               {data.stock_by_branch.map((b) => (

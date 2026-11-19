@@ -6,7 +6,7 @@ Creating a product does **not** add stock — stock is received separately (modu
 
 ## Product fields
 Name · Nickname/short name (optional) · Code (blank = auto `PRD0001`, prefix configurable) · Description (shown on the
-ordering link) · Category (+ quick-add) · Supplier (+ quick-add) · Marked selling price · Maximum discount (optional) ·
+ordering link) · Category (+ quick-add) · Supplier (+ quick-add) · Marked selling price (the **default price**; a branch may have its own — see below) · Maximum discount (optional) ·
 Cost price (optional, needs financial permission) · Barcode: the product's tracking — the business default from
 Settings → Products (roadmap 168), or the other mode chosen for this product as an exception — and the shared product
 barcode, and its **other barcodes** (roadmap 173: the same product in other packaging; add and remove on Product details) · Active · Available on ordering link · Transfers allowed · All branches or selected branches ·
@@ -15,6 +15,20 @@ Low-stock alert level (optional) · Loyalty: eligible, and optional product rule
 **Product fields** (Settings → Products → Product fields): your own fields such as Size, Colour, Brand or Expiry —
 text, number, date, dropdown, yes/no or email; required or optional; active/inactive; display order. They appear on the
 product form and product page and are validated by the server (also when a change waits for approval).
+
+## Prices per branch (roadmap 176)
+One product, one record and one code in every branch; its **default price** applies wherever a branch has no **own
+price**. With several branches, Edit → Pricing shows *Marked selling price — {Current Branch}* (a change applies only
+there; *Use the default price* removes it), the **Default selling price**, and the other branches the person works at.
+Product details show *Price by branch*. Needs **Set selling prices** (`products.price`), a branch's price only at the
+person's own branches, the default price only by someone who has every branch using it. A price changed by someone
+else since the form was opened is refused (*Price changed meanwhile*); the *Product edit* approval applies when on;
+every change is audited. The till, barcode scans, orders, the ordering link and website, search and stock values use
+the price at the transaction's branch (server-side); completed sales keep their recorded price.
+
+**Catalogue branch filter** (several branches): the Current Branch (products sold there, its stock and price), another
+of the person's branches, or *All accessible branches* (each product once, stock added up, each branch's price — a
+range when they differ). Search, category, price status, bulk selection and paging work with it.
 
 ## Photos
 Up to **5** per product by default (Settings → Products → Photos per product). Images are resized to WebP in the

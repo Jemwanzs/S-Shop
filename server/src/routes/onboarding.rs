@@ -2185,6 +2185,7 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, p: &mut Progres
                     }
                     let mut body = super::stock::ReceiveBody {
                         barcode_counts: Default::default(),
+                        price_scope: None,
                         product_id,
                         branch_id: Some(branch_id),
                         quantity: qty,

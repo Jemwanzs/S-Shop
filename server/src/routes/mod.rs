@@ -33,6 +33,7 @@ pub mod site;
 pub mod site_seo;
 pub mod stock;
 pub mod voids;
+pub mod prices;
 pub mod transfers;
 pub mod webhooks;
 pub mod receipts;
@@ -68,6 +69,7 @@ pub fn api() -> Router<AppState> {
         .merge(catalog::routes())
         .merge(stock::routes())
         .merge(voids::routes())
+        .merge(prices::routes())
         .merge(transfers::routes())
         .merge(customers::routes())
         .merge(fields::routes())

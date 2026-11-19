@@ -175,8 +175,9 @@ pub const REPORTS: &[Report] = &[
         columns: &[c("product", "Product", "text"), c("code", "Code", "text"), c("branch", "Branch", "text"), c("on_hand", "On hand", "int"),
             f("unit_cost", "Unit cost", "money"), c("unit_price", "Unit price", "money"), f("cost_value", "Cost value", "money"),
             c("retail_value", "Retail value", "money")],
-        sql: "SELECT p.name AS product, p.code, b.name AS branch, sl.on_hand, p.cost_price AS unit_cost, p.marked_price AS unit_price,
-                     sl.on_hand * p.cost_price AS cost_value, sl.on_hand * p.marked_price AS retail_value
+        sql: "SELECT p.name AS product, p.code, b.name AS branch, sl.on_hand, p.cost_price AS unit_cost,
+                     effective_price(p.id, sl.branch_id, p.marked_price) AS unit_price,
+                     sl.on_hand * p.cost_price AS cost_value, sl.on_hand * effective_price(p.id, sl.branch_id, p.marked_price) AS retail_value
               FROM stock_levels sl JOIN products p ON p.id = sl.product_id JOIN branches b ON b.id = sl.branch_id, params
               WHERE sl.tenant_id = params.tid AND sl.branch_id = ANY(params.br) AND sl.on_hand <> 0
                 AND (params.pid IS NULL OR p.id = params.pid) AND (params.cid IS NULL OR p.category_id = params.cid)

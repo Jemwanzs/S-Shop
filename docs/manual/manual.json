@@ -82,7 +82,8 @@
         "Low-stock alert levels and loyalty rules per product",
         "Item barcodes stay concealed (****047) on screens, reports and exports; printing, reprinting, replacing and revealing them are permission-controlled and recorded",
         "Filters — set, missing, zero, zero-or-missing and above zero prices (a price of 0 and no price stay different), and Missing product image; select products and deactivate them together, with approval when required",
-        "Your filters, search, page and scroll position are kept while you open and edit products — fix missing prices one after another without choosing the filters again"
+        "Your filters, search, page and scroll position are kept while you open and edit products — fix missing prices one after another without choosing the filters again",
+        "One product in every branch with its own price per branch where needed: a default price, a branch's own price, and a branch filter to see the catalogue of one branch or of all your branches"
       ]
     },
     {
@@ -96,7 +97,8 @@
         "Low-stock and out-of-stock alerts to the right people",
         "Stock valuation for people allowed to see financial figures",
         "Seven-digit barcodes generated for each individually tracked item, printed on stickers (business name, barcode, number, product) and confirmed attached before stock is received",
-        "Stock balances in Excel: download a sheet prefilled with every product and branch, count and correct it, upload it, review each difference and apply — quantities are the counted balances, never additions"
+        "Stock balances in Excel: download a sheet prefilled with every product and branch, count and correct it, upload it, review each difference and apply — quantities are the counted balances, never additions",
+        "A branch filter: your branch by default, another of your branches, or all of them added up — viewing only, receiving and transfers stay at your working branch"
       ]
     },
     {
@@ -107,7 +109,8 @@
         "Availability checked when the transfer is created and again on dispatch",
         "The receiving branch confirms what arrived, including short or damaged items",
         "Individually tracked items followed unit by unit",
-        "Notifications to receivers and to the person who created the transfer"
+        "Notifications to receivers and to the person who created the transfer",
+        "Both branches' selling prices shown on each transfer: keep the destination's price (the default), use the source's or set a new one — confirmed, authorised by someone who sets prices there and applied only when the stock arrives"
       ]
     },
     {
@@ -181,7 +184,8 @@
         "Approval conditions by amount, branch, requester role or expense category",
         "Sale ownership changes handled through approvals",
         "New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes",
-        "Several approvers per level — the first decision counts and the others are told; Tenant Administrators may approve their own requests (switchable), never refunds, expenses or write-offs"
+        "Several approvers per level — the first decision counts and the others are told; Tenant Administrators may approve their own requests (switchable), never refunds, expenses or write-offs",
+        "Transfer approvals list every product, quantity, both branches' prices and the proposed price change, not only the transfer number"
       ]
     },
     {
@@ -511,6 +515,23 @@
           ]
         },
         {
+          "title": "See another branch's stock or products",
+          "steps": [
+            "Stock or Products: use the Branch filter next to the other filters. It starts on your working branch.",
+            "Choose another of your branches, or All accessible branches to see the stock added up with the branches holding it (products: each branch's price).",
+            "This only changes what you see. Receiving, adjusting and transfers still happen at your working branch, as the page reminds you."
+          ]
+        },
+        {
+          "title": "Confirm the selling price when moving stock",
+          "steps": [
+            "Stock → Transfers → New transfer: choose From branch (if you work at several) and To branch, then add the products.",
+            "Selling prices at the destination shows each product's price at both branches. Keep Destination Price is the default.",
+            "To change it, choose Use Source Branch Price or Set Custom Destination Price and tick I confirm the new selling price. Submit.",
+            "If you cannot set prices at the destination, the change waits as a request: someone who can opens the transfer and taps Authorise price or Decline. The new price applies only when the stock is received."
+          ]
+        },
+        {
           "title": "Approve or reject requests",
           "steps": [
             "Open Approvals. Waiting lists what needs a decision; each card shows who it is Assigned to.",
@@ -583,6 +604,15 @@
             "Tick the products (or the box for the whole page, then Select all N matching), and tap Deactivate.",
             "Check the list (already inactive or already waiting products are skipped and shown), add a reason and confirm.",
             "If deactivation needs approval, the products stay active until approved; the result shows each product's outcome."
+          ]
+        },
+        {
+          "title": "Give a branch its own selling price",
+          "steps": [
+            "Open the product → Edit → Pricing. Marked selling price — your branch is the price there; a change applies only to that branch and other branches keep their prices.",
+            "Default selling price is used by every branch without its own price. Use the default price returns a branch to it.",
+            "Other branches you work at are listed: Set own price or Use default. Save changes.",
+            "Only people with Set selling prices (Settings → Roles) can change prices, and only at their own branches. If someone else changed the price meanwhile, you are asked to reload first."
           ]
         },
         {

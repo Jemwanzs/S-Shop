@@ -143,9 +143,10 @@ async fn dashboard(State(state): State<AppState>, ctx: Ctx, Query(mut f): Query<
     .fetch_one(&mut *conn)
     .await?;
 
+    // Roadmap 176: at each branch's own selling price.
     let price = match s.stock.valuation {
-        Valuation::Cost => "COALESCE(p.cost_price, p.marked_price)",
-        Valuation::Selling => "p.marked_price",
+        Valuation::Cost => "COALESCE(p.cost_price, effective_price(p.id, sl.branch_id, p.marked_price))",
+        Valuation::Selling => "effective_price(p.id, sl.branch_id, p.marked_price)",
     };
     let (stock_value, stock_units): (Decimal, i64) = sqlx::query_as(&format!(
         "SELECT COALESCE(SUM(GREATEST(sl.on_hand,0) * {price}),0)::numeric(14,2), COALESCE(SUM(GREATEST(sl.on_hand,0)),0)::bigint

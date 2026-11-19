@@ -7,7 +7,7 @@ import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useDebounced, usePersistentState } from "@/lib/hooks";
 import { count, money, todayIso, toNum } from "@/lib/format";
-import type { Outcome, Paged, Product, Supplier } from "@/lib/types";
+import type { BranchPrice, Outcome, Paged, Product, Supplier } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ActionButton, REASONS } from "@/components/ActionButton";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,9 @@ interface ProductDetail {
   barcodes?: string[];
   photos: { url: string }[];
   stock_by_branch: { branch_id: string; on_hand: number }[];
+  /** Roadmap 176: its price at each branch; the business's number of branches. */
+  prices?: BranchPrice[];
+  branch_count?: number;
 }
 
 /** Roadmap 153: a delivery being scanned — provisional, kept on this device; nothing reaches stock until it is received. */
@@ -90,10 +93,19 @@ export default function ReceiveStock() {
   const suppliers = useQuery({ queryKey: ["suppliers"], queryFn: () => api<Supplier[]>("/suppliers") });
   const p = detail.data?.product;
   const onHand = detail.data?.stock_by_branch.find((b) => b.branch_id === branchId)?.on_hand ?? 0;
+  // Roadmap 176: the price shown is the receiving branch's; changing it changes that branch's price (several branches).
+  const priceHere = detail.data?.prices?.find((b) => b.branch_id === branchId);
+  const severalBranches = (detail.data?.branch_count ?? 1) > 1;
+  const branchName = profile?.branches.find((b) => b.id === branchId)?.name ?? "";
+  useEffect(() => {
+    if (!p) return;
+    const v = priceHere ? priceHere.price : p.marked_price;
+    setPrice(v == null ? "" : String(toNum(v)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- when the product or the receiving branch changes
+  }, [p, branchId, priceHere?.price]);
 
   useEffect(() => {
     if (!p) return;
-    setPrice(p.marked_price == null ? "" : String(toNum(p.marked_price)));
     setMaxDiscount(p.max_discount === null ? "" : String(toNum(p.max_discount)));
     setCost(p.cost_price === null ? "" : String(toNum(p.cost_price)));
     setSupplier(p.supplier_id ?? "");
@@ -371,7 +383,7 @@ export default function ReceiveStock() {
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Mini label="On hand" value={count(onHand)} />
                   <Mini label="Value" value={p.cost_price == null && p.marked_price == null ? t("Not set") : money(onHand * toNum(p.cost_price ?? p.marked_price))} />
-                  <Mini label="Marked price" value={p.marked_price == null ? t("Not set") : money(p.marked_price)} />
+                  <Mini label="Marked price" value={(priceHere ? priceHere.price : p.marked_price) == null ? t("Not set") : money((priceHere ? priceHere.price : p.marked_price)!)} />
                   <Mini label="Branch" value={profile?.branches.find((b) => b.id === branchId)?.name ?? ""} />
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -492,7 +504,10 @@ export default function ReceiveStock() {
               <div className="space-y-4">
                 {showCost && <Field label="Cost / purchase price" optional><Input inputMode="decimal" className="num" value={cost} onChange={(e) => setCost(e.target.value.replace(/[^\d.]/g, ""))} /></Field>}
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Marked selling price"><Input inputMode="decimal" className="num" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d.]/g, ""))} /></Field>
+                  <Field label={severalBranches ? `${t("Marked selling price")} — ${branchName}` : "Marked selling price"}
+                    hint={!can("products.price") ? "You cannot change selling prices" : severalBranches ? `${t("A new price applies only to")} ${branchName}` : undefined}>
+                    <Input inputMode="decimal" className="num" disabled={!can("products.price")} value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d.]/g, ""))} />
+                  </Field>
                   <Field label="Max discount" optional><Input inputMode="decimal" className="num" value={maxDiscount} onChange={(e) => setMaxDiscount(e.target.value.replace(/[^\d.]/g, ""))} placeholder="Optional" /></Field>
                 </div>
                 {(profile?.branches.length ?? 0) > 1 && (

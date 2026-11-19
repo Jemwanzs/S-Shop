@@ -19,7 +19,7 @@ administrator must remain.
 | Sales | view, create, discount, discount_override, change_branch, return, cancel, view_financials |
 | Credit | view, collect, write_off |
 | Orders | view, manage |
-| Products | view, create, edit, deactivate |
+| Products | view, create, edit, price (*Set selling prices*, default and per branch — roadmap 176), deactivate |
 | Stock | view, add, adjust, write_off, transfer, receive_transfer |
 | Customers | view, create, edit, view_loyalty, redeem_points, view_credit · loyalty.manage |
 | Expenses | view, create |

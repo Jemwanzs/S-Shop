@@ -47,6 +47,7 @@ pub const CATALOGUE: &[PermGroup] = &[
         ("products.view", "View products"),
         ("products.create", "Create products"),
         ("products.edit", "Edit products"),
+        ("products.price", "Set selling prices (default and per branch)"),
         ("products.deactivate", "Activate / deactivate products"),
     ]},
     PermGroup { module: "stock", label: "Stock", permissions: &[
@@ -159,7 +160,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
     RoleTemplate { name: "Manager", description: "Runs the business day to day", permissions: &[
         "dashboard.view", "sales.view", "sales.create", "sales.discount", "sales.discount_override", "sales.change_branch",
         "sales.return", "credit.recall", "sales.cancel", "sales.view_financials", "credit.view", "credit.collect", "credit.write_off",
-        "orders.view", "orders.manage", "products.view", "products.create", "products.edit", "products.deactivate",
+        "orders.view", "orders.manage", "products.view", "products.create", "products.edit", "products.price", "products.deactivate",
         "stock.view", "stock.add", "stock.adjust", "stock.write_off", "stock.transfer", "stock.receive_transfer",
         "customers.view", "customers.create", "customers.edit", "customers.view_loyalty", "customers.redeem_points",
         "customers.view_credit", "loyalty.manage", "expenses.view", "expenses.create", "reports.view", "reports.export",
@@ -184,6 +185,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
         "customers.view_loyalty", "customers.redeem_points", "customers.view_credit", "expenses.view", "expenses.create",
         "reports.view", "reports.export", "approvals.approve", "staff.view_others", "sales.print", "sales.outside_hours",
         "location.bypass", "sales.assign_owner", "sales.request_owner_change", "sales.backdate", "barcodes.generate", "barcodes.print",
+        "products.price",
     ]},
     RoleTemplate { name: "Salesperson", description: "Records sales at the counter", permissions: &[
         "sales.view", "sales.create", "sales.discount", "credit.view", "credit.collect", "products.view", "stock.view",
@@ -191,7 +193,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
         "sales.request_owner_change",
     ]},
     RoleTemplate { name: "Storekeeper", description: "Receives, counts and moves stock", permissions: &[
-        "products.view", "products.create", "products.edit", "stock.view", "stock.add", "stock.adjust",
+        "products.view", "products.create", "products.edit", "products.price", "stock.view", "stock.add", "stock.adjust",
         "stock.transfer", "stock.receive_transfer", "barcodes.generate", "barcodes.print",
     ]},
     RoleTemplate { name: "Order Manager", description: "Processes customer orders", permissions: &[

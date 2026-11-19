@@ -755,6 +755,11 @@ async fn on_closed_without_approval(conn: &mut sqlx::PgConnection, ctx: &Ctx, a:
                 .bind(a.tenant_id)
                 .execute(&mut *conn)
                 .await?;
+            // Roadmap 176: a rejected transfer changes no price.
+            sqlx::query("UPDATE transfer_prices SET status = 'not_applied' WHERE transfer_id = $1 AND status IN ('requested','authorized')")
+                .bind(a.entity_id)
+                .execute(&mut *conn)
+                .await?;
         }
         "barcode.replace" => super::barcodes::on_closed(conn, a).await?,
         "stock.void" => super::voids::on_closed(conn, ctx, a, outcome).await?,

@@ -18,11 +18,26 @@ import { t } from "@/lib/i18n";
 import { useRememberCatalogue } from "@/lib/catalogue";
 import { toast } from "@/lib/toast";
 import { BulkDeactivate } from "./BulkDeactivate";
+import { ALL_BRANCHES, BranchFilter } from "@/components/BranchFilter";
 
 const LIMIT = 50;
 
+/** Roadmap 176: the price at the branch shown (marked when the branch has its own price); across branches, the range. */
+function PriceCell({ r, across }: { r: Product; across: boolean }) {
+  if (across && r.branches?.length) {
+    const ps = r.branches.map((b) => b.price).filter((p): p is NonNullable<typeof p> => p != null).map(Number);
+    if (!ps.length) return <span className="text-xs text-muted-foreground">{t("Not set")}</span>;
+    const lo = Math.min(...ps), hi = Math.max(...ps);
+    return lo === hi
+      ? <span className="num font-medium">{money(lo)}</span>
+      : <span className="num font-medium" title={r.branches.map((b) => `${b.branch_name}: ${b.price == null ? t("Not set") : money(b.price)}`).join("\n")}>{money(lo)}–{money(hi)}<span className="block text-[11px] font-normal text-muted-foreground">{t("varies by branch")}</span></span>;
+  }
+  if (r.marked_price == null) return <span className="text-xs text-muted-foreground">{t("Not set")}</span>;
+  return <span className="num font-medium">{money(r.marked_price)}{r.has_branch_price && <span className="block text-[11px] font-normal text-muted-foreground">{t("branch price")}</span>}</span>;
+}
+
 export default function ProductsList() {
-  const { can, profile } = useSession();
+  const { can, profile, branch } = useSession();
   const navigate = useNavigate();
   // Roadmap 143: the filters live in the URL (refresh-safe, shareable, kept by Back): status, category, price, q, page.
   // Arrived from a scanner's "Assign barcode": pick the product that should carry this code.
@@ -52,6 +67,11 @@ export default function ProductsList() {
       if (next.get("status") === "active") next.delete("status");
       return next;
     }, { replace: true });
+  // Roadmap 176: the branch whose catalogue is shown (URL `branch`; absent = the Current Branch).
+  const view = params.get("branch") || branch?.id || "";
+  const across = view === ALL_BRANCHES;
+  const setView = (v: string) => update({ branch: v === branch?.id ? null : v });
+  const branchParams = across ? { available_at: "all" } : { available_at: "branch", branch_id: view || undefined };
   const setStatus = (v: string) => update({ status: v });
   const setCategory = (v: string) => update({ category: v });
   const setPrice = (v: string) => update({ price: v });
@@ -65,7 +85,7 @@ export default function ProductsList() {
     if (qParam !== term) setQ(qParam);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- follow the URL (Back / refresh)
   }, [qParam]);
-  const query = { q: term, status, category_id: category, price: price || undefined, limit: LIMIT, offset };
+  const query = { q: term, status, category_id: category, price: price || undefined, limit: LIMIT, offset, ...branchParams };
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["products", query],
     queryFn: () => api<Paged<Product>>("/products", { query }),
@@ -105,7 +125,7 @@ export default function ProductsList() {
     });
   const selectMatching = async () => {
     try {
-      const r = await api<{ ids: string[]; total: number; capped: boolean }>("/products/matching-ids", { query: { q: term, status, category_id: category, price: price || undefined } });
+      const r = await api<{ ids: string[]; total: number; capped: boolean }>("/products/matching-ids", { query: { q: term, status, category_id: category, price: price || undefined, ...branchParams } });
       setPicked((prev) => {
         const next = new Map(prev);
         for (const id of r.ids) if (!next.has(id)) next.set(id, "");
@@ -137,7 +157,7 @@ export default function ProductsList() {
       )}
       <div className="mb-4 space-y-3">
         <Segments value={status} onChange={(v) => setStatus(v)} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }, { value: "all", label: "All" }]} />
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 md:flex">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 md:flex md:flex-wrap">
           <SearchInput value={q} onChange={setQ} placeholder="Name, nickname, code or barcode" className="md:w-80" />
           <Select value={category} label="Category" onChange={(v) => setCategory(v)} className="md:w-52">
             <option value="">{t("All categories")}</option>
@@ -153,6 +173,7 @@ export default function ProductsList() {
             {/* Roadmap 154: the owner asked for it here, as the last option. */}
             <option value="missing_image">{t("Missing product image")}</option>
           </Select>
+          <BranchFilter value={view} onChange={setView} className="md:w-60" />
         </div>
       </div>
       {canBulk && picked.size > 0 && (
@@ -201,8 +222,13 @@ export default function ProductsList() {
             ),
           },
           { key: "category", header: "Category", cell: (r) => r.category_name ?? "—", hideBelow: "lg" },
-          ...(showPrices ? [{ key: "price", header: "Price", align: "right" as const, cell: (r: Product) => (r.marked_price == null ? <span className="text-xs text-muted-foreground">{t("Not set")}</span> : <span className="num font-medium">{money(r.marked_price)}</span>) }] : []),
-          { key: "stock", header: "Here", cell: (r) => <StockIndicator available={r.available} threshold={r.low_stock_threshold ?? low} /> },
+          ...(showPrices ? [{ key: "price", header: "Price", align: "right" as const, cell: (r: Product) => <PriceCell r={r} across={across} /> }] : []),
+          { key: "stock", header: across ? "Stock" : "Here", cell: (r) => (
+            <div>
+              <StockIndicator available={r.available} threshold={r.low_stock_threshold ?? low} />
+              {across && !!r.branches?.length && <div className="num mt-0.5 text-[11px] text-muted-foreground">{r.branches.filter((b) => b.on_hand).map((b) => `${b.branch_name} ${count(b.available)}`).join(" · ") || t("No stock")}</div>}
+            </div>
+          ) },
           { key: "orders", header: "Online", cell: (r) => (r.available_for_orders ? <Pill tone="success">{t("Yes")}</Pill> : <Pill>No</Pill>), hideBelow: "xl" },
           { key: "status", header: "Status", cell: (r) => (r.is_active ? <Pill tone="success">{t("Active")}</Pill> : <Pill tone="danger">{t("Inactive")}</Pill>) },
         ]}
@@ -210,8 +236,8 @@ export default function ProductsList() {
           <CardRow
             title={r.name}
             subtitle={`${r.code}${r.category_name ? ` · ${r.category_name}` : ""}`}
-            value={showPrices ? (r.marked_price == null ? t("Price not set") : money(r.marked_price)) : undefined}
-            meta={r.is_active ? <span className={r.available > 0 ? "text-success" : "text-destructive"}>{r.available > 0 ? `${count(r.available)} here` : "Out of stock"}</span> : <span className="text-destructive">{t("Inactive")}</span>}
+            value={showPrices ? <PriceCell r={r} across={across} /> : undefined}
+            meta={r.is_active ? <span className={r.available > 0 ? "text-success" : "text-destructive"}>{r.available > 0 ? `${count(r.available)} ${t(across ? "in stock" : "here")}` : "Out of stock"}</span> : <span className="text-destructive">{t("Inactive")}</span>}
           />
         )}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}

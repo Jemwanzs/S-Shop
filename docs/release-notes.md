@@ -11,6 +11,7 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ## 2026-11-19
 
+- **One product, several barcodes** — the same product in other packaging can carry another barcode: each finds it at the till and when receiving, counted on its own line and added up. An unknown code offers *Add barcode to this product*; another product's code is refused with its name. Receive stock has a large *Scan Barcode* button. (173, [module 19](modules/19-barcode-scanning.md))
 - **Products with stock can move to one shared barcode** — no need to sell or write anything off first. Stock stays, old item labels still scan to the product, and the preview says *Ready to convert*, *Conversion requires review* (work in progress, with the reason) or *Blocked*. (170, [module 19](modules/19-barcode-scanning.md))
 - **Stock adjustment: Others** — the last type, with *Added to stock* / *Removed from stock* and a required explanation, shown to approvers and kept in the history. (171, [module 07](modules/07-stock.md))
 - **Delete stock received by mistake** — Stock → Movements → ⋯ → *Request inventory deletion* (or from a barcoded item). It goes for approval (on by default); after approval the stock is taken off, the original receipt stays marked *Reversed*, and the item's barcode can be used again. Sold or moved stock is not deleted. (172, [module 07](modules/07-stock.md))

@@ -115,6 +115,7 @@ Accurate stock built from a complete ledger of movements, never a number someone
 - Seven-digit barcodes generated for each individually tracked item, printed on stickers (business name, barcode, number, product) and confirmed attached before stock is received
 - Stock balances in Excel: download a sheet prefilled with every product and branch, count and correct it, upload it, review each difference and apply — quantities are the counted balances, never additions
 - A branch filter: your branch by default, another of your branches, or all of them added up — viewing only, receiving and transfers stay at your working branch
+- Camera scanning reads gold, bronze, silver, coloured and light-on-dark barcodes too; Scan from photo for shiny or curved labels; tips when a barcode will not read
 
 <a id="module-8"></a>
 
@@ -446,6 +447,13 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 3. The camera counts the same barcode again only after 3 seconds; + and − work at once.
 4. Nothing changes in stock until you tap Receive (or the sale is completed).
 5. If + and − are greyed out, the product gives each item its own barcode. For items that share one barcode, switch the product to Shared barcode, or use Generate barcodes when receiving so each item gets its own label.
+
+#### When a barcode will not scan
+
+1. Hold the barcode inside the frame, about a hand's width away; use Zoom if your phone shows it.
+2. Gold, silver or shiny packaging: tilt the pack slightly so the light does not shine straight back. In a dark room, turn on the torch.
+3. Still not read? Tap Scan from photo and take a picture straight on, close to the barcode.
+4. Or type the code (if your business allows it) or use a handheld scanner. S'Shop never guesses a barcode.
 
 #### Receive a delivery
 

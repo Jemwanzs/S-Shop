@@ -3,13 +3,19 @@
  * Uses the browser's native BarcodeDetector when it supports retail 1D formats, ZXing otherwise (iOS Safari,
  * Firefox, desktop Chrome on Windows). Both decode continuously from one MediaStream that we own, so torch and
  * camera switching work the same way on either path.
+ *
+ * Roadmap 177: every other frame is read as an enhanced picture (blue channel, contrast stretch, inverted — see
+ * scanPreprocess) so gold, bronze, silver, low-contrast and light-on-dark barcodes are read too; a read from an enhanced
+ * picture of a format without a check digit counts only when seen twice. Zoom is offered where the camera has it, and
+ * the lighting of the picture is reported for the scanner's guidance.
  */
+import { CAMERA_CYCLE, Confirmations, PHOTO_VARIANTS, greyToRgba, lighting, toGrey, type Variant } from "@/lib/scanPreprocess";
 
 /** Retail formats we decode: product packaging (EAN/UPC), shelf and item labels (Code 128/39, ITF) and QR. */
 const NATIVE_FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "code_93", "itf", "qr_code"];
 
 interface NativeDetector {
-  detect(source: HTMLVideoElement): Promise<{ rawValue: string }[]>;
+  detect(source: HTMLVideoElement | ImageData | ImageBitmap | HTMLCanvasElement): Promise<{ rawValue: string; format?: string }[]>;
 }
 interface NativeDetectorCtor {
   new (opts?: { formats?: string[] }): NativeDetector;
@@ -52,7 +58,13 @@ export interface CameraSession {
   cameras: MediaDeviceInfo[];
   deviceId: string | undefined;
   engine: "native" | "zxing";
+  /** Roadmap 177: the camera's zoom range when it has one (phones with several lenses or digital zoom). */
+  zoom: { min: number; max: number } | null;
+  setZoom: (z: number) => Promise<void>;
 }
+
+/** Roadmap 177: how the picture looks, about once a second (for guidance: too dark, glare). */
+export type CameraStats = { mean: number; glare: number };
 
 async function nativeDetector(): Promise<NativeDetector | null> {
   const Ctor = (window as unknown as { BarcodeDetector?: NativeDetectorCtor }).BarcodeDetector;
@@ -72,7 +84,7 @@ async function nativeDetector(): Promise<NativeDetector | null> {
  * Starts the camera on `video` and calls `onCode` for every decoded barcode until `stop()`.
  * Throws a CameraProblem string when the camera cannot be used.
  */
-export async function startScanning(video: HTMLVideoElement, onCode: (code: string) => void, deviceId?: string): Promise<CameraSession> {
+export async function startScanning(video: HTMLVideoElement, onCode: (code: string) => void, deviceId?: string, onStats?: (s: CameraStats) => void): Promise<CameraSession> {
   if (!window.isSecureContext) throw "insecure" satisfies CameraProblem;
   if (!navigator.mediaDevices?.getUserMedia) throw "unsupported" satisfies CameraProblem;
 
@@ -91,10 +103,13 @@ export async function startScanning(video: HTMLVideoElement, onCode: (code: stri
     throw classify(e);
   }
   const track = stream.getVideoTracks()[0];
-  try {
-    await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet] });
-  } catch {
-    /* continuous focus is optional */
+  // Continuous focus and exposure where the camera offers them (each is optional; iPhones manage their own).
+  for (const c of [{ focusMode: "continuous" }, { exposureMode: "continuous" }]) {
+    try {
+      await track.applyConstraints({ advanced: [c as MediaTrackConstraintSet] });
+    } catch {
+      /* not offered by this camera */
+    }
   }
   video.srcObject = stream;
   video.setAttribute("playsinline", "true");
@@ -105,20 +120,53 @@ export async function startScanning(video: HTMLVideoElement, onCode: (code: stri
   let stopDecoder = () => {};
   const native = await nativeDetector();
   let engine: CameraSession["engine"] = "native";
+  // Roadmap 177: the frame's central band (where the on-screen frame is) as pixels, for enhanced reads and lighting.
+  const band = document.createElement("canvas");
+  const bg = band.getContext("2d", { willReadFrequently: true });
+  const grab = (): ImageData | null => {
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!bg || !w || !h) return null;
+    const sw = Math.round(w * 0.9), sh = Math.round(h * 0.6);
+    const scale = Math.min(1, 1280 / sw);
+    band.width = Math.round(sw * scale);
+    band.height = Math.round(sh * scale);
+    bg.drawImage(video, Math.round((w - sw) / 2), Math.round((h - sh) / 2), sw, sh, 0, 0, band.width, band.height);
+    return bg.getImageData(0, 0, band.width, band.height);
+  };
+  const enhanced = (img: ImageData, v: Variant) => new ImageData(greyToRgba(toGrey(img.data, img.width, img.height, v)), img.width, img.height);
+  const confirm = new Confirmations();
+  let frame = 0;
+  let statsAt = 0;
+  const report = (img: ImageData | null) => {
+    const now = performance.now();
+    if (img && onStats && now - statsAt > 1000) {
+      statsAt = now;
+      onStats(lighting(img.data));
+    }
+  };
   if (native) {
     let timer = 0;
     const tick = async () => {
       if (stopped) return;
       try {
         if (video.readyState >= 2) {
-          const found = await native.detect(video);
-          const code = found.find((f) => f.rawValue)?.rawValue;
-          if (code && !stopped) onCode(code);
+          const v = CAMERA_CYCLE[frame++ % CAMERA_CYCLE.length];
+          let found: { rawValue: string; format?: string }[] = [];
+          if (v === "luma") {
+            found = await native.detect(video);
+            if (onStats && performance.now() - statsAt > 1000) report(grab());
+          } else {
+            const img = grab();
+            report(img);
+            if (img) found = await native.detect(enhanced(img, v));
+          }
+          const hit = found.find((f) => f.rawValue);
+          if (hit && !stopped && confirm.accept(hit.rawValue, hit.format, v)) onCode(hit.rawValue);
         }
       } catch {
         /* frame not ready */
       }
-      timer = window.setTimeout(tick, 120);
+      timer = window.setTimeout(tick, 110);
     };
     tick();
     stopDecoder = () => window.clearTimeout(timer);
@@ -134,24 +182,28 @@ export async function startScanning(video: HTMLVideoElement, onCode: (code: stri
     ]);
     hints.set(DecodeHintType.TRY_HARDER, true);
     const reader = new BrowserMultiFormatReader(hints);
-    const canvas = document.createElement("canvas");
-    const g = canvas.getContext("2d", { willReadFrequently: true });
+    // The enhanced picture goes through a canvas too, so ZXing can still try it turned 90°.
+    const work = document.createElement("canvas");
+    const wg = work.getContext("2d", { willReadFrequently: true });
     let timer = 0;
     const tick = () => {
       if (stopped) return;
-      const w = video.videoWidth;
-      const h = video.videoHeight;
-      if (g && w && h) {
-        // Central 90% × 60% of the picture, scaled down to at most 1280 px wide.
-        const sw = Math.round(w * 0.9);
-        const sh = Math.round(h * 0.6);
-        const scale = Math.min(1, 1280 / sw);
-        canvas.width = Math.round(sw * scale);
-        canvas.height = Math.round(sh * scale);
-        g.drawImage(video, Math.round((w - sw) / 2), Math.round((h - sh) / 2), sw, sh, 0, 0, canvas.width, canvas.height);
+      // Central 90% × 60% of the picture, scaled down to at most 1280 px wide.
+      const img = grab();
+      if (img && wg) {
+        const v = CAMERA_CYCLE[frame++ % CAMERA_CYCLE.length];
+        report(img);
         try {
-          const code = reader.decodeFromCanvas(canvas).getText();
-          if (code && !stopped) onCode(code);
+          let source = band;
+          if (v !== "luma") {
+            work.width = img.width;
+            work.height = img.height;
+            wg.putImageData(enhanced(img, v), 0, 0);
+            source = work;
+          }
+          const r = reader.decodeFromCanvas(source);
+          const code = r.getText();
+          if (code && !stopped && confirm.accept(code, BarcodeFormat[r.getBarcodeFormat()], v)) onCode(code);
         } catch {
           /* no barcode in this frame */
         }
@@ -162,8 +214,9 @@ export async function startScanning(video: HTMLVideoElement, onCode: (code: stri
     stopDecoder = () => window.clearTimeout(timer);
   }
 
-  const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { torch?: boolean };
+  const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { torch?: boolean; zoom?: { min: number; max: number } };
   const cameras = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === "videoinput");
+  const zoom = caps.zoom && caps.zoom.max > caps.zoom.min ? { min: caps.zoom.min, max: caps.zoom.max } : null;
 
   return {
     engine,
@@ -173,6 +226,11 @@ export async function startScanning(video: HTMLVideoElement, onCode: (code: stri
     setTorch: async (on) => {
       await track.applyConstraints({ advanced: [{ torch: on } as MediaTrackConstraintSet] });
     },
+    zoom,
+    setZoom: async (z) => {
+      if (!zoom) return;
+      await track.applyConstraints({ advanced: [{ zoom: Math.min(zoom.max, Math.max(zoom.min, z)) } as MediaTrackConstraintSet] });
+    },
     stop: () => {
       if (stopped) return;
       stopped = true;
@@ -181,6 +239,83 @@ export async function startScanning(video: HTMLVideoElement, onCode: (code: stri
       video.srcObject = null;
     },
   };
+}
+
+/**
+ * Roadmap 177: reads a barcode from a photo (the phone's own camera app focuses and exposes a still picture better than a
+ * live preview — useful for shiny or curved labels). Every enhancement is tried; a format without a check digit is
+ * accepted only when two of them read the same code. Never guesses: no read is `null`.
+ */
+export async function decodePhoto(file: Blob): Promise<string | null> {
+  const bitmap = await loadImage(file);
+  const max = 1600;
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const g = canvas.getContext("2d", { willReadFrequently: true });
+  if (!g) return null;
+  g.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const img = g.getImageData(0, 0, canvas.width, canvas.height);
+  const native = await nativeDetector();
+  const reads: { code: string; format: string | undefined; variant: Variant }[] = [];
+  const accept = (code: string, format: string | undefined, variant: Variant) => {
+    reads.push({ code, format, variant });
+    const conf = new Confirmations(Number.MAX_SAFE_INTEGER);
+    return reads.filter((r) => r.code === code).some((r) => conf.accept(r.code, r.format, r.variant));
+  };
+  const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([import("@zxing/browser"), import("@zxing/library")]);
+  const hints = new Map();
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+    BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
+    BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93, BarcodeFormat.ITF, BarcodeFormat.QR_CODE,
+  ]);
+  hints.set(DecodeHintType.TRY_HARDER, true);
+  const reader = new BrowserMultiFormatReader(hints);
+  const work = document.createElement("canvas");
+  work.width = img.width;
+  work.height = img.height;
+  const wg = work.getContext("2d", { willReadFrequently: true });
+  for (const v of PHOTO_VARIANTS) {
+    const pic = v === "luma" ? img : new ImageData(greyToRgba(toGrey(img.data, img.width, img.height, v)), img.width, img.height);
+    if (native) {
+      try {
+        const hit = (await native.detect(pic)).find((f) => f.rawValue);
+        if (hit && accept(hit.rawValue, hit.format, v)) return hit.rawValue;
+      } catch {
+        /* try ZXing */
+      }
+    }
+    if (wg) {
+      wg.putImageData(pic, 0, 0);
+      try {
+        const r = reader.decodeFromCanvas(work);
+        if (accept(r.getText(), BarcodeFormat[r.getBarcodeFormat()], v)) return r.getText();
+      } catch {
+        /* next enhancement */
+      }
+    }
+  }
+  return null;
+}
+
+async function loadImage(file: Blob): Promise<ImageBitmap | HTMLImageElement> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image" } as ImageBitmapOptions);
+    } catch {
+      /* older Safari: an <img> below */
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const el = new Image();
+    el.src = url;
+    await el.decode();
+    return el;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 export type ScanSound = "ok" | "error" | "warning";

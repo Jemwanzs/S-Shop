@@ -98,7 +98,8 @@
         "Stock valuation for people allowed to see financial figures",
         "Seven-digit barcodes generated for each individually tracked item, printed on stickers (business name, barcode, number, product) and confirmed attached before stock is received",
         "Stock balances in Excel: download a sheet prefilled with every product and branch, count and correct it, upload it, review each difference and apply — quantities are the counted balances, never additions",
-        "A branch filter: your branch by default, another of your branches, or all of them added up — viewing only, receiving and transfers stay at your working branch"
+        "A branch filter: your branch by default, another of your branches, or all of them added up — viewing only, receiving and transfers stay at your working branch",
+        "Camera scanning reads gold, bronze, silver, coloured and light-on-dark barcodes too; Scan from photo for shiny or curved labels; tips when a barcode will not read"
       ]
     },
     {
@@ -439,6 +440,15 @@
             "The camera counts the same barcode again only after 3 seconds; + and − work at once.",
             "Nothing changes in stock until you tap Receive (or the sale is completed).",
             "If + and − are greyed out, the product gives each item its own barcode. For items that share one barcode, switch the product to Shared barcode, or use Generate barcodes when receiving so each item gets its own label."
+          ]
+        },
+        {
+          "title": "When a barcode will not scan",
+          "steps": [
+            "Hold the barcode inside the frame, about a hand's width away; use Zoom if your phone shows it.",
+            "Gold, silver or shiny packaging: tilt the pack slightly so the light does not shine straight back. In a dark room, turn on the torch.",
+            "Still not read? Tap Scan from photo and take a picture straight on, close to the barcode.",
+            "Or type the code (if your business allows it) or use a handheld scanner. S'Shop never guesses a barcode."
           ]
         },
         {

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { AlertTriangle, CameraOff, Check, Flashlight, FlashlightOff, Keyboard, RefreshCw, SwitchCamera, X } from "lucide-react";
+import { AlertTriangle, CameraOff, Check, Flashlight, FlashlightOff, ImageUp, Keyboard, RefreshCw, SwitchCamera, X, ZoomIn } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
 import { ApiError } from "@/lib/api";
-import { cameraProblemText, outcomeSound, scanFeedback, startScanning, type CameraProblem, type CameraSession } from "@/lib/scanner";
+import { cameraProblemText, decodePhoto, outcomeSound, scanFeedback, startScanning, type CameraProblem, type CameraSession, type CameraStats } from "@/lib/scanner";
 import { useIsDesktop } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,16 @@ function RepeatWait({ until }: { until: number }) {
     ? <span className="num text-white/85">{t("Please wait — same barcode ready in")} {(left / 1000).toFixed(1)}s</span>
     : <span className="text-emerald-300">{t("Ready to scan again")}</span>;
 }
+
+/** Roadmap 177: guidance when nothing has been read for a while — never during normal scanning. */
+const NO_READ_MS = 6000;
+export const SCAN_TIPS = {
+  none: "Barcode not detected. Try adjusting the angle, moving closer or reducing reflections.",
+  glare: "Strong reflection — tilt the pack slightly so the light does not shine straight back. Shiny gold or silver labels read best at a small angle.",
+  dark: "Too dark to read — turn on the torch or move to better light.",
+  darkNoTorch: "Too dark to read — move to better light.",
+  far: "Still not read — move closer so the barcode fills the frame, or zoom in.",
+} as const;
 
 /**
  * The one barcode scanner used across S'Shop: phone camera (full screen on phones), handheld scanners
@@ -81,6 +91,14 @@ export function BarcodeScanner({
   const [deviceId, setDeviceId] = useState<string | undefined>();
   const [camera, setCamera] = useState<{ state: "starting" | "live" | "off"; problem?: CameraProblem; torch?: boolean; canSwitch?: boolean }>({ state: "starting" });
   const [torchOn, setTorchOn] = useState(false);
+  // Roadmap 177: zoom (where the camera has it), guidance after a while without a read, and reading from a photo.
+  const [zoom, setZoom] = useState<{ min: number; max: number; at: number } | null>(null);
+  const [tip, setTip] = useState<keyof typeof SCAN_TIPS | null>(null);
+  const stats = useRef<CameraStats | null>(null);
+  const liveSince = useRef(0);
+  const lastRead = useRef(0);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const [readingPhoto, setReadingPhoto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [detected, setDetected] = useState(false);
   const [outcome, setOutcome] = useState<(ScanOutcome & { code: string }) | null>(null);
@@ -143,6 +161,8 @@ export function BarcodeScanner({
       const code = raw.trim();
       if (!code || (fromCamera && paused.current)) return;
       const now = Date.now();
+      lastRead.current = now;
+      setTip(null);
       if (fromCamera) {
         // The camera sees a label many times a second: the same barcode counts again only 3 s after it was accepted.
         const c = repeat.current.claim(code);
@@ -185,6 +205,8 @@ export function BarcodeScanner({
       setWait(null);
       setManual("");
       setTorchOn(false);
+      setTip(null);
+      lastRead.current = 0;
       paused.current = false;
       last.current = { code: "", at: 0 };
       repeat.current.clear();
@@ -202,10 +224,12 @@ export function BarcodeScanner({
     let cancelled = false;
     setCamera({ state: "starting" });
     if (!video) return;
-    startScanning(video, (code) => processRef.current(code, "camera"), deviceId)
+    startScanning(video, (code) => processRef.current(code, "camera"), deviceId, (s) => { stats.current = s; })
       .then((s) => {
         if (cancelled) return s.stop();
         session.current = s;
+        liveSince.current = Date.now();
+        setZoom(s.zoom ? { ...s.zoom, at: s.zoom.min } : null);
         setCamera({ state: "live", torch: s.torchSupported, canSwitch: s.cameras.length > 1 });
       })
       .catch((problem: CameraProblem) => {
@@ -229,6 +253,59 @@ export function BarcodeScanner({
       session.current = null;
     };
   }, [open, video, deviceId, run]);
+
+  // Roadmap 177: after a while without any read, one short tip — chosen from what the camera sees.
+  const idle = open && camera.state === "live" && !busy && !outcome && !wait;
+  useEffect(() => {
+    if (!idle) return;
+    const id = window.setInterval(() => {
+      const since = Math.max(liveSince.current, lastRead.current);
+      const quiet = Date.now() - since;
+      if (quiet < NO_READ_MS) return;
+      const s = stats.current;
+      const next: keyof typeof SCAN_TIPS = s && s.mean < 45 ? (camera.torch && !torchOn ? "dark" : "darkNoTorch")
+        : s && s.glare > 0.06 ? "glare"
+        : quiet > NO_READ_MS * 2 ? "far" : "none";
+      setTip((t0) => (t0 === next ? t0 : next));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [idle, camera.torch, torchOn]);
+
+  const changeZoom = async () => {
+    if (!zoom || !session.current) return;
+    // 1× → 2× (or the most it has) → back.
+    const next = zoom.at < Math.min(2, zoom.max) ? Math.min(2, zoom.max) : zoom.min;
+    try {
+      await session.current.setZoom(next);
+      setZoom({ ...zoom, at: next });
+      setTip(null);
+    } catch {
+      setZoom(null);
+    }
+  };
+
+  const readPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setReadingPhoto(true);
+    setOutcome(null);
+    try {
+      const code = await decodePhoto(file);
+      if (code) {
+        paused.current = false;
+        process(code, "camera");
+      } else {
+        paused.current = true;
+        scanFeedback("error");
+        // A picture without a readable barcode is not a barcode mismatch or an unknown product.
+        setOutcome({ tone: "error", title: t("No barcode could be read from this photo"), detail: t("Take it again closer and straight on, without reflections — or type the code."), code: "" });
+      }
+    } catch {
+      setOutcome({ tone: "error", title: t("This photo could not be opened"), code: "" });
+    } finally {
+      setReadingPhoto(false);
+      if (photoInput.current) photoInput.current.value = "";
+    }
+  };
 
   const toggleTorch = async () => {
     try {
@@ -295,6 +372,11 @@ export function BarcodeScanner({
             ) : (
               <span className="h-10 w-10" />
             )}
+            {zoom && camera.state === "live" && (
+              <button onClick={changeZoom} className={cn("flex h-10 min-w-10 items-center justify-center gap-0.5 rounded-full px-2 text-xs font-semibold backdrop-blur-sm", zoom.at > zoom.min ? "bg-white text-black" : "bg-white/10")} aria-label={t("Zoom")}>
+                <ZoomIn className="h-4 w-4" />{zoom.at > zoom.min ? `${Math.round(zoom.at * 10) / 10}×` : ""}
+              </button>
+            )}
             {camera.canSwitch && (
               <button onClick={switchCamera} className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 backdrop-blur-sm" aria-label={t("Switch camera")}>
                 <SwitchCamera className="h-5 w-5" />
@@ -322,6 +404,9 @@ export function BarcodeScanner({
                     : wait ? <RepeatWait key={`${wait.code}-${wait.until}`} until={wait.until} />
                     : t(counted ? "Scan the next barcode. The same one counts again after 3 seconds" : "Position the barcode inside the frame")}
                 </p>
+                {tip && frameState === "scanning" && !wait && (
+                  <p role="status" data-testid="scan-tip" className="mx-6 mt-2 max-w-sm rounded-xl bg-black/65 px-3 py-1.5 text-center text-xs text-amber-100 backdrop-blur-sm">{t(SCAN_TIPS[tip])}</p>
+                )}
               </div>
             )}
             {camera.state === "starting" && (
@@ -355,7 +440,7 @@ export function BarcodeScanner({
                   {outcome.tone === "success" ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" /> : outcome.tone === "error" ? <X className="mt-0.5 h-4 w-4 shrink-0 text-red-300" /> : outcome.tone === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" /> : null}
                   <span className="min-w-0">{t(outcome.title)}</span>
                 </p>
-                <p className="num mt-0.5 ps-6 text-xs opacity-70">{outcome.code}</p>
+                {outcome.code && <p className="num mt-0.5 ps-6 text-xs opacity-70">{outcome.code}</p>}
                 {outcome.detail && <div className="mt-1.5 ps-6 text-xs opacity-90">{typeof outcome.detail === "string" ? t(outcome.detail) : outcome.detail}</div>}
                 {outcome.tone === "error" && (
                   <div className="mt-2.5 flex flex-wrap gap-2 ps-6">
@@ -386,6 +471,12 @@ export function BarcodeScanner({
               </div>
               <Button type="submit" disabled={!manual.trim()}>{t("Add")}</Button>
             </form>
+            {/* Roadmap 177: the phone's camera app takes a sharper still of shiny or curved labels than the live preview. */}
+            <input ref={photoInput} type="file" accept="image/*" capture="environment" className="hidden" data-testid="scan-photo-input" onChange={(e) => readPhoto(e.target.files?.[0])} />
+            <Button type="button" variant="outline" disabled={readingPhoto || busy} onClick={() => photoInput.current?.click()}
+              className="w-full border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white">
+              {readingPhoto ? <SShopLoader size="sm" /> : <ImageUp />} {t(readingPhoto ? "Reading the photo…" : "Scan from photo")}
+            </Button>
             {continuous && (
               <Button variant="outline" className="w-full border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white" onClick={close}>
                 {t("Done scanning")}

@@ -82,7 +82,9 @@ never changes a product's tracking or invents unit identities by itself.
 Every flow calls the same `BarcodeScanner` with a handler that returns an outcome (`success` / `info` / `error` + optional
 actions). Three inputs feed the same handler:
 - **Phone camera** — opens full screen on phones (compact dialog on larger screens), rear camera by default, continuous
-  decoding until a barcode is read. Torch and camera-switch buttons appear when the device supports them.
+  decoding until a barcode is read. Torch, **zoom** (roadmap 177) and camera-switch buttons appear when the device supports them.
+- **Scan from photo** (roadmap 177) — the phone's camera app takes a still picture (sharper on shiny or curved labels);
+  every enhancement is tried; a picture without a readable barcode says so (never *not found*).
 - **Handheld scanner** — keyboard-wedge scanners type into the code field and press Enter (focused automatically on
   desktop).
 - **Manual entry** — type the code and tap Add.
@@ -90,6 +92,18 @@ actions). Three inputs feed the same handler:
 Decoding: the browser's native `BarcodeDetector` when it supports retail 1D formats (Android Chrome, macOS), otherwise
 ZXing (iPhone Safari, Firefox, Windows Chrome) on frames grabbed from the same camera stream, cropped to the central band
 where the on-screen frame is. Formats: EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39, Code 93, ITF, QR.
+
+**Colours, metallic and reflective labels (roadmap 177):** every other frame is read as an enhanced picture
+(`web/src/lib/scanPreprocess.ts`): inverted (light bars on a dark box — ZXing, used on iPhones, reads dark-on-light only,
+so gold on a black perfume box was never read there), blue channel (gold, bronze), contrast stretch (silver, faint print,
+glare). The plain picture stays every other frame. An enhanced read of a format without a check digit (Code 39, ITF)
+counts only when seen twice. After about 6 seconds without a read the scanner gives one tip from what it sees (too dark →
+torch; reflection → tilt the pack; otherwise angle, distance, zoom). Measured results are in scope.md (177).
+
+**iOS and Android notes:** iPhone Safari and the installed app: ZXing; torch and zoom only where iOS exposes them (often
+not); the camera stops when the app goes to the background and restarts on return; camera permission is asked by Safari
+(Settings → Safari → Camera if it was blocked). Android Chrome and the installed app: the browser's BarcodeDetector,
+torch and zoom on most phones, continuous focus and exposure requested.
 
 Behaviour: the same label seen continuously counts once; success shows a short green confirmation and (in continuous
 flows) keeps scanning; an error pauses the camera with **Scan again** plus flow-specific actions (a handheld scanner

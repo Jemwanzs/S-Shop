@@ -915,6 +915,38 @@ server already refuses a unit sold twice, from another branch or another product
 
   Acceptance criteria (smoke 176 — 52 checks; browser on desktop and phone): default price at every branch; Branch B 120,000 and Branch A 100,000 on one product; a stale change refused; audited; not at another person's branch; back to default; the default price guarded; no change without the permission; the till and the same barcode priced per branch; sales at each branch's price, a lower one counted as a discount; recorded sales keep their price; receiving changes only that branch; stock and movements per branch, added up across branches, restricted people limited to theirs; catalogue per branch, across branches with each branch's price, restricted people never see other branches' products, *Select all matching* follows the filter; transfer price check; approval names products, quantities, route and price action; keep by default; source price needs confirmation and applies on receipt; a request applies only when authorised; declined; a changed destination price is not overwritten; cancelled changes nothing; product-edit approval; another business sees nothing. Earlier sections re-run in the full suite.
 
+- ◐ **177. Camera scanning of gold, silver, coloured and reflective barcodes** (brief *Advanced Barcode Scanner Optimization for All Colours, Devices & Lighting Conditions*) — purpose: barcodes printed in gold or other colours, light on dark, or on shiny packaging are read by the camera on iPhones and Android. Assessment: every scanning screen uses one engine (`web/src/lib/scanner.ts`); Android Chrome and macOS decode with the browser's own `BarcodeDetector`, **iPhones (Safari and the installed app) with ZXing**, which reads dark bars on a light background only. Gold bars on a dark box are *light on dark*: measured on synthetic EAN-13 samples, the plain picture read **0 of 6** white-on-black, gold-on-dark and gold-on-navy barcodes — the most likely cause of the iPhone failures (not tested on the owner's own boxes or phones). Scope (central, so every scanning screen benefits — sale, receiving, stock take, product form, transfers, adjustments, barcode assignment, tracing):
+  - **Enhanced pictures** (`web/src/lib/scanPreprocess.ts`): every other frame is read as an enhanced picture — inverted (light on dark), blue channel (gold and bronze: yellow absorbs blue), contrast stretch (silver, faint print, glare) — on both decoders; the plain picture stays every other frame, so ordinary barcodes read exactly as fast. A read from an enhanced picture of a format **without a check digit** (Code 39, ITF) counts only when seen twice within 1.5 s; EAN/UPC/Code 128/Code 93/QR carry their own check. Never a guessed or partial code.
+  - **Camera**: continuous focus and exposure where offered, **zoom** button (1× ↔ 2×) where the camera has zoom, torch and camera switch as before; the camera stops in the background and restarts on return (unchanged).
+  - **Guidance**, only after about 6 seconds without a read (never during normal scanning), from what the camera sees: *Too dark to read — turn on the torch…*, *Strong reflection — tilt the pack slightly…* (gold and silver labels read best at a small angle), *Barcode not detected. Try adjusting the angle, moving closer or reducing reflections.*, then *move closer… or zoom in*.
+  - **Scan from photo**: the phone's camera app takes the picture (sharper focus and exposure on shiny or curved labels); every enhancement is tried; no read says *No barcode could be read from this photo* — never *barcode not found* or a mismatch. Typing (where the business allows it) and handheld scanners are unchanged.
+  - Unchanged: the 3-second repeat rule per barcode, +/−/typed quantities and grouping, multiple barcodes per product, barcode validation (an unknown but correctly read barcode follows the existing assignment rules), sounds.
+
+  Measured (synthetic EAN-13, 6 barcodes per sample; `scratchpad` bench using the app's own `scanPreprocess.ts` and ZXing; before = the plain picture, as the scanner read before; after = the frame cycle):
+
+  | Sample | Before (plain) | After (variants) | Wrong reads before / after | Frames to read (after) |
+  |---|---|---|---|---|
+  | 1 Black on white | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | 2 White on black | 0/6 | 6/6 | 0 / 0 | 2.0 |
+  | 3 Gold on light packaging | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | 4 Gold on dark packaging | 0/6 | 6/6 | 0 / 0 | 2.0 |
+  | 5 Silver metallic on white | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | 6 Glossy box: black, glare spot | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | 7 Gold on cream, glare | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | 8 Low light (25%), noise | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | 9 Bright, washed out | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | 10 Low contrast grey | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | 11 Small bars, blurred | 0/6 | 0/6 | 0 / 0 | — |
+  | 12 Rotated 90° | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | 13 Bronze on cream | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | 14 Gold on navy (curved bottle sheen) | 0/6 | 6/6 | 0 / 0 | 2.0 |
+  | 15 Silver on light grey, noise | 6/6 | 6/6 | 0 / 0 | 1.0 |
+  | **All** | 66/90 | 84/90 | 0 / 0 | |
+
+  Wrong reads: none before or after. Light-on-dark samples read on the 2nd frame (about 0.2 s). In a real browser (Chrome made to decode like iPhone Safari, a fake camera playing a gold EAN-13 on a dark box), the scanner before this change did not read it in 20 seconds; now it reads in about 1.2 s. *Small bars, blurred* (2-pixel bars, out of focus) is not read either way — move closer or zoom. These are synthetic pictures, not photographs of real packaging: real gold foil also reflects light, which the glare advice and *Scan from photo* address.
+
+  Acceptance criteria (browser, desktop and phone, with a fake camera playing a gold-on-dark EAN-13 and Chrome made to decode like iPhone Safari — no BarcodeDetector): the camera reads it; *Scan from photo* reads it from a picture; a picture without a barcode says so; after ~6 s on a dark picture the light advice appears; no errors. **Not tested: real iPhones and Android phones, real gold, silver and glossy perfume boxes, curved bottles** — the owner's check (Status board).
+
 **SEO & Organic Growth Engine: what it does not do.** No guarantee of rankings; no estimated rankings or traffic; no location pages generated in bulk; no fake locations or claimed listings; nothing posted to social networks for anyone; no product feed to Merchant Center yet; `sku`, `brand`, ratings and reviews are left out of structured data because S'Shop holds no verified values for them. Open decision for the owner: the website's WhatsApp links assume Kenya's country code for a number starting with 0 (`web/src/site/lib.ts`), which is wrong for a business elsewhere.
 
 **SEO & Organic Growth Engine** (briefs *Universal Multi-Tenant & Industry-Independent SEO Engine* and *Enterprise SEO, Local Search Visibility & Automated Content Growth Engine*). One engine for every business: nothing about a business, industry, location or keyword is hardcoded; every setting, article and job belongs to one business. Built in stages:

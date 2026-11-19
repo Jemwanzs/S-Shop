@@ -28,6 +28,12 @@ approval, audit); products needing a migration are flagged, never converted. Goi
 In the Excel import, *Update existing products* applies a changed *Stock Tracking* the same way; a blank cell keeps the
 product's own.
 
+**Several shared barcodes (roadmap 173):** a product keeps its main barcode (`products.barcode`) and may have others
+(`product_barcodes`: other packaging, another supplier). Each finds it, clears it at the till and is accepted when
+receiving; one barcode still identifies one product per business. Receive stock counts each barcode on its own line
+(the total is the quantity; one movement, noting the breakdown). An unknown code offers *Add barcode to this product*
+(*products.edit*); another product's code is refused with its name. Product details list them, with add and remove.
+
 **Released barcodes (roadmap 172):** an item deleted as captured in error (`voided`) frees its barcode, unless an
 active unit carries it, a waiting request names it or it is a product's shared barcode; the "never reused" rule no longer
 counts voided units, so the code can be received again.

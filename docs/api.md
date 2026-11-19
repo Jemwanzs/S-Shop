@@ -111,6 +111,9 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 |---|---|
 | GET | `/api/products` (`q`, `category_id`, `status` active/inactive/all, `price` all/set/missing — roadmap 140, `branch_id`, `limit`, `offset`) |
 | POST | `/api/products` — `track_items` optional (roadmap 168): left out, the business default (`product.shared_barcodes`); on PUT, left out keeps the product's own |
+| POST | `/api/products/{id}/barcodes` `{barcode}` — roadmap 173: another shared barcode for the product (first one becomes its main); refused when another product or an item in stock uses it (`products.edit`) |
+| DELETE | `/api/products/{id}/barcodes/{code}` — removes (releases) one of its other barcodes |
+| GET | `/api/products/{id}` → `barcodes` (its other barcodes); `/api/products/lookup` → `barcode_match` (the code is one of the product's barcodes) |
 | GET | `/api/products/tracking-summary` — roadmap 168/169: every product per mode → `shared`, `individual` (`products.view`) |
 | GET | `/api/products?tracking=` and `/api/products/matching-ids?tracking=` — roadmap 169: `all`, `shared`, `individual` |
 | POST | `/api/products/tracking/preview` `{ids, individual}` — roadmap 169/170: per product `status` `eligible` (*Ready to convert*, with `notes`), `review` (work in progress, with `reasons`), `blocked` (conflict, with `reasons`), `already`, `not_found`; `needs_approval` (`products.edit`) |
@@ -155,6 +158,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | GET | `/api/stock/adjustments` |
 | GET / POST | `/api/stock/movements/{id}/void` — roadmap 172: what deleting this receipt line would do (`eligible`, `problem`, `max_quantity`, `on_hand`, masked `barcode`) / request it `{reason, quantity?}` → pending approval (`stock.void`) or done (`stock.adjust`) |
 | GET / POST | `/api/stock/items/{id}/void` — the same for the receipt of one item in stock |
+| POST | `/api/stock/receive` — roadmap 173: a shared-barcode product may list several of its barcodes, with `barcode_counts` `{code: units}` adding up to `quantity` |
 | POST | `/api/stock/adjustments` — `kind` … or `other` (roadmap 171) with `direction` `in`/`out` and a `reason` of at least 10 characters |
 | POST | `/api/stock/count` — refused (*Stock taking is off*) when `stock.stock_taking` is false (roadmap 164) |
 | GET | `/api/stock/count/pending` — roadmap 164: count adjustments waiting for approval, business-wide → `pending` (`stock.view`) |

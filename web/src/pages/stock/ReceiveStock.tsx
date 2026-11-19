@@ -20,14 +20,15 @@ import { PhotoGallery } from "@/components/PhotoGallery";
 import { AddPhotosDialog } from "@/components/PhotoPicker";
 import { Pill } from "@/components/Badges";
 import { LabelsDialog } from "@/components/LabelsDialog";
-import { ScanCounter } from "@/components/ScanCounter";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
-import { UNIQUE_AGAIN, UNIQUE_HINT, useManualBarcodes, type ScanSource } from "@/lib/scan";
+import { UNIQUE_AGAIN, UNIQUE_HINT, type ScanSource } from "@/lib/scan";
 import type { ScanCountLine } from "@/components/ScanCounter";
 
 interface ProductDetail {
   product: Product;
+  /** Roadmap 173: its other shared barcodes (the main one is `product.barcode`). */
+  barcodes?: string[];
   photos: { url: string }[];
   stock_by_branch: { branch_id: string; on_hand: number }[];
 }
@@ -50,9 +51,18 @@ export default function ReceiveStock() {
   const [branchId, setBranchId] = useState(branch?.id ?? "");
   const [qty, setQty] = useState("1");
   const [barcodes, setBarcodes] = useState<string[]>([]);
+  // Roadmap 173: a shared-barcode product counted under each of its barcodes (they add up to the quantity received).
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const countsRef = useRef(counts);
+  countsRef.current = counts;
+  const changeCounts = (next: Record<string, number>) => {
+    countsRef.current = next;
+    setCounts(next);
+    barcodesRef.current = Object.keys(next);
+    setBarcodes(barcodesRef.current);
+  };
   // Roadmap 137: how each scanned code arrived (kept in step with `barcodes`).
   const [sources, setSources] = useState<Record<string, ScanSource>>({});
-  const typingAllowed = useManualBarcodes("stock");
   const [cost, setCost] = useState("");
   const [price, setPrice] = useState("");
   const [maxDiscount, setMaxDiscount] = useState("");
@@ -88,6 +98,7 @@ export default function ReceiveStock() {
     setCost(p.cost_price === null ? "" : String(toNum(p.cost_price)));
     setSupplier(p.supplier_id ?? "");
     setBarcodes([]);
+    setCounts({});
     setQty("1");
     setGenerated(null);
     setAttached(false);
@@ -107,7 +118,8 @@ export default function ReceiveStock() {
   const qtyLocked = s.stock.quantity_entry === "locked";
   const barcodesOn = s.stock.barcode_requirement !== "disabled";
   const tracked = !!p?.track_items;
-  const quantity = tracked ? barcodes.length : Math.max(0, parseInt(qty) || 0);
+  const counted = Object.values(counts).reduce((a, n) => a + n, 0);
+  const quantity = tracked ? barcodes.length : Object.keys(counts).length ? counted : Math.max(0, parseInt(qty) || 0);
   const showCost = s.stock.capture_cost && can("sales.view_financials");
 
   // Roadmap 153: a shared barcode adds one unit to this delivery (several products, each with its own count). A product
@@ -163,31 +175,48 @@ export default function ReceiveStock() {
     if (source) setSources((s) => ({ ...s, [code]: source }));
     return { tone: "success", title: `Item ${barcodesRef.current.length} captured` };
   };
-  // Roadmap 153: this product's shared barcode, scanned again and again: each read is one more unit. The first read
-  // confirms the quantity already showing when nothing was typed yet.
-  const addSharedUnit = async (scanned: string, source?: ScanSource): Promise<ScanOutcome> => {
-    let code = scanned;
-    const expected = p?.barcode ?? barcodesRef.current[0];
-    if (expected && code !== expected) {
-      // Roadmap 170: a label of this product's units from before it moved to one shared barcode still counts as the product.
-      const same = await api<{ product: Product; stock_item: unknown }>("/products/lookup", { query: { code } }).catch(() => null);
-      if (!same || same.product.id !== p?.id || same.stock_item) return { tone: "error", title: "Scanned barcode does not match", detail: `${p?.name} (${expected})` };
-      code = expected;
-    }
-    if (!expected) {
-      const other = await api<{ product: Product }>("/products/lookup", { query: { code } }).catch(() => null);
-      if (other && other.product.id !== p?.id) return { tone: "error", title: "That barcode belongs to another product", detail: other.product.name };
-    }
-    const first = barcodesRef.current.length === 0;
-    const current = parseInt(qtyRef.current) || 0;
-    if (!first && qtyLocked) return { tone: "warning", title: "Quantity entry is locked to 1 — capture each item individually" };
-    const next = first && current <= 1 ? 1 : current + 1;
-    barcodesRef.current = [code];
-    setBarcodes([code]);
-    setSources(source ? { [code]: source } : {});
-    qtyRef.current = String(next);
-    setQty(qtyRef.current);
-    return { tone: "success", title: `${p?.name} — ${count(next)} ${t(next === 1 ? "unit" : "units")} ${t("captured")}` };
+  // Roadmap 153/173: a shared-barcode product scanned again and again: each read is one more unit, counted under the
+  // barcode read (a product may have several). The first read confirms the quantity already typed, if any.
+  const countUnder = (code: string, source?: ScanSource): ScanOutcome => {
+    const now = countsRef.current;
+    const total = Object.values(now).reduce((a, n) => a + n, 0);
+    if (total > 0 && qtyLocked) return { tone: "warning", title: "Quantity entry is locked to 1 — capture each item individually" };
+    const typed = parseInt(qtyRef.current) || 0;
+    const add = total === 0 && typed > 1 ? typed : 1;
+    changeCounts({ ...now, [code]: (now[code] ?? 0) + add });
+    if (source) setSources((s) => ({ ...s, [code]: source }));
+    setLastScanned(code);
+    const n = total + add;
+    return { tone: "success", title: `${p?.name} — ${count(n)} ${t(n === 1 ? "unit" : "units")} ${t("captured")}` };
+  };
+  const addSharedUnit = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
+    if (!p) return { tone: "error", title: "Choose the product first" };
+    const own = [p.barcode, ...(detail.data?.barcodes ?? [])].filter(Boolean) as string[];
+    if (own.includes(code) || code in countsRef.current) return countUnder(code, source);
+    const found = await api<{ product: Product; stock_item: unknown; barcode_match?: boolean }>("/products/lookup", { query: { code } }).catch(() => null);
+    // One of this product's barcodes the screen did not know yet (an old unit label, or one just added elsewhere).
+    if (found && found.product.id === p.id && found.barcode_match) return countUnder(code, source);
+    if (found && found.product.id !== p.id) return { tone: "error", title: "That barcode belongs to another product", detail: `${code} — ${found.product.name}` };
+    // A product with no barcode yet: its first code becomes its main barcode when the stock is received.
+    if (!own.length && !Object.keys(countsRef.current).length) return countUnder(code, source);
+    return {
+      tone: "error",
+      title: "This barcode is not on this product yet",
+      detail: `${code} — ${p.name}`,
+      actions: can("products.edit") ? [{
+        label: "Add barcode to this product",
+        onClick: async () => {
+          try {
+            await api(`/products/${p.id}/barcodes`, { body: { barcode: code } });
+            await detail.refetch();
+            countUnder(code, source);
+            toast.success(`${code} ${t("added to")} ${p.name} — ${t("1 unit captured")}`);
+          } catch (e) {
+            toast.error(e);
+          }
+        },
+      }] : [],
+    };
   };
 
   const generate = async () => {
@@ -218,6 +247,7 @@ export default function ReceiveStock() {
           branch_id: branchId,
           quantity,
           barcodes,
+          barcode_counts: !tracked && Object.keys(counts).length ? counts : undefined,
           cost_price: showCost && cost !== "" ? Number(cost) : null,
           marked_price: price !== "" ? Number(price) : null,
           max_discount: maxDiscount !== "" ? Number(maxDiscount) : null,
@@ -238,6 +268,7 @@ export default function ReceiveStock() {
       qc.invalidateQueries({ queryKey: ["product"] });
       qc.invalidateQueries({ queryKey: ["pos-products"] });
       setBarcodes([]);
+      setCounts({});
       setQty("1");
       setReference("");
       setGenerated(null);
@@ -287,10 +318,16 @@ export default function ReceiveStock() {
         onRemove: (key: string) => { barcodesRef.current = barcodesRef.current.filter((x) => x !== key); setBarcodes(barcodesRef.current); },
       }
     : {
-        lines: barcodes.length ? [{ key: p.id, name: p.name, barcode: barcodes[0], kind: "shared", quantity, max: qtyLocked ? 1 : null } satisfies ScanCountLine] : [],
-        activeKey: p.id,
-        onSet: qtyLocked ? undefined : (_: string, q: number) => { qtyRef.current = String(q); setQty(qtyRef.current); },
-        onRemove: () => { barcodesRef.current = []; setBarcodes([]); setSources({}); qtyRef.current = "1"; setQty("1"); },
+        // Roadmap 173: one line per barcode of this product; the session total is the quantity received.
+        lines: Object.entries(counts).map(([code, n]): ScanCountLine => ({ key: code, name: p.name, barcode: code, kind: "shared", quantity: n, max: qtyLocked ? 1 : null, productId: p.id })),
+        activeKey: lastScanned,
+        onSet: qtyLocked ? undefined : (key: string, q: number) => changeCounts({ ...countsRef.current, [key]: q }),
+        onRemove: (key: string) => {
+          const rest = { ...countsRef.current };
+          delete rest[key];
+          changeCounts(rest);
+          if (!Object.keys(rest).length) { qtyRef.current = "1"; setQty("1"); }
+        },
       };
 
   const valid = !!p && quantity > 0 && (!qtyLocked || quantity === 1) && (s.stock.barcode_requirement !== "required" || tracked || barcodes.length > 0 || !!p.barcode);
@@ -397,21 +434,22 @@ export default function ReceiveStock() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Quantity" hint={qtyLocked ? "Locked to 1 — capture each item individually" : undefined}>
-                    <Input inputMode="numeric" className="num h-12 text-lg" value={qty} disabled={qtyLocked} onChange={(e) => { qtyRef.current = e.target.value.replace(/\D/g, ""); setQty(qtyRef.current); }} />
-                  </Field>
-                  {barcodesOn && (
-                    <Field label="Barcode / item code" optional={s.stock.barcode_requirement !== "required"} hint={p.barcode ? "Scan to confirm the product" : "Saved as the product barcode"}>
-                      <div className="flex gap-2">
-                        <Input className="num" value={barcodes[0] ?? ""} readOnly={!typingAllowed} placeholder={p.barcode ?? (typingAllowed ? "" : t("Scan barcode"))}
-                          onChange={(e) => { setBarcodes(e.target.value ? [e.target.value] : []); setSources(e.target.value ? { [e.target.value]: "manual" } : {}); }} />
-                        <Button variant="outline" onClick={() => setScan("items")} aria-label="Scan"><ScanLine /></Button>
-                      </div>
-                    </Field>
-                  )}
-                </div>
-                {productSession && !tracked && <ScanCounter {...productSession} />}
+                <Field label="Quantity" hint={Object.keys(counts).length ? "The total of the barcodes below" : qtyLocked ? "Locked to 1 — capture each item individually" : undefined}>
+                  <Input inputMode="numeric" className="num h-12 text-lg" value={Object.keys(counts).length ? String(counted) : qty} disabled={qtyLocked || !!Object.keys(counts).length}
+                    onChange={(e) => { qtyRef.current = e.target.value.replace(/\D/g, ""); setQty(qtyRef.current); }} />
+                </Field>
+                {barcodesOn && (
+                  <div className="space-y-2">
+                    {/* Roadmap 173: a large, thumb-sized button straight to the camera; typing and handheld scanners below. */}
+                    <Button type="button" size="lg" className="w-full text-base" style={{ minHeight: 48 }} onClick={() => setScan("items")}>
+                      <ScanLine className="h-5 w-5" /> {t("Scan Barcode")}
+                    </Button>
+                    <BarcodeInput onCode={addSharedUnit} placeholder={p.barcode ? "Or type / use a handheld scanner" : "Or type a barcode (saved as the product barcode)"} session={productSession} />
+                    {!!detail.data?.barcodes?.length && (
+                      <p className="text-xs text-muted-foreground">{t("Barcodes of this product")}: <span className="num">{[p.barcode, ...detail.data.barcodes].filter(Boolean).join(" · ")}</span></p>
+                    )}
+                  </div>
+                )}
                 </div>
               )}
             </Section>

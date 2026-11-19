@@ -427,6 +427,13 @@ Recording sales, payments, receipts, returns, credit and customer orders.
 
 Stock, transfers, approvals, expenses, customers and reports for your branches.
 
+#### One product with more than one barcode
+
+1. The same product in other packaging or from another supplier can have its own barcode. Open the product → Barcode → Add a barcode, or add it while receiving.
+2. Receive stock: tap Scan Barcode. Each barcode of the product gets its own line and count; the quantity received is their total.
+3. A barcode the product does not have yet shows This barcode is not on this product yet: tap Add barcode to this product to add it and count the item. A barcode of another product is refused with that product's name.
+4. At the till, any of the product's barcodes finds it. Removing a barcode from the product frees it for another product.
+
 #### Several items with the same barcode
 
 1. Scan the barcode once: 1 unit is captured.

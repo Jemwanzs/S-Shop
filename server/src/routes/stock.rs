@@ -191,6 +191,10 @@ pub struct ReceiveBody {
     /// Roadmap 137: how each scanned barcode arrived (same order as `barcodes`): scanner | camera | manual.
     #[serde(default)]
     pub barcode_sources: Vec<String>,
+    /// Roadmap 173: a shared-barcode product received under several of its barcodes — units per barcode (they add up to
+    /// `quantity`, and are noted on the movement).
+    #[serde(default)]
+    pub barcode_counts: std::collections::BTreeMap<String, i32>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -261,17 +265,30 @@ async fn check_receipt(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b
         // Roadmap 133: never a code issued to another business or product, and never one used on an item before.
         super::barcodes::check_new_item_codes(conn, ctx.tenant_id, b.product_id, &b.barcodes).await?;
     } else {
-        if b.barcodes.len() > 1 {
-            return Err(rule("This product uses one shared barcode — scan a single code"));
-        }
+        // Roadmap 173: one product may have several shared barcodes. Each scanned code must be one of them — except a
+        // product with none yet, whose first code becomes its main barcode. A code of another product is refused.
         let scanned = b.barcodes.first();
         if s.stock.barcode_requirement == BarcodeRequirement::Required && scanned.is_none() && p.barcode.is_none() {
             return Err(rule("A barcode is required for this product"));
         }
-        if let (Some(scanned), Some(existing)) = (scanned, &p.barcode) {
-            // Roadmap 170: an old unit label of this product (converted to its shared barcode) counts as the product.
-            if scanned != existing && !super::barcodes::converted_label(conn, ctx.tenant_id, b.product_id, scanned).await? {
-                return Err(rule(format!("Scanned barcode does not match {} ({existing})", p.name)));
+        for (i, code) in b.barcodes.iter().enumerate() {
+            if super::catalog::is_product_barcode(conn, ctx.tenant_id, b.product_id, code).await? {
+                continue;
+            }
+            if let Some(other) = super::catalog::barcode_taken_by(conn, ctx.tenant_id, b.product_id, code).await? {
+                return Err(refused("Barcode belongs to another product", format!("{code} is {other}'s barcode, not {}'s.", p.name)));
+            }
+            if !(i == 0 && p.barcode.is_none()) {
+                return Err(refused(
+                    "Barcode not on this product",
+                    format!("{code} is not one of {}'s barcodes. Add it to the product first (Receive stock offers this), then scan again.", p.name),
+                ));
+            }
+        }
+        if !b.barcode_counts.is_empty() {
+            let total: i32 = b.barcode_counts.values().sum();
+            if b.barcode_counts.values().any(|n| *n < 0) || total != b.quantity || b.barcode_counts.keys().any(|c| !b.barcodes.contains(c)) {
+                return Err(bad("The counts per barcode must add up to the quantity received"));
             }
         }
     }
@@ -351,6 +368,7 @@ async fn receive_batch(State(state): State<AppState>, ctx: Ctx, Json(body): Json
         let name: Option<String> = sqlx::query_scalar("SELECT name FROM products WHERE id = $1 AND tenant_id = $2").bind(l.product_id).bind(ctx.tenant_id).fetch_optional(&mut *tx).await?;
         let name = name.ok_or(AppError::NotFound("Product"))?;
         let mut b = ReceiveBody {
+            barcode_counts: Default::default(),
             product_id: l.product_id,
             branch_id: Some(branch),
             quantity: l.quantity,
@@ -463,7 +481,12 @@ async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, ap
     .execute(&mut *conn)
     .await?;
 
-    let notes = if b.reference.is_empty() { String::new() } else { format!("Ref: {}", b.reference) };
+    let mut notes = if b.reference.is_empty() { String::new() } else { format!("Ref: {}", b.reference) };
+    // Roadmap 173: which barcodes the units came under (one movement, one stock balance — never counted twice).
+    if !p.track_items && b.barcode_counts.len() > 1 {
+        let per: Vec<String> = b.barcode_counts.iter().filter(|(_, n)| **n > 0).map(|(c, n)| format!("{c} × {n}")).collect();
+        notes = [notes, format!("Barcodes: {}", per.join(" · "))].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+    }
     let mut level = None;
     if p.track_items {
         for code in &b.barcodes {

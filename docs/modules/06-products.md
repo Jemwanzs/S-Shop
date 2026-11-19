@@ -9,7 +9,7 @@ Name · Nickname/short name (optional) · Code (blank = auto `PRD0001`, prefix c
 ordering link) · Category (+ quick-add) · Supplier (+ quick-add) · Marked selling price · Maximum discount (optional) ·
 Cost price (optional, needs financial permission) · Barcode: the product's tracking — the business default from
 Settings → Products (roadmap 168), or the other mode chosen for this product as an exception — and the shared product
-barcode · Active · Available on ordering link · Transfers allowed · All branches or selected branches ·
+barcode, and its **other barcodes** (roadmap 173: the same product in other packaging; add and remove on Product details) · Active · Available on ordering link · Transfers allowed · All branches or selected branches ·
 Low-stock alert level (optional) · Loyalty: eligible, and optional product rule “every X spent earns Y points”.
 
 **Product fields** (Settings → Products → Product fields): your own fields such as Size, Colour, Brand or Expiry —

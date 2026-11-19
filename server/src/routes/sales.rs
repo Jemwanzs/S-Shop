@@ -1028,7 +1028,7 @@ async fn product_with_barcode(conn: &mut PgConnection, tenant_id: Uuid, code: &s
 
 /// Products cleared by their product barcode (not tracked per unit).
 async fn check_product_barcode(conn: &mut PgConnection, tenant_id: Uuid, product: Uuid, name: &str, expected: &str, code: &str) -> AppResult<()> {
-    if code == expected || super::barcodes::converted_label(conn, tenant_id, product, code).await? {
+    if code == expected || super::catalog::is_product_barcode(conn, tenant_id, product, code).await? {
         return Ok(());
     }
     let owner = match product_with_barcode(conn, tenant_id, code).await? {

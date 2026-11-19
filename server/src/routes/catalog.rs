@@ -31,6 +31,8 @@ pub fn routes() -> Router<AppState> {
         .route("/products/{id}", get(detail).put(update))
         .route("/products/{id}/status", post(set_status))
         .route("/products/{id}/tracking-check", get(tracking_check))
+        .route("/products/{id}/barcodes", axum::routing::post(add_barcode))
+        .route("/products/{id}/barcodes/{code}", axum::routing::delete(remove_barcode))
         .route("/products/tracking-summary", get(tracking_summary))
         .route("/products/tracking/preview", post(tracking_preview))
         .route("/products/tracking/apply", post(tracking_apply))
@@ -421,8 +423,15 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     .bind(id)
     .fetch_optional(&state.db)
     .await?;
+    let barcodes: Vec<String> = sqlx::query_scalar("SELECT barcode FROM product_barcodes WHERE product_id = $1 AND tenant_id = $2 ORDER BY created_at")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_all(&state.db)
+        .await?;
     Ok(Json(json!({
         "product": product,
+        // Roadmap 173: its other shared barcodes (the main one is `product.barcode`).
+        "barcodes": barcodes,
         "photos": photos.into_iter().map(|(id, p)| json!({ "id": id, "is_primary": p, "url": format!("/api/photos/{id}") })).collect::<Vec<_>>(),
         "branch_ids": branch_ids,
         "stock_by_branch": stock.into_iter().map(|(bid, name, on_hand, reserved)| json!({
@@ -494,6 +503,9 @@ async fn validate(conn: &mut PgConnection, ctx: &Ctx, b: &mut ProductBody, exist
         crate::util::clean_barcode(code)?;
         let clash: Option<String> = sqlx::query_scalar(
             "SELECT name FROM products WHERE tenant_id = $1 AND barcode = $2 AND ($3::uuid IS NULL OR id <> $3)
+             UNION ALL
+             SELECT p.name FROM product_barcodes pb JOIN products p ON p.id = pb.product_id
+             WHERE pb.tenant_id = $1 AND pb.barcode = $2 AND ($3::uuid IS NULL OR pb.product_id <> $3)
              UNION ALL
              SELECT p.name FROM stock_items si JOIN products p ON p.id = si.product_id
              WHERE si.tenant_id = $1 AND si.barcode = $2 AND si.status IN ('in_stock','reserved','in_transit')
@@ -802,6 +814,101 @@ pub(crate) async fn tracking_change(conn: &mut PgConnection, tenant_id: Uuid, id
         notes.push("From then on one barcode identifies the product and each scan counts one unit; the history of earlier unit barcodes is kept".into());
     }
     Ok(TrackingChange { blockers, review, notes })
+}
+
+/// Roadmap 173: `code` is one of `product`'s shared barcodes — its main one, an extra one, or the label of a unit
+/// converted to the shared barcode (roadmap 170).
+pub(crate) async fn is_product_barcode(conn: &mut PgConnection, tenant: Uuid, product: Uuid, code: &str) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM products WHERE id = $2 AND tenant_id = $1 AND barcode = $3)
+             OR EXISTS (SELECT 1 FROM product_barcodes WHERE tenant_id = $1 AND product_id = $2 AND barcode = $3)
+             OR EXISTS (SELECT 1 FROM stock_items WHERE tenant_id = $1 AND product_id = $2 AND barcode = $3 AND status = 'converted')",
+    )
+    .bind(tenant)
+    .bind(product)
+    .bind(code)
+    .fetch_one(&mut *conn)
+    .await?)
+}
+
+/// Roadmap 173: who already uses `code` in this business — another product's main or extra barcode, an item in stock, or a
+/// unit label converted to another product's shared barcode (it still scans to that product, roadmap 170).
+pub(crate) async fn barcode_taken_by(conn: &mut PgConnection, tenant: Uuid, product: Uuid, code: &str) -> AppResult<Option<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT name FROM products WHERE tenant_id = $1 AND barcode = $2 AND id <> $3
+         UNION ALL
+         SELECT p.name FROM product_barcodes pb JOIN products p ON p.id = pb.product_id WHERE pb.tenant_id = $1 AND pb.barcode = $2 AND pb.product_id <> $3
+         UNION ALL
+         SELECT p.name FROM stock_items si JOIN products p ON p.id = si.product_id
+          WHERE si.tenant_id = $1 AND si.barcode = $2 AND (si.status IN ('in_stock','reserved','in_transit') OR (si.status = 'converted' AND si.product_id <> $3))
+         LIMIT 1",
+    )
+    .bind(tenant)
+    .bind(code)
+    .bind(product)
+    .fetch_optional(&mut *conn)
+    .await?)
+}
+
+#[derive(Deserialize)]
+struct BarcodeBody {
+    barcode: String,
+}
+
+/// Roadmap 173: another shared barcode for this product (the same item in different packaging). Refused when another
+/// product, or an item in stock, already uses it; the first barcode of a product becomes its main one.
+async fn add_barcode(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<BarcodeBody>) -> AppResult<Json<Value>> {
+    ctx.require("products.edit")?;
+    let code = crate::util::clean_barcode(&b.barcode).map_err(|e| bad(e.to_string()))?;
+    let mut tx = state.db.begin().await?;
+    let (name, track, main): (String, bool, Option<String>) = sqlx::query_as("SELECT name, track_items, barcode FROM products WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound("Product"))?;
+    if track {
+        return Err(refused("Barcodes are per item", format!("{name} gives each item its own barcode. Switch it to a shared barcode first.")));
+    }
+    if is_product_barcode(&mut tx, ctx.tenant_id, id, &code).await? {
+        return Ok(Json(json!({ "barcode": code, "already": true })));
+    }
+    if let Some(other) = barcode_taken_by(&mut tx, ctx.tenant_id, id, &code).await? {
+        return Err(refused("Barcode already in use", format!("{code} belongs to {other}. One barcode identifies one product.")));
+    }
+    if main.is_none() {
+        sqlx::query("UPDATE products SET barcode = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).bind(&code).execute(&mut *tx).await?;
+    } else {
+        sqlx::query("INSERT INTO product_barcodes (tenant_id, product_id, barcode, created_by) VALUES ($1, $2, $3, $4)")
+            .bind(ctx.tenant_id)
+            .bind(id)
+            .bind(&code)
+            .bind(ctx.user_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    audit::record(&mut tx, &ctx, Entry::new("products", "barcode_added", "product", id).after(json!({ "barcode": code, "main": main.is_none() }))).await?;
+    tx.commit().await?;
+    Ok(Json(json!({ "barcode": code, "main": main.is_none() })))
+}
+
+/// Roadmap 173: an extra barcode removed from a product — released, so it can be given to another product.
+async fn remove_barcode(State(state): State<AppState>, ctx: Ctx, Path((id, code)): Path<(Uuid, String)>) -> AppResult<Json<Value>> {
+    ctx.require("products.edit")?;
+    let mut tx = state.db.begin().await?;
+    let n = sqlx::query("DELETE FROM product_barcodes WHERE tenant_id = $1 AND product_id = $2 AND barcode = $3")
+        .bind(ctx.tenant_id)
+        .bind(id)
+        .bind(&code)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    if n == 0 {
+        return Err(AppError::NotFound("Barcode on this product"));
+    }
+    audit::record(&mut tx, &ctx, Entry::new("products", "barcode_removed", "product", id).before(json!({ "barcode": code }))).await?;
+    tx.commit().await?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 /// Roadmap 168/169: how this business's products are tracked now (all of them, active or not), for Settings → Products.
@@ -1299,6 +1406,7 @@ async fn generate_barcode(State(state): State<AppState>, ctx: Ctx) -> AppResult<
         let code = format!("{body}{}", crate::util::ean13_check(&body));
         let taken: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM products WHERE tenant_id = $1 AND barcode = $2)
+                 OR EXISTS (SELECT 1 FROM product_barcodes WHERE tenant_id = $1 AND barcode = $2)
                  OR EXISTS (SELECT 1 FROM stock_items WHERE tenant_id = $1 AND barcode = $2)",
         )
         .bind(ctx.tenant_id)
@@ -1351,7 +1459,8 @@ async fn lookup(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LookupQ
         (Some((_, pid, ..)), _) => Some(*pid),
         (None, Some(pid)) => Some(pid),
         (None, None) => sqlx::query_scalar(
-            "SELECT id FROM products WHERE tenant_id = $1 AND (barcode = $2 OR upper(code) = upper($2)) ORDER BY is_active DESC LIMIT 1",
+            "SELECT id FROM products WHERE tenant_id = $1 AND (barcode = $2 OR upper(code) = upper($2)
+                OR id IN (SELECT product_id FROM product_barcodes WHERE tenant_id = $1 AND barcode = $2)) ORDER BY is_active DESC LIMIT 1",
         )
         .bind(ctx.tenant_id)
         .bind(code)
@@ -1381,8 +1490,11 @@ async fn lookup(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LookupQ
     .bind(branch)
     .fetch_all(&state.db)
     .await?;
+    // Roadmap 173: the code is one of this product's shared barcodes (main, extra, or an old converted unit label).
+    let barcode_match = item.is_none() && is_product_barcode(&mut *state.db.acquire().await?, ctx.tenant_id, product_id, code).await?;
     Ok(Json(json!({
         "product": product,
+        "barcode_match": barcode_match,
         "other_branches": elsewhere.into_iter().map(|(id, name, available)| json!({ "branch_id": id, "branch_name": name, "available": available })).collect::<Vec<_>>(),
         "stock_item": item.map(|(id, _, bid, bname, status)| json!({
             "id": id, "barcode": super::barcodes::mask(&code), "branch_id": bid, "branch_name": bname, "status": status,

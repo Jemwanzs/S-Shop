@@ -423,6 +423,8 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
             .fetch_all(&mut *conn)
             .await?;
     let costs: Vec<(Uuid, Decimal)> = sqlx::query_as("SELECT id, cost_price FROM products WHERE tenant_id = $1 AND cost_price IS NOT NULL").bind(t).fetch_all(&mut *conn).await?;
+    // Roadmap 173: a product's extra shared barcodes belong to it as much as its main one.
+    let extra: Vec<(String, Uuid)> = sqlx::query_as("SELECT barcode, product_id FROM product_barcodes WHERE tenant_id = $1").bind(t).fetch_all(&mut *conn).await?;
     let mut payment_methods = HashMap::new();
     for m in s.sales.payment_methods.iter().filter(|m| m.enabled && m.key != "credit") {
         payment_methods.insert(m.label.trim().to_lowercase(), m.key.clone());
@@ -433,7 +435,7 @@ async fn refs(conn: &mut PgConnection, ctx: &Ctx) -> AppResult<Refs> {
         categories: pairs(categories),
         suppliers: pairs(suppliers),
         expense_categories: pairs(ecats),
-        product_barcodes: prods.iter().filter_map(|p| p.3.clone().map(|b| (b, p.0))).collect(),
+        product_barcodes: prods.iter().filter_map(|p| p.3.clone().map(|b| (b, p.0))).chain(extra).collect(),
         products: prods.into_iter().map(|(id, code, track, barcode, name)| (code.to_uppercase(), (id, track, barcode, name))).collect(),
         item_barcodes: items.into_iter().collect(),
         generate_items: s.stock.generate_item_barcodes && s.stock.barcode_requirement != settings::BarcodeRequirement::Disabled,
@@ -2182,6 +2184,7 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, p: &mut Progres
                         barcodes = super::barcodes::allocate(conn, ctx.tenant_id, product_id, ctx.user_id, qty).await?;
                     }
                     let mut body = super::stock::ReceiveBody {
+                        barcode_counts: Default::default(),
                         product_id,
                         branch_id: Some(branch_id),
                         quantity: qty,

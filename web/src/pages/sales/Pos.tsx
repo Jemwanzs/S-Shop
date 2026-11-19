@@ -37,6 +37,8 @@ const DEFAULT_POS = { style: "compact" as const, show_images: false, tablet_colu
 const newRef = () => crypto.randomUUID();
 
 interface Lookup {
+  /** Roadmap 173: the scanned code is one of the product's barcodes. */
+  barcode_match?: boolean;
   product: Product;
   stock_item: { barcode: string; branch_name: string; status: string; in_current_branch: boolean } | null;
   other_branches: { branch_id: string; branch_name: string; available: number }[];
@@ -177,6 +179,8 @@ export default function Pos() {
       return { tone: "error", title: errorMessage(e) };
     }
     const p = { ...(r.product as unknown as PosProduct), ...products.data?.find((x) => x.id === r.product.id) };
+    // Roadmap 173: the code is one of this product's barcodes (main, extra or an old unit label) — it clears the item.
+    const ownBarcode = r.barcode_match ?? p.barcode === code;
     const where = r.other_branches.length ? (
       <span>{translate("Available at")} {r.other_branches.map((b) => `${b.branch_name} (${b.available})`).join(" · ")} — change branch or request a transfer.</span>
     ) : "Not available at any other branch either.";
@@ -205,7 +209,7 @@ export default function Pos() {
     // Roadmap 131: no selling price yet — open it so the price is typed (never added at 0).
     if (p.marked_price == null) {
       setScan(false);
-      open(p, p.barcode === code ? { code, source } : undefined);
+      open(p, ownBarcode ? { code, source } : undefined);
       return { tone: "info", title: `${p.name} has no price yet — enter the selling price` };
     }
     const already = lines.filter((l) => l.product.id === p.id).reduce((a, l) => a + l.quantity, 0);
@@ -214,7 +218,7 @@ export default function Pos() {
     }
     // The product barcode clears it at the counter (Require barcode clearance).
     // A typed product barcode still finds the product, but clears it only where typing is allowed.
-    const cleared = p.barcode === code && !(source === "manual" && !typingAllowed && s.sales.require_barcode_clearance) ? code : undefined;
+    const cleared = ownBarcode && !(source === "manual" && !typingAllowed && s.sales.require_barcode_clearance) ? code : undefined;
     // Quantity entry locked at the till: the server takes one unit per line, so each scan is its own line.
     const same = qtyLockedAtTill ? undefined : lines.find((l) => l.product.id === p.id && !l.product.track_items && l.unitPrice === toNum(p.marked_price) && !l.saleDate);
     const lineKey = same?.key ?? newRef();

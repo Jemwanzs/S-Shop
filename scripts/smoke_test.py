@@ -5051,7 +5051,7 @@ call("POST", "/sales", {"items": [{"product_id": p170, "quantity": 2, "unit_pric
                         "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
 check("sold 2 by scanning an old label: stock falls by 2", lvl170() == 7, lvl170())
 r = call("POST", "/stock/receive", {"product_id": p170, "quantity": 1, "barcodes": [u169], "barcode_sources": ["scanner"]}, expect=422)
-check("another product's old label is still refused", "does not match" in r["error"]["message"], r)
+check("another product's old label is still refused, naming that product", r["error"]["title"] == "Barcode belongs to another product", r)
 q170 = call("POST", "/products", {"name": f"Bvlgari Gemme {suffix}", "marked_price": 20000, "track_items": True})["result"]["id"]
 call("PUT", "/settings/workflows/stock.add", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
 held170 = call("POST", "/stock/receive", {"product_id": q170, "quantity": 1, "barcodes": [call("POST", "/barcodes/generate", {"product_id": q170, "quantity": 1})["codes"][0]], "labels_attached": True, "labels_verified": True})
@@ -5173,6 +5173,49 @@ call("PUT", "/settings/workflows/stock.void", {"enabled": False, "levels": [{"ap
 d172 = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": why172, "quantity": 1})
 check("with the approval switched off the deletion applies at once", not d172.get("pending_approval") and lv172() == 2, d172)
 call("PUT", "/settings/workflows/stock.void", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+
+step("Roadmap 173: one product with several shared barcodes")
+bc1, bc2 = f"321{suffix[-6:]}6", f"321{suffix[-6:]}7"
+pa = call("POST", "/products", {"name": f"Product A {suffix}", "marked_price": 100, "barcode": bc1})["result"]["id"]
+pb = call("POST", "/products", {"name": f"Product B {suffix}", "marked_price": 50, "barcode": f"555{suffix[-6:]}0"})["result"]["id"]
+lv173 = lambda pid=pa: next(l for l in call("GET", f"/products/{pid}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"]
+r = call("POST", f"/products/{pa}/barcodes", {"barcode": bc2})
+check("a second barcode is added to Product A", call("GET", f"/products/{pa}")["barcodes"] == [bc2] and call("GET", f"/products/{pa}")["product"]["barcode"] == bc1, r)
+check("adding it again changes nothing", call("POST", f"/products/{pa}/barcodes", {"barcode": bc2}).get("already") is True)
+r = call("POST", f"/products/{pa}/barcodes", {"barcode": f"555{suffix[-6:]}0"}, expect=422)
+check("another product's barcode is refused, naming it", r["error"]["title"] == "Barcode already in use" and f"Product B {suffix}" in r["error"]["message"], r)
+r = call("PUT", f"/products/{pb}", {"name": f"Product B {suffix}", "marked_price": 50, "barcode": bc2}, expect=422)
+check("…and no other product may take it as its main barcode", "already belongs" in r["error"]["message"], r)
+lk = call("GET", f"/products/lookup?code={bc2}")
+check("either barcode identifies Product A", lk["product"]["id"] == pa and lk["barcode_match"] is True and call("GET", f"/products/lookup?code={bc1}")["barcode_match"] is True)
+call("POST", "/stock/receive", {"product_id": pa, "quantity": 6, "barcodes": [bc1, bc2], "barcode_counts": {bc1: 3, bc2: 3}, "barcode_sources": ["scanner", "scanner"]})
+check("received 3 under each barcode: 6 units of one product (counted once)", lv173() == 6, lv173())
+mv173 = next(m for m in call("GET", f"/stock/movements?product_id={pa}&period=year&limit=10")["items"] if m["kind"] == "received")
+check("the movement notes which barcodes the units came under", f"{bc1} × 3" in mv173["notes"] and f"{bc2} × 3" in mv173["notes"] and mv173["quantity"] == 6, mv173["notes"])
+r = call("POST", "/stock/receive", {"product_id": pa, "quantity": 5, "barcodes": [bc1, bc2], "barcode_counts": {bc1: 3, bc2: 3}}, expect=400)
+check("counts that do not add up are refused", "add up" in r["error"]["message"], r)
+r = call("POST", "/stock/receive", {"product_id": pa, "quantity": 1, "barcodes": [f"999{suffix[-6:]}1"]}, expect=422)
+check("a barcode not on the product is refused, with the way to add it", r["error"]["title"] == "Barcode not on this product", r)
+r = call("POST", "/stock/receive", {"product_id": pa, "quantity": 1, "barcodes": [f"555{suffix[-6:]}0"]}, expect=422)
+check("another product's barcode is refused with its name", r["error"]["title"] == "Barcode belongs to another product" and f"Product B {suffix}" in r["error"]["message"], r)
+s173 = call("GET", "/settings")["settings"]
+call("PUT", "/settings", {**s173, "sales": {**s173["sales"], "require_barcode_clearance": True}})
+call("POST", "/sales", {"items": [{"product_id": pa, "quantity": 2, "unit_price": 100, "barcode": bc2, "scan_source": "scanner"}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+check("the till accepts the second barcode and takes 2 off the product (6 → 4)", lv173() == 4, lv173())
+r = call("POST", "/sales", {"items": [{"product_id": pa, "quantity": 1, "unit_price": 100, "barcode": f"555{suffix[-6:]}0", "scan_source": "scanner"}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, expect=422)
+check("…and refuses another product's barcode", r["error"]["title"] == "Barcode mismatch", r)
+call("PUT", "/settings", s173)
+call("DELETE", f"/products/{pa}/barcodes/{bc2}")
+call("GET", f"/products/lookup?code={bc2}", expect=404)
+check("removing the barcode releases it", call("GET", f"/products/{pa}")["barcodes"] == [])
+call("POST", f"/products/{pb}/barcodes", {"barcode": bc2})
+check("…so another product can take it", call("GET", f"/products/lookup?code={bc2}")["product"]["id"] == pb)
+tp173 = call("POST", "/products", {"name": f"Unit Watch {suffix}", "marked_price": 900, "track_items": True})["result"]["id"]
+r = call("POST", f"/products/{tp173}/barcodes", {"barcode": f"777{suffix[-6:]}3"}, expect=422)
+check("a product with its own barcode per item does not take shared barcodes", r["error"]["title"] == "Barcodes are per item", r)
+call("GET", f"/products/lookup?code={bc1}", token=t2["token"], branch="none", expect=404)
+call("POST", f"/products/{pa}/barcodes", {"barcode": "123"}, token=t2["token"], branch="none", expect=404)
+check("another business neither finds nor changes these barcodes", True)
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

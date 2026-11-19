@@ -10,6 +10,7 @@ import { count, dateTime, money, signed, titleCase } from "@/lib/format";
 import type { Outcome, Paged, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page";
 import { useCatalogueHref } from "@/lib/catalogue";
 import { Pill, StockIndicator } from "@/components/Badges";
@@ -25,6 +26,50 @@ interface Detail {
   branch_ids: string[];
   stock_by_branch: { branch_id: string; branch_name: string; on_hand: number; reserved: number; available: number; is_current: boolean }[];
   pending_approval_id: string | null;
+  /** Roadmap 173: the product's other shared barcodes. */
+  barcodes?: string[];
+}
+
+/** Roadmap 173: a product with several shared barcodes (other packaging, another supplier). Each identifies it; its units are
+ * counted together. Adding refuses a barcode another product or an item in stock already uses; removing releases it. */
+function OtherBarcodes({ productId, main, others, onChanged }: { productId: string; main: string | null; others: string[]; onChanged: () => void }) {
+  const { can } = useSession();
+  const [code, setCode] = useState("");
+  const add = useMutation({
+    mutationFn: () => api(`/products/${productId}/barcodes`, { body: { barcode: code.trim() } }),
+    onSuccess: () => { setCode(""); toast.success("Barcode added"); onChanged(); },
+    onError: (e) => toast.error(e),
+  });
+  const remove = useMutation({
+    mutationFn: (c: string) => api(`/products/${productId}/barcodes/${encodeURIComponent(c)}`, { method: "DELETE" }),
+    onSuccess: () => { toast.success("Barcode removed — it can now be given to another product"); onChanged(); },
+    onError: (e) => toast.error(e),
+  });
+  if (!main && !others.length && !can("products.edit")) return null;
+  return (
+    <div className="space-y-1.5 py-1" data-testid="other-barcodes">
+      {others.length > 0 && (
+        <>
+          <p className="text-xs text-muted-foreground">{t("Other barcodes")}</p>
+          <ul className="space-y-1">
+            {others.map((c) => (
+              <li key={c} className="flex items-center justify-between gap-2 text-sm">
+                <span className="num">{c}</span>
+                {can("products.edit") && <Button size="icon-sm" variant="ghost" aria-label={t("Remove barcode")} disabled={remove.isPending} onClick={() => remove.mutate(c)}><Trash2 /></Button>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {can("products.edit") && (
+        <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) add.mutate(); }}>
+          <Input className="num h-9" value={code} placeholder={t("Add a barcode")} onChange={(e) => setCode(e.target.value)} />
+          <Button type="submit" size="sm" variant="outline" disabled={!code.trim() || add.isPending}>{t("Add")}</Button>
+        </form>
+      )}
+      <p className="text-[11px] text-muted-foreground">{t("The same product in other packaging or from another supplier. Each identifies this product; units are counted together.")}</p>
+    </div>
+  );
 }
 
 interface Movement {
@@ -170,6 +215,7 @@ export default function ProductDetail() {
             {p.cost_price !== null && can("sales.view_financials") && <KV label="Cost price"><span className="num">{money(p.cost_price)}</span></KV>}
             <KV label="Barcode">{p.track_items ? "Per item" : p.barcode ? <span className="num">{p.barcode}</span> : "—"}</KV>
             {!p.track_items && p.barcode && <div className="py-1"><SharedBarcodeLabel barcode={p.barcode} product={p.name} /></div>}
+            {!p.track_items && <OtherBarcodes productId={p.id} main={p.barcode} others={data.barcodes ?? []} onChanged={() => refetch()} />}
             <KV label="Supplier">{p.supplier_name ?? "—"}</KV>
             <KV label="Ordering link">{p.available_for_orders ? "Visible" : "Hidden"}</KV>
             <KV label="Transfers">{p.transfer_allowed ? "Allowed" : "Not allowed"}</KV>

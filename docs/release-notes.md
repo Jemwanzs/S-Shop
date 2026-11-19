@@ -11,6 +11,9 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ## 2026-11-19
 
+- **Products with stock can move to one shared barcode** — no need to sell or write anything off first. Stock stays, old item labels still scan to the product, and the preview says *Ready to convert*, *Conversion requires review* (work in progress, with the reason) or *Blocked*. (170, [module 19](modules/19-barcode-scanning.md))
+- **Stock adjustment: Others** — the last type, with *Added to stock* / *Removed from stock* and a required explanation, shown to approvers and kept in the history. (171, [module 07](modules/07-stock.md))
+- **Delete stock received by mistake** — Stock → Movements → ⋯ → *Request inventory deletion* (or from a barcoded item). It goes for approval (on by default); after approval the stock is taken off, the original receipt stays marked *Reversed*, and the item's barcode can be used again. Sold or moved stock is not deleted. (172, [module 07](modules/07-stock.md))
 - **Product Barcode Nature** — Settings → Products → *Barcode & Quantity Tracking* counts products using *Individual Items* and *Product Barcode (Shared)*. *Review and change products* switches many at once: select, preview each one (will change, already, or cannot change yet with the reason), confirm. Barcodes, stock and history stay; no product barcode has to be added. (169, [module 19](modules/19-barcode-scanning.md))
 - **Fix: Excel Stock Tracking on update** — *Update existing products* ignored the Stock Tracking column; it now changes a product's tracking after the same checks, and refuses a product that cannot change yet with the reason. (169, [module 33](modules/33-onboarding.md))
 

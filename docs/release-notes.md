@@ -9,6 +9,11 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-19
+
+- **Product Barcode Nature** — Settings → Products → *Barcode & Quantity Tracking* counts products using *Individual Items* and *Product Barcode (Shared)*. *Review and change products* switches many at once: select, preview each one (will change, already, or cannot change yet with the reason), confirm. Barcodes, stock and history stay; no product barcode has to be added. (169, [module 19](modules/19-barcode-scanning.md))
+- **Fix: Excel Stock Tracking on update** — *Update existing products* ignored the Stock Tracking column; it now changes a product's tracking after the same checks, and refuses a product that cannot change yet with the reason. (169, [module 33](modules/33-onboarding.md))
+
 ## 2026-11-18
 
 - **Camera scanning** — the same barcode counts again only 3 seconds after it was last counted, each barcode on its own clock; another barcode counts at once. While waiting the scanner shows *Please wait — same barcode ready in 2.1s*, with no sound. (163, [module 19](modules/19-barcode-scanning.md))

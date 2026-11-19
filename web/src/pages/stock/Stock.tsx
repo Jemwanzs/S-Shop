@@ -18,6 +18,7 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { AdjustDialog } from "./AdjustDialog";
 import { ItemBarcodeActions } from "@/components/ItemBarcodes";
+import { DeletionDialog, MovementActions, voidState } from "./InventoryDeletion";
 import { StockBalancesDialog } from "./StockBalancesDialog";
 import { t as tr } from "@/lib/i18n";
 
@@ -180,8 +181,8 @@ function Position() {
   );
 }
 
-interface MovementRow { id: string; created_at: string; branch_name: string; product_id: string; product_name: string; kind: string; quantity: number; barcode: string | null; notes: string; user_name: string | null; ref_type: string | null; ref_id: string | null }
-const KINDS = ["received", "opening", "sale", "order_completion", "transfer_out", "transfer_in", "customer_return", "sale_reversal", "supplier_return", "damage", "loss", "write_off", "adjustment", "count_variance"];
+interface MovementRow { id: string; created_at: string; branch_name: string; product_id: string; product_name: string; kind: string; quantity: number; barcode: string | null; notes: string; user_name: string | null; ref_type: string | null; ref_id: string | null; void_status: string | null; reversed_qty: number; }
+const KINDS = ["received", "opening", "sale", "order_completion", "transfer_out", "transfer_in", "customer_return", "sale_reversal", "receipt_reversal", "supplier_return", "damage", "loss", "write_off", "adjustment", "count_variance"];
 
 function refLink(r: MovementRow) {
   if (r.ref_type === "sale") return `/sales/${r.ref_id}`;
@@ -220,10 +221,13 @@ function Movements({ productId }: { productId?: string }) {
           { key: "branch", header: "Branch", cell: (r) => r.branch_name, hideBelow: "lg" },
           { key: "notes", header: "Reference", cell: (r) => <span className="text-muted-foreground">{r.notes}</span>, hideBelow: "lg" },
           { key: "user", header: "By", cell: (r) => r.user_name ?? "—", hideBelow: "xl" },
+          // Roadmap 172: the line's deletion state, and its actions.
+          { key: "actions", header: "", align: "right", cell: (r) => <div className="flex items-center justify-end gap-1">{voidState(r) && <Pill tone={voidState(r)![0]}>{tr(voidState(r)![1])}</Pill>}<MovementActions row={r} /></div> },
         ]}
         mobile={(r) => (
-          <CardRow title={r.product_name} subtitle={`${titleCase(r.kind)} · ${dateTime(r.created_at)}${r.notes ? ` · ${r.notes}` : ""}`} value={<span className={r.quantity > 0 ? "text-success" : "text-destructive"}>{signed(r.quantity)}</span>} />
+          <CardRow title={r.product_name} meta={voidState(r) && <Pill tone={voidState(r)![0]}>{tr(voidState(r)![1])}</Pill>} subtitle={`${titleCase(r.kind)} · ${dateTime(r.created_at)}${r.notes ? ` · ${r.notes}` : ""}`} value={<span className={r.quantity > 0 ? "text-success" : "text-destructive"}>{signed(r.quantity)}</span>} />
         )}
+        mobileActions={(r) => <MovementActions row={r} />}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}
       />
     </>
@@ -276,6 +280,9 @@ function Barcodes({ productId }: { productId?: string }) {
   // Roadmap 136: rows open by item (their barcodes are masked); a scanned code is traced as scanned.
   const [lookup, setLookup] = useState<{ code?: string; id?: string } | null>(null);
   const [scan, setScan] = useState(false);
+  const { can } = useSession();
+  // Roadmap 172: an item in stock whose receipt is being deleted.
+  const [deletingItem, setDeletingItem] = useState<string | null>(null);
   const term = useDebounced(q);
   const query = { status: status || undefined, q: term, product_id: productId, limit: LIMIT, offset };
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ["stock", "items", query], queryFn: () => api<Paged<ItemRow>>("/stock/items", { query }), placeholderData: (p) => p });
@@ -311,6 +318,7 @@ function Barcodes({ productId }: { productId?: string }) {
         mobile={(r) => <CardRow title={<span className="num">{r.barcode}</span>} subtitle={`${r.product_name} · ${r.branch_name}`} meta={<StatusBadge status={r.status} />} />}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}
       />
+      {deletingItem && <DeletionDialog path={`/stock/items/${deletingItem}/void`} onClose={() => setDeletingItem(null)} onDone={() => { setLookup(null); refetch(); }} />}
       <BarcodeScanner open={scan} onOpenChange={setScan} onDetected={(code) => setLookup({ code })} title="Trace a barcode" />
       <ResponsiveDialog open={!!lookup} onOpenChange={(o) => !o && setLookup(null)} title={<span className="num">{history.data?.barcode ?? ""}</span>} description="Barcode history">
         {history.isLoading ? (
@@ -322,6 +330,9 @@ function Barcodes({ productId }: { productId?: string }) {
               <div key={i.id} className="space-y-2">
                 <p className="flex justify-between text-sm"><span>{i.product_name} · {i.branch_name}</span><StatusBadge status={i.status} /></p>
                 <ItemBarcodeActions itemId={i.id} status={i.status} onChanged={() => { history.refetch(); refetch(); }} />
+                {i.status === "in_stock" && can("stock.adjust") && (
+                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeletingItem(i.id)}>{tr("Request inventory deletion")}</Button>
+                )}
               </div>
             ))}
             <ol className="relative space-y-3 border-s ps-5">

@@ -5100,6 +5100,80 @@ check("an item with its own barcode: Others removes that unit", call("GET", f"/s
 call("POST", "/stock/adjustments", {"product_id": o171, "kind": "other", "direction": "out", "quantity": 1, "reason": why}, token=t2["token"], branch="none", expect=404)
 check("another business cannot adjust it", lv171() == 10)
 
+step("Roadmap 172: deleting inventory captured in error — approval, reversal, barcode release")
+v172 = call("POST", "/products", {"name": f"Void Soap {suffix}", "marked_price": 30, "cost_price": 10})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": v172, "quantity": 5})
+lv172 = lambda pid=v172: next(l for l in call("GET", f"/products/{pid}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"]
+mv = lambda pid: [m for m in call("GET", f"/stock/movements?product_id={pid}&period=year&limit=50")["items"]]
+rec = next(m for m in mv(v172) if m["kind"] == "received")
+chk = call("GET", f"/stock/movements/{rec['id']}/void")
+check("the check shows product, branch, quantity and stock now", chk["eligible"] and chk["max_quantity"] == 5 and chk["on_hand"] == 5 and chk["product"] == f"Void Soap {suffix}", chk)
+r = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": "oops", "quantity": 2}, expect=400)
+check("a written reason is required", "reason" in r["error"]["message"])
+why172 = "Received twice by mistake on the same delivery note"
+p1 = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": why172, "quantity": 2})
+check("inventory deletion goes to approval by default; stock unchanged meanwhile", p1.get("pending_approval") and lv172() == 5, p1)
+r = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": why172, "quantity": 1}, expect=422)
+check("only one request may wait per receipt line", "already waiting" in r["error"]["message"], r)
+row = next(m for m in mv(v172) if m["id"] == rec["id"])
+check("the line shows the request is pending", row["void_status"] == "pending" and row["reversed_qty"] == 0, row)
+req = next(a_ for a_ in call("GET", "/approvals?status=pending")["items"] if a_["id"] == p1["approval_id"])
+check("approvers see product, quantity, branch and reason", req["action"] == "stock.void" and "2 × Void Soap" in req["summary"] and why172 in req["summary"], req["summary"])
+call("POST", f"/approvals/{p1['approval_id']}/reject", {"comments": "Counted again, it was right"})
+check("rejected: inventory unchanged", lv172() == 5 and next(m for m in mv(v172) if m["id"] == rec["id"])["void_status"] == "rejected")
+p2 = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": why172, "quantity": 2})
+call("POST", f"/approvals/{p2['approval_id']}/approve", {"comments": ""})
+check("approved: 2 removed from the branch's stock (5 → 3)", lv172() == 3, lv172())
+ms = mv(v172)
+check("a reversal movement is added; the original receipt stays, marked reversed",
+      any(m["kind"] == "receipt_reversal" and m["quantity"] == -2 for m in ms) and next(m for m in ms if m["id"] == rec["id"])["reversed_qty"] == 2, [(m["kind"], m["quantity"]) for m in ms])
+r = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": why172, "quantity": 4}, expect=400)
+check("cannot reverse more than the line still holds", "1 to 3" in r["error"]["message"], r)
+# Items with their own barcode: release and reuse
+w172 = call("POST", "/products", {"name": f"Void Watch {suffix}", "marked_price": 900, "track_items": True})["result"]["id"]
+g172 = call("POST", "/barcodes/generate", {"product_id": w172, "quantity": 1})["codes"][0]
+call("POST", "/stock/receive", {"product_id": w172, "quantity": 1, "barcodes": [g172], "labels_attached": True, "labels_verified": True})
+it172 = call("GET", f"/stock/barcode/{g172}")["items"][0]["id"]
+pi = call("POST", f"/stock/items/{it172}/void", {"reason": "Label scanned onto the wrong product box"})
+check("an item's deletion waits too; the item stays in stock", pi.get("pending_approval") and call("GET", f"/stock/barcode/{g172}")["items"][0]["status"] == "in_stock")
+call("POST", f"/approvals/{pi['approval_id']}/approve", {"comments": ""})
+check("approved: the item is deleted from stock", call("GET", f"/stock/barcode/{g172}")["items"][0]["status"] == "voided" and lv172(w172) == 0)
+call("POST", "/stock/receive", {"product_id": w172, "quantity": 1, "barcodes": [g172], "labels_attached": True, "labels_verified": True})
+check("its barcode is released: received again on a new unit", lv172(w172) == 1 and any(i["status"] == "in_stock" for i in call("GET", f"/stock/barcode/{g172}")["items"]))
+mcode = f"88{suffix[-6:]}0172"
+call("POST", "/stock/receive", {"product_id": w172, "quantity": 1, "barcodes": [mcode], "barcode_sources": ["manual"]})
+mit = next(i for i in call("GET", f"/stock/barcode/{mcode}")["items"] if i["status"] == "in_stock")["id"]
+pm = call("POST", f"/stock/items/{mit}/void", {"reason": "Manufacturer barcode typed on the wrong product"})
+call("POST", f"/approvals/{pm['approval_id']}/approve", {"comments": ""})
+call("POST", "/stock/receive", {"product_id": w172, "quantity": 1, "barcodes": [mcode], "barcode_sources": ["manual"]})
+check("a manufacturer's barcode is reusable once released", lv172(w172) == 2, lv172(w172))
+# Consumed stock is not deleted
+live = next(i for i in call("GET", f"/stock/barcode/{g172}")["items"] if i["status"] == "in_stock")["id"]
+call("POST", "/sales", {"items": [{"product_id": w172, "quantity": 1, "unit_price": 900, "barcode": g172, "scan_source": "scanner"}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+cs = call("GET", f"/stock/items/{live}/void")
+check("a sold item cannot be deleted (a return corrects it)", not cs["eligible"] and "no longer in stock" in cs["problem"], cs)
+r = call("POST", f"/stock/items/{live}/void", {"reason": "Trying to delete a sold item"}, expect=422)
+check("…refused by the server too", r["error"]["title"] == "Cannot delete this stock", r)
+# A code still needed is not released
+s172 = call("POST", "/products", {"name": f"Void Shared {suffix}", "marked_price": 10, "barcode": f"77{suffix[-6:]}172"})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": s172, "quantity": 2, "barcodes": [f"77{suffix[-6:]}172"]})
+rs = next(m for m in mv(s172) if m["kind"] == "received")
+ps = call("POST", f"/stock/movements/{rs['id']}/void", {"reason": "Received under the wrong product"})
+call("POST", f"/approvals/{ps['approval_id']}/approve", {"comments": ""})
+check("a shared product barcode is never released", lv172(s172) == 0 and call("GET", f"/products/{s172}")["product"]["barcode"] == f"77{suffix[-6:]}172")
+# Who may, and where
+role172 = next(r_ for r_ in call("GET", "/roles") if "stock.adjust" not in (r_.get("permissions") or []) and "*" not in (r_.get("permissions") or []))
+mail172 = f"void{suffix.lower()}@sshop.test"
+call("POST", "/users", {"name": "Void Viewer", "email": mail172, "pin": "4321", "role_id": role172["id"], "all_branches": True, "branch_ids": []})
+vt172 = call("POST", "/auth/login", {"email": mail172, "pin": "4321"})["token"]
+call("POST", f"/stock/movements/{rec['id']}/void", {"reason": why172, "quantity": 1}, token=vt172, expect=403)
+call("GET", f"/stock/movements/{rec['id']}/void", token=t2["token"], branch="none", expect=404)
+check("only people who may adjust stock can ask; another business cannot see the line", lv172() == 3)
+call("PUT", "/settings/workflows/stock.void", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+d172 = call("POST", f"/stock/movements/{rec['id']}/void", {"reason": why172, "quantity": 1})
+check("with the approval switched off the deletion applies at once", not d172.get("pending_approval") and lv172() == 2, d172)
+call("PUT", "/settings/workflows/stock.void", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

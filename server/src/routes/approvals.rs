@@ -452,6 +452,7 @@ pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, 
         "stock.add" | "stock.adjust" | "stock.write_off" => super::stock::on_approved(&mut tx, ctx, &a).await?,
         "stock.transfer" => super::transfers::on_approved(&mut tx, ctx, &a).await?,
         "barcode.replace" => super::barcodes::on_approved(&mut tx, ctx, &a).await?,
+        "stock.void" => super::voids::on_approved(&mut tx, ctx, &a).await?,
         "sale.return" | "sale.cancel" | "credit.recall" | "sale.owner_change" => super::sales::on_approved(&mut tx, ctx, &a).await?,
         "credit.write_off" => super::credit::on_approved(&mut tx, ctx, &a).await?,
         "expense" => super::expenses::on_decided(&mut tx, &a, true).await?,
@@ -756,6 +757,7 @@ async fn on_closed_without_approval(conn: &mut sqlx::PgConnection, ctx: &Ctx, a:
                 .await?;
         }
         "barcode.replace" => super::barcodes::on_closed(conn, a).await?,
+        "stock.void" => super::voids::on_closed(conn, ctx, a, outcome).await?,
         "expense" => super::expenses::on_decided(conn, a, false).await?,
         "data.import" => super::onboarding::on_rejected(conn, ctx, a, outcome).await?,
         _ => {}

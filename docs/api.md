@@ -153,6 +153,8 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | GET | `/api/stock/items` |
 | GET | `/api/stock/barcode/{code}` |
 | GET | `/api/stock/adjustments` |
+| GET / POST | `/api/stock/movements/{id}/void` — roadmap 172: what deleting this receipt line would do (`eligible`, `problem`, `max_quantity`, `on_hand`, masked `barcode`) / request it `{reason, quantity?}` → pending approval (`stock.void`) or done (`stock.adjust`) |
+| GET / POST | `/api/stock/items/{id}/void` — the same for the receipt of one item in stock |
 | POST | `/api/stock/adjustments` — `kind` … or `other` (roadmap 171) with `direction` `in`/`out` and a `reason` of at least 10 characters |
 | POST | `/api/stock/count` — refused (*Stock taking is off*) when `stock.stock_taking` is false (roadmap 164) |
 | GET | `/api/stock/count/pending` — roadmap 164: count adjustments waiting for approval, business-wide → `pending` (`stock.view`) |

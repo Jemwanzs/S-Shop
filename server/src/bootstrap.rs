@@ -61,14 +61,14 @@ pub async fn seed_business(conn: &mut PgConnection, name: &str, slug: &str, acco
         .await?;
 
     for a in ACTIONS {
-        // Sale ownership changes are always reviewed by default (one level: the Tenant Administrator).
+        // Sale ownership changes and inventory deletions (roadmap 172) are reviewed by default (one level: the Tenant Administrator).
         sqlx::query(
             "INSERT INTO workflows (tenant_id, action, enabled, levels) VALUES ($1, $2, $3,
                  jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'approver_type', 'admin')))",
         )
         .bind(tenant_id)
         .bind(a.key)
-        .bind(a.key == "sale.owner_change")
+        .bind(a.key == "sale.owner_change" || a.key == "stock.void")
         .execute(&mut *conn)
         .await?;
     }

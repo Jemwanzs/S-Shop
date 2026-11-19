@@ -28,6 +28,10 @@ approval, audit); products needing a migration are flagged, never converted. Goi
 In the Excel import, *Update existing products* applies a changed *Stock Tracking* the same way; a blank cell keeps the
 product's own.
 
+**Released barcodes (roadmap 172):** an item deleted as captured in error (`voided`) frees its barcode, unless an
+active unit carries it, a waiting request names it or it is a product's shared barcode; the "never reused" rule no longer
+counts voided units, so the code can be received again.
+
 **Products with stock (roadmap 170):** units in stock no longer stop a move to one shared barcode. Each becomes
 `converted` (`stock_items.status`): record, label and history kept; no longer an active unit; the stock carries on by
 quantity (no movement, nothing counted twice). An old label still scans to the product at the till, when receiving and

@@ -42,6 +42,14 @@ refused (named in the message) means nothing is received and the list stays. A l
 request and adds stock only on final approval; rejected, it adds nothing. Prices are unchanged by a delivery scan: open
 a product on its own to change them with the receipt. With quantity entry locked each product stays at 1.
 
+## Deleting inventory captured in error (roadmap 172)
+Stock → Movements → **⋯** on a receipt line, or Barcoded items → an item → *Request inventory deletion* (*stock.adjust*).
+Shows product, branch, barcode, quantity and stock before → after; a reason is required. Goes through **Inventory
+deletion** approval (on by default); nothing changes while it waits; one request per line. On final approval it is
+checked again and reversed by a `receipt_reversal` movement — the original stays, marked **Reversed** — and an item's
+barcode is released for reuse unless something still needs it (an active unit, a waiting request, a shared product
+barcode). Sold, transferred, written-off or reserved stock is corrected by a return or an adjustment instead.
+
 ## Stock take
 **On or off (roadmap 164):** Settings → Stock → Stock settings → *Enable stock taking* (default on, every branch,
 *settings.stock*). Off hides the button and the server refuses new stock takes (`POST /stock/count`, `/stock/count/compare`:

@@ -531,6 +531,10 @@ struct MovementRow {
     ref_id: Option<Uuid>,
     notes: String,
     user_name: Option<String>,
+    /// Roadmap 172: the latest deletion request on this receipt line (pending, completed, rejected, withdrawn) …
+    void_status: Option<String>,
+    /// … and how many of its units were reversed (the line stays, marked *Reversed*).
+    reversed_qty: i32,
 }
 
 #[derive(Deserialize)]
@@ -551,7 +555,9 @@ async fn movements(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Move
     let mut rows: Vec<Counted<MovementRow>> = sqlx::query_as(
         "SELECT COUNT(*) OVER() AS total_count, m.id, m.created_at, m.business_date, m.occurred_on, b.name AS branch_name, m.product_id,
                 p.name AS product_name, m.kind, m.quantity, m.unit_cost, m.unit_price, mask_item(si.barcode) AS barcode, m.ref_type, m.ref_id,
-                m.notes, u.name AS user_name
+                m.notes, u.name AS user_name,
+                (SELECT v.status FROM stock_voids v WHERE v.movement_id = m.id ORDER BY v.created_at DESC LIMIT 1) AS void_status,
+                COALESCE((SELECT SUM(v.quantity) FROM stock_voids v WHERE v.movement_id = m.id AND v.status = 'completed'), 0)::int AS reversed_qty
          FROM stock_movements m
          JOIN branches b ON b.id = m.branch_id JOIN products p ON p.id = m.product_id
          LEFT JOIN stock_items si ON si.id = m.stock_item_id LEFT JOIN users u ON u.id = m.user_id
@@ -659,7 +665,9 @@ async fn trace(state: &AppState, ctx: &Ctx, code: &str) -> AppResult<Json<Value>
     let ids: Vec<Uuid> = items.iter().map(|i| i.id).collect();
     let mut history: Vec<MovementRow> = sqlx::query_as(
         "SELECT m.id, m.created_at, m.business_date, m.occurred_on, b.name AS branch_name, m.product_id, p.name AS product_name, m.kind, m.quantity,
-                m.unit_cost, m.unit_price, mask_item(si.barcode) AS barcode, m.ref_type, m.ref_id, m.notes, u.name AS user_name
+                m.unit_cost, m.unit_price, mask_item(si.barcode) AS barcode, m.ref_type, m.ref_id, m.notes, u.name AS user_name,
+                (SELECT v.status FROM stock_voids v WHERE v.movement_id = m.id ORDER BY v.created_at DESC LIMIT 1) AS void_status,
+                COALESCE((SELECT SUM(v.quantity) FROM stock_voids v WHERE v.movement_id = m.id AND v.status = 'completed'), 0)::int AS reversed_qty
          FROM stock_movements m JOIN branches b ON b.id = m.branch_id JOIN products p ON p.id = m.product_id
          LEFT JOIN stock_items si ON si.id = m.stock_item_id LEFT JOIN users u ON u.id = m.user_id
          WHERE m.stock_item_id = ANY($1) ORDER BY m.created_at",

@@ -117,7 +117,7 @@ pub async fn check_new_item_codes(conn: &mut PgConnection, tenant: Uuid, product
         }
     }
     let used: Vec<String> = sqlx::query_scalar(
-        "SELECT barcode FROM stock_items WHERE tenant_id = $1 AND barcode = ANY($2)
+        "SELECT barcode FROM stock_items WHERE tenant_id = $1 AND barcode = ANY($2) AND status <> 'voided'
          UNION SELECT barcode FROM stock_item_barcode_history WHERE tenant_id = $1 AND barcode = ANY($2)",
     )
         .bind(tenant)

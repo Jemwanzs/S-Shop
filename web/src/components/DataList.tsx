@@ -37,6 +37,7 @@ export function DataList<T>({
   rowKey,
   onRowClick,
   mobile,
+  mobileActions,
   loading,
   error,
   retry,
@@ -50,6 +51,8 @@ export function DataList<T>({
   rowKey: (row: T) => string;
   onRowClick?: (row: T) => void;
   mobile: (row: T) => ReactNode;
+  /** Roadmap 172: a row's own controls on phones (e.g. a ⋯ menu), beside the row — never inside its button. */
+  mobileActions?: (row: T) => ReactNode;
   loading?: boolean;
   error?: unknown;
   retry?: () => void;
@@ -106,7 +109,7 @@ export function DataList<T>({
       </div>
       <ul className="divide-y md:hidden">
         {rows.map((r) => (
-          <li key={rowKey(r)} className={cn(selection && "flex items-center", selection?.isSelected(r) && "bg-primary/5")}>
+          <li key={rowKey(r)} className={cn((selection || mobileActions) && "flex items-center", selection?.isSelected(r) && "bg-primary/5")}>
             {selection && (
               <div className="ps-3.5">
                 <Checkbox checked={selection.isSelected(r)} onCheckedChange={(v) => selection.toggle(r, v === true)} aria-label={selection.label(r)} className="h-5 w-5" />
@@ -119,6 +122,7 @@ export function DataList<T>({
             ) : (
               <div className="min-w-0 flex-1 px-3.5 py-2.5">{mobile(r)}</div>
             )}
+            {mobileActions && <div className="shrink-0 pe-2">{mobileActions(r)}</div>}
           </li>
         ))}
       </ul>

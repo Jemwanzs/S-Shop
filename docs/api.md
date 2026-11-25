@@ -233,7 +233,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 |---|---|
 | GET | `/api/credit` |
 | GET | `/api/credit/aging` |
-| GET | `/api/credit/{id}` |
+| GET | `/api/credit/{id}` — `items[]` (roadmap 178): `product_name`/`product_code` as sold, `product_id`, `quantity`, `marked_price`, `unit_price`, `discount`, `line_total`, `barcode`, `photo_id`, `product_active`, `current_name` (when renamed), `can_open_product` |
 | POST | `/api/credit/{id}/payments` |
 | POST | `/api/credit/{id}/write-off` |
 | POST | `/api/credit/{id}/recall` — `{items: [{sale_item_id, quantity, barcodes}], reason, settle: refund\|credit, refund_method}` |

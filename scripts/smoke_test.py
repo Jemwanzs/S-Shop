@@ -5404,6 +5404,25 @@ call("GET", f"/products/{pA}/branch-prices", token=t2["token"], branch="none", e
 call("PUT", f"/products/{pA}/branch-prices", {"changes": [{"branch_id": bB, "price": 1, "expected": 117000}]}, token=t2["token"], branch="none", expect=403)
 check("another business neither sees nor changes these prices", bp()[bB]["price"] == "117000.00")
 
+step("Roadmap 178: a credit sale shows exactly what was sold")
+p178 = call("POST", "/products", {"name": f"Credit Watch {suffix}", "marked_price": 1000, "code": f"CW{suffix}"})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": p178, "quantity": 2})
+c178 = call("POST", "/customers", {"mobile": "07" + str(int(time.time() * 1000))[-8:], "first_name": "Titus"})["id"]
+s178 = call("POST", "/sales", {"customer_id": c178, "items": [{"product_id": p178, "quantity": 1, "unit_price": 900}], "payment": {"method": "credit"}, "client_ref": str(uuid.uuid4())})
+d178 = call("GET", f"/credit/{s178['credit']['id']}")
+it178 = d178["items"][0]
+check("the credit sale lists the product: name, code, quantity, price, discount and amount",
+      it178["product_name"] == f"Credit Watch {suffix}" and it178["product_code"] == f"CW{suffix}" and it178["quantity"] == 1
+      and float(it178["marked_price"]) == 1000 and float(it178["discount"]) == 100 and float(it178["line_total"]) == 900 and it178["product_id"] == p178, it178)
+call("PUT", f"/products/{p178}", {"name": f"Renamed Watch {suffix}", "marked_price": 1500, "code": f"RW{suffix}"})
+it178 = call("GET", f"/credit/{s178['credit']['id']}")["items"][0]
+check("after renaming and repricing the product the credit sale still shows it as sold (and the new name)",
+      it178["product_name"] == f"Credit Watch {suffix}" and it178["product_code"] == f"CW{suffix}" and float(it178["line_total"]) == 900
+      and it178["current_name"] == f"Renamed Watch {suffix}", it178)
+call("POST", f"/products/{p178}/status", {"is_active": False, "reason": "Discontinued line"})
+it178 = call("GET", f"/credit/{s178['credit']['id']}")["items"][0]
+check("…and after deactivating it", it178["product_name"] == f"Credit Watch {suffix}" and it178["product_active"] is False, it178)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

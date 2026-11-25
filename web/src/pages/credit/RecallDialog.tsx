@@ -25,6 +25,16 @@ export interface SoldItem {
   unit_price: Money;
   barcode: string | null;
   tracked: boolean;
+  /** Roadmap 178: as recorded on the sale (name and code then), with the product's photo and whether it is still active. */
+  product_id?: string;
+  marked_price?: Money;
+  discount?: Money;
+  line_total?: Money;
+  photo_id?: string | null;
+  product_active?: boolean;
+  /** The product's name now, when it was renamed after the sale. */
+  current_name?: string | null;
+  can_open_product?: boolean;
 }
 
 /**

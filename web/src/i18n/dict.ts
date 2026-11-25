@@ -4026,4 +4026,9 @@ export const DICT: Record<string, [string, string, string]> = {
   "No barcode could be read from this photo": ["Hakuna msimbo uliosomeka kwenye picha hii", "Aucun code-barres lisible sur cette photo", "تعذّرت قراءة أي باركود من هذه الصورة"],
   "Take it again closer and straight on, without reflections — or type the code.": ["Piga tena karibu na moja kwa moja, bila mng'ao — au andika msimbo.", "Reprenez-la de plus près et de face, sans reflet — ou saisissez le code.", "التقطها مجددًا عن قرب ومن الأمام دون انعكاس — أو اكتب الرمز."],
   "This photo could not be opened": ["Picha hii haikufunguka", "Impossible d'ouvrir cette photo", "تعذّر فتح هذه الصورة"],
+  "Product sold": ["Bidhaa iliyouzwa", "Produit vendu", "المنتج المباع"],
+  "Products sold": ["Bidhaa zilizouzwa", "Produits vendus", "المنتجات المباعة"],
+  "on credit": ["kwa mkopo", "à crédit", "بالآجل"],
+  "Product inactive now": ["Bidhaa haitumiki sasa", "Produit inactif maintenant", "المنتج غير نشط الآن"],
+  "Now called": ["Sasa inaitwa", "Appelé maintenant", "اسمه الآن"],
 };

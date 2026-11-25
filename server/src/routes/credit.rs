@@ -174,13 +174,21 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     .fetch_all(&mut *conn)
     .await?;
     // What was sold (for recalls) and every recall so far.
-    let items: Vec<(Uuid, String, String, i32, i32, Decimal, Option<String>, bool)> = sqlx::query_as(
-        "SELECT si.id, p.name, p.code, si.quantity, si.returned_qty, si.unit_price, CASE WHEN si.stock_item_id IS NOT NULL THEN mask_item(si.barcode) ELSE si.barcode END, si.stock_item_id IS NOT NULL
-         FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = $1 ORDER BY p.name, si.barcode",
+    // Roadmap 178: as recorded on the sale — the product's name and code then, the price marked, the price sold at and
+    // the line's total; the photo and whether it is still active come from the product now.
+    #[allow(clippy::type_complexity)]
+    let items: Vec<(Uuid, String, String, i32, i32, Decimal, Option<String>, bool, Uuid, Decimal, Decimal, Option<Uuid>, bool, String)> = sqlx::query_as(
+        "SELECT si.id, COALESCE(si.product_name, p.name), COALESCE(si.product_code, p.code), si.quantity, si.returned_qty, si.unit_price,
+                CASE WHEN si.stock_item_id IS NOT NULL THEN mask_item(si.barcode) ELSE si.barcode END, si.stock_item_id IS NOT NULL,
+                p.id, si.marked_price, si.line_total,
+                (SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order LIMIT 1),
+                p.is_active, p.name
+         FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = $1 ORDER BY COALESCE(si.product_name, p.name), si.barcode",
     )
     .bind(row.sale_id)
     .fetch_all(&mut *conn)
     .await?;
+    let see_products = ctx.can("products.view") || ctx.can("stock.view");
     let recalls: Vec<(String, String, Decimal, Option<Decimal>, Option<Decimal>, Decimal, String, DateTime<Utc>, Option<String>, Value)> = sqlx::query_as(
         "SELECT r.return_no, r.reason, r.refund_amount, r.balance_before, r.balance_after, r.customer_credit, r.refund_method, r.created_at, u.name,
                 COALESCE((SELECT jsonb_agg(jsonb_build_object('product', p.name, 'quantity', ri.quantity, 'barcode', CASE WHEN si.stock_item_id IS NOT NULL THEN mask_item(si.barcode) ELSE si.barcode END))
@@ -194,9 +202,12 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
     let open = !matches!(row.status.as_str(), "written_off" | "cancelled" | "recalled") && items.iter().any(|i| i.3 > i.4);
     Ok(Json(json!({
         "can_recall": open && ctx.can("credit.recall"),
-        "items": items.into_iter().map(|(id, name, code, qty, returned, price, barcode, tracked)| json!({
+        "items": items.into_iter().map(|(id, name, code, qty, returned, price, barcode, tracked, pid, marked, total, photo, active, now_name)| json!({
             "id": id, "product_name": name, "product_code": code, "quantity": qty, "returned_qty": returned,
             "unit_price": price, "barcode": barcode, "tracked": tracked,
+            "product_id": pid, "marked_price": marked, "discount": (marked - price).max(Decimal::ZERO) * Decimal::from(qty), "line_total": total,
+            "photo_id": photo, "product_active": active, "current_name": if now_name != name { Some(now_name) } else { None },
+            "can_open_product": see_products,
         })).collect::<Vec<_>>(),
         "recalls": recalls.into_iter().map(|(no, reason, amount, before, after, credit, method, at, user, items)| json!({
             "return_no": no, "reason": reason, "amount": amount, "balance_before": before, "balance_after": after,

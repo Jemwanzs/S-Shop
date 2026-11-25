@@ -53,7 +53,8 @@
         "Credit statement per customer: opening balance, every charge, payment, return and write-off with a running balance, closing balance and what is still to pay, as an A4 PDF",
         "Statuses for open, partially paid, paid, overdue and written-off credit",
         "Overdue reminders to the team, plus credit aging and credit sales reports",
-        "Write-offs controlled through approval workflows"
+        "Write-offs controlled through approval workflows",
+        "Each credit sale shows the product sold — photo, name and code as sold, quantity, price, discount and the amount on credit — even after the product is renamed or repriced"
       ]
     },
     {

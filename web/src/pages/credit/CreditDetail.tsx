@@ -17,6 +17,8 @@ import { ConfirmDialog, Field } from "@/components/Form";
 import { Chip } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { t } from "@/lib/i18n";
+import { ProductThumb } from "@/pages/sales/pos/ProductGrid";
+import { Pill } from "@/components/Badges";
 
 interface Detail {
   credit: CreditRow;
@@ -118,6 +120,14 @@ export default function CreditDetail() {
             </div>
             <p className="num mt-1.5 text-xs text-muted-foreground">{money(c.amount_paid)} paid of {money(toNum(c.original_amount) - toNum(c.adjustments))}</p>
           </div>
+          {/* Roadmap 178: exactly what was sold on credit, as recorded on the sale. */}
+          {data.items.length > 0 && (
+            <Section title={data.items.length === 1 ? "Product sold" : `${t("Products sold")} · ${data.items.length}`}>
+              <ul className="divide-y" data-testid="credit-products">
+                {data.items.map((i) => <SoldLine key={i.id} i={i} />)}
+              </ul>
+            </Section>
+          )}
           <Section title="Payment history">
             {data.payments.length === 0 ? (
               <p className="py-4 text-sm text-muted-foreground">{t("No repayments yet.")}</p>
@@ -229,5 +239,38 @@ export default function CreditDetail() {
         onConfirm={(reason) => writeOff.mutateAsync(reason)}
       />
     </>
+  );
+}
+
+/** Roadmap 178: one item sold on credit — photo, name and code as sold, barcode, quantity, prices and the line's amount. */
+function SoldLine({ i }: { i: SoldItem }) {
+  const name = <span className="font-semibold leading-snug">{i.product_name}</span>;
+  const discount = toNum(i.discount ?? 0);
+  return (
+    <li className="flex gap-3 py-3 first:pt-0 last:pb-0">
+      <ProductThumb id={i.photo_id ?? null} className="h-14 w-14" />
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            {i.can_open_product && i.product_id ? <Link to={`/products/${i.product_id}`} className="hover:text-primary hover:underline">{name}</Link> : name}
+            <div className="num text-xs text-muted-foreground">
+              {i.product_code}{i.barcode && ` · ${i.barcode}`}
+            </div>
+          </div>
+          <div className="shrink-0 text-end">
+            <div className="num font-semibold">{money(i.line_total ?? toNum(i.unit_price) * i.quantity)}</div>
+            <div className="text-[11px] text-muted-foreground">{t("on credit")}</div>
+          </div>
+        </div>
+        <div className="num flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>{t("Qty")} <b className="text-foreground">{i.quantity}</b></span>
+          {i.marked_price !== undefined && <span>{t("Price")} {money(i.marked_price)}</span>}
+          {discount > 0 && <span className="text-warning">{t("Discount")} −{money(discount)}</span>}
+          {i.returned_qty > 0 && <Pill tone="neutral">{i.returned_qty} {t("recalled")}</Pill>}
+          {i.product_active === false && <Pill tone="danger">{t("Product inactive now")}</Pill>}
+        </div>
+        {i.current_name && <p className="text-[11px] text-muted-foreground">{t("Now called")} {i.current_name}</p>}
+      </div>
+    </li>
   );
 }

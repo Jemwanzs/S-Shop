@@ -20,6 +20,8 @@ Header cards: total outstanding and overdue; **aging** bars (not due · 1–30 �
 Columns: customer, receipt, branch, salesperson, amount, paid, **balance**, due date, days outstanding, status.
 
 ## Credit detail
+**Product sold** (roadmap 178), below the outstanding balance: each item as recorded on the sale — photo, name and code at the time of sale, barcode (item barcodes masked), quantity, marked price, discount and the amount on credit; the name opens the product (with product permission); renamed or deactivated products are noted. Sale lines keep the name and code they were sold under (`sale_items.product_name` / `product_code`).
+
 Balance with progress bar, payment history (method, reference, user, time), audit trail, links to the sale and
 customer. Actions:
 - **Record payment** — partial or full; Cash, M-Pesa (code required, or a confirmed STK request), other methods.

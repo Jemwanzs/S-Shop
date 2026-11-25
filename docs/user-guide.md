@@ -67,6 +67,7 @@ Sell on credit with clear balances, due dates and repayment history for every cu
 - Statuses for open, partially paid, paid, overdue and written-off credit
 - Overdue reminders to the team, plus credit aging and credit sales reports
 - Write-offs controlled through approval workflows
+- Each credit sale shows the product sold — photo, name and code as sold, quantity, price, discount and the amount on credit — even after the product is renamed or repriced
 
 <a id="module-5"></a>
 

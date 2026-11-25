@@ -9,6 +9,14 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-25
+
+- **Website and ordering link show in-stock products only** — on for every business (switch it off in Website → Products or Settings → Orders to show out-of-stock products marked *Out of Stock*). Also: *Limit cart quantity to available stock* (on) and *Show available stock quantity* (off: *In stock*, no number). Out-of-stock products can never be ordered; the website checks the cart against stock before checkout. (181, [module 23](modules/23-website.md))
+- **Sign in with Face ID first** — a device with Face ID, fingerprint or Windows Hello sign-in set up opens on *Continue with Face ID / Passkey*; *Sign in with Email Instead* is one tap away. Real devices still to be checked. (180, [module 37](modules/37-face-id-biometric-login.md))
+- **Credit sales: one item each, returned items, swaps** — a credit sale holds one item (a cart of several becomes separate credit sales; switchable). *Record payment → Returned item* settles a credit with an item the customer had paid for (only money actually paid counts). *Swap item* exchanges a credit item for another product as a linked sale. (179, [module 03](modules/03-credit-sales.md))
+- **Credit sale shows the product sold** — photo, name and code as sold, quantity, price, discount and amount, even after the product is renamed. (178, [module 03](modules/03-credit-sales.md))
+- **Fix: import progress** — a finished import could show *Finalizing* for a moment. (179)
+
 ## 2026-11-19
 
 - **Camera scanning of gold, silver and coloured barcodes** — iPhones now read light barcodes on dark boxes (gold on black) and every phone tries enhanced pictures for gold, bronze, silver and faint print; *Zoom* where the camera has it, a tip when a barcode will not read (light, reflections, distance), and *Scan from photo*. S'Shop never guesses a code. Real phones and boxes still to be checked by the owner. (177, [module 19](modules/19-barcode-scanning.md))

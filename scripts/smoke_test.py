@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -340,6 +341,17 @@ def link_token(mail):
 def support_open(tid, scope="full"):
     """Roadmap 71: the platform owner enters another business through a support session (PIN, reason, time limit)."""
     return call("POST", f"/platform/tenants/{tid}/support", {"pin": PIN, "reason": "Smoke test: platform support check", "scope": scope, "minutes": 60})
+
+
+def db_exec(sql, expect_error=False):
+    """Runs SQL on the scratch database (SMOKE_DATABASE_URL, or the local docker database). Returns the error text."""
+    import subprocess
+    url = os.environ.get("SMOKE_DATABASE_URL")
+    cmd = ["psql", url, "-v", "ON_ERROR_STOP=1", "-qc", sql] if url else ["docker", "exec", "sshop-pg", "psql", "-U", "postgres", "-d", os.environ.get("SMOKE_DB", "sshop_ci"), "-v", "ON_ERROR_STOP=1", "-qc", sql]
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if not expect_error and p.returncode != 0:
+        raise AssertionError(p.stderr)
+    return p.stderr
 
 
 def first_login(email, temp_pin, new_pin):
@@ -830,7 +842,10 @@ me_act = call("GET", "/auth/me", token=acting, branch=other_branch)
 check("full access inside the opened business", "*" in me_act["permissions"] and me_act["tenant"]["id"] == other_t["id"])
 check("acting session sees only that business's data", all(x["id"] != nduma for x in call("GET", "/products?status=all", token=acting, branch=other_branch)["items"]))
 audit_o = call("GET", "/audit?period=today&limit=200", token=acting, branch=other_branch)["items"]
-check("support access is in that business's audit trail", any(x.get("action") == "support_started" for x in audit_o))
+sec_o = call("GET", f"/platform/security-audit?session_id={op['id']}")
+check("support access is in the Platform Security Audit Trail (not the business's own audit feed)",
+      any(x["event"] == "session_started" and x["tenant_id"] == other_t["id"] for x in sec_o["items"])
+      and not any(x.get("action") == "support_started" and x.get("created_at", "") >= sec_o["items"][-1]["at"][:19] for x in audit_o), sec_o["items"][:2])
 back = call("POST", f"/platform/tenants/{login['profile']['tenant']['id']}/open", token=acting, branch=other_branch)
 check("return gives a normal session", back["profile"]["acting"] is None and back["profile"]["tenant"]["id"] == login["profile"]["tenant"]["id"])
 
@@ -2736,13 +2751,16 @@ call("POST", f"/support-access/{rq['id']}/approve", **TA)
 st = call("POST", f"/platform/support/{rq['id']}/start", {"pin": PIN})
 SF = {"token": st["token"], "branch": "none"}
 call("POST", "/categories", {"name": f"Support cat {suffix}"}, **SF)
-check("approved full session works and is audited in the business", any(a["action"] == "support_started" for a in call("GET", "/audit?period=today&limit=200", **TA)["items"]))
-call("PUT", "/support-access/policy", {"policy": "notify"}, **SF, expect=403)
+sec_f = call("GET", f"/platform/security-audit?session_id={st['id']}")
+check("approved full session works and is in the Platform Security Audit Trail (request, approval, start, the change)",
+      {"session_requested", "request_approved", "session_started", "change"} <= {x["event"] for x in sec_f["items"]}, [x["event"] for x in sec_f["items"]])
+r = call("PUT", "/support-access/policy", {"policy": "notify"}, **SF, expect=422)
+check("support never changes the consent policy (refused before anything runs)", r["error"]["title"] == "Not from a support session", r)
 cfg_t = call("GET", "/settings", **SF)["settings"]
 cfg_t["security"]["support_access"] = "notify"
 call("PUT", "/settings", cfg_t, **SF)
 check("support can never change the business's consent policy", call("GET", "/support-access", **TA)["policy"] == "approval")
-call("POST", f"/support-access/{rq['id']}/approve", **SF, expect=403)
+call("POST", f"/support-access/{rq['id']}/approve", **SF, expect=422)
 call("POST", "/auth/switch-business", {"tenant_id": home_t}, **SF, expect=422)
 check("no approving or switching from inside a support session", True)
 endr = call("POST", f"/platform/support/{st['id']}/end", **SF)
@@ -2750,6 +2768,95 @@ check("ending returns the platform owner to their own business", endr["profile"]
 r = call("GET", "/auth/me", **SF, expect=401)
 check("the ended support token is closed (sign in again, not an inactivity message)", r["error"]["code"] == "unauthorized", r)
 call("PUT", "/support-access/policy", {"policy": "notify"}, **TA)
+
+step("Roadmap 182: platform support access — full access limits, the Platform Security Audit Trail")
+s182 = call("POST", f"/platform/tenants/{tb1}/support", {"pin": PIN, "reason": "Investigating a stock question", "scope": "full", "minutes": 30})
+S182 = {"token": s182["token"], "branch": "none"}
+check("support opens the business directly with the tenant's workspace (its slug, branches) — no tenant password needed",
+      s182["status"] == "active" and s182["profile"]["tenant"]["id"] == tb1 and s182["profile"]["tenant"]["slug"] and s182["profile"]["branches"]
+      and s182["profile"]["permissions"] == ["*"] and s182["profile"]["acting"]["support"]["scope"] == "full", s182["profile"].get("acting"))
+for m_, p_, b_ in [("GET", "/products?status=all", None), ("GET", "/sales?period=all", None), ("GET", "/customers", None), ("GET", "/reports", None),
+                   ("GET", "/settings", None), ("GET", "/users", None), ("GET", "/roles", None), ("GET", "/audit?period=today", None), ("GET", "/stock", None)]:
+    call(m_, p_, b_, **S182)
+check("full access: the business's modules, settings, people and audit trail can be read", True)
+cat182 = call("POST", "/categories", {"name": f"Support fix {suffix}"}, **S182)
+check("full access: an ordinary operational change works", cat182.get("id"), cat182)
+roles_t = call("GET", "/roles", **TA)
+for m_, p_, b_ in [("POST", "/users", {"name": "Backdoor", "email": f"bd{suffix.lower()}@sshop.test", "pin": "4321", "role_id": roles_t[0]["id"], "all_branches": True, "branch_ids": []}),
+                   ("POST", "/roles", {"name": "Support role", "description": "", "permissions": ["sales.view"]}),
+                   ("PUT", "/security/sessions", {"idle_minutes": 30}),
+                   ("PUT", "/settings/workflows/sale.return", {"enabled": False}),
+                   ("POST", "/billing/invoices/00000000-0000-0000-0000-000000000000/pay", {}),
+                   ("POST", "/auth/passkeys/register/start", {})]:
+    r = call(m_, p_, b_, **S182, expect=422)
+    check(f"full access never changes people, roles, security, approval rules or billing: {m_} {p_}", r["error"]["title"] == "Not from a support session", r)
+check("…and no account was created", not any(u["email"] == f"bd{suffix.lower()}@sshop.test" for u in call("GET", "/users", **TA)))
+audit_t = call("GET", "/audit?period=today&limit=200", **TA)["items"]
+mine_t = [a for a in audit_t if a["module"] == "products" or a["entity_type"] == "category"]
+check("the business's audit trail shows the change as S'Shop Support (the real platform administrator), never as one of its people",
+      any(a["by_support"] and a["user_name"].startswith("S'Shop Support · ") for a in audit_t), [(a["user_name"], a["action"]) for a in audit_t[:5]])
+check("…and its own people's records are unchanged (not marked as support)", any(not a["by_support"] for a in audit_t))
+check("…and support sessions themselves are not in its ordinary audit feed", not any(a["action"] == "support_started" and a["by_support"] for a in audit_t))
+sec182 = call("GET", f"/platform/security-audit?session_id={s182['id']}")
+ev182 = [x["event"] for x in sec182["items"]]
+check("Platform Security Audit Trail: start with reason, mode and authentication; the change; every refused attempt",
+      "session_started" in ev182 and ev182.count("change_refused") >= 6 and "change" in ev182
+      and any(x["event"] == "session_started" and x["reason"] == "Investigating a stock question" and x["scope"] == "full" and x["detail"].get("authentication") == "PIN re-entered"
+              and x["platform_email"] == "admin@sshop.test" for x in sec182["items"]), ev182)
+ss182 = sec182["sessions"][0]
+check("the session counts changes, refused attempts and pages read", ss182["changes"] >= 1 and ss182["refused"] >= 6 and ss182["reads"] >= 9, ss182)
+r = call("GET", "/platform/security-audit", **S182, expect=403)
+check("the trail cannot be opened from inside a support session", True)
+call("GET", "/platform/security-audit", **TA, expect=403)
+check("tenant administrators never see the Platform Security Audit Trail", True)
+check("the business still sees the session (disclosure) in Settings → Security", any(x["id"] == s182["id"] for x in call("GET", "/support-access", **TA)["items"]))
+# Approval rules limited to some of the business's roles still apply to support (it holds none of its roles).
+sales_role_t = next(r_["id"] for r_ in roles_t if r_["name"] == "Salesperson")
+call("PUT", "/settings/workflows/stock.write_off", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None, "conditions": {"role_ids": [sales_role_t]}}, **TA)
+p182 = call("POST", "/products", {"name": f"Support item {suffix}", "marked_price": 900}, **TA)["result"]["id"]
+call("POST", "/stock/receive", {"product_id": p182, "quantity": 3}, **TA)
+w182 = call("POST", "/stock/adjustments", {"product_id": p182, "kind": "write_off", "quantity": 1, "reason": "Damaged in store"}, **S182)
+check("a write-off by full-access support waits for the business's approval (maker-checker preserved)", w182["pending_approval"] is True, w182)
+r = call("POST", f"/approvals/{w182['approval_id']}/approve", {"comments": "self"}, **S182, expect=422)
+check("…and support can never approve it itself", r["error"]["title"] == "Not from a support session", r)
+call("PUT", "/settings/workflows/stock.write_off", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None, "conditions": {}}, **TA)
+# A sign-out inside the support session ends it — no orphaned access.
+call("POST", "/auth/logout", {"reason": "logout"}, **S182)
+check("signing out ends the support session too", next(x for x in call("GET", "/support-access", **TA)["items"] if x["id"] == s182["id"])["status"] == "ended")
+check("…recorded in the Platform Security Audit Trail only", "session_signed_out" in [x["event"] for x in call("GET", f"/platform/security-audit?session_id={s182['id']}")["items"]]
+      and not any(a["action"] == "logout" and a["user_name"] and "Admin" in (a["user_name"] or "") and a["by_support"] for a in call("GET", "/audit?period=today&limit=50", **TA)["items"]))
+# View only: nothing changes, refused attempts are recorded.
+v182 = call("POST", f"/platform/tenants/{tb1}/support", {"pin": PIN, "reason": "Read-only look at the reports", "scope": "view", "minutes": 15})
+V182 = {"token": v182["token"], "branch": "none"}
+call("GET", "/reports", **V182)
+r = call("POST", "/categories", {"name": "Never"}, **V182, expect=422)
+check("view only: refused at the server", r["error"]["title"] == "View-only support access")
+# The business revokes it: access stops at once; the token can only take the platform owner home.
+call("POST", f"/support-access/{v182['id']}/revoke", **TA)
+r = call("GET", "/products", **V182, expect=422)
+check("revoked: access stops immediately", r["error"]["title"] == "Support session ended", r)
+home182 = call("POST", f"/platform/support/{v182['id']}/end", None, **V182)
+check("…and the platform owner returns to their own console without signing in again", home182["profile"]["tenant"]["id"] == home_t and home182["profile"]["acting"] is None)
+call("GET", "/products", **V182, expect=401)
+check("the old support token is closed after returning", True)
+ev_v = [x["event"] for x in call("GET", f"/platform/security-audit?session_id={v182['id']}")["items"]]
+check("view session in the trail: started, refused change, revoked by the business", {"session_started", "change_refused", "session_revoked"} <= set(ev_v), ev_v)
+# The time limit: expired sessions stop and are recorded once.
+e182 = call("POST", f"/platform/tenants/{tb1}/support", {"pin": PIN, "reason": "Short check on the stock count", "scope": "view", "minutes": 15})
+E182 = {"token": e182["token"], "branch": "none"}
+db_exec(f"UPDATE support_sessions SET expires_at = now() - interval '1 second' WHERE id = '{e182['id']}'")
+r = call("GET", "/products", **E182, expect=422)
+check("time limit reached: access stops", r["error"]["title"] == "Support session ended", r)
+call("GET", "/products", **E182, expect=422)
+back182 = call("POST", f"/platform/support/{e182['id']}/end", None, **E182)
+ev_e = [x["event"] for x in call("GET", f"/platform/security-audit?session_id={e182['id']}")["items"]]
+check("expiry recorded once; the platform owner gets back home", ev_e.count("session_expired") == 1 and back182["profile"]["acting"] is None, ev_e)
+r = db_exec("DELETE FROM platform_audit_log", expect_error=True)
+check("the Platform Security Audit Trail cannot be deleted or changed (enforced by the database)", "cannot be changed or deleted" in r, r)
+r = db_exec("UPDATE platform_audit_log SET reason = 'x'", expect_error=True)
+check("…nor edited", "cannot be changed or deleted" in r, r)
+sec_all = call("GET", "/platform/security-audit?period=today&kind=sessions")
+check("trail filters: sessions only; never another platform's records", sec_all["items"] and all(x["event"].startswith(("session_", "request_", "approval_")) for x in sec_all["items"]))
 # 72 — several businesses per tenant, one sign-in
 nb = call("POST", f"/platform/accounts/{tacc['id']}/businesses", {"name": f"Tenant Co Two {suffix}"})
 tb2 = nb["tenant_id"]
@@ -5576,6 +5683,88 @@ check("…a cart within stock passes", call("POST", f"/site/cart/check?slug={dk_
 call("PUT", "/website/stock", {"setting": "show_stock_quantity", "on": False}, token=t2["token"], branch="none")
 call("PUT", "/website/stock", {"setting": "in_stock_only", "on": True}, token=t2["token"], branch="none")
 check("products, publication and stock untouched by the settings", call("GET", f"/products/{wb_out}", **T2B)["product"]["is_active"] is True)
+
+step("Roadmap 183: the Tenant Administrator role — optional permissions, locked essentials")
+cat183 = [k for g in call("GET", "/permissions") for k, _ in g["permissions"]]
+roles183 = call("GET", "/roles")
+adm183 = next(r_ for r_ in roles183 if r_["is_system"])
+LOCKED183 = {"users.manage", "roles.manage", "settings.manage", "branches.manage", "approvals.approve", "audit.view"}
+check("the Tenant Administrator role is editable by its administrator, with every permission on and the essentials locked",
+      adm183["editable"] is True and adm183["excluded_permissions"] == [] and LOCKED183 <= set(adm183["locked"])
+      and all(k in adm183["locked"] for k in cat183 if k.startswith("settings.")), {k: adm183[k] for k in ("editable", "excluded_permissions")})
+r = call("PUT", f"/roles/{adm183['id']}", {"name": adm183["name"], "permissions": [k for k in cat183 if k != "users.manage"]}, expect=422)
+check("an essential permission cannot be switched off — even by a direct request", r["error"]["title"] == "Required permission" and "cannot be disabled" in r["error"]["message"], r)
+r = call("PUT", f"/roles/{adm183['id']}", {"name": adm183["name"], "permissions": [k for k in cat183 if not k.startswith("settings.")]}, expect=422)
+check("…nor any settings area", r["error"]["title"] == "Required permission", r)
+call("PUT", f"/roles/{adm183['id']}", {"name": adm183["name"], "permissions": [k for k in cat183 if k not in ("expenses.view", "sales.backdate")]})
+adm183b = next(r_ for r_ in call("GET", "/roles") if r_["is_system"])
+me183 = call("GET", "/auth/me")
+check("optional permissions switched off and saved; the role keeps full access and its name",
+      sorted(adm183b["excluded_permissions"]) == ["expenses.view", "sales.backdate"] and adm183b["name"] == "Tenant Administrator"
+      and "*" in me183["permissions"] and "-expenses.view" in me183["permissions"], adm183b["excluded_permissions"])
+r = call("GET", "/expenses?period=today", expect=403)
+check("a switched-off permission takes effect at once on the server", True)
+check("…while administration still works (users, roles, settings, platform)", call("GET", "/users") is not None and call("GET", "/settings") and call("GET", "/platform/tenants")["items"])
+au183 = next(a_ for a_ in call("GET", "/audit?period=today&module=roles&limit=20")["items"] if a_["entity_id"] == adm183["id"])
+check("the change is in the audit trail with before and after", au183["before"]["switched_off"] == [] and sorted(au183["after"]["switched_off"]) == ["expenses.view", "sales.backdate"], au183)
+sp183 = support_open(tb1)
+SP183 = {"token": sp183["token"], "branch": "none"}
+adm_tb1 = next(r_ for r_ in call("GET", "/roles", **SP183) if r_["is_system"])
+check("other businesses keep their own Tenant Administrator role", adm_tb1["excluded_permissions"] == [], adm_tb1)
+rm183 = call("POST", "/roles", {"name": f"Role keeper {suffix}", "description": "", "permissions": ["roles.manage", "users.manage"]})["id"]
+keeper = make_user("keeper183", rm183)
+kr = next(r_ for r_ in call("GET", "/roles", token=keeper) if r_["is_system"])
+check("other roles do not get the Edit button for the Tenant Administrator role", kr["editable"] is False)
+r = call("PUT", f"/roles/{adm183['id']}", {"name": "x", "permissions": cat183}, token=keeper, expect=403)
+check("…and are refused through the API", "Tenant Administrator" in r["error"]["message"], r)
+r = call("PUT", f"/roles/{adm_tb1['id']}", {"name": "x", "permissions": []}, **SP183, expect=422)
+check("S'Shop support can never change a business's Tenant Administrator role", r["error"]["title"] == "Not from a support session", r)
+call("POST", f"/platform/support/{sp183['id']}/end", None, **SP183)
+call("PUT", f"/roles/{adm183['id']}", {"name": adm183["name"], "permissions": cat183})
+check("switching everything back on restores the full role", next(r_ for r_ in call("GET", "/roles") if r_["is_system"])["excluded_permissions"] == []
+      and not any(p_.startswith("-") for p_ in call("GET", "/auth/me")["permissions"]))
+
+step("Roadmap 184: live customer search at the till, quick customer creation")
+k184 = suffix.lower() + "q"
+base184 = str(int(time.time() * 1000))[-6:]
+c184 = {}
+for i_, (fn_, on_) in enumerate([(f"Am{k184}ani", "Wanjiru"), (f"Am{k184}anda", "Otieno"), (f"Am{k184}os", "Kiprop"), (f"Zed{k184}", f"Am{k184}ina")]):
+    mob_ = f"07{base184}{i_}{i_}"
+    c184[fn_] = call("POST", "/customers", {"mobile": mob_, "first_name": fn_, "other_names": on_})["id"]
+names = lambda q_, **kw: [f"{x['first_name']} {x['other_names']}" for x in call("GET", f"/customers/search?q={urllib.parse.quote(q_)}", **kw)["items"]]
+r1 = names(f"am{k184}")
+check("from the first letters: every customer whose name starts with or contains it, first names first (case-insensitive)",
+      r1[:3] and all(n_.startswith(f"Am{k184}") for n_ in r1[:3]) and len(r1) == 4 and r1[3].startswith(f"Zed{k184}"), r1)
+check("narrows as you type", names(f"AM{k184}AN") == [f"Am{k184}ani Wanjiru", f"Am{k184}anda Otieno"] or sorted(names(f"AM{k184}AN")) == sorted([f"Am{k184}ani Wanjiru", f"Am{k184}anda Otieno"]))
+check("full name and surname", names(f"Am{k184}ani Wanjiru") == [f"Am{k184}ani Wanjiru"] and names(f"otieno am{k184}") == [f"Am{k184}anda Otieno"])
+mob0 = f"07{base184}00"
+def mobiles(q_): return [x["mobile"] for x in call("GET", f"/customers/search?q={urllib.parse.quote(q_)}")["items"]]
+want = "254" + mob0[1:]
+check("mobile numbers: partial, 07…, 254…, +254 … and digits in the middle",
+      want in mobiles(mob0[:8]) and want in mobiles("254" + mob0[1:8]) and want in mobiles("+254 " + mob0[1:4] + " " + mob0[4:9]) and want in mobiles(mob0[4:10]), mobiles(mob0[:8]))
+check("a complete number finds exactly that customer", mobiles(mob0) == [want])
+check("nothing typed, nothing found", call("GET", "/customers/search?q=")["items"] == [])
+check("no match: an empty list (the till offers Add new customer)", call("GET", f"/customers/search?q=nobody{k184}")["items"] == [])
+r = call("GET", "/customers/search?q=0")
+check("long lists are limited and say there are more", len(r["items"]) <= 8 and (r["more"] or len(r["items"]) < 8), len(r["items"]))
+r = call("GET", "/customers/search?q=" + urllib.parse.quote("%_"))
+check("wildcards are searched literally", r["items"] == [] or all("%" in (x["first_name"] + x["other_names"] + x["nickname"]) for x in r["items"]))
+cashier184 = make_user("cashier184", roles14["Salesperson"]["id"])
+check("a cashier (Record sales) can search", len(call("GET", f"/customers/search?q=am{k184}", token=cashier184)["items"]) == 4)
+nope184 = make_user("nope184", call("POST", "/roles", {"name": f"Stock only {suffix}", "description": "", "permissions": ["stock.view"]})["id"])
+call("GET", f"/customers/search?q=am{k184}", token=nope184, expect=403)
+check("people who neither sell nor see customers cannot search them", True)
+sp184 = support_open(tb1)
+check("never another business's customers", call("GET", f"/customers/search?q=am{k184}", token=sp184["token"], branch="none")["items"] == [])
+call("POST", f"/platform/support/{sp184['id']}/end", None, token=sp184["token"], branch="none")
+r = call("POST", "/customers", {"mobile": "+254 " + mob0[1:], "first_name": "Duplicate"}, expect=422)
+check("duplicate prevented: the same number in another format names the customer who has it", f"Am{k184}ani Wanjiru" in r["error"]["message"], r)
+new184 = call("POST", "/customers", {"mobile": f"07{base184}77", "first_name": f"Ne{k184}w", "other_names": "Buyer"})
+look = call("GET", f"/customers/lookup?mobile={new184['mobile']}")["customer"]
+s184 = call("POST", "/sales", {"customer_id": look["id"], "items": [{"product_id": nduma, "quantity": 1, "unit_price": 400}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+prof184 = call("GET", f"/customers/{look['id']}")
+check("a customer added at the till is attached to the sale: history, receipt and points", any(x["id"] == s184["sale"]["id"] for x in prof184["sales"]) and prof184["customer"]["purchase_count"] == 1, prof184["sales"][:1])
+check("found by name straight after", names(f"ne{k184}w") == [f"Ne{k184}w Buyer"])
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

@@ -28,7 +28,8 @@
         "Sale Date: today by default; authorised staff can record an earlier date for the whole sale or for one product, never a future date",
         "Offline selling: walk-in cash sales are saved on the device and synced when the connection returns",
         "Sales history with ownership, returns, exchanges and cancellations under approval rules",
-        "Barcode-controlled items are cleared only by scanning their sticker; typing barcodes at the till is off by default"
+        "Barcode-controlled items are cleared only by scanning their sticker; typing barcodes at the till is off by default",
+        "Find the customer by name or mobile number from the first letter or digit, or add a new customer without leaving the sale"
       ]
     },
     {
@@ -189,7 +190,8 @@
         "Sale ownership changes handled through approvals",
         "New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes",
         "Several approvers per level — the first decision counts and the others are told; Tenant Administrators may approve their own requests (switchable), never refunds, expenses or write-offs",
-        "Transfer approvals list every product, quantity, both branches' prices and the proposed price change, not only the transfer number"
+        "Transfer approvals list every product, quantity, both branches' prices and the proposed price change, not only the transfer number",
+        "The Tenant Administrator role can be edited too: switch off optional permissions; the essential administration permissions stay locked on"
       ]
     },
     {
@@ -299,7 +301,8 @@
         "Billing models, tenant-specific pricing, trials and the platform billing dashboard",
         "Platform-wide limits for sign-in, sessions, websites and campaigns",
         "Support access to a business only through audited, time-limited sessions",
-        "Error alerts: server faults, failing outside services, failed background jobs and restarts reach the owner in the app and by email, grouped, with a test alert"
+        "Error alerts: server faults, failing outside services, failed background jobs and restarts reach the owner in the app and by email, grouped, with a test alert",
+        "Support access with clear limits and a confidential Security audit of every support session and everything attempted in it"
       ]
     }
   ],
@@ -375,7 +378,7 @@
             "Open New Sale (phone: the Sales tab or the floating Record sale button).",
             "Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner. Scanning a shared barcode again adds another unit (with the camera, the same barcode counts again after 3 seconds; another barcode counts at once) and the counter shows how many; use − or + to correct it. An individually tracked item is one unit: scanned again it says Already scanned.",
             "Tap the product, set the Quantity (and the Selling price if you give a discount), then Add to cart. After scanning, the green + adds one, − removes one, and tapping the quantity lets you set it or add to it.",
-            "Optional: enter the Customer phone number so the customer earns loyalty points (first name for a new customer).",
+            "Optional: under Customer, type part of the customer's name or mobile number and tap them in the list (they earn loyalty points; their number fills the M-Pesa field). No match? Tap + Add new customer, complete the form and they are added to the sale.",
             "Choose the payment: Cash, M-Pesa, Credit Sale or Split payment.",
             "Cash: enter Cash received to see the change. Tap Complete sale."
           ],
@@ -669,6 +672,7 @@
           "title": "Roles, permissions and branches",
           "steps": [
             "Settings → Roles & permissions: adjust a role or create a New role; tick what it may see and do.",
+            "Tenant Administrator: tap its pencil to switch off permissions you do not use (for example Record expenses). Users, roles, settings, branches, approvals and the audit trail stay locked on so you never lose control of your business.",
             "Settings → Branches → Add branch: name, code, location, phone and Branch manager; optionally its own trading hours and geofencing (only at the branch)."
           ]
         },
@@ -805,7 +809,8 @@
             "Settings → Tenants → open the tenant.",
             "Next to the business, tap Open business and choose Platform support access.",
             "Give the Reason, choose View only or Full access, enter Your PIN and tap Start support access. If the tenant requires approval, their administrator approves first; then Start approved support session.",
-            "A banner shows the business, access level and time left while you work. Tap End session when done. Everything is audited."
+            "The Platform support session bar shows the business, access level, time left and you as S'Shop support. Work as needed — full access never changes the business's people, roles, security, approval rules, payment settings or billing. Tap End support session (Exit tenant on a phone) to return to the Platform Owner Console; you return there by yourself if the time runs out or the business ends it.",
+            "Settings → Platform → Security audit: every support session — who, which business, why, what access, when, how it ended — and everything attempted in it. Confidential and permanent."
           ]
         },
         {

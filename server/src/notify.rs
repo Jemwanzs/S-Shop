@@ -33,6 +33,7 @@ pub async fn to_permission(state: &AppState, tenant_id: Uuid, branch_id: Option<
         "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
          WHERE u.tenant_id = $1 AND u.is_active
            AND ('*' = ANY(r.permissions) OR $2 = ANY(effective_permissions(r.permissions, u.extra_permissions)))
+           AND NOT ($2 = ANY(r.excluded_permissions))
            AND ($3::uuid IS NULL OR u.all_branches OR '*' = ANY(r.permissions)
                 OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = $3))",
     )
@@ -61,6 +62,7 @@ pub async fn to_order_staff(state: &AppState, tenant_id: Uuid, branch_id: Uuid, 
                 AND ('scope.orders.branches' = ANY(e.p) OR 'scope.orders.all' = ANY(e.p) OR 'staff.view_others' = ANY(e.p))))
            AND (u.all_branches OR '*' = ANY(r.permissions) OR 'scope.orders.all' = ANY(e.p)
                 OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = $2))
+           AND NOT ('orders.manage' = ANY(r.excluded_permissions))
            AND COALESCE((u.preferences->>'notify_new_orders')::boolean, true)",
     )
     .bind(tenant_id)

@@ -40,6 +40,8 @@ const Ctx = createContext<SessionValue | null>(null);
 
 const PROFILE_KEY = "sshop.profile";
 export const LOGOUT_SIGNAL = "sshop.logout";
+/** Roadmap 182: set when a support session ended by itself — the workspace opens the Platform Owner Console. */
+export const SUPPORT_ENDED = "sshop.support-ended";
 function rememberProfile(token: string | null, profile: Profile) {
   try {
     if (token) localStorage.setItem(PROFILE_KEY, JSON.stringify({ token, profile }));
@@ -99,6 +101,47 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     window.addEventListener("sshop:unauthorized", onUnauthorized);
     return () => window.removeEventListener("sshop:unauthorized", onUnauthorized);
   }, [qc]);
+
+  const switchTo = useCallback((t: string, p: Profile) => {
+    workspace.set(p.tenant.slug);
+    qc.clear();
+    session.setBranch(null);
+    setBranchId(null);
+    session.setToken(t);
+    qc.setQueryData(["me", t], p);
+    // Kept on the device like any profile (roadmap 182: a support session can be ended even after a reload).
+    rememberProfile(t, p);
+    setToken(t);
+    if (p.branches.length === 1) {
+      session.setBranch(p.branches[0].id);
+      setBranchId(p.branches[0].id);
+    }
+  }, [qc]);
+
+  // Roadmap 182: the support session ended on the server (time limit, revoked by the business) — its token can only
+  // take the platform administrator back to their own business, which happens here at once (even straight after a
+  // reload, before any screen has its profile). The workspace then opens the Platform Owner Console.
+  useEffect(() => {
+    let busy = false;
+    const onEnded = async () => {
+      const t = session.token;
+      const p = t ? qc.getQueryData<Profile>(["me", t]) ?? cachedProfile(t) : null;
+      const sid = p?.acting?.support?.id;
+      if (busy || !t || !sid) return;
+      busy = true;
+      try {
+        const r = await api<{ token: string; profile: Profile }>(`/platform/support/${sid}/end`, { method: "POST" });
+        try { sessionStorage.setItem(SUPPORT_ENDED, "1"); } catch { /* the console simply is not opened by itself */ }
+        switchTo(r.token, r.profile);
+      } catch {
+        /* the usual sign-in follows */
+      } finally {
+        busy = false;
+      }
+    };
+    window.addEventListener("sshop:support-ended", onEnded);
+    return () => window.removeEventListener("sshop:support-ended", onEnded);
+  }, [qc, switchTo]);
 
   const endSession = useCallback((reason: "logout" | "inactivity") => {
     const t = session.token;
@@ -189,19 +232,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         qc.setQueryData(["me", t], p);
         setToken(t);
       },
-      switchBusiness: (t, p) => {
-        workspace.set(p.tenant.slug);
-        qc.clear();
-        session.setBranch(null);
-        setBranchId(null);
-        session.setToken(t);
-        qc.setQueryData(["me", t], p);
-        setToken(t);
-        if (p.branches.length === 1) {
-          session.setBranch(p.branches[0].id);
-          setBranchId(p.branches[0].id);
-        }
-      },
+      switchBusiness: switchTo,
       signOut: () => endSession("logout"),
       signOutIdle: () => endSession("inactivity"),
       selectBranch: (id) => {
@@ -211,7 +242,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "me" });
       },
     }),
-    [token, profile, isLoading, branch, can, qc, preferences, displayCode, fx.data, language, endSession],
+    [token, profile, isLoading, branch, can, qc, preferences, displayCode, fx.data, language, endSession, switchTo],
   );
 
   // Re-render every screen when the display currency or language changes (both are applied outside React state).

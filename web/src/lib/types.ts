@@ -553,6 +553,12 @@ export interface Role {
   is_system: boolean;
   is_active: boolean;
   user_count: number;
+  /** Roadmap 183: permissions switched off for the Tenant Administrator role. */
+  excluded_permissions?: string[];
+  /** Roadmap 183: this person may edit the role. */
+  editable?: boolean;
+  /** Roadmap 183: Tenant Administrator permissions that can never be switched off. */
+  locked?: string[];
 }
 
 export interface MedalTargets {

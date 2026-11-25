@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Minus, Pencil, Plus, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
+import { CheckCircle2, Minus, Pencil, Plus, ShieldCheck, Smartphone, Trash2, X } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { api, ApiError, errorMessage } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { enqueueSale, offlineBlocker, type QueuedSale } from "@/lib/offline";
 import { locationHeader } from "@/lib/location";
 import { useSession } from "@/lib/session";
@@ -14,12 +14,12 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
 import { Field, ToggleRow } from "@/components/Form";
 import { Chip } from "@/components/Filters";
-import { PointsPill } from "@/components/Badges";
 import { exceedsMax, lineTotal, marked, salePoints, totals, type CartLine } from "./cart";
 import { dayLabel } from "./SaleDate";
 import { redemptionBlocked } from "@/lib/loyalty";
 import { t as tr } from "@/lib/i18n";
 import { SShopLoader } from "@/components/SShopLoader";
+import { CustomerPicker, type NewCustomerDraft } from "./CustomerPicker";
 
 interface MpesaReq {
   id: string;
@@ -111,19 +111,10 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   const [splitAmt, setSplitAmt] = useState<Record<string, string>>({});
   const [splitCredit, setSplitCredit] = useState(false);
 
-  // Customer
-  const [mobile, setMobile] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [nickname, setNickname] = useState("");
-  const digits = mobile.replace(/\D/g, "");
-  const lookup = useQuery({
-    queryKey: ["customer-lookup", digits],
-    queryFn: () => api<{ mobile: string; customer: Customer | null }>("/customers/lookup", { query: { mobile: digits } }),
-    enabled: digits.length >= 9,
-    retry: false,
-  });
-  const customer = lookup.data?.customer ?? null;
-  const isNew = !!lookup.data && !customer;
+  // Customer (roadmap 184): only a customer picked from the search is attached; `draft` — created with the sale.
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [draft, setDraft] = useState<NewCustomerDraft | null>(null);
+  const isNew = !customer && !!draft;
 
   // Payment details
   const [reference, setReference] = useState("");
@@ -150,9 +141,14 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   const [supPin, setSupPin] = useState("");
   const [needSupervisor, setNeedSupervisor] = useState(false);
 
+  // The picked customer's number goes into the M-Pesa field — unless the cashier typed another one there.
+  const autoPhone = useRef("");
   useEffect(() => {
-    if (customer && !payPhone) setPayPhone(fmtPhone(customer.mobile));
-  }, [customer, payPhone]);
+    if (!customer) return;
+    const m = fmtPhone(customer.mobile);
+    setPayPhone((p) => (!p || p === autoPhone.current ? m : p));
+    autoPhone.current = m;
+  }, [customer]);
 
   const redeemPts = Math.max(0, parseInt(redeem) || 0);
   const t = useMemo(() => totals(lines, s, redeemPts), [lines, s, redeemPts]);
@@ -229,7 +225,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
     const blocker = offlineBlocker({
       method,
       stk: !!stk,
-      customerNew: isNew && digits.length >= 9,
+      customerNew: isNew,
       redeem: redeemPts,
       deposit: takingDeposit,
       supervisor: showSupervisor,
@@ -254,7 +250,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   };
   const saleBody = () => ({
           customer_id: customer?.id,
-          customer: !customer && digits.length >= 9 ? { mobile: digits, first_name: firstName, nickname } : undefined,
+          customer: isNew ? { mobile: draft!.mobile, first_name: draft!.first_name, nickname: draft!.nickname } : undefined,
           items: lines.map((l) => ({ product_id: l.product.id, quantity: l.quantity, unit_price: l.unitPrice, barcode: l.barcode, scan_source: l.barcode ? l.barcodeSource : undefined, sale_date: l.saleDate })),
           sale_date: saleDate,
           payment: {
@@ -356,11 +352,11 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   const change = toNum(tendered) - payAmount;
   const blockers: string[] = [];
   if (!lines.length) blockers.push("Add items");
-  if ((method === "credit" || splitOnCredit) && !customer && !(isNew && firstName.trim())) blockers.push("Credit needs a customer");
+  if ((method === "credit" || splitOnCredit) && !customer && !(isNew && draft!.first_name.trim())) blockers.push("Credit needs a customer");
   if (isSplit && !splitParts.length) blockers.push("Enter how much is paid by each method");
   if (isSplit && remaining < 0) blockers.push("The payments add up to more than the total");
   if (isSplit && remaining > 0 && !splitOnCredit) blockers.push(creditAllowed ? "Allocate the rest, or leave it on credit" : "Allocate the rest of the payment");
-  if (isNew && digits.length >= 9 && !firstName.trim()) blockers.push("Enter the customer's first name");
+  if (isNew && !draft!.first_name.trim()) blockers.push("Enter the customer's first name");
   if (takingDeposit && depositAmount >= t.payable) blockers.push("A deposit must be less than the total");
   if (perItem && takingDeposit) blockers.push("A deposit is taken on one credit sale — remove it, or sell one item");
   if (perItem && redeemPts > 0) blockers.push("Points cannot be redeemed on separate credit sales");
@@ -384,29 +380,7 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
       {/* Customer */}
       <section className="space-y-2">
         <p className="label-caps">{tr("Customer")} {method === "credit" || splitOnCredit ? "" : "· optional"}</p>
-        <div className="relative">
-          <UserRound className="absolute inset-s-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input inputMode="tel" placeholder="Mobile number, e.g. 0712 345 678" value={mobile} onChange={(e) => setMobile(e.target.value)} className="num ps-9 pe-9" />
-          {mobile && <button className="absolute inset-e-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground" onClick={() => { setMobile(""); setFirstName(""); setNickname(""); setRedeem(""); }} aria-label="Clear customer"><X className="h-4 w-4" /></button>}
-        </div>
-        {lookup.isFetching && <p className="text-xs text-muted-foreground">Checking customer book…</p>}
-        {lookup.error && <p className="text-xs text-destructive">{errorMessage(lookup.error)}</p>}
-        {customer && (
-          <div className="flex items-center gap-3 rounded-xl bg-accent/60 p-3 animate-fade-up">
-            <CheckCircle2 className="h-5 w-5 text-success" />
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{customer.first_name} {customer.other_names}{customer.nickname && <span className="text-muted-foreground"> “{customer.nickname}”</span>}</div>
-              <div className="text-xs text-muted-foreground">{customer.tier || "Member"} · {count(customer.purchase_count)} visits{toNum(customer.credit_balance) > 0 && <span className="text-destructive"> · owes {money(customer.credit_balance)}</span>}</div>
-            </div>
-            <PointsPill own={customer.points_available} />
-          </div>
-        )}
-        {isNew && (
-          <div className="grid grid-cols-2 gap-2 animate-fade-up">
-            <Field label="First name"><Input value={firstName} onChange={(e) => setFirstName(e.target.value)} autoFocus /></Field>
-            <Field label="Nickname" optional><Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Optional" /></Field>
-          </div>
-        )}
+        <CustomerPicker customer={customer} onChange={(c) => { setCustomer(c); setRedeem(""); }} draft={draft} onDraft={setDraft} />
       </section>
 
       {/* Payment */}

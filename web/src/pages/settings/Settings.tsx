@@ -29,7 +29,7 @@ import {
   type LucideIcon,
   FileSpreadsheet,
   Palette,
-  Lock, Sparkles } from "lucide-react";
+  Lock, ShieldAlert, Sparkles } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { BrandingSettings } from "./Branding";
 import { BooksSettings } from "./Books";
@@ -50,6 +50,7 @@ import { SupportAccessSettings } from "./SupportAccess";
 import { PlatformSecuritySettings } from "./QuickPin";
 import { BillingSettings } from "./Billing";
 import { PlatformActivity } from "./PlatformActivity";
+import { PlatformSecurityAudit } from "./PlatformSecurityAudit";
 import { ErrorsSettings } from "./Errors";
 import { PlatformBilling } from "./PlatformBilling";
 import { WebsiteSettings } from "./website/Website";
@@ -101,6 +102,7 @@ const SECTIONS: SectionDef[] = [
   { path: "businesses", label: "Businesses", group: "Platform", icon: Network, perm: "platform", element: <BusinessesSettings /> },
   { path: "platform-billing", label: "Platform billing", group: "Platform", icon: Banknote, perm: "platform", element: <PlatformBilling /> },
   { path: "activity", label: "Activity", group: "Platform", icon: Activity, perm: "platform", element: <PlatformActivity /> },
+  { path: "security-audit", label: "Security audit", group: "Platform", icon: ShieldAlert, perm: "platform", element: <PlatformSecurityAudit /> },
   { path: "errors", label: "Errors & alerts", group: "Platform", icon: Siren, perm: "platform", element: <ErrorsSettings /> },
   { path: "access-requests", label: "Access requests", group: "Platform", icon: Inbox, perm: "platform", element: <AccessRequests /> },
 ];

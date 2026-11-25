@@ -239,6 +239,10 @@ impl Ctx {
     }
 
     pub fn can(&self, perm: &str) -> bool {
+        // Roadmap 183: "-perm" — switched off for the Tenant Administrator role (never an essential one).
+        if self.permissions.iter().any(|p| p.strip_prefix('-') == Some(perm)) {
+            return false;
+        }
         // "Manage all settings" implies every settings area.
         self.permissions.iter().any(|p| p == "*" || p == perm || (p == "settings.manage" && perm.starts_with("settings.")))
     }
@@ -408,6 +412,20 @@ struct CtxRow {
     identity_ok: bool,
 }
 
+/// Roadmap 182: areas a support session never changes, whatever its access — so support can never give itself (or
+/// anyone) a way in, weaken the business's controls or touch its payment credentials. Paths as the API router sees them.
+pub fn support_never_changes(p: &str) -> bool {
+    const BLOCKED: [&str; 12] = [
+        "/users", "/roles", "/support-access", "/security", "/settings/workflows", "/settings/approval-policy", "/mpesa/accounts",
+        "/billing", "/website/access", "/website/domain", "/approvals", "/auth/",
+    ];
+    const ALLOWED: [&str; 3] = ["/auth/logout", "/auth/activity", "/auth/preferences"];
+    if ALLOWED.contains(&p) {
+        return false;
+    }
+    BLOCKED.iter().any(|b| p == *b || p.starts_with(&format!("{}/", b.trim_end_matches('/'))) || (b.ends_with('/') && p.starts_with(b)))
+}
+
 /// Paths are matched as the API router sees them (inside /api).
 fn request_path(parts: &Parts) -> String {
     parts
@@ -427,7 +445,8 @@ impl FromRequestParts<AppState> for Ctx {
         // every request: losing platform-admin status or the admin role ends the session immediately.
         let home_tenant = claims.home.unwrap_or(claims.tid);
         let row: Option<CtxRow> = sqlx::query_as(
-            "SELECT u.name, u.is_active, u.all_branches, effective_permissions(r.permissions, u.extra_permissions) AS permissions, t.timezone, lower(u.email) AS email,
+            "SELECT u.name, u.is_active, u.all_branches,
+                    effective_permissions(r.permissions, u.extra_permissions) || ARRAY(SELECT '-' || x FROM unnest(r.excluded_permissions) x) AS permissions, t.timezone, lower(u.email) AS email,
                     t.status AS tenant_status, t.sessions_valid_after,
                     GREATEST(u.sessions_valid_after, li.sessions_valid_after) AS user_sessions_valid_after,
                     u.must_change_pin OR COALESCE(li.must_change_pin, false) AS must_change_pin,
@@ -467,30 +486,56 @@ impl FromRequestParts<AppState> for Ctx {
             }
             // Roadmap 71: inside another business only through a live support session (never a bare acting token).
             let sid = claims.sid.ok_or(AppError::Unauthorized)?;
-            let s: Option<(String, chrono::DateTime<Utc>)> = sqlx::query_as(
+            let s: Option<(String, String)> = sqlx::query_as(
                 "UPDATE support_sessions SET status = CASE WHEN expires_at <= now() THEN 'expired' ELSE status END,
                         ended_at = CASE WHEN expires_at <= now() THEN expires_at ELSE ended_at END
                  WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND home_tenant_id = $4 AND status = 'active'
-                 RETURNING (CASE WHEN status = 'active' THEN scope END), expires_at",
+                 RETURNING status, scope",
             )
             .bind(sid)
             .bind(claims.sub)
             .bind(claims.tid)
             .bind(home_tenant)
             .fetch_optional(&state.db)
-            .await?
-            .and_then(|(scope, exp): (Option<String>, chrono::DateTime<Utc>)| scope.map(|s| (s, exp)));
-            let (scope, _expires_at) = s.ok_or_else(|| crate::error::refused("Support session ended", "This support session has ended — open the business again from Platform → Tenants"))?;
+            .await?;
+            let ended = || crate::error::refused("Support session ended", "This support session has ended — open the business again from Platform → Tenants");
             let path = request_path(parts);
             let p = path.trim_start_matches("/api");
-            if scope == "view" && parts.method != axum::http::Method::GET && !p.starts_with("/platform/support") && p != "/auth/logout" {
+            // Roadmap 182: once the session has ended (time limit, revoked by the business), its token does one thing
+            // only — return the platform administrator to their own business (POST /platform/support/{id}/end).
+            let returning = parts.method == axum::http::Method::POST && p == format!("/platform/support/{sid}/end");
+            let scope = match s {
+                Some((status, scope)) if status == "active" => scope,
+                Some(_) => {
+                    // The time limit ran out — recorded once, when it is first noticed.
+                    let mut tx = state.db.begin().await?;
+                    crate::platform_audit::record(&mut tx, crate::platform_audit::Event::new("session_expired", sid), "", "").await?;
+                    tx.commit().await?;
+                    if !returning {
+                        return Err(ended());
+                    }
+                    "view".to_string()
+                }
+                None if returning => "view".to_string(),
+                None => return Err(ended()),
+            };
+            let reading = parts.method == axum::http::Method::GET || parts.method == axum::http::Method::HEAD;
+            if scope == "view" && !reading && !p.starts_with("/platform/support") && p != "/auth/logout" && p != "/auth/activity" {
                 return Err(crate::error::refused("View-only support access", "This support session is view-only — nothing can be changed in it"));
+            }
+            // Roadmap 182: even with full access, support never changes who can get in or how the business is paid —
+            // its people, roles, sign-in and security rules, approval rules, payment credentials or billing.
+            if !reading && support_never_changes(p) {
+                return Err(crate::error::refused(
+                    "Not from a support session",
+                    "People, roles, sign-in and security, approval rules, payment credentials and billing are changed only by the business's own administrators",
+                ));
             }
             support = Some(Support { id: sid });
             row.permissions = vec!["*".into()];
             row.all_branches = true;
             // The platform owner may look inside a deactivated business but not change anything in it.
-            if row.tenant_status != "active" && parts.method != axum::http::Method::GET {
+            if row.tenant_status != "active" && parts.method != axum::http::Method::GET && !returning {
                 return Err(crate::error::refused("Business deactivated", "This business is deactivated — reactivate it before making changes"));
             }
         } else {
@@ -598,6 +643,19 @@ impl FromRequestParts<AppState> for PortalCustomer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn support_sessions_never_change_access_or_payments() {
+        use super::support_never_changes as blocked;
+        for p in ["/users", "/users/x/reset-pin", "/roles/x", "/support-access/policy", "/security/sessions", "/settings/workflows/sale.return",
+                  "/settings/approval-policy", "/mpesa/accounts/x", "/billing/invoices/x/pay", "/website/access/x", "/website/domain/primary",
+                  "/approvals/x/approve", "/auth/passkeys/register/start", "/auth/change-pin", "/auth/switch-business"] {
+            assert!(blocked(p), "{p}");
+        }
+        for p in ["/sales", "/products/x", "/stock/receive", "/settings", "/platform/support/x/end", "/auth/logout", "/auth/activity", "/usersx"] {
+            assert!(!blocked(p), "{p}");
+        }
+    }
 
     #[test]
     fn pin_round_trip() {

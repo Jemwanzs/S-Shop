@@ -28,13 +28,14 @@ administrator must remain.
 
 ## Tenant Administrator and approvals (roadmap 150)
 
-The Tenant Administrator role is the business's system role: the only role with full access (`*`); its name and
-permissions cannot be changed and full access cannot be given to another role. It is the only role that can use the
+The Tenant Administrator role is the business's system role: the only role with full access (`*`); its name cannot be
+changed, full access cannot be given to another role, and its administrators may switch off optional permissions
+(roadmap 183, below). It is the only role that can use the
 self-approval exception of the workflow engine ([module 15](15-approvals.md#tenant-administrator-self-approval-roadmap-150)),
 and only a Tenant Administrator changes that policy.
 
 ## Default roles
-Tenant Administrator (everything, cannot be edited) · Manager · Branch Manager · Salesperson · Storekeeper ·
+Tenant Administrator (everything; optional permissions can be switched off, essentials locked) · Manager · Branch Manager · Salesperson · Storekeeper ·
 Order Manager · Finance · Auditor · View Only. Create your own roles by ticking permissions per module.
 
 Navigation, buttons and figures follow permissions in the UI, and every API call checks them again on the server.
@@ -83,3 +84,16 @@ Navigation, buttons and figures follow permissions in the UI, and every API call
 password (the Quick PIN is not accepted), the session becomes a full one (`POST /auth/step-up`; the Quick session
 ends; wrong PINs count towards the normal lockout) and the same request is sent again — what was typed stays on
 screen and nothing is created twice (the check runs before anything is written).
+
+## Editing the Tenant Administrator role (roadmap 183)
+
+Settings → Roles & permissions → Tenant Administrator → **Edit** (pencil): the usual editor, every permission checked.
+**Locked on** — checked, disabled, *Required for Tenant Administrator — cannot be disabled*: Manage users, Manage roles
+& permissions, Manage all settings (and every settings area), Manage branches, Approve requests, View audit trail
+(`perms::ADMIN_REQUIRED`). Anything else can be switched off; it is stored as `roles.excluded_permissions` and sent to
+the app as `-permission` entries, so the role keeps `*` (full access to everything else, every branch and record, the
+maker-checker exception, the platform owner's console). Only a Tenant Administrator of the same business, fully signed
+in and not through S'Shop support, sees the Edit button and can save (`PUT /api/roles/{id}` refuses anyone else and any
+essential permission sent switched off). Saving is audited (`roles · update`, before/after *switched_off*). Switched-off
+permissions apply at once on the server, in the app and in notifications (`notify::to_permission`, new-order alerts,
+sale-owner choices).

@@ -40,6 +40,7 @@ A fast till for the counter: find or scan products, build the cart and take paym
 - Offline selling: walk-in cash sales are saved on the device and synced when the connection returns
 - Sales history with ownership, returns, exchanges and cancellations under approval rules
 - Barcode-controlled items are cleared only by scanning their sticker; typing barcodes at the till is off by default
+- Find the customer by name or mobile number from the first letter or digit, or add a new customer without leaving the sale
 
 <a id="module-3"></a>
 
@@ -213,6 +214,7 @@ Give every person exactly the access they need, with maker-checker approval for 
 - New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes
 - Several approvers per level — the first decision counts and the others are told; Tenant Administrators may approve their own requests (switchable), never refunds, expenses or write-offs
 - Transfer approvals list every product, quantity, both branches' prices and the proposed price change, not only the transfer number
+- The Tenant Administrator role can be edited too: switch off optional permissions; the essential administration permissions stay locked on
 
 <a id="module-15"></a>
 
@@ -330,6 +332,7 @@ For the S'Shop platform owner only: manage tenants and businesses centrally and 
 - Platform-wide limits for sign-in, sessions, websites and campaigns
 - Support access to a business only through audited, time-limited sessions
 - Error alerts: server faults, failing outside services, failed background jobs and restarts reach the owner in the app and by email, grouped, with a test alert
+- Support access with clear limits and a confidential Security audit of every support session and everything attempted in it
 
 ## Part 2 — Step-by-step guides
 
@@ -395,7 +398,7 @@ Recording sales, payments, receipts, returns, credit and customer orders.
 1. Open New Sale (phone: the Sales tab or the floating Record sale button).
 2. Find a product by name, nickname, code or barcode, or tap Scan to use the camera or a handheld scanner. Scanning a shared barcode again adds another unit (with the camera, the same barcode counts again after 3 seconds; another barcode counts at once) and the counter shows how many; use − or + to correct it. An individually tracked item is one unit: scanned again it says Already scanned.
 3. Tap the product, set the Quantity (and the Selling price if you give a discount), then Add to cart. After scanning, the green + adds one, − removes one, and tapping the quantity lets you set it or add to it.
-4. Optional: enter the Customer phone number so the customer earns loyalty points (first name for a new customer).
+4. Optional: under Customer, type part of the customer's name or mobile number and tap them in the list (they earn loyalty points; their number fills the M-Pesa field). No match? Tap + Add new customer, complete the form and they are added to the sale.
 5. Choose the payment: Cash, M-Pesa, Credit Sale or Split payment.
 6. Cash: enter Cash received to see the change. Tap Complete sale.
 
@@ -627,7 +630,8 @@ Setting up the business, people, rules, payments and the website.
 #### Roles, permissions and branches
 
 1. Settings → Roles & permissions: adjust a role or create a New role; tick what it may see and do.
-2. Settings → Branches → Add branch: name, code, location, phone and Branch manager; optionally its own trading hours and geofencing (only at the branch).
+2. Tenant Administrator: tap its pencil to switch off permissions you do not use (for example Record expenses). Users, roles, settings, branches, approvals and the audit trail stay locked on so you never lose control of your business.
+3. Settings → Branches → Add branch: name, code, location, phone and Branch manager; optionally its own trading hours and geofencing (only at the branch).
 
 #### Approval rules
 
@@ -732,7 +736,8 @@ Approving new businesses, supporting tenants and platform billing.
 1. Settings → Tenants → open the tenant.
 2. Next to the business, tap Open business and choose Platform support access.
 3. Give the Reason, choose View only or Full access, enter Your PIN and tap Start support access. If the tenant requires approval, their administrator approves first; then Start approved support session.
-4. A banner shows the business, access level and time left while you work. Tap End session when done. Everything is audited.
+4. The Platform support session bar shows the business, access level, time left and you as S'Shop support. Work as needed — full access never changes the business's people, roles, security, approval rules, payment settings or billing. Tap End support session (Exit tenant on a phone) to return to the Platform Owner Console; you return there by yourself if the time runs out or the business ends it.
+5. Settings → Platform → Security audit: every support session — who, which business, why, what access, when, how it ended — and everything attempted in it. Confidential and permanent.
 
 #### Billing, status and activity
 

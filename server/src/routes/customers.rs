@@ -13,7 +13,7 @@ use uuid::Uuid;
 use super::{like, Counted, Page, Paged};
 use crate::audit::{self, Entry};
 use crate::auth::Ctx;
-use crate::error::{bad, AppError, AppResult};
+use crate::error::{bad, rule, AppError, AppResult};
 use crate::settings;
 use crate::state::AppState;
 use crate::util::normalize_mobile;
@@ -22,6 +22,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/customers", get(list).post(create))
         .route("/customers/lookup", get(lookup))
+        .route("/customers/search", get(search))
         .route("/customers/{id}", get(profile).put(update))
 }
 
@@ -118,6 +119,82 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
 #[derive(Deserialize)]
 struct LookupQuery {
     mobile: String,
+}
+
+#[derive(Deserialize)]
+struct SearchQuery {
+    #[serde(default)]
+    q: String,
+}
+
+/// How a typed search is read (roadmap 184): digits only (with `+`, spaces or dashes) is a mobile number in any
+/// format — `07…`, `01…`, `254…`, `+254…` — reduced to the part after the country code / leading zero; anything else
+/// is a name, every word of which must appear in the first name, other names or nickname.
+#[derive(Debug, PartialEq)]
+pub enum CustomerSearch {
+    Mobile(String),
+    Name(Vec<String>),
+    Nothing,
+}
+
+pub fn parse_customer_search(q: &str) -> CustomerSearch {
+    let q = q.trim();
+    if q.is_empty() {
+        return CustomerSearch::Nothing;
+    }
+    if q.chars().all(|c| c.is_ascii_digit() || matches!(c, '+' | ' ' | '-' | '(' | ')')) {
+        let digits: String = q.chars().filter(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() {
+            return CustomerSearch::Nothing;
+        }
+        let core = if let Some(rest) = digits.strip_prefix("254") { rest.to_string() } else { digits.trim_start_matches('0').to_string() };
+        return CustomerSearch::Mobile(core);
+    }
+    let words: Vec<String> = q
+        .split_whitespace()
+        .take(5)
+        .map(|w| w.to_lowercase().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"))
+        .collect();
+    CustomerSearch::Name(words)
+}
+
+/// Roadmap 184: live customer search at the till — from the first letter or digit, by any part of the name or of the
+/// mobile number. A few best matches (names that start with the search first, then the most recent customers); the
+/// till attaches one only when it is picked. Same visibility as the exact lookup.
+async fn search(State(state): State<AppState>, ctx: Ctx, Query(q): Query<SearchQuery>) -> AppResult<Json<Value>> {
+    ctx.require_any(&["customers.view", "sales.create"])?;
+    const LIMIT: i64 = 8;
+    let rows: Vec<CustomerRow> = match parse_customer_search(&q.q) {
+        CustomerSearch::Nothing => vec![],
+        CustomerSearch::Mobile(core) => {
+            sqlx::query_as(&format!(
+                "{CUSTOMER_SELECT} WHERE c.tenant_id = $1 AND c.is_active AND c.mobile LIKE '%' || $2 || '%'
+                 ORDER BY (c.mobile LIKE '254' || $2 || '%') DESC, c.last_purchase_at DESC NULLS LAST, c.first_name LIMIT $3"
+            ))
+            .bind(ctx.tenant_id)
+            .bind(&core)
+            .bind(LIMIT + 1)
+            .fetch_all(&state.db)
+            .await?
+        }
+        CustomerSearch::Name(words) => {
+            sqlx::query_as(&format!(
+                "{CUSTOMER_SELECT} WHERE c.tenant_id = $1 AND c.is_active
+                   AND (SELECT bool_and(lower(c.first_name || ' ' || c.other_names || ' ' || c.nickname) LIKE '%' || w || '%') FROM unnest($2::text[]) w)
+                 ORDER BY (lower(c.first_name) LIKE $2[1] || '%') DESC,
+                          (lower(c.other_names) LIKE $2[1] || '%' OR lower(c.nickname) LIKE $2[1] || '%') DESC,
+                          c.last_purchase_at DESC NULLS LAST, c.first_name, c.other_names LIMIT $3"
+            ))
+            .bind(ctx.tenant_id)
+            .bind(&words)
+            .bind(LIMIT + 1)
+            .fetch_all(&state.db)
+            .await?
+        }
+    };
+    let more = rows.len() as i64 > LIMIT;
+    let items: Vec<CustomerRow> = rows.into_iter().take(LIMIT as usize).map(|mut c| { redact(&ctx, &mut c); c }).collect();
+    Ok(Json(json!({ "q": q.q, "items": items, "more": more })))
 }
 
 /// Exact mobile lookup (POS credit sale / quick identify).
@@ -263,6 +340,15 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CustomerB
     if s.customers.require_email && !b.email.contains('@') {
         return Err(bad("A valid email is required"));
     }
+    // Roadmap 184: never a second record for one number — say who already has it (the unique key still guards races).
+    let existing: Option<String> = sqlx::query_scalar("SELECT trim(first_name || ' ' || other_names) FROM customers WHERE tenant_id = $1 AND mobile = $2")
+        .bind(ctx.tenant_id)
+        .bind(&mobile)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if let Some(name) = existing {
+        return Err(rule(format!("{name} is already registered with this mobile number — search for them instead")));
+    }
     let custom = super::fields::clean(&mut tx, ctx.tenant_id, super::fields::Kind::Customer, &b.custom_fields).await?;
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO customers (tenant_id, mobile, first_name, other_names, nickname, email, custom_fields, tier, created_by)
@@ -317,4 +403,28 @@ async fn update(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
     audit::record(&mut tx, &ctx, Entry::new("customers", "update", "customer", id).before(before).after(&b)).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_customer_search as parse, CustomerSearch::*};
+
+    #[test]
+    fn mobile_numbers_in_every_format() {
+        assert_eq!(parse("0722"), Mobile("722".into()));
+        assert_eq!(parse("0112 345"), Mobile("112345".into()));
+        assert_eq!(parse("254722"), Mobile("722".into()));
+        assert_eq!(parse("+254 722-123"), Mobile("722123".into()));
+        assert_eq!(parse("7"), Mobile("7".into()));
+        assert_eq!(parse("0"), Mobile("".into()));
+    }
+
+    #[test]
+    fn names_by_word_case_insensitive() {
+        assert_eq!(parse("Am"), Name(vec!["am".into()]));
+        assert_eq!(parse("  Amani  Wanjiru "), Name(vec!["amani".into(), "wanjiru".into()]));
+        assert_eq!(parse("50%_off"), Name(vec!["50\\%\\_off".into()]));
+        assert_eq!(parse("   "), Nothing);
+        assert_eq!(parse("+"), Nothing);
+    }
 }

@@ -2361,6 +2361,7 @@ pub async fn eligible_owner(conn: &mut PgConnection, tenant_id: Uuid, branch_id:
 /// $2 tenant, $3 branch.
 const ELIGIBLE: &str = "u.tenant_id = $2 AND u.is_active
     AND ('*' = ANY(r.permissions) OR 'sales.create' = ANY(effective_permissions(r.permissions, u.extra_permissions)))
+    AND NOT ('sales.create' = ANY(r.excluded_permissions))
     AND ('*' = ANY(r.permissions) OR u.all_branches OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = $3))";
 
 #[derive(Deserialize)]

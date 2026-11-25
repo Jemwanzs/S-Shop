@@ -81,7 +81,9 @@ export function ActionButton({
   title,
   ...rest
 }: ActionButtonProps) {
-  const { can } = useSession();
+  const { can, profile } = useSession();
+  // Roadmap 182: a view-only support session changes nothing (the server refuses it too).
+  const viewOnly = profile?.acting?.support?.scope === "view";
   const isOnline = useOnline();
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
@@ -97,7 +99,8 @@ export function ActionButton({
   const perms = perm === undefined ? [] : Array.isArray(perm) ? perm : [perm];
   if (perms.length && !perms.some((p) => can(p))) return null;
 
-  const reason = (online && !isOnline ? REASONS.offline : undefined) ?? (blockedBy.find((b) => typeof b === "string" && b) as string | undefined);
+  const reason = (online && viewOnly ? "View-only support access — nothing can be changed" : undefined)
+    ?? (online && !isOnline ? REASONS.offline : undefined) ?? (blockedBy.find((b) => typeof b === "string" && b) as string | undefined);
   if (reason && hideWhenBlocked) return null;
   const processing = !!busy || running;
 

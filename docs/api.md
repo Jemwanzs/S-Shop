@@ -102,7 +102,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | POST | `/api/users/{id}/invite` (`send_email`) | accounts not yet set up: email a new invitation, or return a new single-use activation `link` (earlier links end) |
 | GET | `/api/roles` |
 | POST | `/api/roles` |
-| PUT | `/api/roles/{id}` |
+| PUT | `/api/roles/{id}` — for the Tenant Administrator role (roadmap 183): its Tenant Administrators only, `permissions` = those left on; essentials always on; `GET /api/roles` adds `excluded_permissions`, `editable`, `locked` |
 | GET | `/api/permissions` |
 
 ## Products, categories, suppliers, photos
@@ -186,6 +186,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 |---|---|
 | GET | `/api/customers` |
 | POST | `/api/customers` |
+| GET | `/api/customers/search?q=` | roadmap 184: live search by name or mobile (any format) — `items` (up to 8), `more`; *Record sales* or *View customers* |
 | GET | `/api/customers/lookup` |
 | GET | `/api/customers/{id}` |
 | PUT | `/api/customers/{id}` |
@@ -485,6 +486,7 @@ every other response are masked (`****047`).
 | POST | `/api/platform/tenants/{id}/support` (`pin`, `reason`, `scope` view/full, `minutes` 15–480) | `{status: "active", token, profile}` or `{status: "requested", id}` |
 | POST | `/api/platform/support/{id}/start` (`pin`) · `/end` | start an approved session · end / withdraw (returns the home session) |
 | GET | `/api/platform/support?account_id=` | the platform owner's sessions |
+| GET | `/api/platform/security-audit?tenant_id=&session_id=&kind=all\|sessions\|changes\|refused&period=&from=&to=&limit=&offset=` | roadmap 182: the Platform Security Audit Trail — `items` (events), `total`, `sessions` (with `changes`, `refused`, `reads`); platform administrators from their own business only |
 | POST | `/api/platform/tenants/{id}/open` | own business only (others: 422 *Support access needed*) |
 | GET | `/api/support-access` · PUT `/policy` (`notify` / `approval`) | business administrators |
 | POST | `/api/support-access/{id}/approve` · `/deny` · `/revoke` | `users.manage`; never from a support session |

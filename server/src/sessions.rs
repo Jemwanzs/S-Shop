@@ -99,18 +99,24 @@ pub async fn issue_until(state: &AppState, user: Uuid, tenant: Uuid, kind: Kind,
     let (label, until) = match &kind {
         Kind::Full => ("full", now + Duration::hours(p.max_session_hours.clamp(1, 24) as i64)),
         Kind::Quick => ("quick", now + Duration::hours(p.quick_session_hours.clamp(1, 24).min(p.max_session_hours.clamp(1, 24)) as i64)),
-        Kind::Support { until, .. } => ("support", *until),
+        // Roadmap 182: the support window itself is enforced on every request (support_sessions.expires_at); the sign-in
+        // session lasts like a normal one so that, once the window has closed, its token can still take the platform
+        // administrator back to their own business (the only thing it can still do).
+        Kind::Support { until, .. } => ("support", (*until).max(now + Duration::hours(p.max_session_hours.clamp(1, 24) as i64))),
     };
     let until = cap.map_or(until, |c| until.min(c));
     if until <= now {
         return Err(AppError::Unauthorized);
     }
-    let ses: Uuid = sqlx::query_scalar("INSERT INTO user_sessions (user_id, tenant_id, kind, idle_seconds, expires_at) VALUES ($1, $2, $3, $4, $5) RETURNING id")
+    let ses: Uuid = sqlx::query_scalar(
+        "INSERT INTO user_sessions (user_id, tenant_id, kind, idle_seconds, expires_at, support_session_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    )
         .bind(user)
         .bind(tenant)
         .bind(label)
         .bind(idle as i32)
         .bind(until)
+        .bind(match &kind { Kind::Support { sid, .. } => Some(*sid), _ => None })
         .fetch_one(&state.db)
         .await?;
     let claims = crate::auth::Claims {
@@ -148,7 +154,10 @@ pub async fn check(state: &AppState, ses: Uuid, user: Uuid, activity: bool) -> A
     }
     if Utc::now() > last + Duration::seconds(idle as i64 + SLACK) {
         let n = sqlx::query("UPDATE user_sessions SET ended_at = now(), end_reason = 'inactivity' WHERE id = $1 AND ended_at IS NULL").bind(ses).execute(&state.db).await?.rows_affected();
-        if n > 0 {
+        if n > 0 && is_support(state, ses).await? {
+            // Roadmap 182: idling out of a support session ends it — recorded in the Platform Security Audit Trail only.
+            crate::platform_audit::close_with_session(state, ses, "Ended after inactivity", "session_idle").await?;
+        } else if n > 0 {
             let mut tx = state.db.begin().await?;
             crate::audit::system(&mut tx, tenant, Some(user), crate::audit::Entry::new("auth", "session_expired", "user", user).after(serde_json::json!({ "idle_seconds": idle })), "", "").await?;
             tx.commit().await?;
@@ -183,6 +192,12 @@ pub async fn end(state: &AppState, ses: Uuid, user: Uuid, tenant: Uuid, reason: 
         .execute(&state.db)
         .await?
         .rows_affected();
+    // Roadmap 182: signing out of (or idling out of) a support session ends the support session too, and is recorded
+    // in the Platform Security Audit Trail — never in the business's own audit trail.
+    if n > 0 && reason != "replaced" && is_support(state, ses).await? {
+        let (note, event) = if reason == "inactivity" { ("Ended after inactivity", "session_idle") } else { ("Signed out", "session_signed_out") };
+        return crate::platform_audit::close_with_session(state, ses, note, event).await;
+    }
     // A session handed over to a new one (switching business, a new PIN) is not a sign-out: only those are audited here.
     if n > 0 && reason != "replaced" {
         let mut tx = state.db.begin().await?;
@@ -198,4 +213,9 @@ pub async fn refresh_limit(state: &AppState, ses: Uuid, user: Uuid, tenant: Uuid
     let (idle, warning) = effective(state, user, tenant).await?;
     sqlx::query("UPDATE user_sessions SET idle_seconds = $2, last_active_at = now() WHERE id = $1 AND ended_at IS NULL").bind(ses).bind(idle as i32).execute(&state.db).await?;
     Ok((idle, warning))
+}
+
+/// The sign-in session carries a platform support session (roadmap 182).
+async fn is_support(state: &AppState, ses: Uuid) -> AppResult<bool> {
+    Ok(sqlx::query_scalar::<_, bool>("SELECT support_session_id IS NOT NULL FROM user_sessions WHERE id = $1").bind(ses).fetch_optional(&state.db).await?.unwrap_or(false))
 }

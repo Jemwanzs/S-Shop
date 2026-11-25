@@ -13,7 +13,7 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { t } from "@/lib/i18n";
 
 interface AuditRow {
-  id: string; created_at: string; user_name: string | null; module: string; action: string; entity_type: string; entity_id: string | null;
+  id: string; created_at: string; user_name: string | null; by_support?: boolean; module: string; action: string; entity_type: string; entity_id: string | null;
   branch_name: string | null; before: unknown; after: unknown; approval_status: string | null; approver_name: string | null; comments: string; ip: string; user_agent: string;
   location: { lat: number; lng: number; accuracy_m: number } | null;
 }
@@ -47,7 +47,8 @@ export default function Audit() {
         empty={<EmptyState icon={History} title="No activity in this period" />}
         columns={[
           { key: "when", header: "When", cell: (r) => <span className="whitespace-nowrap text-muted-foreground">{dateTime(r.created_at)}</span> },
-          { key: "user", header: "User", cell: (r) => r.user_name ?? "System" },
+          // Roadmap 182: changes made by S'Shop platform support are marked — never shown as one of the business's people.
+          { key: "user", header: "User", cell: (r) => r.by_support ? <span className="flex items-center gap-1.5"><Pill tone="primary">{t("Support")}</Pill>{r.user_name}</span> : r.user_name ?? "System" },
           { key: "module", header: "Module", cell: (r) => <Pill>{titleCase(r.module)}</Pill> },
           { key: "action", header: "Action", cell: (r) => <span className="font-medium">{titleCase(r.action)}</span> },
           { key: "entity", header: "Record", cell: (r) => <span className="text-muted-foreground">{titleCase(r.entity_type)}</span>, hideBelow: "lg" },

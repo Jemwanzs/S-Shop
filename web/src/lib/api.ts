@@ -122,6 +122,9 @@ export async function api<T = unknown>(path: string, opts: Options & { retried?:
   if (!res.ok) {
     const err = (data as { error?: { message?: string; code?: string; title?: string | null } } | null)?.error;
     // Nothing was done (the check comes first): confirm the full sign-in, then send the same request once more.
+    // Roadmap 182: the support session ended (time limit, revoked by the business) — the banner takes the platform
+    // administrator back to their own business.
+    if (err?.title === "Support session ended" && opts.token === undefined) window.dispatchEvent(new Event("sshop:support-ended"));
     if (res.status === 422 && err?.title === "Full sign-in needed" && opts.token === undefined && !opts.retried && stepUp && !path.startsWith("/auth/")) {
       if (await stepUp()) return api<T>(path, { ...opts, retried: true });
     }

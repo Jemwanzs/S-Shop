@@ -14,8 +14,8 @@
    (read-only), **selling price** with live *Difference from marked price: −20 / +200*, optional **Discount applied**
    (typing it sets the selling price), barcode clearance, stock in other branches (view only).
 3. **Cart** — one or many lines: quantity × price, discount, line total, ✓ barcode, 🌼 points per line.
-4. **Customer** (optional, required for credit) — type the mobile; existing customers load with points/tier/balance;
-   new ones need a first name (+ optional nickname).
+4. **Customer** (optional, required for credit) — search by name or mobile number from the first character and pick
+   the customer (points, tier, balance shown); no match → **+ Add new customer** on the sale (roadmap 184, below).
 5. **Payment** — M-Pesa (Push STK and/or manual code), Cash (change calculator), Credit Sale (due date, optional deposit now), or any custom
    method. Optional **points redemption** reduces the amount payable.
 6. **Totals** — subtotal at marked prices, discounts, points redeemed, **Total payable**, 🌼 *+N Loyalty Points*.
@@ -103,3 +103,20 @@ Summary cards: count, value, discounts.
 ## Settings
 Sales → quantity entry, barcode clearance, payment methods (add/rename/disable), manual M-Pesa, credit, receipt
 footer. Loyalty rules (module 10).
+
+## Customer search at the till (roadmap 184)
+
+`web/src/pages/sales/pos/CustomerPicker.tsx` over `GET /api/customers/search?q=` (*Record sales* or *View customers*).
+- **Reading the search:** digits only (with `+`, spaces, dashes) is a number in any form — `07…`, `01…`, `254…`,
+  `+254…` — reduced to what follows the country code or leading zero and matched anywhere in the stored `254…` number
+  (numbers that start with it first). Anything else is a name: every word must appear in the first name, other names
+  or nickname, case-insensitive, any order (names that start with the first word first). Then the most recent
+  customers. Up to 8, with `more`. Wildcards are literal. Active customers only; never another business's.
+- **Till:** debounced (200 ms); only the answer to what is typed now is shown. ↑ ↓ Enter Esc. Picking attaches the
+  customer, closes the list and fills the M-Pesa number unless the cashier typed another; *Remove customer* changes it.
+  Typed text is never attached.
+- **No match:** *No matching customer found.* and **+ Add new customer** — the customer form (`CustomerForm`, with the
+  typed name or number filled in) opens over the sale; a number already registered is refused naming its customer
+  (`POST /api/customers`); the new customer is attached. Without *Create customers* the earlier way stays: a full
+  number and a first name, created with the sale.
+- The cart, quantities, prices, discounts and payment choice are never touched. 50,000 customers: under 80 ms.

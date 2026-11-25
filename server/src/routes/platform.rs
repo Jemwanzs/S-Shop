@@ -398,7 +398,44 @@ async fn activity(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Activ
         let n: i64 = counts.iter().filter(|(cm, ca, _)| cm == m && acts.contains(&ca.as_str())).map(|c| c.2).sum();
         totals.insert(key.to_string(), json!(n));
     }
-    let page: Paged<ActivityRow> = rows.into();
+    // Roadmap 182: support sessions are recorded in the Platform Security Audit Trail (older ones stay in the audit log).
+    const SUPPORT_FILTER: &str = "FROM platform_audit_log p LEFT JOIN tenants t ON t.id = p.tenant_id
+         WHERE p.event LIKE ANY(ARRAY['session_%', 'request_%']) AND p.at >= $1 AND p.at < $2
+           AND ($3::uuid IS NULL OR p.tenant_id = $3) AND ($4::uuid IS NULL OR p.platform_user_id = $4)
+           AND ($5::uuid IS NULL OR t.account_id = $5) AND $6::uuid IS NULL";
+    let support_n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) {SUPPORT_FILTER}"))
+        .bind(start)
+        .bind(end)
+        .bind(q.tenant_id)
+        .bind(q.user_id)
+        .bind(q.account_id)
+        .bind(q.branch_id)
+        .fetch_one(&state.db)
+        .await?;
+    if let Some(n) = totals.get_mut("support") {
+        *n = json!(n.as_i64().unwrap_or(0) + support_n);
+    }
+    let mut page: Paged<ActivityRow> = rows.into();
+    if q.activity.as_deref() == Some("support") {
+        let extra: Vec<ActivityRow> = sqlx::query_as(&format!(
+            "SELECT gen_random_uuid() AS id, p.at AS created_at, COALESCE(p.tenant_id, gen_random_uuid()) AS tenant_id, p.tenant_name AS business,
+                    p.platform_user_id AS user_id, p.platform_user AS user_name, p.platform_email AS user_email, NULL::text AS branch_name,
+                    'platform' AS module, p.event AS action, 'support_session' AS entity_type,
+                    jsonb_build_object('session', p.session_id, 'reason', p.reason, 'scope', p.scope) || p.detail AS after, p.ip, NULL::jsonb AS location
+             {SUPPORT_FILTER} ORDER BY p.at DESC LIMIT 200"
+        ))
+        .bind(start)
+        .bind(end)
+        .bind(q.tenant_id)
+        .bind(q.user_id)
+        .bind(q.account_id)
+        .bind(q.branch_id)
+        .fetch_all(&state.db)
+        .await?;
+        page.total += extra.len() as i64;
+        page.items.extend(extra);
+        page.items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    }
     Ok(Json(json!({
         "items": page.items, "total": page.total, "from": from, "to": to, "totals": totals,
         "activities": ACTIVITIES.iter().map(|a| a.0).collect::<Vec<_>>(),
@@ -421,10 +458,16 @@ async fn open(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> 
         return Err(refused("Support access needed", "Open this business with support access (PIN, reason and time limit) or sign in as its administrator"));
     }
     if let Some(s) = &ctx.support {
-        sqlx::query("UPDATE support_sessions SET status = 'ended', ended_at = now(), ended_by = user_id, end_note = 'Returned to own business' WHERE id = $1 AND status = 'active'")
+        let mut tx = state.db.begin().await?;
+        let n = sqlx::query("UPDATE support_sessions SET status = 'ended', ended_at = now(), ended_by = user_id, end_note = 'Returned to own business' WHERE id = $1 AND status = 'active'")
             .bind(s.id)
-            .execute(&state.db)
-            .await?;
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        if n > 0 {
+            crate::platform_audit::record(&mut tx, crate::platform_audit::Event::new("session_ended", s.id), &ctx.ip, &ctx.user_agent).await?;
+        }
+        tx.commit().await?;
     }
     // No new PIN here: the session keeps its original end (roadmap 87).
     let cap = crate::sessions::carried_end(&state, ctx.session_id).await?;

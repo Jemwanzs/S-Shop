@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::audit::{self, Entry};
 use crate::auth::{hash_pin, validate_pin, Ctx};
-use crate::error::{bad, rule, AppError, AppResult};
+use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::perms;
 use crate::settings::{Hours, TenantSettings};
 use crate::state::AppState;
@@ -1184,18 +1184,39 @@ struct Role {
     is_system: bool,
     is_active: bool,
     user_count: i64,
+    /// Roadmap 183: permissions switched off for the Tenant Administrator role.
+    excluded_permissions: Vec<String>,
+    /// Roadmap 183: whether this person may edit the role (the Tenant Administrator role: its own administrators only).
+    #[sqlx(default)]
+    editable: bool,
+    /// Roadmap 183: the Tenant Administrator role's permissions that can never be switched off.
+    #[sqlx(default)]
+    locked: Vec<String>,
+}
+
+/// Roadmap 183: only a Tenant Administrator of this business — fully signed in, never S'Shop support — edits the
+/// Tenant Administrator role.
+fn may_edit_admin_role(ctx: &Ctx) -> bool {
+    ctx.is_admin() && ctx.support.is_none() && ctx.acting_from.is_none() && !ctx.quick
 }
 
 async fn list_roles(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<Role>>> {
     ctx.require_any(&["roles.manage", "users.manage", "settings.manage"])?;
-    let rows = sqlx::query_as(
-        "SELECT r.id, r.name, r.description, r.permissions, r.is_system, r.is_active,
+    let mut rows: Vec<Role> = sqlx::query_as(
+        "SELECT r.id, r.name, r.description, r.permissions, r.is_system, r.is_active, r.excluded_permissions,
                 (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id AND u.is_active) AS user_count
          FROM roles r WHERE r.tenant_id = $1 ORDER BY r.is_system DESC, r.name",
     )
     .bind(ctx.tenant_id)
     .fetch_all(&state.db)
     .await?;
+    let locked: Vec<String> = perms::CATALOGUE.iter().flat_map(|g| g.permissions.iter().map(|(k, _)| k.to_string())).filter(|k| perms::admin_required(k)).collect();
+    for r in rows.iter_mut() {
+        r.editable = if r.is_system { may_edit_admin_role(&ctx) } else { ctx.can("roles.manage") };
+        if r.is_system {
+            r.locked = locked.clone();
+        }
+    }
     Ok(Json(rows))
 }
 
@@ -1272,7 +1293,8 @@ async fn update_role(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uui
     .await?
     .ok_or(AppError::NotFound("Role"))?;
     if is_system {
-        return Err(bad("The Tenant Administrator role cannot be changed"));
+        drop(tx);
+        return update_admin_role(&state, &ctx, id, &b).await;
     }
     validate_role(&b)?;
     ensure_grantable(&ctx, &b.permissions, &current)?;
@@ -1291,6 +1313,44 @@ async fn update_role(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uui
     audit::record(&mut tx, &ctx, Entry::new("roles", "update", "role", id).before(before).after(&b)).await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// Roadmap 183: the Tenant Administrator role keeps full access and its name; its administrators may switch off
+/// optional permissions (sent: the permissions left on). The essential administration permissions can never be
+/// switched off, whatever is sent.
+async fn update_admin_role(state: &AppState, ctx: &Ctx, id: Uuid, b: &RoleBody) -> AppResult<Json<Value>> {
+    if !may_edit_admin_role(ctx) {
+        return Err(AppError::Forbidden("Only the business's Tenant Administrators can change the Tenant Administrator role".into()));
+    }
+    if let Some(p) = b.permissions.iter().find(|p| p.as_str() != "*" && !perms::is_known(p)) {
+        return Err(bad(format!("Unknown permission: {p}")));
+    }
+    let on = |k: &str| b.permissions.iter().any(|p| p == k || p == "*");
+    if let Some((k, label)) = perms::CATALOGUE.iter().flat_map(|g| g.permissions.iter()).find(|(k, _)| perms::admin_required(k) && !on(k)) {
+        return Err(refused("Required permission", format!("{label} is required for the Tenant Administrator — it cannot be disabled ({k})")));
+    }
+    if b.is_active == Some(false) {
+        return Err(bad("The Tenant Administrator role cannot be retired"));
+    }
+    let excluded: Vec<String> = perms::CATALOGUE.iter().flat_map(|g| g.permissions.iter()).map(|(k, _)| *k).filter(|k| perms::admin_excludable(k) && !on(k)).map(String::from).collect();
+    let mut tx = state.db.begin().await?;
+    let before: Vec<String> = sqlx::query_scalar("SELECT excluded_permissions FROM roles WHERE id = $1 AND tenant_id = $2 AND is_system FOR UPDATE")
+        .bind(id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound("Role"))?;
+    sqlx::query("UPDATE roles SET excluded_permissions = $3 WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).bind(&excluded).execute(&mut *tx).await?;
+    audit::record(
+        &mut *tx,
+        ctx,
+        Entry::new("roles", "update", "role", id)
+            .before(json!({ "name": perms::ADMIN_ROLE, "switched_off": before }))
+            .after(json!({ "name": perms::ADMIN_ROLE, "switched_off": excluded })),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(json!({ "ok": true, "excluded_permissions": excluded })))
 }
 
 async fn permission_catalogue(_ctx: Ctx) -> Json<&'static [perms::PermGroup]> {

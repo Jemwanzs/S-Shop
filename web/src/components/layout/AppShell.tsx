@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { IdleGuard } from "@/components/IdleGuard";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
@@ -6,7 +6,7 @@ import { ArrowRightLeft, Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, Sli
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import { useSession } from "@/lib/session";
+import { SUPPORT_ENDED, useSession } from "@/lib/session";
 import { useLiveEvents } from "@/lib/events";
 import { date, initials } from "@/lib/format";
 import type { Notification, Profile } from "@/lib/types";
@@ -249,48 +249,72 @@ function Brand() {
   );
 }
 
-/** Shown while a platform admin works inside another business: where they are and the way back. */
-/** Roadmap 71: the Support Access banner — business, scope, reason, time left; ends the session (or returns home
- * once it has ended). */
+/** Roadmap 71 / 182: the Platform Support Session indicator — business, access mode, time left, who is really
+ * working (the platform administrator, never the business's own account) and the way back to the Platform Owner
+ * Console. When the session ends on its own (time limit, revoked by the business) it returns there by itself. */
 function ActingBanner() {
   const { profile, switchBusiness } = useSession();
-  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const support = profile?.acting?.support ?? null;
-  useEffect(() => {
-    if (!support) return;
-    const id = window.setInterval(() => setNow(Date.now()), 15_000);
-    return () => window.clearInterval(id);
-  }, [support]);
-  if (!profile?.acting) return null;
+  const ending = useRef(false);
   const left = support ? Math.max(0, Math.round((new Date(support.expires_at).getTime() - now) / 60_000)) : 0;
-  const end = async () => {
+  const end = useCallback(async () => {
+    if (ending.current || !profile?.acting) return;
+    ending.current = true;
     setBusy(true);
     try {
       const r = support
         ? await api<{ token: string; profile: Profile }>(`/platform/support/${support.id}/end`, { method: "POST" })
-        : await api<{ token: string; profile: Profile }>(`/platform/tenants/${profile.acting!.home_tenant_id}/open`, { method: "POST" });
+        : await api<{ token: string; profile: Profile }>(`/platform/tenants/${profile.acting.home_tenant_id}/open`, { method: "POST" });
+      // The console opens once the platform administrator's own workspace is in place (SupportEndedNotice).
+      try { sessionStorage.setItem(SUPPORT_ENDED, "ended"); } catch { /* stays on the own business's home */ }
       switchBusiness(r.token, r.profile);
-      navigate("/settings/tenants", { replace: true });
     } catch (e) {
       toast.error(e);
     } finally {
+      ending.current = false;
       setBusy(false);
     }
-  };
+  }, [profile, support, switchBusiness]);
+  useEffect(() => {
+    if (!support) return;
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    // The time limit: back to the console at once (the session provider ends it; the server has already stopped it).
+    const ms = new Date(support.expires_at).getTime() - Date.now();
+    const out = window.setTimeout(() => window.dispatchEvent(new Event("sshop:support-ended")), Math.max(0, ms) + 1500);
+    return () => { window.clearInterval(id); window.clearTimeout(out); };
+  }, [support]);
+  if (!profile?.acting) return null;
   return (
-    <div className="flex items-center gap-2 bg-foreground px-3.5 py-1.5 text-[0.78rem] text-background md:px-6 lg:px-8 print:hidden">
+    <div role="status" aria-label={t("Platform support session")} className="flex items-center gap-2 bg-foreground px-3.5 py-1.5 text-[0.78rem] text-background md:px-6 lg:px-8 print:hidden">
       <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 flex-1 truncate">
-        <b>{t("Support access")}</b> · {profile.tenant.name}
-        {support && <> · {t(support.scope === "view" ? "View only" : "Full access")} · <span className="num">{left >= 60 ? `${Math.floor(left / 60)} h ${left % 60} min` : `${left} min`}</span> {t("left")}<span className="hidden md:inline"> · {support.reason}</span></>}
+        <b>{t("Platform support session")}</b> · {profile.tenant.name}
+        {support && <> · {t(support.scope === "view" ? "View only" : "Full access")} · <span className="num">{left >= 60 ? `${Math.floor(left / 60)} h ${left % 60} min` : `${left} min`}</span> {t("left")}</>}
+        <span className="hidden md:inline"> · {t("You")}: {profile.user.name} ({t("S'Shop support")}){support && <> · {support.reason}</>}</span>
       </span>
-      <button onClick={end} disabled={busy} className="shrink-0 rounded-full bg-background/15 px-2.5 py-0.5 font-medium hover:bg-background/25">
-        {busy ? <SShopLoader size="sm" /> : t("End session")}
+      <button onClick={() => void end()} disabled={busy} className="shrink-0 rounded-full bg-background/15 px-2.5 py-0.5 font-medium hover:bg-background/25">
+        {busy ? <SShopLoader size="sm" /> : <><span className="md:hidden">{t("Exit tenant")}</span><span className="hidden md:inline">{t("End support session")}</span></>}
       </button>
     </div>
   );
+}
+
+/** Roadmap 182: after a support session ended by itself, the Platform Owner Console opens with a note. */
+function SupportEndedNotice() {
+  const { profile } = useSession();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!profile || profile.acting) return;
+    let ended: string | null = null;
+    try { ended = sessionStorage.getItem(SUPPORT_ENDED); sessionStorage.removeItem(SUPPORT_ENDED); } catch { /* nothing stored */ }
+    if (!ended) return;
+    // "1": ended by itself (time limit, revoked by the business); otherwise ended by the platform administrator.
+    if (ended === "1") toast.info(t("The support session has ended — you are back in the Platform Owner Console"));
+    navigate("/settings/tenants", { replace: true });
+  }, [profile, navigate]);
+  return null;
 }
 
 /** Billing suspension (pay to restore) and the last week of a trial (roadmap 43). */
@@ -498,6 +522,7 @@ export function AppShell() {
       <Sidebar approvals={approvals} orders={orders} />
       <div className="min-w-0">
         <ActingBanner />
+        <SupportEndedNotice />
         <BillingBanner />
         <LocationGuard />
         <OfflineBar />

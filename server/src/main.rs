@@ -16,6 +16,7 @@ mod loyalty;
 mod notify;
 mod ratelimit;
 mod perms;
+mod platform_audit;
 mod routes;
 mod onboarding;
 mod secrets;
@@ -197,7 +198,9 @@ async fn serve() -> anyhow::Result<()> {
 
     let mut app = Router::new()
         // Every write request goes through the duplicate-submission guard (roadmap 47).
-        .nest("/api", routes::api().fallback(api_not_found).layer(axum::middleware::from_fn_with_state(state.clone(), dedupe::guard)))
+        .nest("/api", routes::api().fallback(api_not_found).layer(axum::middleware::from_fn_with_state(state.clone(), dedupe::guard))
+            // Roadmap 182: everything done with a platform support session goes to the Platform Security Audit Trail.
+            .layer(axum::middleware::from_fn_with_state(state.clone(), platform_audit::track)))
         // Healthy only when the database answers (Railway restarts the service otherwise).
         .route("/healthz", axum::routing::get(healthz))
         .merge(assets)

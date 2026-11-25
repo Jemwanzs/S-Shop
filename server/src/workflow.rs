@@ -205,7 +205,9 @@ pub async fn needs_approval(conn: &mut PgConnection, ctx: &Ctx, action: &str, ga
             return Ok(false);
         }
     }
-    if !c.role_ids.is_empty() {
+    // Roadmap 182: platform support holds no role of this business — a rule limited to some roles still applies to it
+    // (support never slips past the business's approvals).
+    if !c.role_ids.is_empty() && ctx.support.is_none() {
         let role: Uuid = sqlx::query_scalar("SELECT role_id FROM users WHERE id = $1").bind(ctx.user_id).fetch_one(&mut *conn).await?;
         if !c.role_ids.contains(&role) {
             return Ok(false);

@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use super::access::require_platform_admin;
 use super::platform::{record_platform, tenant_rows, TenantRow};
+use crate::platform_audit as pa;
 use crate::audit::{self, Entry};
 use crate::auth::{verify_pin, Ctx};
 use crate::error::{bad, refused, rule, AppError, AppResult};
@@ -36,6 +37,7 @@ pub fn routes() -> Router<AppState> {
         .route("/platform/tenants/{id}/account", post(move_business))
         .route("/platform/tenants/{id}/support", post(request_support))
         .route("/platform/support", get(platform_sessions))
+        .route("/platform/security-audit", get(security_audit))
         .route("/platform/support/{id}/start", post(start_support))
         .route("/platform/support/{id}/end", post(end_support))
         // Tenant administrators
@@ -481,21 +483,24 @@ async fn request_support(State(state): State<AppState>, ctx: Ctx, Path(id): Path
     }
     fresh_pin(&state, &ctx, &b.pin).await?;
     let business: Option<(String, String)> = sqlx::query_as("SELECT name, ownership FROM tenants WHERE id = $1").bind(id).fetch_optional(&state.db).await?;
-    let (name, ownership) = business.ok_or(AppError::NotFound("Business"))?;
+    let (_name, ownership) = business.ok_or(AppError::NotFound("Business"))?;
     let needs_approval = ownership != "platform" && policy(&state, id).await? == "approval";
 
     let mut tx = state.db.begin().await?;
     // An earlier session still open for this business: requested / approved ones are replaced by the new request.
-    sqlx::query(
+    let replaced: Vec<Uuid> = sqlx::query_scalar(
         "UPDATE support_sessions SET status = CASE WHEN status = 'active' AND expires_at <= now() THEN 'expired' ELSE 'ended' END,
                 ended_at = now(), ended_by = $3, end_note = 'Replaced by a new request'
-         WHERE tenant_id = $1 AND user_id = $2 AND status IN ('requested', 'approved', 'active')",
+         WHERE tenant_id = $1 AND user_id = $2 AND status IN ('requested', 'approved', 'active') RETURNING id",
     )
     .bind(id)
     .bind(ctx.user_id)
     .bind(ctx.user_id)
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
+    for old in replaced {
+        pa::record(&mut tx, pa::Event::new("session_replaced", old), &ctx.ip, &ctx.user_agent).await?;
+    }
     let until = Utc::now() + Duration::minutes(b.minutes as i64);
     let sid: Uuid = sqlx::query_scalar(
         "INSERT INTO support_sessions (tenant_id, user_id, home_tenant_id, reason, scope, minutes, status, started_at, expires_at)
@@ -512,9 +517,11 @@ async fn request_support(State(state): State<AppState>, ctx: Ctx, Path(id): Path
     .bind((!needs_approval).then_some(until))
     .fetch_one(&mut *tx)
     .await?;
-    let action = if needs_approval { "support_requested" } else { "support_started" };
-    let after = json!({ "business": name, "reason": reason, "scope": b.scope, "minutes": b.minutes, "by": ctx.name, "session": sid });
-    record_platform(&mut tx, &ctx, id, || Entry::new("platform", action, "support_session", sid).after(after.clone())).await?;
+    // Roadmap 182: in the Platform Security Audit Trail, not the businesses' own audit trails (the business sees the
+    // session itself in Settings → Security and is notified).
+    let event = if needs_approval { "session_requested" } else { "session_started" };
+    let detail = json!({ "minutes": b.minutes, "authentication": "PIN re-entered", "policy": if ownership == "platform" { "platform-owned" } else if needs_approval { "approval" } else { "notify" } });
+    pa::record(&mut tx, pa::Event::new(event, sid).detail(detail), &ctx.ip, &ctx.user_agent).await?;
     tx.commit().await?;
 
     let scope = if b.scope == "view" { "view-only" } else { "full" };
@@ -572,13 +579,14 @@ async fn start_support(State(state): State<AppState>, ctx: Ctx, Path(sid): Path<
             .bind(sid)
             .execute(&mut *tx)
             .await?;
+        pa::record(&mut tx, pa::Event::new("approval_lapsed", sid), &ctx.ip, &ctx.user_agent).await?;
         tx.commit().await?;
         return Err(rule("The approval has lapsed (not used within 24 hours) — request access again"));
     }
     let until = Utc::now() + Duration::minutes(minutes as i64);
     sqlx::query("UPDATE support_sessions SET status = 'active', started_at = now(), expires_at = $2 WHERE id = $1").bind(sid).bind(until).execute(&mut *tx).await?;
-    let after = json!({ "business": name, "session": sid, "until": until, "by": ctx.name });
-    record_platform(&mut tx, &ctx, tenant, || Entry::new("platform", "support_started", "support_session", sid).after(after.clone())).await?;
+    let detail = json!({ "minutes": minutes, "until": until, "authentication": "PIN re-entered", "business": name, "approved_for": tenant });
+    pa::record(&mut tx, pa::Event::new("session_started", sid).detail(detail), &ctx.ip, &ctx.user_agent).await?;
     tx.commit().await?;
     Ok(Json(enter(&state, &ctx, home, tenant, sid, until).await?))
 }
@@ -601,11 +609,8 @@ async fn end_support(State(state): State<AppState>, ctx: Ctx, Path(sid): Path<Uu
             .bind(ctx.user_id)
             .execute(&mut *tx)
             .await?;
-        let after = json!({ "business": name, "session": sid, "by": ctx.name });
-        let mut c = ctx.clone();
-        c.tenant_id = home;
-        c.acting_from = None;
-        record_platform(&mut tx, &c, tenant, || Entry::new("platform", "support_ended", "support_session", sid).after(after.clone())).await?;
+        let event = if status == "active" { "session_ended" } else { "request_withdrawn" };
+        pa::record(&mut tx, pa::Event::new(event, sid).detail(json!({ "business": name, "home": home, "tenant": tenant })), &ctx.ip, &ctx.user_agent).await?;
     }
     tx.commit().await?;
     // No new PIN here: never past the longest session counted from the PIN entered to start support (roadmap 87).
@@ -708,10 +713,10 @@ async fn decide(State(state): State<AppState>, ctx: Ctx, Path((sid, decision)): 
             .await?;
     }
     let after = json!({ "session": sid, "status": to, "by": ctx.name });
-    audit::record(&mut tx, &ctx, Entry::new("platform", action, "support_session", sid).before(json!({ "status": status })).after(after.clone())).await?;
-    let mut c = ctx.clone();
-    c.tenant_id = home;
-    audit::record(&mut tx, &c, Entry::new("platform", action, "support_session", sid).after(after)).await?;
+    // The business's own decision stays in its audit trail; the platform's record is the Platform Security Audit Trail.
+    audit::record(&mut tx, &ctx, Entry::new("platform", action, "support_session", sid).before(json!({ "status": status })).after(after)).await?;
+    let event = match to { "approved" => "request_approved", "denied" => "request_declined", _ => "session_revoked" };
+    pa::record(&mut tx, pa::Event::new(event, sid).detail(json!({ "by": ctx.name, "by_user": ctx.user_id, "home": home })), &ctx.ip, &ctx.user_agent).await?;
     tx.commit().await?;
     let business: String = sqlx::query_scalar("SELECT name FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&state.db).await?;
     let (title, body) = match to {
@@ -722,6 +727,116 @@ async fn decide(State(state): State<AppState>, ctx: Ctx, Path((sid, decision)): 
     notify::to_users(&state, home, &[platform_user], Note::new("support_decision", title, body, "/settings/tenants")).await;
     state.emit(home, Some(platform_user), "support", json!({ "id": sid, "status": to }));
     Ok(Json(json!({ "ok": true, "status": to })))
+}
+
+// ── 182. Platform Security Audit Trail ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SecurityAuditQuery {
+    tenant_id: Option<Uuid>,
+    session_id: Option<Uuid>,
+    /// all | sessions | changes | refused
+    kind: Option<String>,
+    #[serde(flatten)]
+    period: super::Period,
+    #[serde(flatten)]
+    page: super::Page,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct SecurityEvent {
+    id: i64,
+    at: DateTime<Utc>,
+    event: String,
+    session_id: Option<Uuid>,
+    tenant_id: Option<Uuid>,
+    tenant_name: String,
+    platform_user: String,
+    platform_email: String,
+    scope: String,
+    reason: String,
+    method: String,
+    path: String,
+    status: Option<i32>,
+    detail: Value,
+    ip: String,
+    user_agent: String,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct SecuritySession {
+    id: Uuid,
+    tenant_id: Uuid,
+    business: String,
+    platform_user: String,
+    platform_email: String,
+    reason: String,
+    scope: String,
+    minutes: i32,
+    status: String,
+    requested_at: DateTime<Utc>,
+    started_at: Option<DateTime<Utc>>,
+    expires_at: Option<DateTime<Utc>>,
+    ended_at: Option<DateTime<Utc>>,
+    end_note: String,
+    changes: i32,
+    refused: i32,
+    reads: i32,
+}
+
+/// Roadmap 182: the confidential Platform Security Audit Trail — support sessions (who, which business, why, what
+/// access, how authenticated, when, outcome) and every change attempted in them. Platform administrators only, from
+/// their own business (never from inside a support session); read-only — nothing can change or remove a record.
+async fn security_audit(State(state): State<AppState>, ctx: Ctx, Query(q): Query<SecurityAuditQuery>) -> AppResult<Json<Value>> {
+    require_platform_admin(&state, &ctx).await?;
+    if ctx.support.is_some() || ctx.acting_from.is_some() {
+        return Err(AppError::Forbidden("Open the Platform Security Audit Trail from your own business".into()));
+    }
+    let tz = crate::util::parse_tz(crate::billing::PLATFORM_TZ);
+    let (from, to) = q.period.resolve(crate::billing::today(), "week");
+    let (start, end) = crate::util::local_range(from, to, tz);
+    let kind = q.kind.as_deref().unwrap_or("all");
+    let events: &[&str] = match kind {
+        "sessions" => &["session_%", "request_%", "approval_%"],
+        "changes" => &["change"],
+        "refused" => &["change_refused"],
+        "all" => &["%"],
+        _ => return Err(bad("Unknown filter")),
+    };
+    let rows: Vec<super::Counted<SecurityEvent>> = sqlx::query_as(
+        "SELECT COUNT(*) OVER() AS total_count, id, at, event, session_id, tenant_id, tenant_name, platform_user, platform_email, scope, reason,
+                method, path, status, detail, ip, user_agent
+         FROM platform_audit_log
+         WHERE event LIKE ANY($1) AND ($2::uuid IS NULL OR session_id = $2) AND ($3::uuid IS NULL OR tenant_id = $3)
+           AND ($2::uuid IS NOT NULL OR (at >= $4 AND at < $5))
+         ORDER BY at DESC, id DESC LIMIT $6 OFFSET $7",
+    )
+    .bind(events)
+    .bind(q.session_id)
+    .bind(q.tenant_id)
+    .bind(start)
+    .bind(end)
+    .bind(q.page.limit())
+    .bind(q.page.offset())
+    .fetch_all(&state.db)
+    .await?;
+    let sessions: Vec<SecuritySession> = sqlx::query_as(
+        "SELECT s.id, s.tenant_id, t.name AS business, u.name AS platform_user, lower(u.email) AS platform_email, s.reason, s.scope, s.minutes,
+                CASE WHEN s.status = 'active' AND s.expires_at <= now() THEN 'expired' ELSE s.status END AS status,
+                s.requested_at, s.started_at, s.expires_at, s.ended_at, s.end_note, s.changes, s.refused, s.reads
+         FROM support_sessions s JOIN tenants t ON t.id = s.tenant_id JOIN users u ON u.id = s.user_id
+         WHERE ($1::uuid IS NULL OR s.id = $1) AND ($2::uuid IS NULL OR s.tenant_id = $2)
+           AND ($1::uuid IS NOT NULL OR (s.requested_at < $4 AND COALESCE(s.ended_at, s.expires_at, now()) >= $3))
+         ORDER BY s.requested_at DESC LIMIT 100",
+    )
+    .bind(q.session_id)
+    .bind(q.tenant_id)
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    let page: super::Paged<SecurityEvent> = rows.into();
+    Ok(Json(json!({ "items": page.items, "total": page.total, "sessions": sessions, "from": from, "to": to })))
 }
 
 // ── 72. Several businesses of one tenant ────────────────────────────────────────────────────────────────────────────

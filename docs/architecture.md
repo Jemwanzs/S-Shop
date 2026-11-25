@@ -1,6 +1,6 @@
 # Architecture
 
-*Checked against the code on 2026-11-04 (migrations 0001–0055). Update this page when a component, table, integration
+*Checked against the code on 2026-11-04 (migrations 0001–0056). Update this page when a component, table, integration
 or security rule changes.*
 
 ## Overview
@@ -123,7 +123,7 @@ supplier_return, damage, loss, write_off, adjustment, count_variance`. Individua
 | Platform billing | `billing_plans`, `billing_documents`, `billing_payments` |
 | Websites | `websites`, `website_versions`, `website_media`, `website_domains`, `website_campaigns`, `website_events` |
 | Onboarding | `import_batches`, `import_rows`, `import_progress` |
-| Control | `workflows`, `approvals`, `audit_log`, `notifications`, `whatsapp_messages`, `email_log`, `doc_counters` |
+| Control | `workflows`, `approvals`, `audit_log`, `platform_audit_log` (append-only, roadmap 182), `notifications`, `whatsapp_messages`, `email_log`, `doc_counters` |
 | Operations | `error_events`, `service_starts` |
 
 Approval requests carry the requester's reason (`note`) and, when created together, a shared `bulk_ref` (migration 0043).

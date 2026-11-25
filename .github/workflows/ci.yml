@@ -122,6 +122,8 @@ jobs:
           SMOKE_PAYSTACK_SECRET: sk_test_ci_stand_in
           SMOKE_RESEND_KEY: re_test_ci_stand_in
           SMOKE_RESEND_WEBHOOK_SECRET: whsec_Y2ktd2ViaG9vay1zZWNyZXQtMTIzNDU2
+          # Roadmap 182: the append-only audit trail is checked against the scratch database itself.
+          SMOKE_DATABASE_URL: postgres://postgres:sshop@localhost:5432/sshop
         run: python3 -u scripts/smoke_test.py http://localhost:8099 admin@sshop.test 1234
       - name: Server log
         if: always()

@@ -62,11 +62,11 @@ stores or shows it, and the platform owner's session is replaced by the administ
 | Fresh authentication | The platform owner re-enters their PIN for every request (rate-limited) |
 | Reason | Required (10–500 characters); shown to the business and stored |
 | Scope | *View only* (the server refuses every change) or *Full access* |
-| Time limit | 15 min – 8 h; the token expires with the session |
+| Time limit | 15 min – 8 h, enforced on every request; once it passes (or the business revokes it) the token can only take the platform owner back to their own business (roadmap 182) |
 | Tenant consent | Each business chooses (Settings → Support access): *Notify administrators* (default — support may enter, administrators are notified at once) or *Ask for approval first* (nothing opens until an administrator approves; an approval must be used within 24 h). Only the business's own administrators change it — never from a support session, and never through the settings form |
-| Banner | *Support access · business · scope · time left · reason* with **End session** |
+| Indicator | *Platform support session · business · access · time left · You: name (S'Shop support) · reason* with **End support session** (*Exit tenant* on phones); ending it, the time limit or a revocation opens the Platform Owner Console without signing in again (roadmap 182) |
 | Revocation | The business ends it at any time (*End access now*); the platform owner ends or withdraws it; it expires automatically; deactivation ends it. The next request is refused and the live event stream closes within 15 s |
-| Audit | Requested, approved, declined, started, ended and revoked are recorded in the business's audit trail and the platform's. Everything done in the session is audited as usual |
+| Audit | Since roadmap 182: every step and every change attempted is in the confidential **Platform Security Audit Trail**; the business's own decisions (approve, decline, revoke) stay in its audit trail, changes made by support show there as *S'Shop Support · name*, and the business sees every session in Settings → Security |
 | No impersonation | The session acts as the platform owner (their own name in every record), never as a tenant user. Bare acting tokens from before this release no longer work |
 
 - Platform-owned businesses (such as the demo) use the same flow, with no consent step; the dialog suggests full
@@ -121,4 +121,40 @@ activity and date range.
 | 5 | Secure tenant login and controlled support access | ✅ both routes; MFA beyond PIN re-entry is a later option |
 | 6 | Billing, website services and activation at the right level | ✅ status at tenant level; billing and website per business, aggregated per tenant |
 | 7 | Permissions and session boundaries prevent cross-tenant access | ✅ server-side on every request (smoke suite *Roadmap 70–73*, *Hardening*) |
-| 8 | Platform activity monitoring and audit trails | ✅ tenant filter, support access in both audit trails |
+| 8 | Platform activity monitoring and audit trails | ✅ tenant filter; support access in the Platform Security Audit Trail (roadmap 182) |
+
+## 182 — Full-access limits and the Platform Security Audit Trail
+
+**What full access never does** (refused *Not from a support session*, recorded as a refused change): create or change
+users, roles or PINs (`/users`, `/roles`), sign-in and security rules (`/security`, `/auth/*` except sign-out),
+support consent (`/support-access`), approval rules (`/settings/workflows`, `/settings/approval-policy`), M-Pesa
+credentials (`/mpesa/accounts`), billing (`/billing`), the website's access and domain, or approvals (`/approvals` —
+support never decides the business's requests). Everything else goes through the business's own approval workflow:
+a rule limited to some roles applies to support too (it holds none of the business's roles). View only stays refused
+at the server; its *Save* buttons are disabled.
+
+**Platform Security Audit Trail** — table `platform_audit_log`, written by `server/src/platform_audit.rs`:
+
+| Event | When |
+|---|---|
+| `session_requested`, `request_approved`, `request_declined`, `request_withdrawn`, `approval_lapsed` | the consent steps |
+| `session_started` | with `detail.authentication` = *PIN re-entered*, minutes, policy |
+| `session_ended`, `session_revoked`, `session_expired`, `session_signed_out`, `session_idle`, `session_replaced` | how it ended (expiry is recorded once, when first noticed) |
+| `change`, `change_refused` | every non-read request made with the session's token: method, address, status — after the request, so the outcome is the real one |
+
+Each row copies the business, the platform administrator (name and email), the scope and the reason, so it stays
+readable whatever happens later. The database refuses `UPDATE`, `DELETE` and `TRUNCATE` on it and it has no foreign
+keys. `support_sessions` counts `changes`, `refused` and `reads`. **Who reads it:** platform administrators only, from
+their own business — Settings → Platform → **Security audit** (`GET /api/platform/security-audit`, filters: business,
+session, period, kind). Tenant administrators and support sessions are refused. Platform → Activity's *Support access*
+filter reads it too.
+
+**The business's audit trail** keeps its own people's history unchanged. Support sessions themselves are no longer
+added to it (older ones stay); a change made by support carries `audit_log.support_session_id` and shows as
+**S'Shop Support · name**. Disclosure is unchanged: notifications, the consent policy and Settings → Security → Support
+access (every session, reason, scope, times, *End access now*).
+
+**Ending:** *End support session*, signing out, the inactivity timeout, the time limit and the business's revocation
+all end the support session at once (the sign-in session carries `user_sessions.support_session_id`). After the time
+limit or a revocation the app returns to the Platform Owner Console by itself; the old token's only remaining use is
+`POST /api/platform/support/{id}/end`.

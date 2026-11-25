@@ -18,6 +18,8 @@ export function profileCan(profile: Profile | null | undefined, perm: string): b
     const owner = b.catalogue.find((m) => m.perms.some((p) => perm === p || (p.endsWith(".") && perm.startsWith(p))));
     if (owner && !b.modules.includes(owner.key)) return false;
   }
+  // Roadmap 183: "-perm" — switched off for the Tenant Administrator role.
+  if (profile.permissions.includes(`-${perm}`)) return false;
   return profile.permissions.some((p) => p === "*" || p === perm || (p === "settings.manage" && perm.startsWith("settings.")));
 }
 

@@ -23,6 +23,8 @@ struct AuditRow {
     id: Uuid,
     created_at: DateTime<Utc>,
     user_name: Option<String>,
+    /// Roadmap 182: made by S'Shop platform support inside this business (never one of its people).
+    by_support: bool,
     module: String,
     action: String,
     entity_type: String,
@@ -55,7 +57,9 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     let (from, to) = q.period.resolve(ctx.today(), "week");
     let (start, end) = local_range(from, to, ctx.tz);
     let rows: Vec<Counted<AuditRow>> = sqlx::query_as(
-        "SELECT COUNT(*) OVER() AS total_count, a.id, a.created_at, u.name AS user_name, a.module, a.action, a.entity_type, a.entity_id,
+        "SELECT COUNT(*) OVER() AS total_count, a.id, a.created_at,
+                CASE WHEN a.support_session_id IS NOT NULL THEN 'S''Shop Support · ' || COALESCE(u.name, '') ELSE u.name END AS user_name,
+                a.support_session_id IS NOT NULL AS by_support, a.module, a.action, a.entity_type, a.entity_id,
                 b.name AS branch_name, a.before, a.after, ap.status AS approval_status, du.name AS approver_name,
                 a.comments, a.ip, a.user_agent, a.location
          FROM audit_log a LEFT JOIN users u ON u.id = a.user_id LEFT JOIN branches b ON b.id = a.branch_id

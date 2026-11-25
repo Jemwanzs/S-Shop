@@ -430,6 +430,7 @@ async fn catalogue(State(state): State<AppState>, Path(slug): Path<String>, Quer
     let rules = price_rules(&state, t.id, &t.settings).await?;
     let mut items = serde_json::to_value(items).unwrap_or_default();
     public_prices(&rules, &mut items, "id");
+    stock_view(&t.settings.orders, &mut items);
     Ok(Json(json!({
         "products": items,
         "categories": categories.into_iter().map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
@@ -553,4 +554,19 @@ pub(crate) async fn submitted_lines(state: &AppState, order: Uuid) -> AppResult<
         .into_iter()
         .map(|(_, name, qty, price, line, _)| json!({ "name": name, "quantity": qty, "unit_price": price, "line_total": line }))
         .collect())
+}
+
+/// Roadmap 181: what the ordering link shows about stock — In stock / Out of stock always, the number only when the
+/// business shows quantities, and the most a customer can put in the cart when the cart is limited to stock.
+fn stock_view(o: &crate::settings::OrderSettings, items: &mut Value) {
+    for it in items.as_array_mut().into_iter().flatten() {
+        let available = it["available"].as_i64().unwrap_or(0);
+        it["in_stock"] = json!(available > 0);
+        it["max_qty"] = if o.limit_cart_to_stock { json!(available.max(0)) } else { json!(99) };
+        if !o.show_stock_quantity {
+            if let Some(m) = it.as_object_mut() {
+                m.remove("available");
+            }
+        }
+    }
 }

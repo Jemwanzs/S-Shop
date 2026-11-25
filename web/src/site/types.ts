@@ -90,6 +90,10 @@ export interface Product {
   price: string | null;
   badge: string;
   in_stock: boolean | null;
+  /** Roadmap 181: units available, when the business shows quantities. */
+  stock_qty?: number;
+  /** Roadmap 181: the most that can go in the cart, when the business limits the cart to stock. */
+  max_qty?: number;
   /** add_to_cart | enquire | contact | whatsapp */
   action: string;
   /** Roadmap 130: a second way to ask about a hidden-price product that can be ordered (whatsapp | contact | enquire). */
@@ -107,4 +111,4 @@ export interface Product {
   seo_description: string;
 }
 
-export interface CartLine { id: string; slug: string; name: string; price: string | null; photo: string | null; qty: number }
+export interface CartLine { id: string; slug: string; name: string; price: string | null; photo: string | null; qty: number; /** Roadmap 181 */ max?: number }

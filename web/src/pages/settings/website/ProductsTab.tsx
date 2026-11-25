@@ -55,6 +55,17 @@ export function ProductsTab({ c, set, ov }: TabProps) {
     },
     onError: (e) => toast.error(e),
   });
+  // Roadmap 181: three stock settings, each saved on its own at once (shared with the ordering link).
+  const stock = useMutation({
+    mutationFn: ({ setting, on }: { setting: string; on: boolean }) => api("/website/stock", { method: "PUT", body: { setting, on } }),
+    onSuccess: () => {
+      toast.success("Saved");
+      qc.invalidateQueries({ queryKey: ["website"] });
+      qc.invalidateQueries({ queryKey: ["settings"] });
+    },
+    onError: (e) => toast.error(e),
+  });
+  const st = ov.stock ?? { in_stock_only: true, limit_cart_to_stock: true, show_stock_quantity: false };
   const published = (p: CatalogueProduct) => entry(c, p.id)?.published ?? c.products.auto_publish_new;
   const list = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -71,6 +82,12 @@ export function ProductsTab({ c, set, ov }: TabProps) {
       <Block title="Prices & publishing">
         <ToggleRow label="Show product prices" hint="One setting for the website and the ordering link — applies straight away. Products can override it below." checked={!!ov.show_prices} disabled={prices.isPending} onChange={(v) => prices.mutate(v)} />
         <ToggleRow label="Publish new products automatically" hint="New S'Shop products appear on the website (after you publish)" checked={c.products.auto_publish_new} onChange={(v) => set((x) => { x.products.auto_publish_new = v; })} />
+        <ToggleRow label="Show in-stock products only" hint="Off: out-of-stock products are shown, marked Out of Stock, and cannot be added to the cart. Products, publishing and stock are never changed. Applies straight away."
+          checked={st.in_stock_only} disabled={stock.isPending} onChange={(v) => stock.mutate({ setting: "in_stock_only", on: v })} />
+        <ToggleRow label="Limit cart quantity to available stock" hint="Customers cannot add more than is available. Checkout always checks stock again, so the last unit is never sold twice."
+          checked={st.limit_cart_to_stock} disabled={stock.isPending} onChange={(v) => stock.mutate({ setting: "limit_cart_to_stock", on: v })} />
+        <ToggleRow label="Show available stock quantity" hint="On: “3 units available”. Off: In stock / Out of Stock only, never the number."
+          checked={st.show_stock_quantity} disabled={stock.isPending} onChange={(v) => stock.mutate({ setting: "show_stock_quantity", on: v })} />
         <Grid2>
           <Field label="With a hidden price, visitors can also" hint="Products that can be ordered always show Add to Cart"><Select value={c.products.hidden_action} onChange={(v) => set((x) => { x.products.hidden_action = v; })}>{ACTIONS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</Select></Field>
           <Field label="Photos per product"><Choice value={c.products.max_photos} onChange={(v) => set((x) => { x.products.max_photos = v; })} options={[1, 2, 3, 4, 5].map((n) => [n, String(n)])} /></Field>

@@ -168,3 +168,11 @@ browser or the home-screen app.
   They cover registration, sign-in (remembered and device-offered), wrong origin or RP ID, no user verification, another key,
   replay, cloned counter, a passkey claiming another person, an unknown one, rules, limited sessions, several passkeys, removal
   and PIN change.
+
+## Passkey-first sign-in (roadmap 180)
+When this device remembers a passkey for S'Shop (saved only after setting it up or signing in with it here; forgotten
+when the server reports it removed or revoked), the sign-in page opens on **Continue with Face ID / Passkey** (wording
+per device) with email and PIN hidden. **Sign in with Email Instead** reveals them (email filled in, *Forgot PIN /
+Password?*) without reloading; **Back to Face ID / Passkey** returns. A failed or cancelled check offers **Try again** and
+**Sign in with Email Instead**. Everything else — new devices, unsupported browsers, passkeys switched off, a revoked
+passkey — gets the standard sign-in. Screen only: the server's checks, Quick PIN, rate limits and recovery are unchanged.

@@ -36,6 +36,7 @@ pub fn routes() -> Router<AppState> {
         .route("/website/versions", get(versions))
         .route("/website/versions/{version}/restore", post(restore))
         .route("/website/prices", put(set_prices))
+        .route("/website/stock", put(set_stock))
         .route("/website/seo/suggestions", get(seo_suggestions))
         .route("/website/access", get(access_list))
         .route("/website/access/{user_id}", put(access_set))
@@ -118,6 +119,8 @@ async fn overview(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Val
     let (name, slug, ..) = business(&mut conn, ctx.tenant_id).await?;
     let settings: Value = sqlx::query_scalar("SELECT settings FROM tenants WHERE id = $1").bind(ctx.tenant_id).fetch_one(&mut *conn).await?;
     let show_prices = settings.pointer("/orders/show_prices").and_then(Value::as_bool).unwrap_or(true);
+    // Roadmap 181: the website's stock settings (shared with the ordering link).
+    let orders = crate::settings::load(&mut conn, ctx.tenant_id).await?.orders;
     let billing = crate::billing::summary_of(&mut conn, ctx.tenant_id, "website").await?;
     let domain: Option<(String, String, bool)> = sqlx::query_as("SELECT domain, status, is_primary FROM website_domains WHERE tenant_id = $1")
         .bind(ctx.tenant_id)
@@ -157,6 +160,7 @@ async fn overview(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Val
         "preview_url": format!("/s/{slug}?preview=1"),
         "domain": domain.map(|(d, s)| json!({ "domain": d, "status": s })),
         "show_prices": show_prices,
+        "stock": { "in_stock_only": !orders.show_out_of_stock, "limit_cart_to_stock": orders.limit_cart_to_stock, "show_stock_quantity": orders.show_stock_quantity },
         "fonts": website::FONTS,
         "branches": branches.into_iter().map(|(id, name, location, phone)| json!({ "id": id, "name": name, "location": location, "phone": phone })).collect::<Vec<_>>(),
     })))
@@ -478,6 +482,51 @@ async fn restore(State(state): State<AppState>, ctx: Ctx, Path(version): Path<i3
         .await?;
     tx.commit().await?;
     Ok(Json(json!({ "ok": true, "version": new_version })))
+}
+
+#[derive(Deserialize)]
+struct StockBody {
+    /// in_stock_only | limit_cart_to_stock | show_stock_quantity
+    setting: String,
+    on: bool,
+}
+
+/// Roadmap 181: the website's three stock settings, each saved on its own and applied at once (not part of the draft) —
+/// the same settings as the ordering link's, so the two never disagree. Products, publication and stock are untouched.
+async fn set_stock(State(state): State<AppState>, ctx: Ctx, Json(b): Json<StockBody>) -> AppResult<Json<Value>> {
+    ctx.require("website.products")?;
+    let (key, value) = match b.setting.as_str() {
+        "in_stock_only" => ("show_out_of_stock", !b.on),
+        "limit_cart_to_stock" => ("limit_cart_to_stock", b.on),
+        "show_stock_quantity" => ("show_stock_quantity", b.on),
+        _ => return Err(crate::error::bad("Unknown stock setting")),
+    };
+    let mut tx = state.db.begin().await?;
+    let before = crate::settings::load(&mut tx, ctx.tenant_id).await?.orders;
+    sqlx::query(
+        "UPDATE tenants SET settings = jsonb_set(jsonb_set(settings, '{orders}', COALESCE(settings->'orders', '{}'::jsonb)), ARRAY['orders', $2::text], to_jsonb($3::boolean))
+         WHERE id = $1",
+    )
+    .bind(ctx.tenant_id)
+    .bind(key)
+    .bind(value)
+    .execute(&mut *tx)
+    .await?;
+    let was = match key {
+        "show_out_of_stock" => before.show_out_of_stock,
+        "limit_cart_to_stock" => before.limit_cart_to_stock,
+        _ => before.show_stock_quantity,
+    };
+    audit::record(
+        &mut tx,
+        &ctx,
+        Entry::new("settings", "update", "settings", ctx.tenant_id)
+            .before(json!({ format!("orders.{key}"): was }))
+            .after(json!({ format!("orders.{key}"): value, "via": "website" })),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(json!({ "ok": true, "setting": b.setting, "on": b.on })))
 }
 
 #[derive(Deserialize)]

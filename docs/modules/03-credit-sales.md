@@ -40,6 +40,18 @@ customer. Actions:
   **Part recalled** and collection continues. Audited (balance before/after, items, barcodes, branch); approval via
   the *Credit sale recall* workflow when configured.
 
+## One item per credit sale, returned-item credit and swaps (roadmap 179)
+- **One item per credit sale** (Settings → Sales, default on): a new credit sale holds one item; the till records a cart
+  of several items as separate credit sales (same customer and due date). Earlier credit sales are unchanged.
+- **Record payment → Returned item**: an item of a sale the customer **paid for** comes back and its paid value settles
+  this credit (or a return credit already held is used). Preview: item value, the part that only cancels what was still
+  owed on its sale, the eligible paid value, the most that can be applied, the new balance. Partial amounts; what is left
+  stays available as a return credit or is paid out. An item from an unpaid credit sale gives no credit. Follows *Sale
+  return / refund* approval. Recorded as a `return_credit` payment, linked to the return and the original sale.
+- **Swap item** (*Recall* + *Record sales*): the item comes back, what is owed on it is cancelled, any money paid beyond
+  that carries over; the replacement is a new linked sale (*Replacement for …*) on credit or paid now. Follows *Credit
+  sale recall* approval.
+
 ## Statuses
 Outstanding · Partially paid · Paid · **Overdue** (open and past due — derived, not stored) · Written off · Cancelled
 (sale cancelled) · Recalled (goods all back, nothing owed); *Part recalled* is shown alongside. Returns on a credit sale reduce the balance first (`adjustments`).

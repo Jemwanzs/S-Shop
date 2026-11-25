@@ -364,7 +364,7 @@ pub const REPORTS: &[Report] = &[
                      COALESCE(SUM(p.amount), 0) AS net, COUNT(*) AS payments
               FROM payments p, params
               WHERE p.tenant_id = params.tid AND p.branch_id = ANY(params.br) AND p.business_date BETWEEN params.fd AND params.td
-                AND p.method NOT IN ('exchange', 'legacy')
+                AND p.method NOT IN ('exchange', 'legacy', 'return_credit')
                 AND (params.uid IS NULL OR p.user_id = params.uid)
               GROUP BY p.method ORDER BY net DESC",
     },

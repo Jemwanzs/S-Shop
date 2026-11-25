@@ -68,6 +68,8 @@ Sell on credit with clear balances, due dates and repayment history for every cu
 - Overdue reminders to the team, plus credit aging and credit sales reports
 - Write-offs controlled through approval workflows
 - Each credit sale shows the product sold — photo, name and code as sold, quantity, price, discount and the amount on credit — even after the product is renamed or repriced
+- One item per credit sale (switchable): a cart of several items on credit becomes separate credit sales, each settled on its own
+- Settle a credit with a returned item the customer had paid for, or swap an item sold on credit for another product — previewed, approved where required, and linked in the history
 
 <a id="module-5"></a>
 
@@ -227,6 +229,7 @@ Secure sign-in and session controls that protect the business on shared and pers
 - Sign out everywhere and trusted-device management
 - Control over whether S'Shop support may enter the business, always time-limited and recorded
 - S'Shop tells you when a new version is ready and refreshes without losing unsaved work
+- A device with Face ID, fingerprint or Windows Hello sign-in set up opens straight on Continue with Face ID / Passkey; Sign in with Email Instead is one tap away
 
 <a id="module-16"></a>
 
@@ -271,6 +274,7 @@ An optional website for the business, powered directly by its S'Shop products, s
 - Draft, preview and publish, with a media library and image-quality checks
 - Custom domains with guided DNS checks and secure HTTPS
 - Visitor and order analytics
+- Show in-stock products only, limit the cart to available stock and show the quantity available — three settings shared with the ordering link
 
 <a id="module-19"></a>
 
@@ -360,6 +364,12 @@ Signing in, choosing your branch and keeping your account secure.
 3. Tap the button that appears, such as Use Face ID / Touch ID, and confirm when your device asks. Your device shows its own prompt.
 4. Check that it now says Enabled. Next time, tap Sign in with Passkey on the sign-in page.
 
+#### Sign in with Face ID on a returning device
+
+1. On a device where you set up Face ID, fingerprint or Windows Hello sign-in, the sign-in page opens on Continue with Face ID / Passkey: tap it and let your device check it's you.
+2. To use your email and PIN instead (or to let someone else sign in), tap Sign in with Email Instead. Back to Face ID / Passkey returns.
+3. If the check fails or is cancelled, tap Try again or Sign in with Email Instead. If the passkey was removed, the page shows the email sign-in.
+
 #### Face ID or fingerprint: iPhone, Android and lost devices
 
 1. iPhone: works in Safari and in S'Shop added to the Home Screen. A passkey set up in one is on the phone for both: tap the sign-in button and choose it.
@@ -413,6 +423,20 @@ Recording sales, payments, receipts, returns, credit and customer orders.
 1. Open Credit Sales and the customer's credit sale.
 2. Tap Record payment, enter the Amount received and the method (M-Pesa needs the confirmation code).
 3. Tap Save payment. The outstanding balance updates at once.
+
+#### Settle a credit with a returned item
+
+1. Open the credit sale → Record payment → Returned item.
+2. Search the sale the item was paid on (receipt, customer, product or barcode) and tap the item — or pick a return credit already listed.
+3. Check the preview: only money actually paid for the item can be used. Enter the amount (or leave the most), the reason, tick to confirm, then Apply return credit.
+4. Pay any rest the usual way. If your business requires approval for returns, the balance changes once it is approved.
+
+#### Swap an item sold on credit
+
+1. Open the credit sale → Swap item.
+2. Choose the item coming back (scan its barcode if asked), then search and choose what the customer takes instead.
+3. Choose On credit or how the difference is paid. The preview shows what is owed now and any money already paid that carries over.
+4. Give the reason, tick to confirm, then Record swap. The new sale opens, linked to the old one.
 
 #### Return items or exchange them
 
@@ -678,6 +702,13 @@ Setting up the business, people, rules, payments and the website.
 1. Settings → Website → Request Website Service (S'Shop sets it up and contacts you).
 2. Once active: edit Content, Branding & Appearance, Products and the other sections, Save draft and Preview.
 3. Tap Publish, say What changed?, then Publish now — visitors see the new version straight away.
+
+#### Choose what customers see about stock
+
+1. Settings → Website → Products → Prices & publishing (or Settings → Orders).
+2. Show in-stock products only: on hides products with no stock until stock arrives; off shows them as Out of Stock (they cannot be ordered).
+3. Limit cart quantity to available stock: customers cannot add more than you have.
+4. Show available stock quantity: shows “3 units available”; off shows In stock only. Each switch applies at once and never changes your products or stock.
 
 #### Billing
 

@@ -72,13 +72,13 @@ export function passkeyWording(platform = devicePlatform()) {
   switch (platform) {
     case "iphone":
     case "ipad":
-      return { title: "Face ID / Touch ID & Passkey Login", toggle: "Enable Face ID / Touch ID & Passkey Login", hint: `Use your ${platform === "ipad" ? "iPad" : "iPhone"}'s Face ID, Touch ID or passcode, whichever it is set up with.`, action: "Use Face ID / Touch ID", signIn: "Sign in with Passkey" };
+      return { title: "Face ID / Touch ID & Passkey Login", toggle: "Enable Face ID / Touch ID & Passkey Login", hint: `Use your ${platform === "ipad" ? "iPad" : "iPhone"}'s Face ID, Touch ID or passcode, whichever it is set up with.`, action: "Use Face ID / Touch ID", signIn: "Sign in with Passkey", short: "Face ID / Passkey" };
     case "android":
-      return { title: "Biometric & Passkey Login", toggle: "Enable Biometric & Passkey Login", hint: "Use your phone's fingerprint, face unlock or screen lock, whichever it is set up with.", action: "Use Biometric / Passkey", signIn: "Sign in with Passkey" };
+      return { title: "Biometric & Passkey Login", toggle: "Enable Biometric & Passkey Login", hint: "Use your phone's fingerprint, face unlock or screen lock, whichever it is set up with.", action: "Use Biometric / Passkey", signIn: "Sign in with Passkey", short: "Fingerprint / Passkey" };
     case "windows":
-      return { title: "Windows Hello & Passkey Login", toggle: "Enable Windows Hello & Passkey Login", hint: "Use Windows Hello (face, fingerprint or PIN), a phone nearby or a security key.", action: "Use Windows Hello / Passkey", signIn: "Sign in with Passkey" };
+      return { title: "Windows Hello & Passkey Login", toggle: "Enable Windows Hello & Passkey Login", hint: "Use Windows Hello (face, fingerprint or PIN), a phone nearby or a security key.", action: "Use Windows Hello / Passkey", signIn: "Sign in with Passkey", short: "Windows Hello / Passkey" };
     default:
-      return { title: "Device Authentication & Passkeys", toggle: "Enable Device Authentication & Passkeys", hint: "Use your device's own check (Touch ID, password or screen lock), a phone nearby or a security key.", action: "Use a Passkey", signIn: "Sign in with Passkey" };
+      return { title: "Device Authentication & Passkeys", toggle: "Enable Device Authentication & Passkeys", hint: "Use your device's own check (Touch ID, password or screen lock), a phone nearby or a security key.", action: "Use a Passkey", signIn: "Sign in with Passkey", short: "Touch ID / Passkey" };
   }
 }
 

@@ -44,7 +44,7 @@ interface Business { name: string; slug: string; tagline: string; phone: string;
 interface PortalSession { token: string; customer: { first_name: string; nickname: string; mobile: string } }
 interface Me { customer: PortalSession["customer"]; total_orders: number; loyalty: { points: number; value: string | null } | null }
 interface Item { id: string; name: string; description: string; category_id: string | null; /** Absent when the business hides this product's price. */
-  price?: string; available: number; primary_photo_id: string | null;
+  price?: string; /** Roadmap 181: only when the business shows quantities */ available?: number; in_stock?: boolean; max_qty?: number; primary_photo_id: string | null;
   /** Roadmap 131: no selling price yet — shown as Price on request, cannot be ordered online. */
   price_on_request?: boolean }
 /** Roadmap 130: a submitted order with the prices recorded at submission. */
@@ -57,6 +57,9 @@ interface Placed {
 }
 interface PortalOrder { id: string; order_no: string; status: string; status_label: string; total?: string; created_at: string; track_token: string; items: { name: string; quantity: number; line_total?: string }[]; steps: Step[] }
 type Cart = Record<string, { item: Item; qty: number }>;
+/** Roadmap 181: in stock (the number is sent only when the business shows quantities) and the cart's maximum. */
+const inStock = (i: Item) => i.in_stock ?? (i.available ?? 0) > 0;
+const maxOf = (i: Item) => (inStock(i) ? i.max_qty ?? i.available ?? 99 : 0);
 interface Ident { mobile: string; exists: boolean; first_name: string | null; otp_required: boolean }
 
 export default function Portal() {
@@ -252,7 +255,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
     setCart((c) => {
       const next = { ...c };
       if (qty <= 0) delete next[item.id];
-      else next[item.id] = { item, qty: Math.min(qty, item.available) };
+      else next[item.id] = { item, qty: Math.min(qty, maxOf(item)) };
       return next;
     });
 
@@ -332,7 +335,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {items.slice((page - 1) * PER, page * PER).map((p) => {
               const inCart = cart[p.id]?.qty ?? 0;
-              const out = p.available <= 0;
+              const out = !inStock(p);
               return (
                 <button key={p.id} onClick={() => setOpen(p)} className={cn("surface group overflow-hidden text-start transition hover:shadow-lift", out && "opacity-60")}>
                   <div className="relative aspect-3/4 bg-muted/60">
@@ -344,7 +347,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
                   <div className="space-y-1 p-3">
                     <p className="line-clamp-2 font-medium leading-snug">{p.name}</p>
                     {p.price != null ? <p className="num font-semibold">{b.currency} {amount(p.price)}</p> : <p className="text-xs text-muted-foreground">{t(p.price_on_request ? "Price on request" : "Price revealed after order submission")}</p>}
-                    <p className={cn("text-xs font-medium", out ? "text-destructive" : "text-success")}>{out ? "Out of stock" : "In stock"}</p>
+                    <p className={cn("text-xs font-medium", out ? "text-destructive" : "text-success")}>{out ? "Out of Stock" : p.available != null ? `${p.available} ${p.available === 1 ? "unit" : "units"} available` : "In stock"}</p>
                   </div>
                 </button>
               );
@@ -386,7 +389,7 @@ function Shop({ b, sess }: { b: Business; sess: PortalSession }) {
                 <div className="flex items-center rounded-full border">
                   <button className="p-2" onClick={() => setQty(l.item, l.qty - 1)} aria-label="Less">{l.qty === 1 ? <Trash2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}</button>
                   <span className="num w-6 text-center">{l.qty}</span>
-                  <button className="p-2" onClick={() => setQty(l.item, l.qty + 1)} disabled={l.qty >= l.item.available} aria-label="More"><Plus className="h-4 w-4" /></button>
+                  <button className="p-2" onClick={() => setQty(l.item, l.qty + 1)} disabled={l.qty >= maxOf(l.item)} aria-label="More"><Plus className="h-4 w-4" /></button>
                 </div>
                 {l.item.price != null && <span className="num w-20 text-end font-semibold">{amount(toNum(l.item.price) * l.qty)}</span>}
               </li>
@@ -416,7 +419,7 @@ function ProductSheet({ b, item, qty, onClose, onAdd }: { b: Business; item: Ite
   const detail = useQuery({ queryKey: ["portal", b.slug, "product", item?.id], queryFn: () => api<{ photos: string[] }>(`/portal/${b.slug}/products/${item!.id}`, { token: null }), enabled: !!item });
   if (!item) return null;
   const photos = detail.data?.photos ?? (item.primary_photo_id ? [photoUrl(item.primary_photo_id)!] : []);
-  const out = item.available <= 0;
+  const out = !inStock(item);
   return (
     <ResponsiveDialog
       open={!!item}
@@ -428,10 +431,10 @@ function ProductSheet({ b, item, qty, onClose, onAdd }: { b: Business; item: Ite
           <div className="flex items-center rounded-full border">
             <button className="p-3" onClick={() => setN(Math.max(1, n - 1))} aria-label="Less"><Minus className="h-4 w-4" /></button>
             <span className="num w-8 text-center text-lg">{n}</span>
-            <button className="p-3" onClick={() => setN(Math.min(item.available, n + 1))} aria-label="More"><Plus className="h-4 w-4" /></button>
+            <button className="p-3 disabled:opacity-40" disabled={n >= maxOf(item) - qty} onClick={() => setN(Math.min(maxOf(item) - qty, n + 1))} aria-label="More"><Plus className="h-4 w-4" /></button>
           </div>
           <Button variant="ink" size="lg" className="h-12 flex-1 rounded-xl" disabled={out || item.price_on_request} onClick={() => onAdd(item, qty + n)}>
-            {item.price_on_request ? t("Price on request") : out ? "Out of stock" : <>Add to Cart{item.price != null && <> · <span className="num">{b.currency} {amount(toNum(item.price) * n)}</span></>}</>}
+            {item.price_on_request ? t("Price on request") : out ? "Out of Stock" : <>Add to Cart{item.price != null && <> · <span className="num">{b.currency} {amount(toNum(item.price) * n)}</span></>}</>}
           </Button>
         </div>
       }
@@ -451,7 +454,7 @@ function ProductSheet({ b, item, qty, onClose, onAdd }: { b: Business; item: Ite
         </div>
         <div className="space-y-3">
           {item.price != null ? <p className="num text-2xl font-bold">{b.currency} {amount(item.price)}</p> : <p className="text-sm text-muted-foreground">{t(item.price_on_request ? "Price on request — contact us for a quote" : "Price revealed after order submission")}</p>}
-          <p className={cn("text-sm font-medium", out ? "text-destructive" : "text-success")}>{out ? "Out of stock" : item.available <= 5 ? `Only ${item.available} left` : "In stock"}</p>
+          <p className={cn("text-sm font-medium", out ? "text-destructive" : "text-success")}>{out ? "Out of Stock" : item.available != null ? `${item.available} ${item.available === 1 ? "unit" : "units"} available` : "In stock"}</p>
           {item.description && <p className="whitespace-pre-line text-muted-foreground">{item.description}</p>}
           {qty > 0 && <p className="text-sm text-muted-foreground">{qty} already in your cart</p>}
         </div>

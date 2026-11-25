@@ -78,6 +78,8 @@ export interface Settings {
     mpesa_manual_confirmation: boolean;
     credit_enabled: boolean;
     credit_default_days: number;
+    /** Roadmap 179: a new credit sale holds one item. */
+    credit_single_item?: boolean;
     receipt_footer: string;
     /** Receipt configuration (roadmap 66). */
     receipt: { show_logo: boolean; show_branch: boolean; show_contact: boolean; show_customer: boolean; show_salesperson: boolean; show_loyalty: boolean; show_payment_ref: boolean; font: "sans" | "thermal" };
@@ -93,6 +95,9 @@ export interface Settings {
     sale_on_status: "delivered" | "completed";
     verify_with_otp: boolean;
     show_out_of_stock: boolean;
+    /** Roadmap 181 */
+    limit_cart_to_stock?: boolean;
+    show_stock_quantity?: boolean;
     show_prices: boolean;
     notify_customer_whatsapp: boolean;
     statuses: { key: string; label: string; enabled: boolean }[];
@@ -378,6 +383,7 @@ export interface CreditRow {
   customer_id: Id;
   customer_name: string;
   customer_mobile: string;
+  branch_id?: Id;
   branch_name: string;
   salesperson: string | null;
   original_amount: Money;

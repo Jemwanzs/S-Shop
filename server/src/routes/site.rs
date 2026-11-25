@@ -39,6 +39,7 @@ pub fn routes() -> Router<AppState> {
         .route("/site/identify", post(identify))
         .route("/site/session", post(session))
         .route("/site/orders", post(place_order))
+        .route("/site/cart/check", post(cart_check))
         .route("/site/events", post(event))
         .route("/site/whoami", get(whoami))
 }
@@ -284,6 +285,15 @@ pub struct PubProduct {
     pub badge: String,
     /// Stock shown only when the website shows availability.
     pub in_stock: Option<bool>,
+    /// Roadmap 181: units available, only when the business shows the quantity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stock_qty: Option<i32>,
+    /// Roadmap 181: the most that can go in the cart, when the business limits the cart to stock.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_qty: Option<i32>,
+    /// Units available (never sent to visitors; for the cart check).
+    #[serde(skip)]
+    pub available: i32,
     /// add_to_cart | enquire | contact | whatsapp
     pub action: String,
     /// Roadmap 130: a second way to ask about a hidden-price product that can be ordered (whatsapp | contact | enquire).
@@ -343,6 +353,8 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
     let entries: HashMap<Uuid, &ProductCfg> = cfg.items.iter().map(|p| (p.product_id, p)).collect();
     let show_prices = t.settings.orders.show_prices;
     let show_out = t.settings.orders.show_out_of_stock;
+    let limit = t.settings.orders.limit_cart_to_stock;
+    let show_qty = t.settings.orders.show_stock_quantity;
     let max = cfg.max_photos.clamp(1, 5) as usize;
     let mut out = Vec::new();
     for r in rows {
@@ -357,9 +369,15 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
             _ => show_prices,
         };
         let in_stock = r.available > 0;
+        // Roadmap 181: *Show in-stock products only* — out-of-stock products leave the listings, search, categories and
+        // recommendations (the product, its publication and its stock are untouched) and come back with stock.
+        if !in_stock && !show_out {
+            continue;
+        }
         // Roadmap 131: a product without a selling price is "Price on request" — enquired about, never ordered at a price.
         let priced = r.price.is_some();
-        let orderable = s.ordering && r.available_for_orders && (in_stock || show_out) && priced;
+        // Roadmap 181: nothing out of stock is ever put in a cart (there are no back-orders).
+        let orderable = s.ordering && r.available_for_orders && in_stock && priced;
         let price_visible = price_visible && priced;
         let hidden_action = e.map(|e| e.hidden_action.as_str()).filter(|a| !a.is_empty()).unwrap_or(&cfg.hidden_action).to_string();
         // Roadmap 130: a hidden-price product that can be ordered goes in the cart like any other (its price is shown
@@ -408,7 +426,11 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
             compare_at: e.and_then(|e| e.compare_at).filter(|c| price_visible && r.price.is_some_and(|p| *c > p)),
             stock_ok: in_stock,
             badge: if cfg.grid.show_badges { e.map(|e| e.badge.clone()).unwrap_or_default() } else { String::new() },
-            in_stock: cfg.grid.show_availability.then_some(in_stock),
+            // Out of stock is always said (when such products are shown); In stock where the business shows availability.
+            in_stock: (cfg.grid.show_availability || !in_stock).then_some(in_stock),
+            stock_qty: (show_qty && in_stock).then_some(r.available),
+            max_qty: (limit && in_stock).then_some(r.available),
+            available: r.available,
             action,
             secondary_action,
             price_note,
@@ -1377,4 +1399,41 @@ mod tests {
         assert_eq!(n(public_config(&c, true)), 0);
         assert_eq!(c.testimonials.items.len(), 4, "individual settings untouched");
     }
+}
+
+#[derive(Deserialize)]
+struct CartCheckBody {
+    items: Vec<CartCheckLine>,
+}
+
+#[derive(Deserialize)]
+struct CartCheckLine {
+    product_id: Uuid,
+    quantity: i32,
+}
+
+/// Roadmap 181: the cart against stock now — a product that went out of stock (or left the website) must come out of the
+/// cart, and a quantity above what is available (when the business limits the cart) comes down to the new maximum.
+/// Checkout checks again on the server, so two customers can never buy the same last unit.
+async fn cart_check(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<SiteQuery>, Json(b): Json<CartCheckBody>) -> AppResult<Json<Value>> {
+    let s = live(&state, &headers, q.slug.as_deref(), q.preview).await?;
+    let t = portal::tenant_by_id(&state, s.tenant).await?;
+    let limit = t.settings.orders.limit_cart_to_stock;
+    let all = published(&state, &s).await?;
+    let by_id: HashMap<Uuid, &PubProduct> = all.iter().map(|p| (p.id, p)).collect();
+    let lines: Vec<Value> = b
+        .items
+        .iter()
+        .take(100)
+        .map(|l| match by_id.get(&l.product_id) {
+            None => json!({ "product_id": l.product_id, "ok": false, "max": 0, "message": "No longer available — remove it to continue" }),
+            Some(p) if !p.stock_ok => json!({ "product_id": l.product_id, "ok": false, "max": 0, "message": "Out of stock — remove it to continue" }),
+            Some(p) if limit && l.quantity > p.available => json!({
+                "product_id": l.product_id, "ok": false, "max": p.available,
+                "message": format!("Only {} can be ordered now — lower the quantity to continue", p.available),
+            }),
+            Some(_) => json!({ "product_id": l.product_id, "ok": true }),
+        })
+        .collect();
+    Ok(Json(json!({ "ok": lines.iter().all(|l| l["ok"] == json!(true)), "items": lines })))
 }

@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Link, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Banknote, MessageCircle, RotateCcw } from "lucide-react";
+import { Ban, Banknote, MessageCircle, Repeat, RotateCcw } from "lucide-react";
 import { RecallDialog, type SoldItem } from "./RecallDialog";
+import { ReturnSettle } from "./ReturnSettle";
+import { SwapDialog } from "./SwapDialog";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -40,6 +42,7 @@ export default function CreditDetail() {
   const [paying, setPaying] = useState(false);
   const [writing, setWriting] = useState(false);
   const [recalling, setRecalling] = useState(false);
+  const [swapping, setSwapping] = useState(false);
   const [amountStr, setAmount] = useState("");
   const [method, setMethod] = useState("cash");
   const [reference, setReference] = useState("");
@@ -193,6 +196,10 @@ export default function CreditDetail() {
           {data.can_recall && (
             <Button variant="outline" className="w-full" onClick={() => setRecalling(true)}><RotateCcw /> {t("Recall sale")}</Button>
           )}
+          {/* Roadmap 179: the item comes back and the customer takes another product. */}
+          {data.can_recall && can("sales.create") && (
+            <Button variant="outline" className="w-full" onClick={() => setSwapping(true)}><Repeat /> {t("Swap item")}</Button>
+          )}
           {open && can("credit.write_off") && (
             <Button variant="outline" className="w-full text-destructive" onClick={() => setWriting(true)}><Ban /> {t("Write off balance")}</Button>
           )}
@@ -200,16 +207,26 @@ export default function CreditDetail() {
       </div>
 
       <RecallDialog open={recalling} onOpenChange={setRecalling} credit={c} items={data.items} onDone={refresh} />
+      {swapping && <SwapDialog open={swapping} onOpenChange={setSwapping} credit={c} items={data.items} onDone={refresh} />}
       <ResponsiveDialog
         open={paying}
         onOpenChange={setPaying}
         title="Record repayment"
         description={`Outstanding ${money(c.balance)}`}
-        footer={<ActionButton className="w-full md:w-auto" online busy={pay.isPending} busyLabel="Saving…"
+        footer={method === "return_item" ? undefined : <ActionButton className="w-full md:w-auto" online busy={pay.isPending} busyLabel="Saving…"
           blockedBy={[toNum(c.balance) <= 0 && REASONS.noBalance, toNum(amountStr) <= 0 && "Enter the amount", method === "mpesa" && reference.length < 8 && "Enter the M-Pesa code"]}
           onAction={() => pay.mutateAsync()}>{t("Save payment")}</ActionButton>}
       >
         <div className="space-y-4">
+          {method === "return_item" ? (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {methods.map((m) => <Chip key={m.key} active={false} onClick={() => setMethod(m.key)}>{m.label}</Chip>)}
+                <Chip active onClick={() => undefined}>{t("Returned item")}</Chip>
+              </div>
+              <ReturnSettle creditId={c.id} balance={c.balance} onDone={() => { setPaying(false); setMethod("cash"); refresh(); }} />
+            </>
+          ) : (<>
           <Field label="Amount received">
             <div className="flex gap-2">
               <Input inputMode="decimal" className="num h-12 text-lg" value={amountStr} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} autoFocus />
@@ -218,6 +235,8 @@ export default function CreditDetail() {
           </Field>
           <div className="flex flex-wrap gap-2">
             {methods.map((m) => <Chip key={m.key} active={method === m.key} onClick={() => setMethod(m.key)}>{m.label}</Chip>)}
+            {/* Roadmap 179: an item of a paid sale coming back settles this credit (or a return credit already held). */}
+            {can("sales.return") && <Chip active={false} onClick={() => setMethod("return_item")}>{t("Returned item")}</Chip>}
           </div>
           {method === "mpesa" && (
             <Field label="M-Pesa confirmation code"><Input className="num uppercase" value={reference} onChange={(e) => setReference(e.target.value.toUpperCase())} placeholder="e.g. QFT1ABC2DE" /></Field>
@@ -225,6 +244,7 @@ export default function CreditDetail() {
           {method !== "mpesa" && method !== "cash" && (
             <Field label="Reference" optional><Input value={reference} onChange={(e) => setReference(e.target.value)} /></Field>
           )}
+          </>)}
         </div>
       </ResponsiveDialog>
       <ConfirmDialog

@@ -38,6 +38,8 @@ pub struct CreditRow {
     pub customer_id: Uuid,
     pub customer_name: String,
     pub customer_mobile: String,
+    /// Roadmap 179: the branch the credit sale belongs to (a swap prices the replacement there).
+    pub branch_id: Uuid,
     pub branch_name: String,
     pub salesperson: Option<String>,
     pub original_amount: Decimal,
@@ -54,7 +56,7 @@ pub struct CreditRow {
 }
 
 pub const CREDIT_SELECT: &str = "SELECT cs.id, cs.sale_id, s.receipt_no, cs.customer_id,
-        TRIM(c.first_name || ' ' || c.other_names) AS customer_name, c.mobile AS customer_mobile, b.name AS branch_name,
+        TRIM(c.first_name || ' ' || c.other_names) AS customer_name, c.mobile AS customer_mobile, cs.branch_id, b.name AS branch_name,
         u.name AS salesperson, cs.original_amount, cs.amount_paid, cs.adjustments,
         (cs.original_amount - cs.amount_paid - cs.adjustments) AS balance, cs.due_date,
         ($2::date - (cs.created_at AT TIME ZONE $3)::date) AS days_outstanding,

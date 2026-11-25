@@ -1148,6 +1148,14 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
         _ => None,
     };
     let s = settings::load(&mut *tx, ctx.tenant_id).await?;
+    // Roadmap 179: one physical item per new credit sale, so each item has its own receipt, balance and settlement.
+    let units: i64 = b.items.iter().map(|l| i64::from(l.quantity.max(0))).sum();
+    if (b.payment.method == "credit" || b.on_credit) && s.sales.credit_single_item && units > 1 {
+        return Err(refused(
+            "One item per credit sale",
+            format!("Credit sales hold one item each, and this cart has {units}. Record each item as its own credit sale."),
+        ));
+    }
     if s.workspace.outside_hours == settings::OutsideHours::Block && !ctx.can("sales.outside_hours") {
         let hours = settings::branch_hours(&mut *tx, ctx.tenant_id, branch, &s).await?;
         if !hours.is_open(sold_at.with_timezone(&ctx.tz).naive_local()) {
@@ -1652,19 +1660,19 @@ pub struct CancelBody {
 }
 
 #[derive(sqlx::FromRow)]
-struct SaleHead {
-    branch_id: Uuid,
-    receipt_no: String,
-    status: String,
-    customer_id: Option<Uuid>,
-    total: Decimal,
-    redeemed_value: Decimal,
-    payment_method: String,
-    order_id: Option<Uuid>,
-    owner_id: Option<Uuid>,
+pub(crate) struct SaleHead {
+    pub(crate) branch_id: Uuid,
+    pub(crate) receipt_no: String,
+    pub(crate) status: String,
+    pub(crate) customer_id: Option<Uuid>,
+    pub(crate) total: Decimal,
+    pub(crate) redeemed_value: Decimal,
+    pub(crate) payment_method: String,
+    pub(crate) order_id: Option<Uuid>,
+    pub(crate) owner_id: Option<Uuid>,
 }
 
-async fn sale_head(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<SaleHead> {
+pub(crate) async fn sale_head(conn: &mut PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<SaleHead> {
     let head: SaleHead = sqlx::query_as(
         "SELECT branch_id, receipt_no, status, customer_id, total, redeemed_value, payment_method, order_id, owner_id
          FROM sales WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
@@ -1719,7 +1727,7 @@ async fn return_items(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
 }
 
 /// Refund value of returned lines, net of any points redemption on the sale.
-async fn return_amount(conn: &mut PgConnection, head: &SaleHead, sale_id: Uuid, lines: &[ReturnLine]) -> AppResult<Decimal> {
+pub(crate) async fn return_amount(conn: &mut PgConnection, head: &SaleHead, sale_id: Uuid, lines: &[ReturnLine]) -> AppResult<Decimal> {
     let mut gross = Decimal::ZERO;
     for l in lines {
         let (qty, returned, unit_price): (i32, i32, Decimal) =
@@ -1738,7 +1746,7 @@ async fn return_amount(conn: &mut PgConnection, head: &SaleHead, sale_id: Uuid, 
     Ok(if net > Decimal::ZERO { round2(gross * head.total / net) } else { Decimal::ZERO })
 }
 
-async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &ReturnBody, kind: &str, approval_id: Option<Uuid>) -> AppResult<Value> {
+pub(crate) async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &ReturnBody, kind: &str, approval_id: Option<Uuid>) -> AppResult<Value> {
     let head = sale_head(conn, ctx, sale_id).await?;
     if matches!(head.status.as_str(), "cancelled" | "returned") {
         return Err(rule("This sale has already been fully reversed"));
@@ -1832,7 +1840,10 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
     // A recall may leave the customer owed money (they had paid more than the revised amount): refund it now, or
     // record it as customer credit for follow-up — never silently dropped.
     let customer_credit = if kind == "recall" && b.settle == "credit" { refunded } else { Decimal::ZERO };
-    if refunded > Decimal::ZERO && customer_credit == Decimal::ZERO {
+    // Roadmap 179: money actually paid for the returned goods kept as a return credit — to settle a credit sale or a
+    // replacement — instead of being paid out now. Unpaid value never becomes credit (it only reduced what was owed).
+    let to_credit = if customer_credit > Decimal::ZERO { customer_credit } else if b.refund_method == "return_credit" { refunded } else { Decimal::ZERO };
+    if refunded > Decimal::ZERO && to_credit == Decimal::ZERO {
         // No method chosen: the refund goes back the way the sale was paid (cash for credit sales) — recorded as such.
         let method = if !b.refund_method.is_empty() {
             b.refund_method.clone()
@@ -1881,6 +1892,27 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
     .bind(unrecovered)
     .execute(&mut *conn)
     .await?;
+    let mut return_credit_id = None;
+    if to_credit > Decimal::ZERO {
+        if b.refund_method == "return_credit" {
+            sqlx::query("UPDATE sale_returns SET refund_method = 'return_credit' WHERE id = $1").bind(return_id).execute(&mut *conn).await?;
+        }
+        return_credit_id = Some(
+            sqlx::query_scalar::<_, Uuid>(
+                "INSERT INTO return_credits (tenant_id, branch_id, customer_id, source_sale_id, return_id, amount, created_by)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+            )
+            .bind(ctx.tenant_id)
+            .bind(head.branch_id)
+            .bind(head.customer_id)
+            .bind(sale_id)
+            .bind(return_id)
+            .bind(to_credit)
+            .bind(ctx.user_id)
+            .fetch_one(&mut *conn)
+            .await?,
+        );
+    }
     if let Some(customer) = head.customer_id {
         let fully = kind == "cancellation";
         loyalty::record_purchase(conn, &s, customer, -refund, if fully { -1 } else { 0 }).await?;
@@ -1963,7 +1995,7 @@ async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: Uuid, b: &R
         crate::receipts::issue_adjustment(conn, ctx.tenant_id, sale_id, return_id, Some(ctx.user_id)).await?;
     }
     Ok(json!({ "return_id": return_id, "return_no": return_no, "refund_amount": refund, "refunded": refunded,
-               "points_reversed": reversed, "status": status }))
+               "points_reversed": reversed, "status": status, "return_credit_id": return_credit_id, "return_credit": to_credit }))
 }
 
 async fn all_lines(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<Vec<ReturnLine>> {
@@ -2276,6 +2308,8 @@ async fn execute_exchange(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings
 
 pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) -> AppResult<()> {
     match a.action.as_str() {
+        "sale.return" if a.payload.get("settle_credit").is_some() => super::return_credit::on_settle_approved(conn, ctx, a).await?,
+        "credit.recall" if a.payload.get("credit_swap").is_some() => super::return_credit::on_swap_approved(conn, ctx, a).await?,
         "sale.return" if a.payload.get("exchange").is_some() => {
             let b: ExchangeBody = serde_json::from_value(a.payload["exchange"].clone()).map_err(|_| bad("Stored exchange is invalid"))?;
             let head = sale_head(conn, ctx, a.entity_id).await?;

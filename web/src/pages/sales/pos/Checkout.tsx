@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Minus, Pencil, Plus, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -324,6 +324,35 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
     onError: (e) => toast.error(e),
   });
 
+  // Roadmap 179: one item per credit sale — a cart of several items becomes that many credit sales (one item each, same
+  // customer and due date), each with its own receipt and balance. Retrying reuses the same references (never twice).
+  const units = lines.reduce((a, l) => a + l.quantity, 0);
+  const perItem = isCredit && s.sales.credit_single_item !== false && units > 1;
+  const unitRefs = useRef<string[]>([]);
+  const separate = useMutation({
+    mutationFn: async () => {
+      const base = saleBody();
+      const each = lines.flatMap((l) => Array.from({ length: l.quantity }, () => ({
+        product_id: l.product.id, quantity: 1, unit_price: l.unitPrice, barcode: l.barcode, scan_source: l.barcode ? l.barcodeSource : undefined, sale_date: l.saleDate,
+      })));
+      while (unitRefs.current.length < each.length) unitRefs.current.push(crypto.randomUUID());
+      let customerId = base.customer_id as string | undefined;
+      let last: SaleDetail | null = null;
+      for (let i = 0; i < each.length; i++) {
+        last = await api<SaleDetail>("/sales", {
+          body: { ...base, items: [each[i]], client_ref: unitRefs.current[i], customer_id: customerId, customer: customerId ? undefined : base.customer, deposit: undefined, redeem_points: 0 },
+        });
+        customerId ??= (last.sale as { customer_id?: string | null }).customer_id ?? undefined;
+      }
+      return { last: last!, n: each.length };
+    },
+    onSuccess: ({ last, n }) => {
+      toast.success(`${n} ${tr("credit sales recorded — one item each")}`);
+      onDone(last);
+    },
+    onError: (e) => toast.error(e),
+  });
+
   const change = toNum(tendered) - payAmount;
   const blockers: string[] = [];
   if (!lines.length) blockers.push("Add items");
@@ -333,6 +362,8 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
   if (isSplit && remaining > 0 && !splitOnCredit) blockers.push(creditAllowed ? "Allocate the rest, or leave it on credit" : "Allocate the rest of the payment");
   if (isNew && digits.length >= 9 && !firstName.trim()) blockers.push("Enter the customer's first name");
   if (takingDeposit && depositAmount >= t.payable) blockers.push("A deposit must be less than the total");
+  if (perItem && takingDeposit) blockers.push("A deposit is taken on one credit sale — remove it, or sell one item");
+  if (perItem && redeemPts > 0) blockers.push("Points cannot be redeemed on separate credit sales");
   if (collecting && payMethod === "mpesa" && stk?.status === "pending") blockers.push("Waiting for the M-Pesa payment");
   if (collecting && payMethod === "mpesa" && !stkMode && !s.sales.mpesa_manual_confirmation && stk?.status !== "success")
     blockers.push(stkReady ? "Push STK to collect payment" : "M-Pesa needs Push STK, which is not configured");
@@ -565,6 +596,11 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
           <>
             {takingDeposit && <Row label="Deposit now" value={money(depositAmount)} tone="text-success" />}
             <Row label="On credit" value={money(Math.max(t.payable - depositAmount, 0))} tone="text-destructive" />
+            {perItem && (
+              <p className="mt-2 rounded-lg bg-warning/10 p-2.5 text-xs text-warning" data-testid="credit-per-item">
+                {tr("Credit sales are one item each: this cart becomes")} <b className="num">{count(units)}</b> {tr("credit sales, each with its own receipt and balance.")}
+              </p>
+            )}
           </>
         )}
         {s.loyalty.enabled && t.points > 0 && (
@@ -582,11 +618,19 @@ export function Checkout({ lines, onDone, onQueued, clientRef, ownerId, onWaitin
           <>{tr("Send STK Push")} · <span className="num">{money(t.payable)}</span></>
         </ActionButton>
       ) : (
+        perItem ? (
+          <ActionButton size="lg" className="h-14 w-full text-base" online busy={separate.isPending} busyLabel="Recording…"
+            blockedBy={[blockers.length > 0 && "Complete the details below"]}
+            onAction={() => separate.mutateAsync()}>
+            <>{tr("Record")} {count(units)} {tr("credit sales")} · <span className="num">{money(t.payable)}</span></>
+          </ActionButton>
+        ) : (
         <ActionButton size="lg" className="h-14 w-full text-base" busy={complete.isPending} busyLabel="Processing…"
           blockedBy={[!lines.length && REASONS.emptyCart, blockers.length > 0 && lines.length > 0 && "Complete the details below"]}
           onAction={() => complete.mutateAsync()}>
           <>Complete sale · <span className="num">{money(t.payable)}</span></>
         </ActionButton>
+        )
       )}
       {blockers.length > 0 && lines.length > 0 && <p className="text-center text-xs text-muted-foreground">{blockers[0]}</p>}
     </div>

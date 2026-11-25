@@ -418,6 +418,11 @@ check("wrong PIN rejected", True)
 
 step("Second branch + product catalogue")
 suffix = uuid.uuid4().hex[:4].upper()
+# Roadmap 179: new credit sales hold one item by default; the older sections below sell several on credit on purpose,
+# so the rule is switched off for them and tested on its own in "Roadmap 179".
+_s0 = call("GET", "/settings")["settings"]
+check("one item per credit sale is on by default", _s0["sales"]["credit_single_item"] is True)
+call("PUT", "/settings", {**_s0, "sales": {**_s0["sales"], "credit_single_item": False}})
 b2 = call("POST", "/branches", {"name": f"Westlands {suffix}", "code": f"WL{suffix}"})["id"]
 cat = call("POST", "/categories", {"name": f"Vegetables {suffix}"})["id"]
 nduma = call("POST", "/products", {"name": f"Nduma {suffix}", "marked_price": 400, "max_discount": 50, "cost_price": 250,
@@ -5422,6 +5427,155 @@ check("after renaming and repricing the product the credit sale still shows it a
 call("POST", f"/products/{p178}/status", {"is_active": False, "reason": "Discontinued line"})
 it178 = call("GET", f"/credit/{s178['credit']['id']}")["items"][0]
 check("…and after deactivating it", it178["product_name"] == f"Credit Watch {suffix}" and it178["product_active"] is False, it178)
+
+step("Roadmap 179: one item per credit sale, settling with a returned item, swapping a credit item")
+s179 = call("GET", "/settings")["settings"]
+call("PUT", "/settings", {**s179, "sales": {**s179["sales"], "credit_single_item": True}})
+cust179 = call("POST", "/customers", {"mobile": "07" + str(int(time.time() * 1000))[-8:], "first_name": "Reseller"})["id"]
+pa179 = call("POST", "/products", {"name": f"Perfume A {suffix}", "marked_price": 60000})["result"]["id"]
+pb179 = call("POST", "/products", {"name": f"Perfume B {suffix}", "marked_price": 25000})["result"]["id"]
+pc179 = call("POST", "/products", {"name": f"Perfume C {suffix}", "marked_price": 75000})["result"]["id"]
+for p_ in (pa179, pb179, pc179):
+    call("POST", "/stock/receive", {"product_id": p_, "quantity": 5})
+lvl179 = lambda pid: next(l for l in call("GET", f"/products/{pid}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"]
+def sell179(items, method="credit", expect=200):
+    return call("POST", "/sales", {"customer_id": cust179, "items": items, "payment": {"method": method}, "client_ref": str(uuid.uuid4())}, expect=expect)
+one = lambda pid, price: [{"product_id": pid, "quantity": 1, "unit_price": price}]
+r = sell179([{"product_id": pa179, "quantity": 2, "unit_price": 60000}], expect=422)
+check("a new credit sale with 2 units is refused: one item per credit sale", r["error"]["title"] == "One item per credit sale", r)
+r = sell179(one(pa179, 60000) + one(pb179, 25000), expect=422)
+check("…and so is a cart of two products", r["error"]["title"] == "One item per credit sale")
+cA = sell179(one(pa179, 60000))["credit"]["id"]
+check("one item on credit is recorded (KES 60,000 owed)", float(call("GET", f"/credit/{cA}")["credit"]["balance"]) == 60000)
+paidB = sell179(one(pb179, 25000), "cash")
+lineB = paidB["items"][0]["id"]
+src = call("GET", f"/credit/{cA}/return-sources?q={paidB['sale']['receipt_no']}")
+check("the paid sale is found by its receipt, with its returnable item", any(x["sale_id"] == paidB["sale"]["id"] and x["lines"][0]["sale_item_id"] == lineB for x in src["sales"]), src)
+pv = call("POST", f"/credit/{cA}/return-credit/preview", {"sale_id": paidB["sale"]["id"], "items": [{"sale_item_id": lineB, "quantity": 1}]})
+check("preview: Product B worth 25,000, all of it paid — up to 25,000 can settle the credit (nothing changed yet)",
+      float(pv["paid_value"]) == 25000 and float(pv["max_apply"]) == 25000 and lvl179(pb179) == 4, pv)
+st = call("POST", f"/credit/{cA}/return-credit", {"source": {"sale_id": paidB["sale"]["id"], "items": [{"sale_item_id": lineB, "quantity": 1}], "reason": "Customer brought it back"}})
+d179 = call("GET", f"/credit/{cA}")
+check("returned Product B settles 25,000: 35,000 left, a return-credit payment, B back in stock",
+      float(d179["credit"]["balance"]) == 35000 and any(p_["method"] == "return_credit" and float(p_["amount"]) == 25000 for p_ in d179["payments"]) and lvl179(pb179) == 5, (st, d179["credit"]))
+r = call("POST", f"/credit/{cA}/return-credit", {"source": {"sale_id": paidB["sale"]["id"], "items": [{"sale_item_id": lineB, "quantity": 1}], "reason": "Again"}}, expect=422)
+check("the same item cannot be returned twice", "at most 0" in r["error"]["message"] or "fully reversed" in r["error"]["message"], r)
+call("POST", f"/credit/{cA}/payments", {"amount": 5000, "method": "cash"})
+check("the rest is paid the usual way (mixed): 30,000 left", float(call("GET", f"/credit/{cA}")["credit"]["balance"]) == 30000)
+unpaid = sell179(one(pb179, 25000))
+r = call("POST", f"/credit/{cA}/return-credit", {"source": {"sale_id": unpaid["sale"]["id"], "items": [{"sale_item_id": unpaid["items"][0]["id"], "quantity": 1}], "reason": "Unpaid item back"}}, expect=422)
+check("an item from an unpaid credit sale gives no credit (refused, nothing changed)",
+      r["error"]["title"] == "Nothing was paid for this item" and float(call("GET", f"/credit/{cA}")["credit"]["balance"]) == 30000 and lvl179(pb179) == 4, r)
+big = sell179(one(pc179, 75000), "cash")
+bigsrc = {"sale_id": big["sale"]["id"], "items": [{"sale_item_id": big["items"][0]["id"], "quantity": 1}], "reason": "Return"}
+r = call("POST", f"/credit/{cA}/return-credit", {"source": bigsrc, "amount": 40000}, expect=422)
+check("never more than is owed (no overpayment)", "At most 30,000" in r["error"]["message"], r)
+st = call("POST", f"/credit/{cA}/return-credit", {"source": bigsrc, "amount": 10000})
+check("a partial use leaves the rest of the return credit available (65,000)", float(st["result"]["credit_left"]) == 65000 and float(st["result"]["balance"]) == 20000, st)
+rc_id = st["result"]["return_credit_id"]
+avail = call("GET", f"/credit/{cA}/return-sources")["credits"]
+check("…listed with what is left", any(x["id"] == rc_id and float(x["remaining"]) == 65000 for x in avail), avail)
+st = call("POST", f"/credit/{cA}/return-credit", {"return_credit_id": rc_id})
+check("an available return credit settles the rest: paid", st["result"]["status"] == "paid" and float(st["result"]["credit_left"]) == 45000, st)
+r = call("POST", f"/credit/{cA}/return-credit", {"return_credit_id": rc_id}, expect=422)
+check("a paid credit takes no more", "paid" in r["error"]["message"], r)
+other = sell179(one(pa179, 60000))["credit"]["id"]
+call("POST", f"/return-credits/{rc_id}/refund", {"method": "cash"})
+check("what is left of a return credit can be paid out (then it is used up)",
+      not any(x["id"] == rc_id for x in call("GET", f"/credit/{other}/return-sources")["credits"]))
+pay = call("GET", "/reports/payments_collected?period=today")
+check("return credit settlements are not counted as money collected", not any(r_.get("method") == "return_credit" for r_ in pay.get("rows", [])), pay.get("rows"))
+# Swap: Product A on credit comes back, Product C (or B) taken instead
+swap = lambda cid, line, items, method, why: call("POST", f"/credit/{cid}/swap", {"return_items": [{"sale_item_id": line, "quantity": 1}], "items": items, "payment": {"method": method}, "reason": why, "client_ref": str(uuid.uuid4())})
+cA2 = sell179(one(pa179, 60000))
+before = (lvl179(pa179), lvl179(pc179))
+sw = swap(cA2["credit"]["id"], cA2["items"][0]["id"], one(pc179, 75000), "credit", "Wants Perfume C")
+check("swap, nothing paid: A's credit closed (recalled), C a new linked credit of 75,000 — no fictitious credit",
+      call("GET", f"/credit/{cA2['credit']['id']}")["credit"]["status"] == "recalled" and float(sw["credit"]["balance"]) == 75000 and sw["sale"]["notes"].startswith("Replacement for")
+      and lvl179(pa179) == before[0] + 1 and lvl179(pc179) == before[1] - 1, (sw["credit"], sw["sale"]["notes"]))
+cA3 = sell179(one(pa179, 60000))
+call("POST", f"/credit/{cA3['credit']['id']}/payments", {"amount": 20000, "method": "cash"})
+sw = swap(cA3["credit"]["id"], cA3["items"][0]["id"], one(pc179, 75000), "credit", "Swap after paying 20,000")
+check("swap after paying 20,000: that payment carries over — the new credit owes 55,000", float(sw["credit"]["balance"]) == 55000, sw["credit"])
+cA4 = sell179(one(pa179, 60000))
+call("POST", f"/credit/{cA4['credit']['id']}/payments", {"amount": 10000, "method": "cash"})
+sw = swap(cA4["credit"]["id"], cA4["items"][0]["id"], one(pb179, 25000), "cash", "Cheaper one, pays now")
+pays = {p_["method"]: float(p_["amount"]) for p_ in sw["payments"]}
+check("swap paid now: the 10,000 paid counts first, 15,000 cash for the rest", pays.get("exchange") == 10000 and pays.get("cash") == 15000, sw["payments"])
+call("PUT", "/settings/workflows/credit.recall", {"enabled": True, "levels": [{"approver_type": "role", "approver_role_id": mgr_role}], "min_amount": None})
+cA5 = sell179(one(pa179, 60000))
+a_ = lvl179(pa179)
+sw = swap(cA5["credit"]["id"], cA5["items"][0]["id"], one(pc179, 75000), "credit", "Needs approval")
+check("with recall approval on, a swap waits; nothing changes",
+      sw.get("pending_approval") and lvl179(pa179) == a_ and float(call("GET", f"/credit/{cA5['credit']['id']}")["credit"]["balance"]) == 60000, sw)
+call("POST", f"/approvals/{sw['approval_id']}/reject", {"comments": "No"}, token=mgr2)
+check("rejected: the credit sale and stock unchanged", lvl179(pa179) == a_ and call("GET", f"/credit/{cA5['credit']['id']}")["credit"]["status"] == "outstanding")
+sw = swap(cA5["credit"]["id"], cA5["items"][0]["id"], one(pc179, 75000), "credit", "Approved swap")
+call("POST", f"/approvals/{sw['approval_id']}/approve", {"comments": ""}, token=mgr2)
+check("approved: the swap is done", call("GET", f"/credit/{cA5['credit']['id']}")["credit"]["status"] == "recalled" and lvl179(pa179) == a_ + 1)
+call("PUT", "/settings/workflows/credit.recall", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+call("GET", f"/credit/{cA5['credit']['id']}/return-sources", token=t2["token"], branch="none", expect=404)
+check("another business cannot see or use these credits", True)
+call("PUT", "/settings", {**s179, "sales": {**s179["sales"], "credit_single_item": False}})
+
+step("Roadmap 181: website and ordering link — in-stock only, cart limited to stock, stock quantity")
+PUB181 = {"token": "none", "branch": "none"}
+slug181 = call("GET", "/website")["slug"] if call("GET", "/website").get("slug") else None
+ov181 = call("GET", "/website")
+check("defaults: in-stock only on, cart limited on, quantity hidden", ov181["stock"] == {"in_stock_only": True, "limit_cart_to_stock": True, "show_stock_quantity": False}, ov181.get("stock"))
+call("PUT", "/website/stock", {"setting": "in_stock_only", "on": True})
+psl = call("GET", "/settings")["settings"]["orders"]
+check("…saved as the business's setting (shared with the ordering link)", psl["show_out_of_stock"] is False and psl["limit_cart_to_stock"] is True and psl["show_stock_quantity"] is False)
+pin181 = call("POST", "/products", {"name": f"Web In {suffix}", "marked_price": 500})["result"]["id"]
+pout181 = call("POST", "/products", {"name": f"Web Out {suffix}", "marked_price": 600})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": pin181, "quantity": 3})
+ptoken181 = ptoken
+portal = lambda: {x["id"]: x for x in call("GET", f"/portal/{slug}/catalogue", token=ptoken181)["products"]}
+cat = portal()
+check("ordering link: in-stock only — the out-of-stock product is not listed", pin181 in cat and pout181 not in cat)
+check("…in stock, no number shown, the cart limited to 3", cat[pin181]["in_stock"] is True and "available" not in cat[pin181] and cat[pin181]["max_qty"] == 3, cat[pin181])
+call("PUT", "/website/stock", {"setting": "show_stock_quantity", "on": True})
+check("show quantity on: the number is shown", portal()[pin181].get("available") == 3)
+call("PUT", "/website/stock", {"setting": "in_stock_only", "on": False})
+cat = portal()
+check("in-stock only off: out-of-stock products shown, marked out of stock, nothing can go in the cart", pout181 in cat and cat[pout181]["in_stock"] is False and cat[pout181]["max_qty"] == 0, cat.get(pout181))
+call("PUT", "/website/stock", {"setting": "limit_cart_to_stock", "on": False})
+check("cart limit off: no cart maximum from stock", portal()[pin181]["max_qty"] == 99)
+r = call("POST", f"/portal/{slug}/orders", {"items": [{"product_id": pin181, "quantity": 4}], "delivery_location": "Desk"}, token=ptoken181, expect=422)
+check("…but checkout still refuses more than is in stock (no overselling)", "Only 3" in r["error"]["message"], r)
+r = call("POST", f"/portal/{slug}/orders", {"items": [{"product_id": pout181, "quantity": 1}], "delivery_location": "Desk"}, token=ptoken181, expect=422)
+check("…and never sells an out-of-stock product", "Only 0" in r["error"]["message"] or "stock" in r["error"]["message"], r)
+call("POST", "/stock/receive", {"product_id": pout181, "quantity": 2})
+call("PUT", "/website/stock", {"setting": "in_stock_only", "on": True})
+check("stock received: the product comes back by itself", pout181 in portal())
+call("PUT", "/website/stock", {"setting": "show_stock_quantity", "on": False})
+call("PUT", "/website/stock", {"setting": "limit_cart_to_stock", "on": True})
+r = call("PUT", "/website/stock", {"setting": "nonsense", "on": True}, expect=400)
+check("unknown settings refused", True)
+call("PUT", "/website/stock", {"setting": "in_stock_only", "on": False}, token=t2["token"], branch="none")
+check("another business's setting is its own", call("GET", "/settings")["settings"]["orders"]["show_out_of_stock"] is False)
+call("PUT", "/website/stock", {"setting": "in_stock_only", "on": True}, token=t2["token"], branch="none")
+# The public website of the other business (its own products, its own settings)
+wb_in = call("POST", "/products", {"name": f"Site In {suffix}", "marked_price": 900}, **T2B)["result"]["id"]
+wb_out = call("POST", "/products", {"name": f"Site Out {suffix}", "marked_price": 950}, **T2B)["result"]["id"]
+call("POST", "/stock/receive", {"product_id": wb_in, "quantity": 2}, **T2B)
+site_ids = lambda: {p_["id"]: p_ for p_ in call("GET", f"/site/products?slug={dk_slug}&limit=100", **PUB181)["items"]}
+sp = site_ids()
+check("website: in-stock only hides the out-of-stock product (search and categories alike)", wb_in in sp and wb_out not in sp
+      and not any(p_["id"] == wb_out for p_ in call("GET", f"/site/products?slug={dk_slug}&q=Site Out&suggest=true", **PUB181)["items"]))
+check("…no quantity shown by default, the cart limited to 2", "stock_qty" not in sp[wb_in] and sp[wb_in]["max_qty"] == 2, sp[wb_in])
+call("PUT", "/website/stock", {"setting": "in_stock_only", "on": False}, token=t2["token"], branch="none")
+call("PUT", "/website/stock", {"setting": "show_stock_quantity", "on": True}, token=t2["token"], branch="none")
+sp = site_ids()
+check("website off: the out-of-stock product shown as Out of Stock and not orderable; quantity shown when on",
+      sp[wb_out]["in_stock"] is False and sp[wb_out]["action"] != "add_to_cart" and sp[wb_in]["stock_qty"] == 2, (sp[wb_out]["action"], sp[wb_in].get("stock_qty")))
+chk = call("POST", f"/site/cart/check?slug={dk_slug}", {"items": [{"product_id": wb_in, "quantity": 5}, {"product_id": wb_out, "quantity": 1}]}, **PUB181)
+by = {x["product_id"]: x for x in chk["items"]}
+check("cart check: above stock comes down to the new maximum; out of stock must be removed", chk["ok"] is False and by[wb_in]["max"] == 2 and by[wb_out]["max"] == 0, chk)
+check("…a cart within stock passes", call("POST", f"/site/cart/check?slug={dk_slug}", {"items": [{"product_id": wb_in, "quantity": 2}]}, **PUB181)["ok"] is True)
+call("PUT", "/website/stock", {"setting": "show_stock_quantity", "on": False}, token=t2["token"], branch="none")
+call("PUT", "/website/stock", {"setting": "in_stock_only", "on": True}, token=t2["token"], branch="none")
+check("products, publication and stock untouched by the settings", call("GET", f"/products/{wb_out}", **T2B)["product"]["is_active"] is True)
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

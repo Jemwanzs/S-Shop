@@ -2046,7 +2046,9 @@ async fn progress(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
         "SELECT json_build_object('id', b.id, 'dataset', b.dataset, 'mode', b.mode, 'status', b.status, 'file_name', b.file_name,
                 'reference', b.reference, 'total_rows', b.total_rows, 'invalid_rows', b.invalid_rows, 'posted_rows', b.posted_rows,
                 'skip_invalid', b.skip_invalid, 'summary', b.summary, 'error', b.error, 'started_at', b.started_at, 'posted_at', b.posted_at,
-                'stage', p.stage, 'done', COALESCE(p.done, 0), 'total', COALESCE(p.total, 0))
+                -- A posted import is complete, whatever the progress row says in the moment after its commit.
+                'stage', CASE WHEN b.status = 'posted' THEN 'completed' ELSE p.stage END,
+                'done', CASE WHEN b.status = 'posted' THEN COALESCE(p.total, 0) ELSE COALESCE(p.done, 0) END, 'total', COALESCE(p.total, 0))
          FROM import_batches b LEFT JOIN import_progress p ON p.batch_id = b.id
          WHERE b.id = $1 AND b.tenant_id = $2",
     )

@@ -440,7 +440,7 @@ mod tests {
 
     fn product(price: Option<Decimal>, in_stock: Option<bool>) -> PubProduct {
         PubProduct {
-            id: Uuid::nil(), slug: "a-b".into(), name: "A <b>".into(), description: "D".into(), category_id: None, category_name: None, price, badge: String::new(), in_stock,
+            id: Uuid::nil(), slug: "a-b".into(), name: "A <b>".into(), description: "D".into(), category_id: None, category_name: None, price, badge: String::new(), in_stock, stock_qty: None, max_qty: None, available: 0,
             action: "enquire".into(), secondary_action: None, price_note: None, cta_label: String::new(), photo: None, photo_thumb: None, photos: vec!["/api/photos/1".into()], featured: false,
             sort: 0, created_at: Utc::now(), updated_at: Utc::now(), sold: 0, search: String::new(), stock_ok: true, compare_at: None, seo_title: String::new(), seo_description: String::new(),
         }

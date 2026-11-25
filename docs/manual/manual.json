@@ -54,7 +54,9 @@
         "Statuses for open, partially paid, paid, overdue and written-off credit",
         "Overdue reminders to the team, plus credit aging and credit sales reports",
         "Write-offs controlled through approval workflows",
-        "Each credit sale shows the product sold — photo, name and code as sold, quantity, price, discount and the amount on credit — even after the product is renamed or repriced"
+        "Each credit sale shows the product sold — photo, name and code as sold, quantity, price, discount and the amount on credit — even after the product is renamed or repriced",
+        "One item per credit sale (switchable): a cart of several items on credit becomes separate credit sales, each settled on its own",
+        "Settle a credit with a returned item the customer had paid for, or swap an item sold on credit for another product — previewed, approved where required, and linked in the history"
       ]
     },
     {
@@ -202,7 +204,8 @@
         "Self-service PIN reset by email; new users set their own PIN from their invitation",
         "Sign out everywhere and trusted-device management",
         "Control over whether S'Shop support may enter the business, always time-limited and recorded",
-        "S'Shop tells you when a new version is ready and refreshes without losing unsaved work"
+        "S'Shop tells you when a new version is ready and refreshes without losing unsaved work",
+        "A device with Face ID, fingerprint or Windows Hello sign-in set up opens straight on Continue with Face ID / Passkey; Sign in with Email Instead is one tap away"
       ]
     },
     {
@@ -243,7 +246,8 @@
         "Website orders arrive in the Orders list with alerts",
         "Draft, preview and publish, with a media library and image-quality checks",
         "Custom domains with guided DNS checks and secure HTTPS",
-        "Visitor and order analytics"
+        "Visitor and order analytics",
+        "Show in-stock products only, limit the cart to available stock and show the quantity available — three settings shared with the ordering link"
       ]
     },
     {
@@ -334,6 +338,14 @@
           ]
         },
         {
+          "title": "Sign in with Face ID on a returning device",
+          "steps": [
+            "On a device where you set up Face ID, fingerprint or Windows Hello sign-in, the sign-in page opens on Continue with Face ID / Passkey: tap it and let your device check it's you.",
+            "To use your email and PIN instead (or to let someone else sign in), tap Sign in with Email Instead. Back to Face ID / Passkey returns.",
+            "If the check fails or is cancelled, tap Try again or Sign in with Email Instead. If the passkey was removed, the page shows the email sign-in."
+          ]
+        },
+        {
           "title": "Face ID or fingerprint: iPhone, Android and lost devices",
           "steps": [
             "iPhone: works in Safari and in S'Shop added to the Home Screen. A passkey set up in one is on the phone for both: tap the sign-in button and choose it.",
@@ -398,6 +410,24 @@
             "Open Credit Sales and the customer's credit sale.",
             "Tap Record payment, enter the Amount received and the method (M-Pesa needs the confirmation code).",
             "Tap Save payment. The outstanding balance updates at once."
+          ]
+        },
+        {
+          "title": "Settle a credit with a returned item",
+          "steps": [
+            "Open the credit sale → Record payment → Returned item.",
+            "Search the sale the item was paid on (receipt, customer, product or barcode) and tap the item — or pick a return credit already listed.",
+            "Check the preview: only money actually paid for the item can be used. Enter the amount (or leave the most), the reason, tick to confirm, then Apply return credit.",
+            "Pay any rest the usual way. If your business requires approval for returns, the balance changes once it is approved."
+          ]
+        },
+        {
+          "title": "Swap an item sold on credit",
+          "steps": [
+            "Open the credit sale → Swap item.",
+            "Choose the item coming back (scan its barcode if asked), then search and choose what the customer takes instead.",
+            "Choose On credit or how the difference is paid. The preview shows what is owed now and any money already paid that carries over.",
+            "Give the reason, tick to confirm, then Record swap. The new sale opens, linked to the old one."
           ]
         },
         {
@@ -736,6 +766,15 @@
             "Settings → Website → Request Website Service (S'Shop sets it up and contacts you).",
             "Once active: edit Content, Branding & Appearance, Products and the other sections, Save draft and Preview.",
             "Tap Publish, say What changed?, then Publish now — visitors see the new version straight away."
+          ]
+        },
+        {
+          "title": "Choose what customers see about stock",
+          "steps": [
+            "Settings → Website → Products → Prices & publishing (or Settings → Orders).",
+            "Show in-stock products only: on hides products with no stock until stock arrives; off shows them as Out of Stock (they cannot be ordered).",
+            "Limit cart quantity to available stock: customers cannot add more than you have.",
+            "Show available stock quantity: shows “3 units available”; off shows In stock only. Each switch applies at once and never changes your products or stock."
           ]
         },
         {

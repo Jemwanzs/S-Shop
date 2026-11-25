@@ -48,8 +48,15 @@ export function productAction(data: SiteData, p: Product): { label: string; to?:
   }
 }
 
+/** Roadmap 181: what a visitor sees about stock — the number only when the business shows quantities. */
+export function stockLabel(p: Product): string {
+  if (p.in_stock === false) return "Out of Stock";
+  if (p.stock_qty != null) return `${p.stock_qty} ${p.stock_qty === 1 ? "unit" : "units"} available`;
+  return "In stock";
+}
+
 export function addToCart(p: Product, qty = 1) {
-  cartStore.add({ id: p.id, slug: p.slug, name: p.name, price: p.price, photo: p.photo_thumb }, qty);
+  cartStore.add({ id: p.id, slug: p.slug, name: p.name, price: p.price, photo: p.photo_thumb, max: p.max_qty }, qty);
   track("add_to_cart", p.id);
   // Roadmap 77: a short confirmation with a way to the cart (shown by the site shell).
   window.dispatchEvent(new CustomEvent("sshop:added", { detail: { name: p.name, qty } }));
@@ -112,7 +119,7 @@ export function ProductCard({ data, p }: { data: SiteData; p: Product }) {
         </div>
         <div className="body">
           <span className="name">{p.name}</span>
-          {g.show_availability && p.in_stock != null && <span className={`stock ${p.in_stock ? "" : "out"}`}><i aria-hidden />{p.in_stock ? "In stock" : "Out of stock"}</span>}
+          {p.in_stock != null && (g.show_availability || !p.in_stock || p.stock_qty != null) && <span className={`stock ${p.in_stock ? "" : "out"}`}><i aria-hidden />{stockLabel(p)}</span>}
         </div>
       </Link>
       {(p.price != null || quick || p.price_note) && (

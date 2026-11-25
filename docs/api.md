@@ -233,6 +233,13 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 |---|---|
 | GET | `/api/credit` |
 | GET | `/api/credit/aging` |
+| PUT | `/api/website/stock` `{setting: in_stock_only \| limit_cart_to_stock \| show_stock_quantity, on}` — roadmap 181, saved at once (`website.products`) |
+| POST | `/api/site/cart/check` `{items: [{product_id, quantity}]}` — roadmap 181: per line `ok`, `max`, `message` (public) |
+| GET | `/api/credit/{id}/return-sources?q=` — roadmap 179: return credits with value left, and (with `q`: receipt, customer, product, barcode) paid sales with returnable lines (`credit.collect`) |
+| POST | `/api/credit/{id}/return-credit/preview` `{sale_id, items}` → `return_value`, `paid_value`, `reduces_owed`, `max_apply` (nothing changed) |
+| POST | `/api/credit/{id}/return-credit` `{return_credit_id}` or `{source: {sale_id, items, reason}}`, `amount?` → applied as a `return_credit` repayment; with a new return, follows *Sale return / refund* approval |
+| POST | `/api/return-credits/{id}/refund` `{method, reference?}` — pays out what is left of a return credit (`sales.return`) |
+| POST | `/api/credit/{id}/swap` `{return_items, items, payment, due_date?, reason, client_ref}` → the replacement sale (or pending approval under *Credit sale recall*) |
 | GET | `/api/credit/{id}` — `items[]` (roadmap 178): `product_name`/`product_code` as sold, `product_id`, `quantity`, `marked_price`, `unit_price`, `discount`, `line_total`, `barcode`, `photo_id`, `product_active`, `current_name` (when renamed), `can_open_product` |
 | POST | `/api/credit/{id}/payments` |
 | POST | `/api/credit/{id}/write-off` |

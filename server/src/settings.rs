@@ -334,6 +334,8 @@ pub struct SalesSettings {
     pub mpesa_manual_confirmation: bool,
     pub credit_enabled: bool,
     pub credit_default_days: i64,
+    /// Roadmap 179: a new credit sale holds one physical item (its own receipt, balance and settlement).
+    pub credit_single_item: bool,
     pub receipt_footer: String,
     /// Receipt configuration (roadmap 66). The structure is fixed; these choose what it shows.
     pub receipt: ReceiptSettings,
@@ -390,6 +392,7 @@ impl Default for SalesSettings {
             mpesa_manual_confirmation: true,
             credit_enabled: true,
             credit_default_days: 30,
+            credit_single_item: true,
             receipt_footer: "Thank you for shopping with us!".into(),
             receipt: ReceiptSettings::default(),
             pos: PosDisplay::default(),
@@ -409,7 +412,12 @@ pub struct OrderSettings {
     pub sale_on_status: String,
     /// Verify customers with a one-time code (sent over WhatsApp) before showing orders.
     pub verify_with_otp: bool,
+    /// Roadmap 181: false = *Show in-stock products only* (default) on the website and the ordering link.
     pub show_out_of_stock: bool,
+    /// Roadmap 181: customers cannot put more in the cart than is available (checkout always checks stock again).
+    pub limit_cart_to_stock: bool,
+    /// Roadmap 181: show the number available ("3 units available") instead of only In stock / Out of stock.
+    pub show_stock_quantity: bool,
     /// Show product prices on the customer ordering link (staff screens always show them).
     pub show_prices: bool,
     pub notify_customer_whatsapp: bool,
@@ -452,7 +460,9 @@ impl Default for OrderSettings {
             reserve_stock: true,
             sale_on_status: "delivered".into(),
             verify_with_otp: false,
-            show_out_of_stock: true,
+            show_out_of_stock: false,
+            limit_cart_to_stock: true,
+            show_stock_quantity: false,
             show_prices: true,
             notify_customer_whatsapp: true,
             statuses: ORDER_STATUSES

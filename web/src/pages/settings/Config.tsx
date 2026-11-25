@@ -281,6 +281,9 @@ export function SalesSettings() {
           <Card title="Credit sales">
             <ToggleRow label="Allow credit sales" checked={s.sales.credit_enabled} onChange={(v) => d.update((x) => { x.sales.credit_enabled = v; })} />
             <Row label="Default days to pay">{numInput(s.sales.credit_default_days, (n) => d.update((x) => { x.sales.credit_default_days = n; }))}</Row>
+            {/* Roadmap 179 */}
+            <ToggleRow label="One item per credit sale" hint="Each item on credit gets its own receipt, balance and settlement. A cart of several items is recorded as separate credit sales. Earlier credit sales are not changed."
+              checked={s.sales.credit_single_item !== false} onChange={(v) => d.update((x) => { x.sales.credit_single_item = v; })} />
           </Card>
         </>
       )}
@@ -359,7 +362,10 @@ export function OrderSettings() {
             </Select>
           </Row>
           <ToggleRow label="Verify customers with a WhatsApp code" hint="Requires the WhatsApp integration" checked={s.orders.verify_with_otp} onChange={(v) => d.update((x) => { x.orders.verify_with_otp = v; })} />
-          <ToggleRow label="Show out-of-stock products" checked={s.orders.show_out_of_stock} onChange={(v) => d.update((x) => { x.orders.show_out_of_stock = v; })} />
+          {/* Roadmap 181: the same three settings as Website → Products → Prices & publishing. */}
+          <ToggleRow label="Show in-stock products only" hint="Also on the website. Off: out-of-stock products are shown and marked, never orderable" checked={!s.orders.show_out_of_stock} onChange={(v) => d.update((x) => { x.orders.show_out_of_stock = !v; })} />
+          <ToggleRow label="Limit cart quantity to available stock" checked={s.orders.limit_cart_to_stock !== false} onChange={(v) => d.update((x) => { x.orders.limit_cart_to_stock = v; })} />
+          <ToggleRow label="Show available stock quantity" hint="“3 units available” instead of In stock" checked={!!s.orders.show_stock_quantity} onChange={(v) => d.update((x) => { x.orders.show_stock_quantity = v; })} />
           <ToggleRow label="Show product prices" hint="When off, customers see no prices anywhere on the ordering link; staff screens are not affected" checked={s.orders.show_prices} onChange={(v) => d.update((x) => { x.orders.show_prices = v; })} />
         </Card>
         <Card title="Order statuses">

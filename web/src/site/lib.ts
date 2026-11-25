@@ -83,10 +83,11 @@ export const cartStore = {
   },
   add(line: Omit<CartLine, "qty">, qty = 1) {
     const hit = cart.find((l) => l.id === line.id);
-    cartStore.set(hit ? cart.map((l) => (l.id === line.id ? { ...l, ...line, qty: Math.min(99, l.qty + qty) } : l)) : [...cart, { ...line, qty }]);
+    const cap = line.max ?? 99;
+    cartStore.set(hit ? cart.map((l) => (l.id === line.id ? { ...l, ...line, qty: Math.min(cap, 99, l.qty + qty) } : l)) : [...cart, { ...line, qty: Math.min(cap, qty) }]);
   },
   qty(id: string, qty: number) {
-    cartStore.set(cart.map((l) => (l.id === id ? { ...l, qty: Math.max(0, Math.min(99, qty)) } : l)));
+    cartStore.set(cart.map((l) => (l.id === id ? { ...l, qty: Math.max(0, Math.min(l.max ?? 99, 99, qty)) } : l)));
   },
   clear() {
     cartStore.set([]);

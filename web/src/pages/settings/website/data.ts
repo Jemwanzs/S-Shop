@@ -57,6 +57,8 @@ export interface Overview {
   preview_url?: string;
   domain?: { domain: string; status: string } | null;
   show_prices?: boolean;
+  /** Roadmap 181: the website's stock settings (shared with the ordering link). */
+  stock?: { in_stock_only: boolean; limit_cart_to_stock: boolean; show_stock_quantity: boolean };
   fonts?: string[];
   /** Roadmap 157: this business's own active branches. */
   branches?: { id: string; name: string; location: string; phone: string }[];

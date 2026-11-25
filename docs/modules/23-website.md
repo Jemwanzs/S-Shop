@@ -410,3 +410,12 @@ Settings → Website → Branding & Appearance → **Theme**:
 With *Both*, a first visit follows the visitor's phone or computer setting (`prefers-color-scheme`). After they tap the
 button, their choice is remembered on that device. Both palettes (*Light theme colours*, *Dark theme colours*) are edited
 on the same tab. Like every design change, the theme reaches visitors only after **Publish**.
+
+## Stock on the website and ordering link (roadmap 181)
+Website → Products → Prices & publishing (and Settings → Orders), each saved at once:
+- **Show in-stock products only** (default on) — out-of-stock products are left out of listings, categories, search and
+  recommendations and come back with stock; off: shown as *Out of Stock*, never orderable.
+- **Limit cart quantity to available stock** (default on) — the cart's + stops at what is available.
+- **Show available stock quantity** (default off) — *3 units available*; off: *In stock* only, no number sent.
+Stock = on hand − reserved at the branch that fulfils online orders. The order page checks the cart against stock before
+checkout; checkout checks again on the server. Products, publication and stock are never changed by these settings.

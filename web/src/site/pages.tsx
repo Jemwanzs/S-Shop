@@ -7,7 +7,7 @@ import type { Category, Product, Section, SiteData } from "./types";
 import { pageItems } from "@/lib/paging";
 import { ShareBar } from "./articles";
 import { call, cartStore, customerStore, currentVisitor, hasCta, mediaUrl, money, SiteError, track, type Customer } from "./lib";
-import { addToCart, badgeLabel, CategoryTiles, ContactList, CtaLink, GridSkeleton, productAction, ProductGrid, SERVICE_ICONS, Testimonials } from "./parts";
+import { addToCart, badgeLabel, stockLabel, CategoryTiles, ContactList, CtaLink, GridSkeleton, productAction, ProductGrid, SERVICE_ICONS, Testimonials } from "./parts";
 
 type List = { items: Product[]; total: number };
 
@@ -367,14 +367,14 @@ export function ProductPage({ data }: { data: SiteData }) {
             {g.show_badges && p.badge && <span className="badge" style={{ position: "static", justifySelf: "start" }}>{badgeLabel(p.badge)}</span>}
             <h1 style={{ fontSize: "clamp(1.5rem, 5vw, 2.3rem)" }}>{p.name}</h1>
             {p.price != null && <p style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--heading)" }}>{money(data.business.currency, p.price)}</p>}
-            {g.show_availability && p.in_stock != null && <p className={p.in_stock ? "muted" : ""} style={p.in_stock ? undefined : { color: "#b91c1c" }}>{p.in_stock ? "In stock" : "Out of stock"}</p>}
+            {p.in_stock != null && (g.show_availability || !p.in_stock || p.stock_qty != null) && <p className={p.in_stock ? "muted" : ""} style={p.in_stock ? undefined : { color: "#b91c1c" }}>{stockLabel(p)}</p>}
             {p.description && <p className="muted" style={{ whiteSpace: "pre-line" }}>{p.description}</p>}
             {canOrder ? (
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <div className="qty">
                   <button type="button" aria-label="Fewer" onClick={() => setQty(Math.max(1, qty - 1))}><Minus /></button>
                   <span aria-live="polite">{qty}</span>
-                  <button type="button" aria-label="More" onClick={() => setQty(Math.min(99, qty + 1))}><Plus /></button>
+                  <button type="button" aria-label="More" disabled={qty >= Math.min(99, p.max_qty ?? 99)} onClick={() => setQty(Math.min(99, p.max_qty ?? 99, qty + 1))}><Plus /></button>
                 </div>
                 <button type="button" className="btn" style={{ flex: 1 }} onClick={() => { addToCart(p, qty); setAdded(true); setTimeout(() => setAdded(false), 1500); }}>
                   {added ? <><Check /> Added</> : <><ShoppingBag /> {p.cta_label || "Add to cart"}{p.price != null && <> · {money(data.business.currency, Number(p.price) * qty)}</>}</>}
@@ -553,7 +553,7 @@ export function CartLines({ data, compact }: { data: SiteData; compact?: boolean
           <div className="qty" style={compact ? { transform: "scale(.92)" } : undefined}>
             <button type="button" aria-label={l.qty === 1 ? `Remove ${l.name}` : "Fewer"} onClick={() => cartStore.qty(l.id, l.qty - 1)}>{l.qty === 1 ? <Trash2 /> : <Minus />}</button>
             <span>{l.qty}</span>
-            <button type="button" aria-label="More" onClick={() => cartStore.qty(l.id, l.qty + 1)}><Plus /></button>
+            <button type="button" aria-label="More" disabled={l.qty >= Math.min(99, l.max ?? 99)} onClick={() => cartStore.qty(l.id, l.qty + 1)}><Plus /></button>
           </div>
         </div>
       ))}
@@ -608,6 +608,14 @@ export function OrderPage({ data }: { data: SiteData }) {
   const [placed, setPlaced] = useState<Placed | null>(null);
   // Shown on the button only when every price in the cart is public (roadmap 130).
   const total = cartTotal(lines);
+  // Roadmap 181: the cart against stock now — out-of-stock lines must go, lines above the new maximum come down.
+  const cartKey = lines.map((l) => `${l.id}:${l.qty}`).join(",");
+  const { data: stockCheck } = useQuery({
+    queryKey: ["site-cart-check", cartKey],
+    queryFn: () => call<{ ok: boolean; items: { product_id: string; ok: boolean; max?: number; message?: string }[] }>("/site/cart/check", { body: { items: lines.map((l) => ({ product_id: l.id, quantity: l.qty })) } }),
+    enabled: lines.length > 0 && !placed,
+  });
+  const problems = (stockCheck?.items ?? []).filter((i) => !i.ok);
   useEffect(() => {
     if (lines.length) track("order_start");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -695,6 +703,20 @@ export function OrderPage({ data }: { data: SiteData }) {
         <div className="stack">
           <h1 style={{ fontSize: "clamp(1.6rem, 5vw, 2.2rem)" }}>Your order</h1>
           <CartLines data={data} />
+          {problems.length > 0 && (
+            <div className="err" role="alert" data-testid="cart-stock">
+              {problems.map((pr) => {
+                const l = lines.find((x) => x.id === pr.product_id);
+                return (
+                  <p key={pr.product_id} style={{ margin: "4px 0" }}>
+                    <strong>{l?.name}</strong>: {pr.message}{" "}
+                    {pr.max ? <button type="button" className="btn ghost" style={{ padding: "4px 10px", minHeight: 0 }} onClick={() => { cartStore.set(lines.map((x) => (x.id === pr.product_id ? { ...x, qty: pr.max!, max: pr.max } : x))); }}>Change to {pr.max}</button>
+                      : <button type="button" className="btn ghost" style={{ padding: "4px 10px", minHeight: 0 }} onClick={() => cartStore.qty(pr.product_id, 0)}>Remove</button>}
+                  </p>
+                );
+              })}
+            </div>
+          )}
           <CartSummary data={data} lines={lines} />
           {error && <p className="err" role="alert">{error}</p>}
           {!customer ? (
@@ -737,7 +759,7 @@ export function OrderPage({ data }: { data: SiteData }) {
                 <label className="label" htmlFor="n">Notes (optional)</label>
                 <textarea id="n" className="field" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} />
               </div>
-              <button className="btn block" disabled={busy || !where.trim()}>{busy ? <Loader2 className="spin" /> : <>Place order{total != null && <> · {money(data.business.currency, total)}</>}</>}</button>
+              <button className="btn block" disabled={busy || !where.trim() || problems.length > 0}>{busy ? <Loader2 className="spin" /> : <>Place order{total != null && <> · {money(data.business.currency, total)}</>}</>}</button>
             </form>
           )}
           <button type="button" className="btn ghost" onClick={() => navigate("/products")}>Continue shopping</button>

@@ -43,7 +43,11 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   // Roadmap 83: a trusted device opens on the Quick PIN keypad (unless this device last chose the full sign-in).
   const [device, setDevice] = useState(quickDevice);
-  const [mode, setMode] = useState<"quick" | "full">(() => (quickDevice() && preferredMethod() === "quick" && !params.get("email") ? "quick" : "full"));
+  // Roadmap 180: "passkey" — a returning person who set up Face ID / fingerprint / Windows Hello sign-in on this device
+  // (remembered only after setting it up or signing in with it here) sees that first; email and PIN are one tap away.
+  const [mode, setMode] = useState<"quick" | "full" | "passkey">(() =>
+    quickDevice() && preferredMethod() === "quick" && !params.get("email") ? "quick"
+      : passkeysSupported() && passkeyDevice() && !params.get("email") ? "passkey" : "full");
   const [quick, setQuick] = useState("");
   const [shake, setShake] = useState(0);
   // Roadmap 132: this device set up Face ID / biometric sign-in (only offered where the browser supports passkeys).
@@ -64,8 +68,10 @@ export default function LoginPage() {
         // The passkey this browser remembers was removed or revoked: the device may still hold another.
         forgetPasskey();
         setPk(null);
+        setMode((m) => (m === "passkey" ? "full" : m));
       } else if (err instanceof ApiError && err.title) {
         setPkOffered(false);
+        setMode((m) => (m === "passkey" ? "full" : m));
       }
     }
   }, [credentialId]);
@@ -74,7 +80,12 @@ export default function LoginPage() {
     let live = true;
     void (async () => {
       const support = await api<{ enabled: boolean; rp_id: string | null }>("/auth/passkey/support").catch(() => null);
-      if (!live || !support?.enabled || !onPasskeySite(support.rp_id)) return;
+      if (!live) return;
+      // Passkeys switched off for the platform or not usable on this address: the usual email sign-in.
+      if (!support?.enabled || !onPasskeySite(support.rp_id)) {
+        setMode((m) => (m === "passkey" ? "full" : m));
+        return;
+      }
       if (!credentialId && !(await platformAuthenticator())) return;
       if (!live) return;
       setPkOffered(true);
@@ -211,10 +222,47 @@ export default function LoginPage() {
       <div className="flex flex-wrap gap-2 pt-1">
         {/* A direct tap starts the device's check again (iPhones need the tap). */}
         {pkFail.retry && pkOffered && <Button type="button" size="sm" onClick={passkeyLogin} disabled={busy}><ScanFace /> {t("Try again")}</Button>}
-        <Button type="button" size="sm" variant="outline" onClick={() => { setPkFail(null); if (mode !== "quick") document.querySelector<HTMLInputElement>('input[type="email"]')?.focus(); }}>{t("Use another sign-in method")}</Button>
+        {mode === "passkey"
+          ? <Button type="button" size="sm" variant="outline" onClick={() => toEmail()}>{t("Sign in with Email Instead")}</Button>
+          : <Button type="button" size="sm" variant="outline" onClick={() => { setPkFail(null); if (mode !== "quick") document.querySelector<HTMLInputElement>('input[type="email"]')?.focus(); }}>{t("Use another sign-in method")}</Button>}
       </div>
     </div>
   );
+
+  // Roadmap 180: from the passkey-first view to the email sign-in (same page, nothing reloaded) and back.
+  function toEmail() {
+    setPkFail(null);
+    setError("");
+    if (pk && !email) setEmail(pk.email);
+    setMode("full");
+  }
+  const words = passkeyWording();
+
+  if (mode === "passkey" && pk) {
+    return (
+      <AuthLayout brand={layoutBrand} title="S'Shop" subtitle={`${t("Welcome back")}, ${pk.name.split(" ")[0]}`}>
+        <div className="space-y-4 animate-fade-up" data-testid="passkey-first">
+          {expiredNote}
+          <p className="text-center text-sm text-muted-foreground">{pk.business}</p>
+          <Button type="button" size="lg" className="h-14 w-full text-base" disabled={busy || !pkOffered} onClick={passkeyLogin}>
+            {busy ? <SShopLoader size="sm" /> : <><ScanFace className="h-5 w-5" /> {t(`Continue with ${words.short}`)}</>}
+          </Button>
+          {passkeyFailure}
+          {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">{error}</p>}
+          <Button type="button" variant="ghost" className="w-full" onClick={toEmail}>
+            <Mail /> {t("Sign in with Email Instead")}
+          </Button>
+          {device && (
+            <button type="button" className="block w-full text-center text-xs font-medium text-primary hover:underline" onClick={() => { rememberMethod("quick"); setMode("quick"); setError(""); }}>
+              {t("Login with Quick PIN")}
+            </button>
+          )}
+          <p className="text-center text-[11px] text-muted-foreground">{t("Your device checks it's you. S'Shop never sees your face or fingerprint.")}</p>
+        </div>
+        <ManualLink />
+      </AuthLayout>
+    );
+  }
 
   if (mode === "quick" && device) {
     return (
@@ -255,9 +303,8 @@ export default function LoginPage() {
     <AuthLayout brand={layoutBrand} title="S'Shop" subtitle="Sign in to continue">
       <form onSubmit={submit} className="space-y-4">
         {expiredNote}
-        {pkOffered && (
+        {pkOffered && !pk && (
           <div className="space-y-3">
-            {pk && <p className="text-center text-sm text-muted-foreground">{t("Welcome back")}, <span className="text-foreground">{pk.name.split(" ")[0]}</span> · {pk.business}</p>}
             {passkeyButton}
             {passkeyFailure}
             <p className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">{t("or use your email and PIN")}</p>
@@ -291,6 +338,12 @@ export default function LoginPage() {
           <button type="button" className="block w-full text-center text-sm font-semibold text-primary underline underline-offset-4" onClick={() => { rememberMethod("quick"); setMode("quick"); setError(""); }}>
             {t("Login with Quick PIN")}
           </button>
+        )}
+        {/* Roadmap 180: back to the passkey-first view (this device has a passkey for S'Shop). */}
+        {pkOffered && pk && (
+          <Button type="button" variant="outline" className="w-full" onClick={() => { setError(""); setPkFail(null); setMode("passkey"); }}>
+            <ScanFace /> {t(`Back to ${words.short}`)}
+          </Button>
         )}
       </form>
       <div className="mt-6 border-t pt-5 text-center">

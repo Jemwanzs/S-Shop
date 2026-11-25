@@ -232,6 +232,7 @@ Secure sign-in and session controls that protect the business on shared and pers
 - Control over whether S'Shop support may enter the business, always time-limited and recorded
 - S'Shop tells you when a new version is ready and refreshes without losing unsaved work
 - A device with Face ID, fingerprint or Windows Hello sign-in set up opens straight on Continue with Face ID / Passkey; Sign in with Email Instead is one tap away
+- My profile from your avatar: your name and profile photo (crop, replace or remove), with your PIN, Face ID and preferences one tap away
 
 <a id="module-16"></a>
 
@@ -379,6 +380,13 @@ Signing in, choosing your branch and keeping your account secure.
 2. Android: use Chrome or the installed app. Your phone chooses fingerprint, face or screen lock.
 3. If the check is cancelled or does not work, the sign-in page says Authentication unsuccessful: tap Try again, or Use another sign-in method (your email and PIN always work).
 4. Lost or replaced a device: sign in with your email and PIN on another device, open Preferences and remove it. Your other devices keep working.
+
+#### Your profile, name and photo
+
+1. Tap your avatar (top right, or your name at the bottom of the side menu) and choose Edit profile.
+2. Change your full name if needed. Tap Upload photo (or Replace photo), choose a picture, drag it and use the zoom to fit your face in the circle, then Use photo.
+3. Tap Save changes. Your photo and name appear everywhere at once. Remove photo brings your initials back.
+4. Your email, role and branches are set by your administrator. Change PIN, Face ID & passkeys and User preferences are in the same menu.
 
 #### Change your PIN, forgotten PIN, sign out
 

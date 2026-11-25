@@ -133,7 +133,7 @@ async fn staff(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query_>)
         _ => "revenue",
     };
     #[allow(clippy::type_complexity)]
-    let rows: Vec<(Uuid, String, String, Decimal, i64, i64, Option<Decimal>, i64, i64, i64, Decimal, Decimal)> = sqlx::query_as(&format!(
+    let rows: Vec<(Uuid, String, String, Option<String>, Decimal, i64, i64, Option<Decimal>, i64, i64, i64, Decimal, Decimal)> = sqlx::query_as(&format!(
         "WITH {LINES},
          per AS (SELECT user_id, SUM(revenue) AS revenue, SUM(qty)::bigint AS units, COUNT(DISTINCT sale_id) AS transactions,
                         COUNT(DISTINCT customer_id) AS customers, SUM(discount) AS discounts,
@@ -144,7 +144,7 @@ async fn staff(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query_>)
                    AND business_date_of(e.created_at, o.tenant_id, o.branch_id) BETWEEN $3 AND $4 GROUP BY e.user_id),
          acq AS (SELECT created_by AS user_id, COUNT(*) AS n FROM customers
                  WHERE tenant_id = $1 AND business_date_of(created_at, tenant_id, NULL) BETWEEN $3 AND $4 GROUP BY created_by)
-         SELECT u.id, u.name, r.name, COALESCE(per.revenue, 0) AS revenue, COALESCE(per.units, 0) AS units,
+         SELECT u.id, u.name, r.name, user_avatar_url(u.id), COALESCE(per.revenue, 0) AS revenue, COALESCE(per.units, 0) AS units,
                 COALESCE(per.transactions, 0) AS transactions,
                 ROUND(per.revenue / NULLIF(per.transactions, 0), 2) AS avg_sale,
                 COALESCE(ord.n, 0) AS orders, COALESCE(per.customers, 0) AS customers, COALESCE(acq.n, 0) AS new_customers,
@@ -169,8 +169,8 @@ async fn staff(State(state): State<AppState>, ctx: Ctx, Query(q): Query<Query_>)
     let days = (to - from).num_days() + 1;
     Ok(Json(json!({
         "from": from, "to": to, "metric": metric, "metrics": STAFF_METRICS,
-        "items": rows.into_iter().enumerate().map(|(i, (id, name, role, revenue, units, tx, avg, orders, customers, new_c, discounts, credit))| json!({
-            "id": id, "name": name, "role": role, "revenue": revenue, "units": units, "transactions": tx, "avg_sale": avg,
+        "items": rows.into_iter().enumerate().map(|(i, (id, name, role, avatar_url, revenue, units, tx, avg, orders, customers, new_c, discounts, credit))| json!({
+            "id": id, "name": name, "role": role, "avatar_url": avatar_url, "revenue": revenue, "units": units, "transactions": tx, "avg_sale": avg,
             "orders": orders, "customers": customers, "new_customers": new_c, "discounts": discounts, "credit": credit,
             "medal": medal(&s, &s.reports.medals.staff, metric, i, revenue, units, days),
         })).collect::<Vec<_>>(),

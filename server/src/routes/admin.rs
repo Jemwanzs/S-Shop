@@ -838,6 +838,8 @@ struct UserRow {
     status: String,
     invite_sent_at: Option<DateTime<Utc>>,
     invite_expires_at: Option<DateTime<Utc>>,
+    /// Roadmap 185: the profile photo (null: initials).
+    avatar_url: Option<String>,
 }
 
 async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<UserRow>>> {
@@ -853,7 +855,7 @@ async fn list_users(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<V
                      WHEN u.invite_opened_at IS NOT NULL THEN 'activation_pending'
                      WHEN u.invite_email_status = 'sent' THEN 'invitation_sent'
                      ELSE 'invitation_pending' END AS status,
-                u.invite_sent_at, u.invite_expires_at
+                u.invite_sent_at, u.invite_expires_at, user_avatar_url(u.id) AS avatar_url
          FROM users u JOIN roles r ON r.id = u.role_id LEFT JOIN users li ON li.id = u.login_user_id LEFT JOIN tenants lt ON lt.id = li.tenant_id
          WHERE u.tenant_id = $1 ORDER BY u.is_active DESC, u.name",
     )

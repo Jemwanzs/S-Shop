@@ -29,7 +29,7 @@ import {
   type LucideIcon,
   FileSpreadsheet,
   Palette,
-  Lock, ShieldAlert, Sparkles } from "lucide-react";
+  Lock, ShieldAlert, Sparkles, CircleUserRound } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { BrandingSettings } from "./Branding";
 import { BooksSettings } from "./Books";
@@ -51,6 +51,7 @@ import { PlatformSecuritySettings } from "./QuickPin";
 import { BillingSettings } from "./Billing";
 import { PlatformActivity } from "./PlatformActivity";
 import { PlatformSecurityAudit } from "./PlatformSecurityAudit";
+import { ProfileSettings } from "./Profile";
 import { ErrorsSettings } from "./Errors";
 import { PlatformBilling } from "./PlatformBilling";
 import { WebsiteSettings } from "./website/Website";
@@ -94,6 +95,7 @@ const SECTIONS: SectionDef[] = [
   // Everyone: their own preferences.
   // Tenant administrators: platform support access to their business (roadmap 71).
   { path: "security", label: "Security", group: "Control", icon: LifeBuoy, perm: "users.manage", element: <SupportAccessSettings /> },
+  { path: "profile", label: "My profile", group: "Personal", icon: CircleUserRound, perm: "", element: <ProfileSettings /> },
   { path: "preferences", label: "User preferences", group: "Personal", icon: SlidersHorizontal, perm: "", element: <PreferencesSettings /> },
   // "platform": only platform administrators (PLATFORM_ADMIN_EMAILS) see this section.
   { path: "tenants", label: "Tenants", group: "Platform", icon: Users2, perm: "platform", element: <TenantsSettings /> },

@@ -213,6 +213,8 @@ pub async fn load_profile(state: &AppState, user_id: Uuid, tenant_id: Uuid, acti
     Ok(Profile {
         user: serde_json::json!({
             "id": user_id, "name": name, "email": email, "role": role, "all_branches": all_branches || is_admin,
+            // Roadmap 185: the profile photo (null: initials).
+            "avatar_url": sqlx::query_scalar::<_, Option<String>>("SELECT user_avatar_url($1)").bind(user_id).fetch_one(&state.db).await?,
             "platform_admin": super::access::is_platform_admin(state, &email, &permissions),
             "preferences": super::prefs::Preferences::from_stored(preferences),
             // Signed in with a one-time PIN: the app asks for a new PIN before anything else (roadmap 59).

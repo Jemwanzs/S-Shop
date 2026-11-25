@@ -97,3 +97,24 @@ in and not through S'Shop support, sees the Edit button and can save (`PUT /api/
 essential permission sent switched off). Saving is audited (`roles · update`, before/after *switched_off*). Switched-off
 permissions apply at once on the server, in the app and in notifications (`notify::to_permission`, new-order alerts,
 sale-owner choices).
+
+## My profile and the account menu (roadmap 185)
+
+The avatar — top-right on every screen size, the sidebar profile on desktops, the More page on phones — opens the
+account menu: **My profile**, **Edit profile**, **Change PIN** (the existing dialog), **Face ID & passkeys**
+(User preferences → *Sign-in*, the existing passkey and Quick PIN cards), **User preferences**, **Sign out**.
+
+- **My profile** — Settings → Personal → My profile (`pages/settings/Profile.tsx`, `GET /api/auth/profile`).
+- **Edit profile** — full name (2–80 characters; tidied; no markup) and photo. Email, role and branches are shown
+  read-only and are never changed here (`PUT /api/auth/profile` reads the name only). *Save changes* only for a valid
+  change.
+- **Photo** — chosen on the device, cropped and repositioned in the browser (drag, zoom) to a 512 × 512 square
+  (WebP, else JPEG), previewed, then `POST /api/auth/profile/avatar`; *Remove photo* → `DELETE` (initials again). The
+  server accepts PNG, JPEG or WebP up to 1 MB whose own header shows a square-ish image of 64–2048 px. Stored on the
+  person's sign-in identity (`users.avatar`, shared by their linked access in the tenant's other businesses) and served
+  at `/api/avatars/{key}` — a key that changes with every photo, cached for good, sent with a sandboxing policy.
+  `user_avatar_url(user_id)` gives the address (null = initials) to the profile, Settings → Users and Leaderboards;
+  `components/UserAvatar.tsx` shows it round with `object-fit: cover`.
+- **History** — audit entries keep the name the person had when they acted (`audit_log.actor_name`); the change is
+  audited (`profile_updated` with before/after name; `profile_photo_added` / `_replaced` / `_removed`, never the image).
+- Only the person changes their own profile (any role); never from a support session.

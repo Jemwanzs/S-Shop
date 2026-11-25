@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link } from "@/lib/router";
-import { ExternalLink, KeyRound, LogOut, Moon, Sun } from "lucide-react";
+import { ExternalLink, KeyRound, LogOut, Moon, Sun, UserRound } from "lucide-react";
 import { useSession } from "@/lib/session";
-import { initials } from "@/lib/format";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { ChangePin, CountBadge, useNotificationCounts, useTheme } from "@/components/layout/AppShell";
 import { PoweredBy } from "@/components/PoweredBy";
@@ -19,9 +19,9 @@ export default function More() {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="surface card-body flex items-center gap-3">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 font-semibold text-primary">{initials(profile?.user.name)}</span>
+        <Link to="/settings/profile" aria-label={t("My profile")}><UserAvatar name={profile?.user.name} url={profile?.user.avatar_url} size="lg" /></Link>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold">{profile?.user.name}</div>
+          <Link to="/settings/profile" className="block truncate font-semibold">{profile?.user.name}</Link>
           <div className="truncate text-sm text-muted-foreground">{profile?.user.role} · {branch?.name}</div>
           <Link to="/settings/preferences" className="text-xs font-medium text-primary">{t("Figures in")} {displayCurrency} · {t("Preferences")}</Link>
         </div>
@@ -52,6 +52,7 @@ export default function More() {
         </a>
       )}
       {(profile?.branches.length ?? 0) > 1 && <Button variant="outline" className="w-full" asChild><Link to="/select-branch">{t("Switch branch")}</Link></Button>}
+      <Button variant="outline" className="w-full" asChild><Link to="/settings/profile"><UserRound /> {t("My profile")}</Link></Button>
       <Button variant="outline" className="w-full" onClick={() => setPinOpen(true)}><KeyRound /> {t("Change PIN")}</Button>
       <Button variant="outline" className="w-full text-destructive" onClick={signOut}><LogOut /> {t("Sign out")}</Button>
       <div className="flex justify-center pt-1"><PoweredBy /></div>

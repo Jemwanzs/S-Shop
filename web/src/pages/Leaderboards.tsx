@@ -12,6 +12,7 @@ import { DataList, CardRow, type Column } from "@/components/DataList";
 import { PeriodFilter, Segments, type PeriodValue } from "@/components/Filters";
 import { Select } from "@/components/Form";
 import { Medal } from "@/components/Badges";
+import { UserAvatar } from "@/components/UserAvatar";
 
 type Kind = "products" | "staff";
 interface Row {
@@ -67,9 +68,12 @@ export default function Leaderboards() {
       key: "name",
       header: kind === "products" ? t("Product") : t("Employee"),
       cell: (r) => (
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2.5">
+          {kind !== "products" && <UserAvatar name={r.name} url={r.avatar_url as string | null | undefined} size="xs" />}
+          <div className="min-w-0">
           <div className="truncate font-medium">{r.name}</div>
           <div className="truncate text-xs text-muted-foreground">{kind === "products" ? [r.code, r.category].filter(Boolean).join(" · ") : String(r.role ?? "")}</div>
+          </div>
         </div>
       ),
     },
@@ -124,7 +128,7 @@ export default function Leaderboards() {
         columns={columns}
         mobile={(r) => (
           <CardRow
-            leading={rank(r, index.get(r.id) ?? 0)}
+            leading={<span className="flex items-center gap-1.5">{rank(r, index.get(r.id) ?? 0)}{kind !== "products" && <UserAvatar name={r.name} url={r.avatar_url as string | null | undefined} size="xs" />}</span>}
             title={r.name}
             subtitle={secondary.map((m) => `${t(LABELS[m])} ${fmt(m, r[m])}`).join(" · ")}
             value={<span className="num">{fmt(metric, r[metric])}</span>}

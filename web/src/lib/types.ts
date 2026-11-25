@@ -141,6 +141,8 @@ export interface Settings {
 
 export interface Profile {
   user: { id: Id; name: string; email: string; role: string; all_branches: boolean; platform_admin: boolean; preferences: Preferences;
+    /** Roadmap 185: the profile photo (null: initials). */
+    avatar_url?: string | null;
     /** Signed in with a one-time PIN: a new PIN is required before anything else (roadmap 59). */
     must_change_pin?: boolean;
     /** Roadmap 105: offer Quick PIN once after the person set up their account. */
@@ -543,6 +545,8 @@ export interface UserRow {
   status?: "active" | "invitation_pending" | "invitation_sent" | "activation_pending" | "invitation_expired" | "disabled";
   invite_sent_at?: string | null;
   invite_expires_at?: string | null;
+  /** Roadmap 185: the profile photo (null: initials). */
+  avatar_url?: string | null;
 }
 
 export interface Role {

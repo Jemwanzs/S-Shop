@@ -2,13 +2,14 @@ import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent } fr
 import { IdleGuard } from "@/components/IdleGuard";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRightLeft, Bell, Check, ChevronsUpDown, KeyRound, ShieldCheck, SlidersHorizontal, LogOut, Menu, Moon, Search, ShoppingCart, Store, Sun } from "lucide-react";
+import { ArrowRightLeft, Bell, Check, ChevronsUpDown, CircleUserRound, Fingerprint, KeyRound, Pencil, ShieldCheck, SlidersHorizontal, LogOut, Menu, Moon, Search, ShoppingCart, Store, Sun } from "lucide-react";
+import { UserAvatar } from "@/components/UserAvatar";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { SUPPORT_ENDED, useSession } from "@/lib/session";
 import { useLiveEvents } from "@/lib/events";
-import { date, initials } from "@/lib/format";
+import { date } from "@/lib/format";
 import type { Notification, Profile } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -181,10 +182,8 @@ function UserMenu({ full }: { full?: boolean }) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className={cn("flex items-center gap-2.5 rounded-lg text-start hover:bg-accent", full ? "w-full p-2" : "p-1")}>
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
-              {initials(profile.user.name)}
-            </span>
+          <button aria-label={t("Account menu")} className={cn("flex items-center gap-2.5 rounded-lg text-start hover:bg-accent", full ? "w-full p-2" : "p-1")}>
+            <UserAvatar name={profile.user.name} url={profile.user.avatar_url} />
             {full && (
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium">{profile.user.name}</span>
@@ -194,10 +193,13 @@ function UserMenu({ full }: { full?: boolean }) {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel className="font-normal">
+          <DropdownMenuLabel className="flex items-center gap-2.5 font-normal">
+            <UserAvatar name={profile.user.name} url={profile.user.avatar_url} size="md" />
+            <div className="min-w-0">
             <div className="truncate font-medium">{profile.user.name}</div>
             <div className="truncate text-xs text-muted-foreground">{profile.user.email}</div>
             <div className="mt-1 text-xs font-medium text-primary">{t("Figures in")} {displayCurrency}</div>
+            </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           {others.length > 0 && (
@@ -218,8 +220,13 @@ function UserMenu({ full }: { full?: boolean }) {
               <DropdownMenuSeparator />
             </>
           )}
-          <DropdownMenuItem onClick={() => navigate("/settings/preferences")} className="gap-2"><SlidersHorizontal className="h-4 w-4" /> {t("Preferences")}</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setPinOpen(true)} className="gap-2"><KeyRound className="h-4 w-4" /> {t("Change PIN")}</DropdownMenuItem>
+          {/* Roadmap 185: the account menu — profile, PIN, Face ID / passkeys, preferences (the existing screens). */}
+          <DropdownMenuItem onClick={() => navigate("/settings/profile")} className="gap-2"><CircleUserRound className="h-4 w-4" /> {t("My profile")}</DropdownMenuItem>
+          {!profile.acting && <DropdownMenuItem onClick={() => navigate("/settings/profile?edit=1")} className="gap-2"><Pencil className="h-4 w-4" /> {t("Edit profile")}</DropdownMenuItem>}
+          {!profile.acting && <DropdownMenuItem onClick={() => setPinOpen(true)} className="gap-2"><KeyRound className="h-4 w-4" /> {t("Change PIN")}</DropdownMenuItem>}
+          <DropdownMenuItem onClick={() => navigate("/settings/preferences#sign-in")} className="gap-2"><Fingerprint className="h-4 w-4" /> {t("Face ID & passkeys")}</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate("/settings/preferences")} className="gap-2"><SlidersHorizontal className="h-4 w-4" /> {t("User preferences")}</DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={signOut} className="gap-2 text-destructive"><LogOut className="h-4 w-4" /> {t("Sign out")}</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -555,7 +562,8 @@ export function AppShell() {
               {unread > 0 && <span className="num absolute inset-e-1.5 top-1.5 min-w-4 rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground animate-pop">{unread > 99 ? "99+" : unread}</span>}
             </Button>
             <ThemeToggle className="hidden sm:inline-flex" />
-            <div className="hidden lg:block"><UserMenu /></div>
+            {/* Roadmap 185: the account menu on every screen size (phones too). */}
+            <div className="shrink-0"><UserMenu /></div>
           </div>
         </header>
         <main className="mx-auto w-full max-w-[1680px] px-3.5 pb-[calc(var(--nav-h)+env(safe-area-inset-bottom,0px)+2rem)] pt-4 md:px-6 lg:px-8 lg:pb-12 lg:pt-6">

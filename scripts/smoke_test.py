@@ -293,6 +293,16 @@ def upload_file(path, data, filename, content_type, expect=200, token=None):
     return payload
 
 
+def sized_png(w, h, rgb=(40, 120, 200)):
+    """A valid w×h PNG (roadmap 185: profile photos are checked for their real size)."""
+    import struct, zlib
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
 def tiny_png(rgb=(255, 102, 0)):
     """A valid 1×1 PNG (no imaging library needed)."""
     import struct, zlib
@@ -5765,6 +5775,56 @@ s184 = call("POST", "/sales", {"customer_id": look["id"], "items": [{"product_id
 prof184 = call("GET", f"/customers/{look['id']}")
 check("a customer added at the till is attached to the sale: history, receipt and points", any(x["id"] == s184["sale"]["id"] for x in prof184["sales"]) and prof184["customer"]["purchase_count"] == 1, prof184["sales"][:1])
 check("found by name straight after", names(f"ne{k184}w") == [f"Ne{k184}w Buyer"])
+
+step("Roadmap 185: my profile — name and profile photo")
+pr = call("GET", "/auth/profile")
+check("My profile: name, email, role and branches", pr["email"] == "admin@sshop.test" and pr["role"] == "Tenant Administrator" and pr["avatar_url"] is None, pr)
+old_name = pr["name"]
+before_id = call("GET", "/audit?period=today&limit=1")["items"][0]["id"]
+call("PUT", "/auth/profile", {"name": "A"}, expect=400)
+call("PUT", "/auth/profile", {"name": "<b>x</b>"}, expect=400)
+check("a name must be 2–80 characters, without markup", True)
+call("PUT", "/auth/profile", {"name": f"  Admin   Renamed {suffix} ", "email": "hijack@sshop.test", "role_id": str(uuid.uuid4()), "all_branches": False})
+me185 = call("GET", "/auth/me")
+check("the name is saved (tidied); email, role and branches are never changed through the profile",
+      me185["user"]["name"] == f"Admin Renamed {suffix}" and me185["user"]["email"] == "admin@sshop.test" and me185["user"]["role"] == "Tenant Administrator" and me185["user"]["all_branches"], me185["user"])
+check("the new name shows in Settings → Users", any(u["name"] == f"Admin Renamed {suffix}" for u in call("GET", "/users")))
+au185 = call("GET", "/audit?period=today&module=users&limit=20")["items"]
+pu = next(a for a in au185 if a["action"] == "profile_updated")
+check("audited with before and after", pu["before"]["name"] == old_name and pu["after"]["name"] == f"Admin Renamed {suffix}", pu)
+olds = [a for a in call("GET", "/audit?period=today&limit=200")["items"] if a["id"] != pu["id"] and a["action"] != "profile_updated"]
+check("earlier audit entries keep the name the person had then", any(a["user_name"] == old_name for a in olds), [a["user_name"] for a in olds[:5]])
+# Photo
+for bad_, why in [(b"\x89PNG\r\n\x1a\nnot an image at all " * 3, "fake PNG"), (b"hello world, not an image", "text"), (sized_png(200, 60), "not square"),
+                  (sized_png(40, 40), "too small"), (b"\xff\xd8\xff" + b"\x00" * (1024 * 1024 + 10), "over 1 MB")]:
+    r = upload_file("/auth/profile/avatar", bad_, "a.png", "image/png", expect=400)
+    check(f"photo refused: {why}", "photo" in r["error"]["message"].lower() or "image" in r["error"]["message"].lower(), r)
+up = upload_file("/auth/profile/avatar", sized_png(128, 128), "me.png", "image/png")
+with urllib.request.urlopen(BASE + up["avatar_url"]) as r_:
+    served = r_.read(); ctype = r_.headers["Content-Type"]; csp = r_.headers.get("Content-Security-Policy", "")
+check("photo saved and served as an image (no script can run in it)", served[:4] == b"\x89PNG" and ctype == "image/png" and "sandbox" in csp, (ctype, csp))
+check("the photo shows on the profile and in Settings → Users", call("GET", "/auth/me")["user"]["avatar_url"] == up["avatar_url"]
+      and next(u for u in call("GET", "/users") if u["email"] == "admin@sshop.test")["avatar_url"] == up["avatar_url"])
+up2 = upload_file("/auth/profile/avatar", sized_png(256, 256, (200, 30, 30)), "me2.png", "image/png")
+check("replaced: a new address, the old one gone", up2["avatar_url"] != up["avatar_url"] and call("GET", up["avatar_url"].removeprefix("/api"), token="none", expect=404))
+call("DELETE", "/auth/profile/avatar")
+check("removed: back to initials, the photo gone", call("GET", "/auth/me")["user"]["avatar_url"] is None and call("GET", up2["avatar_url"].removeprefix("/api"), token="none", expect=404))
+au185 = [a["action"] for a in call("GET", "/audit?period=today&module=users&limit=20")["items"]]
+check("photo added, replaced and removed are audited (never the photo itself)", {"profile_photo_added", "profile_photo_replaced", "profile_photo_removed"} <= set(au185), au185)
+# Every person edits only their own profile.
+cash185 = make_user("cash185", roles14["Salesperson"]["id"])
+call("PUT", "/auth/profile", {"name": f"Cashier Own {suffix}"}, token=cash185)
+upload_file("/auth/profile/avatar", sized_png(96, 96), "c.png", "image/png", token=cash185)
+check("any role edits their own profile — and only their own", call("GET", "/auth/me", token=cash185)["user"]["name"] == f"Cashier Own {suffix}"
+      and call("GET", "/auth/me", token=cash185)["user"]["avatar_url"] and call("GET", "/auth/me")["user"]["avatar_url"] is None
+      and call("GET", "/auth/me")["user"]["name"] == f"Admin Renamed {suffix}")
+lb185 = call("GET", "/leaderboards/staff?period=month")["items"]
+check("leaderboards carry the photo address", all("avatar_url" in x for x in lb185))
+sp185 = support_open(tb1)
+r = call("PUT", "/auth/profile", {"name": "Support rename"}, token=sp185["token"], branch="none", expect=422)
+check("S'Shop support never changes anyone's profile", r["error"]["title"] == "Not from a support session", r)
+call("POST", f"/platform/support/{sp185['id']}/end", None, token=sp185["token"], branch="none")
+call("PUT", "/auth/profile", {"name": old_name})
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

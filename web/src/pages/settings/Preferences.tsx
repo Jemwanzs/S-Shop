@@ -21,6 +21,11 @@ export function PreferencesSettings() {
   const { preferences, fx, can, profile } = useSession();
   const [draft, setDraft] = useState<Preferences>(preferences);
   useEffect(() => setDraft(preferences), [preferences]);
+  useEffect(() => {
+    if (window.location.hash !== "#sign-in") return;
+    const id = window.setTimeout(() => document.getElementById("sign-in")?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+    return () => window.clearTimeout(id);
+  }, []);
   const dirty = JSON.stringify(draft) !== JSON.stringify(preferences);
 
   const save = useMutation({
@@ -98,8 +103,11 @@ export function PreferencesSettings() {
         </Card>
       )}
 
-      <QuickPinCard />
-      <PasskeyCard />
+      {/* Roadmap 185: reached from the account menu and My profile (…/preferences#sign-in). */}
+      <div id="sign-in" className="scroll-mt-20 space-y-4">
+        <QuickPinCard />
+        <PasskeyCard />
+      </div>
 
       <Card title="Notifications">
         {can("orders.manage") && (

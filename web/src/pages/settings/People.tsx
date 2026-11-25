@@ -7,7 +7,7 @@ import { currentPosition } from "@/lib/location";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { ago, dateTime, initials } from "@/lib/format";
+import { ago, dateTime } from "@/lib/format";
 import { waNumber } from "@/lib/receipt";
 import type { Tone } from "@/components/Badges";
 import type { Hours, Role, UserRow } from "@/lib/types";
@@ -23,6 +23,7 @@ import { PasswordInput } from "@/components/PasswordInput";
 import { Card, SettingsPage } from "./shared";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { UserAvatar } from "@/components/UserAvatar";
 
 // ───────────────────────────── Branches ─────────────────────────────
 
@@ -190,7 +191,7 @@ export function UsersSettings() {
       </div>}>
         {data?.map((u) => (
           <div key={u.id} className="flex items-center gap-3 py-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">{initials(u.name)}</span>
+            <UserAvatar name={u.name} url={u.avatar_url} size="md" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2 font-medium">{u.name} <Pill tone="primary">{u.role_name}</Pill>{u.linked_from && <Pill tone="info">{t("Linked")} · {u.linked_from}</Pill>}{u.status && u.status !== "active" ? <Pill tone={USER_STATUS[u.status][0]}>{t(USER_STATUS[u.status][1])}</Pill> : !u.is_active && <Pill tone="danger">{t("Inactive")}</Pill>}</div>
               <div className="truncate text-xs text-muted-foreground">

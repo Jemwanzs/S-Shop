@@ -59,8 +59,8 @@ impl<'a> Entry<'a> {
 pub async fn record(conn: &mut PgConnection, ctx: &Ctx, e: Entry<'_>) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO audit_log (tenant_id, user_id, module, action, entity_type, entity_id, branch_id,
-                                before, after, approval_id, comments, ip, user_agent, location, support_session_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
+                                before, after, approval_id, comments, ip, user_agent, location, support_session_id, actor_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
     )
     .bind(ctx.tenant_id)
     .bind(ctx.user_id)
@@ -78,6 +78,8 @@ pub async fn record(conn: &mut PgConnection, ctx: &Ctx, e: Entry<'_>) -> AppResu
     .bind(ctx.location.map(|l| serde_json::json!(l)))
     // Roadmap 182: a change made by S'Shop support is marked as such (only inside the business it was made in).
     .bind(ctx.support.as_ref().filter(|_| ctx.acting_from.is_some_and(|h| h != ctx.tenant_id)).map(|s| s.id))
+    // Roadmap 185: the name the person had when they acted.
+    .bind(&ctx.name)
     .execute(&mut *conn)
     .await?;
     Ok(())

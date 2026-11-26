@@ -118,3 +118,9 @@ account menu: **My profile**, **Edit profile**, **Change PIN** (the existing dia
 - **History** — audit entries keep the name the person had when they acted (`audit_log.actor_name`); the change is
   audited (`profile_updated` with before/after name; `profile_photo_added` / `_replaced` / `_removed`, never the image).
 - Only the person changes their own profile (any role); never from a support session.
+
+## Saving a role (roadmap 189)
+
+The role editor's button reads *Nothing to save* (off) until something differs from the role as it was opened —
+permissions (one by one or *Toggle all*), name, description, *Active* or a visibility scope — then *Save changes*;
+undoing every change switches it off again. *Saving…* blocks a second click; a failure keeps the changes.

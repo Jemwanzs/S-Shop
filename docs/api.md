@@ -190,6 +190,10 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | POST / DELETE | `/api/auth/profile/avatar` (multipart `file`) | roadmap 185: PNG, JPEG or WebP ≤ 1 MB, square-ish, 64–2048 px; DELETE removes it |
 | GET | `/api/avatars/{key}` | roadmap 185: a profile photo by its unguessable key (public, cached for good) |
 | GET / POST | `/api/branch-prices?branch_id=` · `{branch_id, action: reset\|restore\|set, items: [{product_id, price, expected}]}` | roadmap 186: Manage branch prices (Tenant Administrators) — the branch's products with stock, default, own, effective price, status, pending; POST applies in one transaction or as one *Product edit* approval |
+| GET | `/api/website/publication` | roadmap 188: status, the generated summary of unpublished changes, the waiting request, `can_publish` / `can_request` |
+| GET / POST | `/api/website/publication/requests` (`?mine=`) · `{comments, draft_updated_at}` | roadmap 188: publication history · submit the draft for approval (*Request website publication*) |
+| GET | `/api/website/publication/requests/{id}` | roadmap 188: one request with its full summary and `preview_query` |
+| POST | `/api/approvals/{id}/reject` `{comments, returned}` | roadmap 188: `returned: true` = *Return for correction* (website publication requests) |
 | GET | `/api/customers/search?q=` | roadmap 184: live search by name or mobile (any format) — `items` (up to 8), `more`; *Record sales* or *View customers* |
 | GET | `/api/customers/lookup` |
 | GET | `/api/customers/{id}` |

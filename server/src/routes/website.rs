@@ -51,10 +51,10 @@ pub fn routes() -> Router<AppState> {
         .route("/platform/tenants/{id}/website/domain", put(platform_domain))
 }
 
-pub const PERMS: [&str; 15] = [
+pub const PERMS: [&str; 16] = [
     "website.view", "website.content", "website.products", "website.photos", "website.categories", "website.media",
     "website.services", "website.testimonials", "website.design", "website.navigation", "website.seo", "website.domain",
-    "website.preview", "website.publish", "website.analytics",
+    "website.preview", "website.request_publish", "website.publish", "website.analytics",
 ];
 
 #[derive(sqlx::FromRow)]
@@ -333,7 +333,7 @@ async fn save_draft(State(state): State<AppState>, ctx: Ctx, Json(mut b): Json<D
 }
 
 /// Problems that keep a draft from going public.
-fn publish_blockers(c: &SiteConfig) -> Vec<String> {
+pub(crate) fn publish_blockers(c: &SiteConfig) -> Vec<String> {
     let mut out = Vec::new();
     // Samples switched on show in the staff preview only and are always left out of the public site (roadmap 90), so
     // they never block publishing; sample text presented as genuine is refused when the draft is saved.
@@ -484,6 +484,16 @@ async fn restore(State(state): State<AppState>, ctx: Ctx, Path(version): Path<i3
     Ok(Json(json!({ "ok": true, "version": new_version })))
 }
 
+/// Roadmap 188: website settings that change the live website at once (prices and stock shown) are for people who may
+/// publish — or who manage the ordering link's settings, which they share — never a way around publication approval.
+fn live_change_allowed(ctx: &Ctx) -> AppResult<()> {
+    if ctx.can("website.publish") || ctx.can("settings.orders") {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden("This changes the live website at once — only someone who may publish the website can change it".into()))
+    }
+}
+
 #[derive(Deserialize)]
 struct StockBody {
     /// in_stock_only | limit_cart_to_stock | show_stock_quantity
@@ -495,6 +505,7 @@ struct StockBody {
 /// the same settings as the ordering link's, so the two never disagree. Products, publication and stock are untouched.
 async fn set_stock(State(state): State<AppState>, ctx: Ctx, Json(b): Json<StockBody>) -> AppResult<Json<Value>> {
     ctx.require("website.products")?;
+    live_change_allowed(&ctx)?;
     let (key, value) = match b.setting.as_str() {
         "in_stock_only" => ("show_out_of_stock", !b.on),
         "limit_cart_to_stock" => ("limit_cart_to_stock", b.on),
@@ -538,6 +549,7 @@ struct PricesBody {
 /// two can never contradict each other. It applies at once (it is not part of the draft).
 async fn set_prices(State(state): State<AppState>, ctx: Ctx, Json(b): Json<PricesBody>) -> AppResult<Json<Value>> {
     ctx.require("website.products")?;
+    live_change_allowed(&ctx)?;
     let mut tx = state.db.begin().await?;
     let before: Option<bool> = sqlx::query_scalar("SELECT (settings #>> '{orders,show_prices}')::boolean FROM tenants WHERE id = $1 FOR UPDATE")
         .bind(ctx.tenant_id)

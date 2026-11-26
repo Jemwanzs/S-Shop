@@ -464,21 +464,28 @@ export function RolesSettings() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["roles"], queryFn: () => api<Role[]>("/roles") });
   const catalogue = useQuery({ queryKey: ["permissions"], queryFn: () => api<PermGroup[]>("/permissions") });
-  const [edit, setEdit] = useState<{ id?: string; name: string; description: string; permissions: string[]; is_active: boolean; user_count: number; system?: boolean; locked?: string[] } | null>(null);
+  type RoleEdit = { id?: string; name: string; description: string; permissions: string[]; is_active: boolean; user_count: number; system?: boolean; locked?: string[] };
+  const [edit, setEdit] = useState<RoleEdit | null>(null);
+  // Roadmap 189: the role as it was opened — Save is offered only while something differs from it.
+  const [orig, setOrig] = useState<RoleEdit | null>(null);
+  const start = (e: RoleEdit) => { setEdit(e); setOrig(e); };
+  const sameRole = (a: RoleEdit, b: RoleEdit) => a.name.trim() === b.name.trim() && (a.description ?? "").trim() === (b.description ?? "").trim()
+    && a.is_active === b.is_active && [...new Set(a.permissions)].sort().join("|") === [...new Set(b.permissions)].sort().join("|");
+  const changed = !!edit && !!orig && !sameRole(edit, orig);
   const allKeys = catalogue.data?.flatMap((g) => g.permissions.map(([k]) => k)) ?? [];
   // Roadmap 183: the Tenant Administrator role opens with every permission on except those switched off; the essential
   // administration permissions stay on and locked.
-  const openAdminRole = (r: Role) => setEdit({ id: r.id, name: r.name, description: r.description, permissions: allKeys.filter((k) => !(r.excluded_permissions ?? []).includes(k)), is_active: true, user_count: r.user_count, system: true, locked: r.locked ?? [] });
+  const openAdminRole = (r: Role) => start({ id: r.id, name: r.name, description: r.description, permissions: allKeys.filter((k) => !(r.excluded_permissions ?? []).includes(k)), is_active: true, user_count: r.user_count, system: true, locked: r.locked ?? [] });
   const isLocked = (k: string) => !!edit?.system && !!edit.locked?.includes(k);
   const save = useMutation({
     mutationFn: () => api(edit!.id ? `/roles/${edit!.id}` : "/roles", { method: edit!.id ? "PUT" : "POST", body: edit }),
-    onSuccess: () => { toast.success("Role saved"); setEdit(null); qc.invalidateQueries({ queryKey: ["roles"] }); qc.invalidateQueries({ queryKey: ["me"] }); },
+    onSuccess: () => { toast.success("Role saved"); setEdit(null); setOrig(null); qc.invalidateQueries({ queryKey: ["roles"] }); qc.invalidateQueries({ queryKey: ["me"] }); },
     onError: (e) => toast.error(e),
   });
   const toggle = (p: string, on: boolean) => edit && !isLocked(p) && setEdit({ ...edit, permissions: on ? [...edit.permissions, p] : edit.permissions.filter((x) => x !== p) });
   return (
     <SettingsPage title="Roles & permissions" description="Permissions are granted per module and action. Users can additionally be restricted by branch." loading={isLoading}>
-      <Card action={<Button size="sm" onClick={() => setEdit({ name: "", description: "", permissions: [], is_active: true, user_count: 0 })}><Plus /> {t("New role")}</Button>}>
+      <Card action={<Button size="sm" onClick={() => start({ name: "", description: "", permissions: [], is_active: true, user_count: 0 })}><Plus /> {t("New role")}</Button>}>
         {data?.map((r) => (
           <div key={r.id} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">
@@ -487,12 +494,12 @@ export function RolesSettings() {
             </div>
             {r.is_system
               ? r.editable && <Button variant="ghost" size="icon-sm" disabled={!catalogue.data} onClick={() => openAdminRole(r)} aria-label="Edit"><Pencil /></Button>
-              : <Button variant="ghost" size="icon-sm" onClick={() => setEdit({ id: r.id, name: r.name, description: r.description, permissions: r.permissions, is_active: r.is_active, user_count: r.user_count })} aria-label="Edit"><Pencil /></Button>}
+              : <Button variant="ghost" size="icon-sm" onClick={() => start({ id: r.id, name: r.name, description: r.description, permissions: r.permissions, is_active: r.is_active, user_count: r.user_count })} aria-label="Edit"><Pencil /></Button>}
           </div>
         ))}
       </Card>
-      <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : "New role"} wide footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…" blockedBy={[!edit?.name.trim() && "Enter a name"]}
-        onAction={() => save.mutateAsync()}>{t("Save role")}</ActionButton>}>
+      <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : "New role"} wide footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…" blockedBy={[!changed && REASONS.nothingToSave, !edit?.name.trim() && "Enter a name"]}
+        onAction={() => save.mutateAsync()}>{t(edit?.id ? "Save changes" : "Save role")}</ActionButton>}>
         {edit && (
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">

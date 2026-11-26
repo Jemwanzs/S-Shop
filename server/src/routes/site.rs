@@ -199,6 +199,14 @@ async fn live(state: &AppState, headers: &HeaderMap, slug: Option<&str>, preview
     }
 }
 
+/// Roadmap 188: in a staff preview, one publication request's snapshot instead of the draft.
+async fn with_publication(state: &AppState, mut s: Site, publication: Option<Uuid>) -> AppResult<Site> {
+    if let (true, Some(id)) = (s.preview, publication) {
+        s.config = super::publication::snapshot(state, s.tenant, id).await?.ok_or(AppError::NotFound("Publication request"))?;
+    }
+    Ok(s)
+}
+
 #[derive(Deserialize, Default)]
 struct SiteQuery {
     slug: Option<String>,
@@ -206,6 +214,8 @@ struct SiteQuery {
     preview: bool,
     /// Staff preview of one campaign (roadmap 85), whatever its status.
     campaign: Option<Uuid>,
+    /// Roadmap 188: staff preview of one publication request's exact snapshot.
+    publication: Option<Uuid>,
 }
 
 pub fn media_url(id: Uuid) -> String {
@@ -237,6 +247,12 @@ fn public_config(c: &SiteConfig, preview: bool) -> Value {
 
 async fn site(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<SiteQuery>) -> AppResult<Json<Value>> {
     match resolve(&state, &headers, q.slug.as_deref(), q.preview).await? {
+        Resolved::Live(s) if s.preview && q.publication.is_some() => {
+            let s = with_publication(&state, *s, q.publication).await?;
+            let mut data = site_data(&state, &s).await?;
+            data["preview"] = json!(true);
+            Ok(Json(data))
+        }
         Resolved::Unavailable { name, slug, has_logo } => Ok(Json(json!({
             "available": false, "business": { "name": name, "logo_url": has_logo.then(|| format!("/api/public/{slug}/logo")) },
         }))),
@@ -494,10 +510,12 @@ struct ProductsQuery {
     /// Search suggestions: a few results with thumbnails.
     #[serde(default)]
     suggest: bool,
+    /// Roadmap 188: staff preview of one publication request's exact snapshot.
+    publication: Option<Uuid>,
 }
 
 async fn products(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<ProductsQuery>) -> AppResult<Json<Value>> {
-    let s = live(&state, &headers, q.slug.as_deref(), q.preview).await?;
+    let s = with_publication(&state, live(&state, &headers, q.slug.as_deref(), q.preview).await?, q.publication).await?;
     let mut items = published(&state, &s).await?;
     if let Some(c) = q.category {
         items.retain(|p| p.category_id == Some(c));
@@ -570,7 +588,7 @@ async fn products(State(state): State<AppState>, headers: HeaderMap, Query(q): Q
 }
 
 async fn product(State(state): State<AppState>, headers: HeaderMap, Path(slug): Path<String>, Query(q): Query<SiteQuery>) -> AppResult<Json<Value>> {
-    let s = live(&state, &headers, q.slug.as_deref(), q.preview).await?;
+    let s = with_publication(&state, live(&state, &headers, q.slug.as_deref(), q.preview).await?, q.publication).await?;
     let items = published(&state, &s).await?;
     let p = find_product(&items, &slug).ok_or(AppError::NotFound("Product"))?.clone();
     let related: Vec<&PubProduct> = items.iter().filter(|x| x.id != p.id && x.category_id.is_some() && x.category_id == p.category_id).take(8).collect();

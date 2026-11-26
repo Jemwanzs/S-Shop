@@ -47,6 +47,8 @@ pub const ACTIONS: &[Action] = &[
     Action { key: "credit.recall", label: "Credit sale recall", uses_amount: true, uses_category: false },
     Action { key: "expense", label: "Expense", uses_amount: true, uses_category: true },
     Action { key: "data.import", label: "Data import (onboarding)", uses_amount: false, uses_category: false },
+    // Roadmap 188: requests to publish the website (by default the Tenant Administrator approves).
+    Action { key: "website.publish", label: "Website publication", uses_amount: false, uses_category: false },
 ];
 
 /// One approver of a step: the Administrator (full access), a role, a person or the branch manager.

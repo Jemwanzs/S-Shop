@@ -35,6 +35,7 @@ async function boot() {
     if (token) {
       runtime.preview = true;
       runtime.previewToken = token;
+      runtime.publication = params.get("publication");
       try {
         // A campaign preview from the Website Management Centre (roadmap 85).
         const campaign = params.get("campaign");

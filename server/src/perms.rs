@@ -106,6 +106,7 @@ pub const CATALOGUE: &[PermGroup] = &[
         ("website.seo", "Manage website SEO"),
         ("website.domain", "Manage the website domain"),
         ("website.preview", "Preview the website"),
+        ("website.request_publish", "Request website publication"),
         ("website.publish", "Publish website changes"),
         ("website.analytics", "View website analytics"),
     ]},

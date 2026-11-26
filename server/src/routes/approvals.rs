@@ -236,6 +236,9 @@ struct DecisionBody {
     /// Roadmap 152: the step the approver was looking at (detects a workflow change, not only a decided level).
     #[serde(default)]
     step_id: Option<Uuid>,
+    /// Roadmap 188: *Return for correction* instead of a plain rejection (website publication requests).
+    #[serde(default)]
+    returned: bool,
 }
 
 async fn load_pending(conn: &mut sqlx::PgConnection, ctx: &Ctx, id: Uuid) -> AppResult<ApprovalRow> {
@@ -457,6 +460,8 @@ pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, 
         "credit.write_off" => super::credit::on_approved(&mut tx, ctx, &a).await?,
         "expense" => super::expenses::on_decided(&mut tx, &a, true).await?,
         "data.import" => super::onboarding::on_approved(&mut tx, ctx, &a).await?,
+        // Roadmap 188: the final approval publishes exactly the submitted snapshot.
+        "website.publish" => super::publication::on_approved(&mut tx, ctx, &a).await?,
         _ => {}
     }
 
@@ -488,11 +493,13 @@ pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, 
 
 async fn reject(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, body: Option<Json<DecisionBody>>) -> AppResult<Json<Value>> {
     let body = body.map(|b| b.0).unwrap_or_default();
-    Ok(Json(reject_one(&state, &ctx, id, &body.comments, body.level, body.step_id, None).await?.value))
+    Ok(Json(reject_one(&state, &ctx, id, &body.comments, body.level, body.step_id, None, body.returned).await?.value))
 }
 
 /// One rejection — the same checks as [`approve_one`].
-pub async fn reject_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, level: Option<i32>, step_id: Option<Uuid>, bulk: Option<Uuid>) -> AppResult<Decided> {
+/// `returned`: roadmap 188 — *Return for correction* (a rejection whose request can be corrected and resubmitted).
+#[allow(clippy::too_many_arguments)]
+pub async fn reject_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, level: Option<i32>, step_id: Option<Uuid>, bulk: Option<Uuid>, returned: bool) -> AppResult<Decided> {
     let quiet = bulk.is_some();
     let mut tx = state.db.begin().await?;
     let a = load_pending(&mut tx, ctx, id).await?;
@@ -503,7 +510,7 @@ pub async fn reject_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, l
         .into_iter()
         .filter(|u| *u != ctx.user_id && Some(*u) != a.requested_by)
         .collect();
-    on_closed_without_approval(&mut tx, ctx, &a, "rejected").await?;
+    on_closed_without_approval(&mut tx, ctx, &a, if returned { "returned" } else { "rejected" }, comments).await?;
     sqlx::query("UPDATE approvals SET status='rejected', decided_by=$2, decided_at=now(), comments=$3, decisions = decisions || $4 WHERE id=$1 AND tenant_id = $5")
         .bind(id)
         .bind(ctx.user_id)
@@ -596,7 +603,7 @@ async fn bulk(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkBody>) 
         let result = if approve {
             approve_one(&state, &ctx, id, &comment, level, step, Some(bulk_ref)).await
         } else {
-            reject_one(&state, &ctx, id, &comment, level, step, Some(bulk_ref)).await
+            reject_one(&state, &ctx, id, &comment, level, step, Some(bulk_ref), false).await
         };
         let (outcome, message, extra) = match result {
             Ok(d) => {
@@ -717,7 +724,7 @@ async fn withdraw(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
     if a.requested_by != Some(ctx.user_id) {
         return Err(AppError::Forbidden("Only the requester can withdraw a request".into()));
     }
-    on_closed_without_approval(&mut tx, &ctx, &a, "withdrawn").await?;
+    on_closed_without_approval(&mut tx, &ctx, &a, "withdrawn", "").await?;
     sqlx::query("UPDATE approvals SET status='cancelled', decided_by=$2, decided_at=now() WHERE id=$1 AND tenant_id = $3")
         .bind(id)
         .bind(ctx.user_id)
@@ -730,8 +737,11 @@ async fn withdraw(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
 }
 
 /// Restore entities that were parked in a "pending" state.
-async fn on_closed_without_approval(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &ApprovalRow, outcome: &str) -> AppResult<()> {
+async fn on_closed_without_approval(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &ApprovalRow, outcome: &str, comments: &str) -> AppResult<()> {
+    let outcome = if outcome == "returned" && a.action != super::publication::ACTION { "rejected" } else { outcome };
     match a.action.as_str() {
+        // Roadmap 188: returned, rejected or withdrawn — nothing is published; the draft stays for correction.
+        "website.publish" => super::publication::on_closed(conn, ctx, a, if outcome == "withdrawn" { "cancelled" } else { outcome }, comments).await?,
         // The original owner stays; the request is closed with who decided and when.
         "sale.owner_change" => {
             sqlx::query("UPDATE sale_owner_changes SET status = $3, decided_by = $4, decided_at = now() WHERE approval_id = $1 AND tenant_id = $2 AND status = 'pending'")

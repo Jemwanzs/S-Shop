@@ -18,8 +18,10 @@ import { count } from "@/lib/format";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { t } from "@/lib/i18n";
 import { TransferApprovalLines, isTransferPayload } from "@/pages/transfers/TransferPrices";
+import { PublicationApprovalLines } from "@/pages/settings/website/Publication";
 
 const ACTION_LABEL: Record<string, string> = {
+  "website.publish": "Website publication",
   "product.create": "New product",
   "product.edit": "Product edit",
   "product.deactivate": "Deactivation",
@@ -75,6 +77,9 @@ function entityLink(a: Approval) {
       return `/sales/${a.entity_id}`;
     case "transfer":
       return `/transfers/${a.entity_id}`;
+    // Roadmap 188: a website publication request.
+    case "website_publication":
+      return "/settings/website";
     // Roadmap 186: a branch-wide price change.
     case "branch":
       return "/settings/branch-prices";
@@ -100,7 +105,7 @@ export default function Approvals() {
   
   const qc = useQueryClient();
   const [status, setStatus] = useState<"pending" | "mine" | "approved" | "rejected">("pending");
-  const [deciding, setDeciding] = useState<{ approval: Approval; approve: boolean } | null>(null);
+  const [deciding, setDeciding] = useState<{ approval: Approval; approve: boolean; returned?: boolean } | null>(null);
   const [details, setDetails] = useState<Approval | null>(null);
   // Roadmap 151: bulk decisions — only requests this person may decide can be picked; the server re-checks each one.
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -114,10 +119,10 @@ export default function Approvals() {
   };
   const decide = useMutation({
     // Roadmap 150: the level this person saw — if another approver decided it first, the server answers "Already handled".
-    mutationFn: () => api<unknown>(`/approvals/${deciding!.approval.id}/${deciding!.approve ? "approve" : "reject"}`, { body: { comments, level: deciding!.approval.level, step_id: stepOf(deciding!.approval) } }),
+    mutationFn: () => api<unknown>(`/approvals/${deciding!.approval.id}/${deciding!.approve ? "approve" : "reject"}`, { body: { comments, level: deciding!.approval.level, step_id: stepOf(deciding!.approval), returned: !!deciding!.returned } }),
     onSuccess: (res) => {
       const r = res as { status?: string; level?: number; levels?: number };
-      toast.success(!deciding!.approve ? "Rejected" : r.status === "pending" ? `Approved — passed to level ${r.level} of ${r.levels}` : "Approved — action carried out");
+      toast.success(deciding!.returned ? "Returned for correction" : !deciding!.approve ? "Rejected" : r.status === "pending" ? `Approved — passed to level ${r.level} of ${r.levels}` : "Approved — action carried out");
       setDeciding(null);
       setComments("");
       refresh();
@@ -187,6 +192,7 @@ export default function Approvals() {
                 <div>
                   <p className="font-medium">{a.summary}</p>
                   {a.action === "stock.transfer" && isTransferPayload(a.payload) && <div className="mt-2"><TransferApprovalLines p={a.payload} /></div>}
+                  {a.action === "website.publish" && <div className="mt-2"><PublicationApprovalLines id={a.entity_id} /></div>}
                   {a.note && <p className="mt-0.5 text-xs text-muted-foreground">{t("Reason")}: {a.note}</p>}
                   {a.amount !== null && <p className="num mt-1 text-lg font-semibold">{money(a.amount)}</p>}
                 </div>
@@ -220,7 +226,8 @@ export default function Approvals() {
                   {a.can_decide && (
                     <>
                       <Button size="sm" variant="outline" className="ms-auto text-destructive" onClick={() => setDeciding({ approval: a, approve: false })}><X /> {t("Reject")}</Button>
-                      <Button size="sm" variant="success" onClick={() => setDeciding({ approval: a, approve: true })}><Check /> {t("Approve")}</Button>
+                      {a.action === "website.publish" && <Button size="sm" variant="outline" onClick={() => setDeciding({ approval: a, approve: false, returned: true })}><Undo2 /> {t("Return for correction")}</Button>}
+                      <Button size="sm" variant="success" onClick={() => setDeciding({ approval: a, approve: true })}><Check /> {t(a.action === "website.publish" && a.level >= a.levels ? "Approve & Publish" : "Approve")}</Button>
                     </>
                   )}
                   {status === "mine" && a.status === "pending" && (
@@ -283,12 +290,12 @@ export default function Approvals() {
       <ResponsiveDialog
         open={!!deciding}
         onOpenChange={(o) => !o && setDeciding(null)}
-        title={deciding?.approve ? "Approve request" : "Reject request"}
+        title={deciding?.returned ? "Return for correction" : deciding?.approve ? "Approve request" : "Reject request"}
         description={deciding?.approval.summary}
         footer={
           <ActionButton className="w-full md:w-auto" variant={deciding?.approve ? "success" : "destructive"} online busy={decide.isPending}
             busyLabel={deciding?.approve ? "Approving…" : "Rejecting…"} onAction={() => decide.mutateAsync()}>
-            {deciding?.approve ? "Approve" : "Reject"}
+            {deciding?.returned ? "Return for correction" : deciding?.approve ? (deciding.approval.action === "website.publish" && deciding.approval.level >= deciding.approval.levels ? "Approve & Publish" : "Approve") : "Reject"}
           </ActionButton>
         }
       >

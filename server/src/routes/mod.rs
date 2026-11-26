@@ -35,6 +35,7 @@ pub mod stock;
 pub mod voids;
 pub mod prices;
 pub mod profile;
+pub mod publication;
 pub mod return_credit;
 pub mod transfers;
 pub mod webhooks;
@@ -66,6 +67,7 @@ pub fn api() -> Router<AppState> {
         .merge(campaigns::routes())
         .merge(prefs::routes())
         .merge(profile::routes())
+        .merge(publication::routes())
         .merge(platform::routes())
         .merge(billing::routes())
         .merge(admin::routes())

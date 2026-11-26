@@ -980,12 +980,183 @@ pub fn changed_parts(a: &SiteConfig, b: &SiteConfig) -> Vec<String> {
     out
 }
 
+// ── Roadmap 188: what a publication would change, section by section ─────────────────────────────────────────────
+
+/// A part's name as people read it.
+pub fn part_label(part: &str) -> &'static str {
+    match part {
+        "brand" => "Branding",
+        "theme" => "Design",
+        "navigation" => "Navigation",
+        "sections" => "Homepage sections",
+        "hero" => "Homepage — hero banner",
+        "promotions" => "Promotions",
+        "about" => "About",
+        "contact" => "Contact",
+        "social" => "Social links",
+        "products" => "Products",
+        "categories" => "Categories",
+        "services" => "Services",
+        "testimonials" => "Testimonials",
+        "seo" => "SEO",
+        "cookies" => "Cookie notice",
+        "footer" => "Footer",
+        "landing" => "Landing page",
+        _ => "Website",
+    }
+}
+
+fn short(v: &serde_json::Value) -> String {
+    let s = match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => "—".into(),
+        serde_json::Value::Bool(b) => if *b { "on" } else { "off" }.into(),
+        other => other.to_string(),
+    };
+    let s = s.trim();
+    if s.chars().count() > 120 { format!("{}…", s.chars().take(119).collect::<String>()) } else if s.is_empty() { "—".into() } else { s.to_string() }
+}
+
+fn humanize(key: &str) -> String {
+    let s = key.replace('_', " ");
+    let mut c = s.chars();
+    c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+}
+
+/// The fields of two objects that differ: `field: before → after`.
+fn field_changes(a: &serde_json::Value, b: &serde_json::Value, skip: &[&str]) -> Vec<serde_json::Value> {
+    let empty = serde_json::Map::new();
+    let (x, y) = (a.as_object().unwrap_or(&empty), b.as_object().unwrap_or(&empty));
+    let mut keys: Vec<&String> = x.keys().chain(y.keys()).collect();
+    keys.sort();
+    keys.dedup();
+    keys.into_iter()
+        .filter(|k| !skip.contains(&k.as_str()) && x.get(*k) != y.get(*k))
+        .map(|k| serde_json::json!({ "field": humanize(k), "before": x.get(k).map(short).unwrap_or_else(|| "—".into()), "after": y.get(k).map(short).unwrap_or_else(|| "—".into()) }))
+        .collect()
+}
+
+/// The key that identifies an entry of a list part, and the field that says whether it is shown.
+fn list_keys(part: &str) -> (&'static str, Option<&'static str>) {
+    match part {
+        "products" => ("product_id", Some("published")),
+        "categories" => ("category_id", Some("visible")),
+        "testimonials" => ("id", Some("published")),
+        "services" | "promotions" => ("id", Some("active")),
+        "navigation" | "sections" => ("key", Some("visible")),
+        _ => ("id", None),
+    }
+}
+
+/// Every change between the published website (`before`; None: never published) and the draft, section by section:
+/// `{part, label, headline, count, items: [{ref, kind, fields: [{field, before, after}]}]}`. Items carry the entry's
+/// own id (`ref`) and a `title` where the entry has one; the caller fills in product and category names.
+pub fn summarize(before: Option<&SiteConfig>, after: &SiteConfig) -> Vec<serde_json::Value> {
+    let blank = SiteConfig::default();
+    let x = serde_json::to_value(before.unwrap_or(&blank)).unwrap_or_default();
+    let y = serde_json::to_value(after).unwrap_or_default();
+    let mut out = Vec::new();
+    let Some(yo) = y.as_object() else { return out };
+    for (part, b) in yo {
+        let a = x.get(part).cloned().unwrap_or(serde_json::Value::Null);
+        if &a == b {
+            continue;
+        }
+        let (id_key, shown_key) = list_keys(part);
+        // Lists: the part itself, or its `items`.
+        let (la, lb, rest_a, rest_b) = match (a.get("items"), b.get("items")) {
+            (Some(ia), Some(ib)) => (ia.clone(), ib.clone(), Some(a.clone()), Some(b.clone())),
+            _ if b.is_array() => (a.clone(), b.clone(), None, None),
+            _ => (serde_json::Value::Null, serde_json::Value::Null, Some(a.clone()), Some(b.clone())),
+        };
+        let mut items = Vec::new();
+        let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+        if lb.is_array() || la.is_array() {
+            let empty = Vec::new();
+            let (va, vb) = (la.as_array().unwrap_or(&empty), lb.as_array().unwrap_or(&empty));
+            let key = |v: &serde_json::Value| v.get(id_key).map(|k| k.to_string()).unwrap_or_default();
+            let title = |v: &serde_json::Value| ["name", "title", "label", "heading", "key"].iter().find_map(|f| v.get(*f).and_then(|s| s.as_str()).filter(|s| !s.is_empty()).map(String::from));
+            let shown = |v: &serde_json::Value| shown_key.is_none_or(|k| v.get(k).and_then(|s| s.as_bool()).unwrap_or(true));
+            for eb in vb {
+                let ea = va.iter().find(|e| key(e) == key(eb));
+                let kind = match ea {
+                    None if shown(eb) => "added",
+                    None => "added (hidden)",
+                    Some(ea) if ea == eb => continue,
+                    Some(ea) if shown(ea) && !shown(eb) => "hidden",
+                    Some(ea) if !shown(ea) && shown(eb) => "shown",
+                    Some(ea) if part == "products" && field_changes(ea, eb, &["photos", "hidden_photos", "use_product_photos"]).is_empty() => "photos updated",
+                    Some(_) => "updated",
+                };
+                *counts.entry(kind).or_default() += 1;
+                items.push(serde_json::json!({
+                    "ref": eb.get(id_key).cloned().unwrap_or_default(), "title": title(eb), "kind": kind,
+                    "fields": ea.map(|ea| field_changes(ea, eb, &[])).unwrap_or_default(),
+                }));
+            }
+            for ea in va {
+                if !vb.iter().any(|e| key(e) == key(ea)) {
+                    *counts.entry("removed").or_default() += 1;
+                    items.push(serde_json::json!({ "ref": ea.get(id_key).cloned().unwrap_or_default(), "title": title(ea), "kind": "removed", "fields": [] }));
+                }
+            }
+        }
+        // The part's own settings (everything but its list).
+        if let (Some(ra), Some(rb)) = (&rest_a, &rest_b) {
+            let fields = if ra.is_object() || rb.is_object() {
+                field_changes(ra, rb, &["items"])
+            } else {
+                vec![serde_json::json!({ "field": label_or(part), "before": short(ra), "after": short(rb) })]
+            };
+            if !fields.is_empty() {
+                *counts.entry("settings").or_default() += 1;
+                items.push(serde_json::json!({ "ref": null, "title": "Settings", "kind": "settings", "fields": fields }));
+            }
+        }
+        let count = items.len();
+        if count == 0 {
+            continue;
+        }
+        let headline = counts.iter().map(|(k, n)| match *k {
+            "settings" => "settings updated".to_string(),
+            k => format!("{n} {k}"),
+        }).collect::<Vec<_>>().join(" · ");
+        out.push(serde_json::json!({ "part": part, "label": part_label(part), "headline": headline, "count": count, "items": items }));
+    }
+    out
+}
+
+fn label_or(part: &str) -> String {
+    part_label(part).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn biz() -> Business<'static> {
         Business { name: "Pablo Niche", tagline: "Shop the Difference.", phone: "0798993404", email: "hi@example.com", address: "Nairobi" }
+    }
+
+    #[test]
+    fn publication_summary_lists_real_changes() {
+        let before = starter(&biz());
+        let mut after = before.clone();
+        after.hero.headline = "New season".into();
+        let p = Uuid::new_v4();
+        after.products.items.push(ProductCfg { product_id: p, published: true, ..Default::default() });
+        after.testimonials.items.retain(|_| false);
+        let s = summarize(Some(&before), &after);
+        let part = |k: &str| s.iter().find(|x| x["part"] == k).cloned();
+        assert_eq!(part("hero").unwrap()["items"][0]["fields"].as_array().unwrap().iter().filter(|f| f["field"] == "Headline").count(), 1);
+        let prod = part("products").unwrap();
+        assert_eq!(prod["headline"], "1 added");
+        assert_eq!(prod["items"][0]["ref"], serde_json::json!(p));
+        if !before.testimonials.items.is_empty() {
+            assert!(part("testimonials").unwrap()["headline"].as_str().unwrap().contains("removed"));
+        }
+        assert!(part("brand").is_none(), "unchanged parts are left out");
+        assert!(summarize(Some(&before), &before).is_empty());
     }
 
     #[test]

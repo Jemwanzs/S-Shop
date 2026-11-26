@@ -5,7 +5,9 @@ import { CampaignsTab } from "./CampaignsTab";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, ExternalLink, Eye, Globe, History, Lock, Monitor, Smartphone, Tablet, Undo2 } from "lucide-react";
+import { Copy, ExternalLink, Eye, Globe, History, Lock, Monitor, Send, Smartphone, Tablet, Undo2 } from "lucide-react";
+import { Pill } from "@/components/Badges";
+import { PUB_STATUS, PublicationHistory, RequestPublicationDialog, usePublication } from "./Publication";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useSession } from "@/lib/session";
@@ -197,6 +199,22 @@ function Centre({ ov }: { ov: Overview }) {
   };
   const pending = dirty || !!ov.has_unpublished;
   const canPublish = can("website.publish");
+  // Roadmap 188: people who may request publication but not publish submit the draft for approval.
+  const canRequest = !canPublish && can("website.request_publish");
+  const pub = usePublication(canPublish || canRequest);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const pubStatus = pub.data && !dirty && pub.data.status !== "published" && pub.data.status !== "unpublished" ? PUB_STATUS[pub.data.status] : null;
+  const openRequest = async () => {
+    if (dirty) {
+      try {
+        await save.mutateAsync();
+      } catch {
+        return;
+      }
+    }
+    await qc.invalidateQueries({ queryKey: ["website-publication"] });
+    setRequestOpen(true);
+  };
 
   if (!draft) return <Loading />;
   const props: TabProps = { c: draft, set, ov };
@@ -215,6 +233,7 @@ function Centre({ ov }: { ov: Overview }) {
       </nav>
 
       {tab === "overview" && <OverviewTab ov={ov} pending={pending} onPreview={openPreview} onHistory={() => setHistory(true)} />}
+      {tab === "overview" && (canPublish || canRequest || can("approvals.approve")) && <PublicationHistory />}
       {tab === "content" && <ContentTab {...props} />}
       {tab === "design" && <DesignTab {...props} />}
       {tab === "products" && <ProductsTab {...props} />}
@@ -231,8 +250,9 @@ function Centre({ ov }: { ov: Overview }) {
       {/* Draft → Preview → Publish */}
       <div className="fixed inset-x-0 bottom-above-nav z-20 border-t bg-background/95 p-2.5 backdrop-blur-sm lg:bottom-0 lg:inset-s-sidebar">
         <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-end gap-2 px-1 md:px-3 lg:px-5">
-          <span className="me-auto text-sm text-muted-foreground">
+          <span className="me-auto flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             {dirty ? t("Unsaved changes") : ov.has_unpublished ? t("Draft saved — not published yet") : t("Everything is published")}
+            {pubStatus && <Pill tone={pubStatus[1]}>{t(pubStatus[0])}</Pill>}
           </span>
           {(dirty || ov.has_unpublished) && (
             <Button variant="ghost" size="sm" onClick={() => (dirty && !ov.has_unpublished ? setDraft(structuredClone(ov.draft!)) : setDiscardOpen(true))}><Undo2 /> {t("Discard")}</Button>
@@ -240,10 +260,12 @@ function Centre({ ov }: { ov: Overview }) {
           <Button variant="outline" size="sm" onClick={openPreview} disabled={save.isPending}><Eye /> {t("Preview")}</Button>
           {dirty && <ActionButton size="sm" variant="outline" online busy={save.isPending} busyLabel="Saving…" doneLabel="Saved" onAction={() => save.mutateAsync()}>Save draft</ActionButton>}
           {canPublish && <ActionButton size="sm" online blockedBy={[!pending && REASONS.noChanges]} onClick={() => setPublishOpen(true)}>Publish</ActionButton>}
+          {canRequest && <ActionButton size="sm" online blockedBy={[!pending && REASONS.noChanges, !!pub.data?.waiting && "Awaiting approval"]} onClick={() => void openRequest()}><Send /> Request Publication</ActionButton>}
         </div>
       </div>
 
       <PreviewDialog open={preview} onOpenChange={setPreview} slug={ov.slug!} />
+      {canRequest && <RequestPublicationDialog open={requestOpen} onClose={() => setRequestOpen(false)} slug={ov.slug!} draftUpdatedAt={ov.draft_updated_at ?? null} />}
       <HistoryDialog open={history} onOpenChange={setHistory} canRestore={canPublish} onRestored={() => { setDraft(null); refresh(); }} />
       <ResponsiveDialog open={publishOpen} onOpenChange={setPublishOpen} title="Publish website" description="Visitors see the new version straight away. Earlier versions stay in the history."
         footer={<ActionButton online busy={publish.isPending} busyLabel="Publishing…" onAction={() => publish.mutateAsync()}>Publish now</ActionButton>}>

@@ -31,6 +31,8 @@ export const runtime = {
   /** Staff preview (Website Management Centre): the draft, read with the staff session. */
   preview: false,
   previewToken: null as string | null,
+  /** Roadmap 188: preview of one publication request's exact snapshot. */
+  publication: null as string | null,
 };
 
 export class SiteError extends Error {
@@ -44,6 +46,7 @@ export async function call<T>(path: string, opts: { method?: string; body?: unkn
   // On a custom domain the server knows the business from the host; the slug is only needed on the S'Shop host.
   if (basePath(runtime.slug)) q.set("slug", runtime.slug);
   if (runtime.preview) q.set("preview", "true");
+  if (runtime.preview && runtime.publication) q.set("publication", runtime.publication);
   for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined && v !== "") q.set(k, String(v));
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const token = opts.token ?? (runtime.preview ? runtime.previewToken : null);

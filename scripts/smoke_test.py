@@ -5925,6 +5925,78 @@ call("PUT", "/auth/quick-pin", {"current_pin": PIN, "quick_pin": "8642"}, expect
 check("Tenant Administrator: creates a Quick PIN the same way", call("GET", "/auth/quick-pin")["enabled"])
 call("DELETE", "/auth/quick-pin")
 
+step("Roadmap 188: website publication requests and approval")
+if call("GET", "/website")["status"] != "active":
+    call("POST", f"/platform/tenants/{home_t}/website", {"action": "activate"})
+if call("GET", "/website").get("has_unpublished"):
+    call("POST", "/website/publish", {"note": "Baseline 188"})
+req_role = call("POST", "/roles", {"name": f"Web requester {suffix}", "description": "", "permissions": ["website.view", "website.content", "website.products", "website.request_publish"]})["id"]
+edit_role = call("POST", "/roles", {"name": f"Web editor {suffix}", "description": "", "permissions": ["website.view", "website.content"]})["id"]
+REQ = {"token": make_user("webreq188", req_role), "branch": "none"}
+EDT = {"token": make_user("webedit188", edit_role), "branch": "none"}
+v0 = call("GET", "/website")["version"]
+def edit_draft(T, fn):
+    ov_ = call("GET", "/website", **T)
+    d_ = ov_["draft"]
+    fn(d_)
+    return call("PUT", "/website/draft", {"config": d_, "base_updated_at": ov_["draft_updated_at"]}, **T)
+edit_draft(REQ, lambda d_: d_["about"].update({"intro": f"Request 188 intro {suffix}"}))
+call("POST", "/website/publish", {}, **REQ, expect=403)
+check("a requester cannot publish directly", call("GET", "/website")["version"] == v0)
+cur = call("GET", "/website/publication", **REQ)
+about = next((s for s in cur["summary"] if s["part"] == "about"), None)
+check("the summary is generated from the real changes (About — Intro: before → proposed)", cur["status"] == "unpublished" and cur["can_request"] and not cur["can_publish"]
+      and about and any(f["field"] == "Intro" and f["after"] == f"Request 188 intro {suffix}" for i in about["items"] for f in i["fields"]), cur)
+call("POST", "/website/publication/requests", {"comments": "x"}, **EDT, expect=403)
+check("without Request website publication nobody can submit", True)
+r = call("PUT", "/website/prices", {"show_prices": False}, **REQ, expect=403)
+call("PUT", "/website/stock", {"setting": "show_stock_quantity", "on": True}, **REQ, expect=403)
+check("settings that change the live website at once are not a way around approval", True)
+sub = call("POST", "/website/publication/requests", {"comments": "Please publish the new intro", "draft_updated_at": call("GET", "/website", **REQ)["draft_updated_at"]}, **REQ)
+r = call("POST", "/website/publication/requests", {"comments": "again"}, **REQ, expect=422)
+check("one request waits at a time (no duplicates)", r["error"]["title"] == "Already waiting", r)
+check("submitted: the live website is unchanged", call("GET", "/website")["version"] == v0 and call("GET", "/website/publication", **REQ)["status"] == "awaiting")
+pend188 = next(x for x in call("GET", "/approvals?status=pending")["items"] if x["id"] == sub["approval_id"])
+check("waiting in Approvals for the Tenant Administrator (default chain), with a summary", pend188["action"] == "website.publish" and pend188["can_decide"] and "About" in pend188["summary"], pend188["summary"])
+det = call("GET", f"/website/publication/requests/{sub['id']}")
+check("the approver sees the sections, the comments and a preview of the exact snapshot", det["total"] >= 1 and det["comments"] == "Please publish the new intro" and det["preview_query"] == f"publication={sub['id']}")
+snap = call("GET", f"/site?slug={call('GET', '/website')['slug']}&preview=true&publication={sub['id']}")
+check("the snapshot preview shows the proposed change", snap["config"]["about"]["intro"] == f"Request 188 intro {suffix}")
+edit_draft(REQ, lambda d_: d_["about"].update({"intro": f"Changed after submitting {suffix}"}))
+call("POST", f"/approvals/{sub['approval_id']}/reject", {"comments": "Shorter intro please", "returned": True})
+hist = call("GET", "/website/publication/requests", **REQ)["items"]
+check("Return for correction: nothing published, the request shows Returned with the comment", call("GET", "/website")["version"] == v0
+      and hist[0]["status"] == "returned" and hist[0]["decision_comments"] == "Shorter intro please" and call("GET", "/website/publication", **REQ)["status"] == "returned", hist[:1])
+sub2 = call("POST", "/website/publication/requests", {"comments": "Corrected"}, **REQ)
+edit_draft(REQ, lambda d_: d_["about"].update({"intro": f"Not part of the request {suffix}"}))
+call("POST", f"/approvals/{sub2['approval_id']}/approve", {"comments": "Looks good"})
+ov188 = call("GET", "/website")
+pubd = call("GET", f"/site?slug={ov188['slug']}")
+check("Approve & Publish: exactly the submitted snapshot goes live (a new version)", ov188["version"] == v0 + 1 and pubd["config"]["about"]["intro"] == f"Changed after submitting {suffix}", (ov188["version"], pubd["config"]["about"]["intro"]))
+check("…and later changes stay unpublished in the draft", ov188["has_unpublished"] and ov188["draft"]["about"]["intro"] == f"Not part of the request {suffix}")
+h2 = call("GET", "/website/publication/requests")["items"][0]
+check("history: published, approver, version", h2["status"] == "published" and h2["published_version"] == v0 + 1 and h2["decided_by"], h2)
+# Outdated: something was published after the request.
+sub3 = call("POST", "/website/publication/requests", {"comments": "third"}, **REQ)
+call("POST", "/website/publish", {"note": "Published by the administrator meanwhile"})
+r = call("POST", f"/approvals/{sub3['approval_id']}/approve", {"comments": "late"}, expect=422)
+check("an outdated request is detected before publishing (nothing published twice)", r["error"]["title"] == "Outdated request" and call("GET", "/website")["version"] == v0 + 2, r)
+call("POST", f"/approvals/{sub3['approval_id']}/reject", {"comments": "Outdated", "returned": True})
+# A configured chain: the final approver must be able to publish.
+appr_role = call("POST", "/roles", {"name": f"Approver188 {suffix}", "description": "", "permissions": ["approvals.approve"]})["id"]
+APPR = make_user("appr188", appr_role)
+call("PUT", "/settings/workflows/website.publish", {"enabled": True, "levels": [{"approver_type": "role", "approver_role_id": appr_role}], "min_amount": None})
+edit_draft(REQ, lambda d_: d_["about"].update({"intro": f"Chain {suffix}"}))
+sub4 = call("POST", "/website/publication/requests", {"comments": "chain"}, **REQ)
+r = call("POST", f"/approvals/{sub4['approval_id']}/approve", {"comments": "ok"}, token=APPR, expect=403)
+check("the configured chain is used, but only someone who may publish can give the final approval", "publish" in r["error"]["message"] and call("GET", "/website")["version"] == v0 + 2, r)
+call("POST", f"/approvals/{sub4['approval_id']}/reject", {"comments": "No"}, token=APPR)
+check("Reject: nothing published, the request shows Rejected", call("GET", "/website/publication/requests")["items"][0]["status"] == "rejected" and call("GET", "/website")["version"] == v0 + 2)
+call("PUT", "/settings/workflows/website.publish", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+aud188 = [a_["action"] for a_ in call("GET", "/audit?period=today&module=website&limit=50")["items"]]
+check("audited: submissions, returns, rejections and publications", {"publication_requested", "publication_returned", "publication_rejected", "publish"} <= set(aud188), aud188[:10])
+call("POST", "/website/discard", {})
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

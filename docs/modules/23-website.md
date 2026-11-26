@@ -419,3 +419,20 @@ Website → Products → Prices & publishing (and Settings → Orders), each sav
 - **Show available stock quantity** (default off) — *3 units available*; off: *In stock* only, no number sent.
 Stock = on hand − reserved at the branch that fulfils online orders. The order page checks the cart against stock before
 checkout; checkout checks again on the server. Products, publication and stock are never changed by these settings.
+
+## Publication requests and approval (roadmap 188)
+
+- **Who:** *Publish website changes* publishes directly (unchanged). *Request website publication* submits the saved draft
+  for approval (**Request Publication**); without either, nothing can be submitted or published. Settings that change the
+  live website at once (prices and stock shown) need *Publish* or *Orders* settings.
+- **Summary:** generated from the real differences between the published website and the draft
+  (`website::summarize`): one line per section with counts, each record with previous → proposed values.
+- **Request:** `POST /api/website/publication/requests` keeps the exact draft (`snapshot`) and the version it was based
+  on; one request waits at a time. Workflow action *Website publication*: the configured chain, else the Tenant
+  Administrator.
+- **Review:** Approvals → Waiting: the summary, comments, *Preview proposed website* (the snapshot), **Approve & Publish**,
+  **Return for correction**, **Reject**. Approval by someone who may publish publishes exactly the snapshot (refused as
+  *Outdated request* if something was published since); later draft changes stay unpublished. Returned / rejected:
+  nothing is published.
+- **Status and history:** *Unpublished changes · Awaiting approval · Returned for correction · Rejected · Published* in
+  the bar; **Publication history** on the overview (`GET /api/website/publication/requests`, `?mine=true`).

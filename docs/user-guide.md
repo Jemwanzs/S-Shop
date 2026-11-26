@@ -280,6 +280,7 @@ An optional website for the business, powered directly by its S'Shop products, s
 - Custom domains with guided DNS checks and secure HTTPS
 - Visitor and order analytics
 - Show in-stock products only, limit the cart to available stock and show the quantity available — three settings shared with the ordering link
+- Request Publication: people who may not publish send their website changes for approval, with an automatic summary; the Tenant Administrator reviews, previews and approves & publishes, returns or rejects
 
 <a id="module-19"></a>
 
@@ -729,6 +730,12 @@ Setting up the business, people, rules, payments and the website.
 1. Settings → Website → Request Website Service (S'Shop sets it up and contacts you).
 2. Once active: edit Content, Branding & Appearance, Products and the other sections, Save draft and Preview.
 3. Tap Publish, say What changed?, then Publish now — visitors see the new version straight away.
+
+#### Review a website publication request
+
+1. Approvals → Waiting → Website publication: open each section to see what changes, read the comments and tap Preview proposed website.
+2. Approve & Publish puts exactly that version live. Return for correction sends it back with your comment; Reject closes it. Nothing is published until you approve.
+3. To let someone request publication, give their role Request website publication (Website add-on) instead of Publish website changes.
 
 #### Choose what customers see about stock
 

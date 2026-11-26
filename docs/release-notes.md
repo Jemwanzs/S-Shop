@@ -11,6 +11,7 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ## 2026-11-26
 
+- **Fix: Quick PIN setup did nothing for some new users** — the reason (wrong current PIN, a PIN that is too easy to guess, or the full PIN reused) was not shown. It is now shown in the dialog; easy-to-guess PINs keep Save off; the Quick PIN fields have show/hide eyes. Any action that is refused anywhere in the app now says why. (187, [module 28](modules/28-quick-login-pin.md))
 - **Manage branch prices** — Settings → Products → *Manage branch prices* (Tenant Administrators): each branch's prices in one table; set prices, reset to 0 or restore the default for one product, the selected ones, a category or the whole branch. A reset price stays 0 until a new price is set. (186, [module 06](modules/06-products.md))
 - **Hide out-of-stock products at the till** — new role permission *View out-of-stock products when recording sales*; off for the Salesperson role. (186, [module 02](modules/02-sales-pos.md))
 - **Fix: a price of 0 is never sold** — a product priced 0 shows *Price not set* at the till and *Price on request* online, instead of selling for 0. (186)

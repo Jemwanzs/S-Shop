@@ -4676,7 +4676,7 @@ r = call("POST", f"/approvals/{a148}/approve", {"comments": "self"}, **DA, expec
 check("approving one's own request is refused with the reason", "made this request" in r["error"]["message"], r)
 check("the requester and workflow managers are told at once", any("Nobody can approve" in n["title"] for n in call("GET", "/notifications?limit=30", **DA)["items"]))
 # Controlled way forward: assign the step to a role (the pending request follows the change, audited).
-sup148 = call("POST", "/roles", {"name": f"Supervisor {suffix}", "permissions": ["approvals.approve", "products.view"]}, **DA)["id"]
+sup148 = call("POST", "/roles", {"name": f"Supervisor {suffix}", "permissions": ["approvals.approve", "products.view", "notify.approvals"]}, **DA)["id"]
 mail_s1, mail_s2, mail_c = (f"{w}{suffix.lower()}@sshop.test" for w in ("sup148a", "sup148b", "clerk148"))
 for nm, mail, rid in [("Sup One", mail_s1, sup148), ("Sup Two", mail_s2, sup148)]:
     call("POST", "/users", {"name": f"{nm} {suffix}", "email": mail, "pin": "4321", "role_id": rid, "all_branches": True, "branch_ids": []}, **DA)
@@ -5560,10 +5560,11 @@ lvl179 = lambda pid: next(l for l in call("GET", f"/products/{pid}")["stock_by_b
 def sell179(items, method="credit", expect=200):
     return call("POST", "/sales", {"customer_id": cust179, "items": items, "payment": {"method": method}, "client_ref": str(uuid.uuid4())}, expect=expect)
 one = lambda pid, price: [{"product_id": pid, "quantity": 1, "unit_price": price}]
-r = sell179([{"product_id": pa179, "quantity": 2, "unit_price": 60000}], expect=422)
-check("a new credit sale with 2 units is refused: one item per credit sale", r["error"]["title"] == "One item per credit sale", r)
-r = sell179(one(pa179, 60000) + one(pb179, 25000), expect=422)
-check("…and so is a cart of two products", r["error"]["title"] == "One item per credit sale")
+# Roadmap 196: several units on credit are one sale with one credit record per unit (no longer refused).
+pd179 = call("POST", "/products", {"name": f"Perfume D {suffix}", "marked_price": 30000})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": pd179, "quantity": 2})
+r = sell179([{"product_id": pd179, "quantity": 2, "unit_price": 30000}])
+check("a credit sale of 2 units: one sale, one credit record per unit", len(r["credits"]) == 2 and all(float(c_["balance"]) == 30000 for c_ in r["credits"]), r.get("credits"))
 cA = sell179(one(pa179, 60000))["credit"]["id"]
 check("one item on credit is recorded (KES 60,000 owed)", float(call("GET", f"/credit/{cA}")["credit"]["balance"]) == 60000)
 paidB = sell179(one(pb179, 25000), "cash")
@@ -6196,7 +6197,9 @@ check("both branches reconciled (Main back +2 / +1, Westlands −2)", stock_of(e
 check("the corrected receipt shows the corrected time", next(x for x in call("GET", f"/sales/{sid}/receipts")["items"] if x["number"].endswith("-R3"))["snapshot"]["sale_time"] == "10:30")
 # A date before the stock was there is refused when it would be applied (nothing changes).
 ed = call("GET", f"/sales/{sid}/edit", token=EDT)
-s5 = call("POST", f"/sales/{sid}/edit", {"proposal": proposal(ed, sale_date=yday), "reason": "Sold yesterday", "revision": 3}, token=EDT)
+# A month back: always before this run's stock arrived (whatever the time of day or business-day shift).
+month_ago = (datetime.date.fromisoformat(ed["sale_date"]) - datetime.timedelta(days=30)).isoformat()
+s5 = call("POST", f"/sales/{sid}/edit", {"proposal": proposal(ed, sale_date=month_ago), "reason": "Sold last month", "revision": 3}, token=EDT)
 r = call("POST", f"/approvals/{s5['approval_id']}/approve", {"comments": "ok"}, expect=422)
 check("an earlier date is checked against the stock history at both branches", r["error"]["title"] == "Not enough stock on that date" and call("GET", f"/sales/{sid}")["sale"]["business_date"] == ed["sale_date"], r)
 call("POST", f"/approvals/{s5['approval_id']}/reject", {"comments": "No stock then", "returned": True})
@@ -6238,6 +6241,278 @@ check("a cancelled sale cannot be edited", call("GET", f"/sales/{oc['id']}/edit"
 aud191 = [a_["action"] for a_ in call("GET", "/audit?period=today&module=sales&limit=80")["items"]]
 check("audited: requested, applied (with every changed field), rejected", {"edit_requested", "edit", "edit_rejected"} <= set(aud191), aud191[:12])
 call("PUT", "/settings", _s191)
+
+step("Roadmap 192: Edit Sale — barcode restoration and stock reinstatement")
+ed192_role = call("POST", "/roles", {"name": f"Sale editor 192 {suffix}", "description": "", "permissions": ["sales.view", "sales.create", "sales.edit", "scope.sales.all", "approvals.view_own", "notify.own_requests"]})["id"]
+ED2 = make_user("editor192", ed192_role)
+t192 = call("POST", "/products", {"name": f"Tracked192 {suffix}", "marked_price": 2000, "cost_price": 1200, "track_items": True})["result"]["id"]
+codes192 = [f"T{suffix}192{i}" for i in range(4)]
+call("POST", "/stock/receive", {"product_id": t192, "quantity": 4, "barcodes": codes192})
+def st192(code):
+    return call("GET", f"/stock/barcode/{code}")["items"][0]
+def edit_and_approve(sale_id, change, reason="Correction", expect_approve=200):
+    e_ = call("GET", f"/sales/{sale_id}/edit", token=ED2)
+    s_ = call("POST", f"/sales/{sale_id}/edit", {"proposal": proposal(e_, **change(e_)), "reason": reason, "revision": e_["revision"]}, token=ED2)
+    return s_, call("POST", f"/approvals/{s_['approval_id']}/approve", {"comments": "ok"}, expect=expect_approve)
+sale192 = call("POST", "/sales", {"items": [{"product_id": t192, "quantity": 1, "unit_price": 2000, "barcode": c_} for c_ in codes192[:3]],
+                                  "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})["sale"]
+item_b = st192(codes192[1])
+check("setup: three tracked items sold", all(st192(c_)["status"] == "sold" for c_ in codes192[:3]))
+on_hand0 = next(x for x in call("GET", f"/stock?q=Tracked192 {suffix}")["items"] if x["product_id"] == t192)["on_hand"]
+e192 = call("GET", f"/sales/{sale192['id']}/edit", token=ED2)
+line_b = next(l_ for l_ in e192["lines"] if l_["barcode"] == mask(codes192[1]))
+s192 = call("POST", f"/sales/{sale192['id']}/edit", {"proposal": proposal(e192, lines=[l_ for l_ in proposal(e192)["lines"] if l_["sale_item_id"] != line_b["sale_item_id"]],
+                                                                       payments=[{"method": "cash", "amount": 4000}]), "reason": "Product B was not taken", "revision": 0}, token=ED2)
+check("pending: the removed item stays sold until approval", st192(codes192[1])["status"] == "sold")
+call("POST", f"/approvals/{s192['approval_id']}/approve", {"comments": "ok"})
+after_b = st192(codes192[1])
+check("removed item: its original barcode is back in stock at the selling branch (same item, no new barcode)",
+      after_b["status"] == "in_stock" and after_b["id"] == item_b["id"] and after_b["branch_id"] == sale192["branch_id"], after_b)
+check("unchanged items keep their status (A and C sold)", st192(codes192[0])["status"] == "sold" and st192(codes192[2])["status"] == "sold")
+check("stock reinstated +1, revised sale quantity 2", next(x for x in call("GET", f"/stock?q=Tracked192 {suffix}")["items"] if x["product_id"] == t192)["on_hand"] == on_hand0 + 1
+      and sum(i_["quantity"] for i_ in call("GET", f"/sales/{sale192['id']}")["items"]) == 2)
+hist192 = call("GET", f"/stock/items/{item_b['id']}/history")["history"]
+check("barcode history links the sale, the approved correction and the reinstatement", any(m_["kind"] == "sale" for m_ in hist192)
+      and any(m_["kind"] == "sale_reversal" and m_["ref_type"] == "sale_revision" and m_["ref_id"] == sale192["id"] and m_["notes"].endswith("-R1") for m_ in hist192), hist192)
+resale = call("POST", "/sales", {"items": [{"product_id": t192, "quantity": 1, "unit_price": 2000, "barcode": codes192[1]}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+check("the reinstated barcode can be sold again", resale["sale"]["id"] and st192(codes192[1])["status"] == "sold")
+# Replaced item: the removed one comes back, the replacement is sold.
+e192 = call("GET", f"/sales/{sale192['id']}/edit", token=ED2)
+line_a = next(l_ for l_ in e192["lines"] if l_["barcode"] == mask(codes192[0]))
+s192 = call("POST", f"/sales/{sale192['id']}/edit", {"proposal": proposal(e192, lines=[l_ for l_ in proposal(e192)["lines"] if l_["sale_item_id"] != line_a["sale_item_id"]]
+                                                                       + [{"product_id": t192, "quantity": 1, "unit_price": 2000, "barcode": codes192[3]}]), "reason": "Wrong unit scanned", "revision": 1}, token=ED2)
+call("POST", f"/approvals/{s192['approval_id']}/approve", {"comments": "ok"})
+check("replaced item: the removed unit is back in stock and the replacement marked sold", st192(codes192[0])["status"] == "in_stock" and st192(codes192[3])["status"] == "sold")
+# Never reinstated twice: an item already back through another transaction is refused.
+e192 = call("GET", f"/sales/{sale192['id']}/edit", token=ED2)
+line_c = next(l_ for l_ in e192["lines"] if l_["barcode"] == mask(codes192[2]))
+s192 = call("POST", f"/sales/{sale192['id']}/edit", {"proposal": proposal(e192, lines=[l_ for l_ in proposal(e192)["lines"] if l_["sale_item_id"] != line_c["sale_item_id"]],
+                                                                       payments=[{"method": "cash", "amount": 2000}]), "reason": "C not taken", "revision": 2}, token=ED2)
+db_exec(f"UPDATE stock_items SET status = 'in_stock' WHERE id = '{st192(codes192[2])['id']}'")
+r = call("POST", f"/approvals/{s192['approval_id']}/approve", {"comments": "ok"}, expect=422)
+check("an item already reinstated elsewhere is never reinstated twice", r["error"]["title"] == "Item already back", r)
+call("POST", f"/approvals/{s192['approval_id']}/reject", {"comments": "Already back"})
+db_exec(f"UPDATE stock_items SET status = 'sold' WHERE id = '{st192(codes192[2])['id']}'")
+# Shared barcodes / quantities: reduced quantity restores only the difference; not resellable → not restocked.
+q192 = call("POST", "/products", {"name": f"Shared192 {suffix}", "marked_price": 300, "cost_price": 150, "barcode": f"SB{suffix}192"})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": q192, "quantity": 10, "cost_price": 150})
+qs = call("POST", "/sales", {"items": [{"product_id": q192, "quantity": 4, "unit_price": 300}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})["sale"]
+def oh192():
+    return next(x for x in call("GET", f"/stock?q=Shared192 {suffix}")["items"] if x["product_id"] == q192)["on_hand"]
+before = oh192()
+edit_and_approve(qs["id"], lambda e_: {"lines": [{**proposal(e_)["lines"][0], "quantity": 3}], "payments": [{"method": "cash", "amount": 900}]})
+check("reduced quantity: only the difference goes back to stock (shared product barcode untouched)", oh192() == before + 1
+      and call("GET", f"/products/{q192}")["product"]["barcode"] == f"SB{suffix}192")
+edit_and_approve(qs["id"], lambda e_: {"lines": [{**proposal(e_)["lines"][0], "quantity": 5}], "payments": [{"method": "cash", "amount": 1500}]})
+check("increased quantity: only the extra is deducted", oh192() == before - 1)
+e_ = call("GET", f"/sales/{qs['id']}/edit", token=ED2)
+pv = call("POST", f"/sales/{qs['id']}/edit/preview", {"proposal": proposal(e_, lines=[{**proposal(e_)["lines"][0], "quantity": 4}], payments=[{"method": "cash", "amount": 1200}], restock=False), "revision": e_["revision"]}, token=ED2)
+check("items that cannot be resold: the summary says they are not returned to stock", pv["implications"]["restock"] is False and pv["implications"]["stock"] == [], pv["implications"])
+edit_and_approve(qs["id"], lambda e_: {"lines": [{**proposal(e_)["lines"][0], "quantity": 4}], "payments": [{"method": "cash", "amount": 1200}], "restock": False})
+check("…and stock is not reinstated", oh192() == before - 1)
+
+step("Roadmap 193: View own approval requests (My requests)")
+noview_role = call("POST", "/roles", {"name": f"No own view {suffix}", "description": "", "permissions": ["sales.view", "sales.create", "sales.edit", "scope.sales.all"]})["id"]
+NOV = make_user("noview193", noview_role)
+call("GET", "/approvals?status=all&mine=true", token=NOV, expect=403)
+call("GET", "/approvals/mine/summary", token=NOV, expect=403)
+check("without View own approval requests, My requests is refused", True)
+ms0 = call("GET", "/approvals/mine/summary", token=ED2)
+check("with it: My requests by status", ms0["approved"] >= 4 and ms0["rejected"] >= 1 and "cancelled" in ms0, ms0)
+e_ = call("GET", f"/sales/{qs['id']}/edit", token=ED2)
+s193 = call("POST", f"/sales/{qs['id']}/edit", {"proposal": proposal(e_, notes="193"), "reason": "Track me", "revision": e_["revision"]}, token=ED2)
+mine193 = call("GET", "/approvals?status=pending&mine=true", token=ED2)["items"]
+own = next(x for x in mine193 if x["id"] == s193["approval_id"])
+check("own pending request listed with status, level and assigned approver — no approve rights", own["status"] == "pending" and own["level"] == 1 and own["can_decide"] is False
+      and own["assigned_to"] and all(x["requested_by"] == own["requested_by"] for x in mine193), own)
+check("pending count of my requests", call("GET", "/approvals/mine/summary", token=ED2)["pending"] == ms0["pending"] + 1)
+call("POST", f"/approvals/{s193['approval_id']}/approve", {}, token=ED2, expect=403)
+check("viewing never grants approving", True)
+call("POST", f"/approvals/{s193['approval_id']}/reject", {"comments": "Not needed"})
+rej = next(x for x in call("GET", "/approvals?status=rejected&mine=true", token=ED2)["items"] if x["id"] == s193["approval_id"])
+check("rejected with the approver's name and comment", rej["decided_by_name"] and rej["comments"] == "Not needed", rej)
+check("the initiator is notified of the decision", any(n_["kind"] == "approval_decided" for n_ in call("GET", "/notifications", token=ED2)["items"]))
+others = call("GET", "/approvals?status=all&mine=true", token=ED2)["items"]
+check("only requests the person initiated", all(x["requested_by_name"] == others[0]["requested_by_name"] for x in others))
+e_ = call("GET", f"/sales/{qs['id']}/edit", token=NOV)
+snov = call("POST", f"/sales/{qs['id']}/edit", {"proposal": proposal(e_, notes="nov"), "reason": "x", "revision": e_["revision"]}, token=NOV)
+check("without the permission the person's own request is not listed to them", all(x["id"] != snov["approval_id"] for x in call("GET", "/approvals?status=pending", token=NOV)["items"]))
+call("POST", f"/approvals/{snov['approval_id']}/reject", {"comments": "x"})
+
+step("Roadmap 194: notifications by role, permissions and branch")
+lw = call("POST", "/products", {"name": f"Alert194 {suffix}", "marked_price": 100, "cost_price": 50})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": lw, "quantity": 1, "cost_price": 50})
+r_b2 = call("POST", "/roles", {"name": f"Stock b2 {suffix}", "description": "", "permissions": ["stock.view", "stock.add", "notify.stock"]})["id"]
+r_nonote = call("POST", "/roles", {"name": f"Stock quiet {suffix}", "description": "", "permissions": ["stock.view", "stock.add"]})["id"]
+r_all = call("POST", "/roles", {"name": f"Stock all {suffix}", "description": "", "permissions": ["stock.view", "stock.add", "notify.stock"]})["id"]
+def user194(tag, role, branches):
+    mail = f"{tag}{suffix.lower()}@sshop.test"
+    call("POST", "/users", {"name": tag.title(), "email": mail, "pin": "4321", "role_id": role, "all_branches": branches is None, "branch_ids": branches or []})
+    return call("POST", "/auth/login", {"email": mail, "pin": "4321"})["token"]
+B2U, QU, AU = user194("westonly194", r_b2, [b2]), user194("quiet194", r_nonote, None), user194("allstock194", r_all, None)
+call("POST", "/sales", {"items": [{"product_id": lw, "quantity": 1, "unit_price": 100}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+time.sleep(1.5)
+def alert194(tok, **q):
+    qs_ = "&".join(f"{k}={v}" for k, v in q.items())
+    return [n_ for n_ in call("GET", f"/notifications?limit=200&{qs_}", token=tok, branch=b2 if tok == B2U else None)["items"] if f"Alert194 {suffix}" in n_["title"]]
+adm194 = alert194(TOKEN)
+check("the out-of-stock alert reaches those responsible at that branch, with category and branch", len(adm194) == 1 and adm194[0]["category"] == "stock" and adm194[0]["branch_name"], adm194)
+check("a user of another branch does not receive it", alert194(B2U) == [])
+check("a role without Receive stock notifications does not receive it", alert194(QU) == [])
+au = alert194(AU)
+check("an all-branch role with the permission receives it", len(au) == 1)
+cnt0 = call("GET", "/notifications", token=AU)["unread"]
+call("PUT", f"/roles/{r_all}", {"name": f"Stock all {suffix}", "description": "", "permissions": ["stock.add", "notify.stock"], "is_active": True})
+check("losing the module permission hides it at once and the unread count follows", alert194(AU) == [] and call("GET", "/notifications", token=AU)["unread"] == cnt0 - 1)
+call("POST", f"/notifications/{au[0]['id']}/read", token=AU, expect=404)
+check("…and it can no longer be opened", True)
+call("PUT", f"/roles/{r_all}", {"name": f"Stock all {suffix}", "description": "", "permissions": ["stock.view", "stock.add", "notify.stock"], "is_active": True})
+check("restored access shows it again (history kept)", len(alert194(AU)) == 1)
+check("filters: category and status", len(alert194(AU, category="stock")) == 1 and alert194(AU, category="orders") == [] and len(alert194(AU, status="unread")) == 1)
+call("POST", f"/notifications/{au[0]['id']}/read", token=AU)
+check("marked read: Read shows it, Unread does not", len(alert194(AU, status="read")) == 1 and alert194(AU, status="unread") == [])
+check("Mark all read only touches visible notifications", call("POST", "/notifications/read-all", {}, token=AU)["ok"])
+cats = [c_["key"] for c_ in call("GET", "/notifications", token=AU)["categories"]]
+check("the centre offers only categories the person has notifications in", cats == ["stock"], cats)
+check("approval badge counts only requests the person may decide", call("GET", "/notifications", token=B2U, branch=b2)["pending_approvals"] == 0)
+check("Notifications permission group in the catalogue", any(g_["module"] == "notify" and len(g_["permissions"]) == 10 for g_ in call("GET", "/permissions")))
+
+step("Roadmap 196: split payment with the rest on credit — cheapest items paid first, a credit record per item owing")
+_s196 = call("GET", "/settings")["settings"]
+_pm196 = _s196["sales"]["payment_methods"]
+for m_ in _pm196:
+    if m_["key"] in ("cash", "mpesa", "credit"):
+        m_["enabled"] = True
+if not any(m_["key"] == "bank" for m_ in _pm196):
+    _pm196.append({**next(m_ for m_ in _pm196 if m_["key"] == "cash"), "key": "bank", "label": "Bank Transfer", "enabled": True})
+call("PUT", "/settings", {**_s196, "sales": {**_s196["sales"], "payment_methods": _pm196, "credit_single_item": True, "credit_enabled": True, "mpesa_manual_confirmation": True}})
+c196 = call("POST", "/customers", {"mobile": "07" + str(int(time.time() * 1000) + 3)[-8:], "first_name": "Brian"})["id"]
+amber = call("POST", "/products", {"name": f"Amber Prestige {suffix}", "marked_price": 27500, "cost_price": 15000})["result"]["id"]
+pearl = call("POST", "/products", {"name": f"Classic Pearl {suffix}", "marked_price": 112000, "cost_price": 70000})["result"]["id"]
+oil = call("POST", "/products", {"name": f"Oud Oil {suffix}", "marked_price": 5000, "cost_price": 2000, "barcode": f"OO{suffix}196"})["result"]["id"]
+pearl_codes = [f"PL{suffix}196{i}" for i in range(3)]
+ring196 = call("POST", "/products", {"name": f"Gold Ring {suffix}", "marked_price": 40000, "cost_price": 25000, "track_items": True})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": ring196, "quantity": 3, "barcodes": pearl_codes})
+for p_ in (amber, pearl, oil):
+    call("POST", "/stock/receive", {"product_id": p_, "quantity": 10})
+def lvl196(pid):
+    return next(l for l in call("GET", f"/products/{pid}")["stock_by_branch"] if l["branch_id"] == BRANCH)["on_hand"]
+before196 = {p_: lvl196(p_) for p_ in (amber, pearl)}
+sale = call("POST", "/sales", {"customer_id": c196, "items": [{"product_id": pearl, "quantity": 1, "unit_price": 112000}, {"product_id": amber, "quantity": 1, "unit_price": 27500}],
+                               "payment": {"method": "split"}, "payments": [{"method": "mpesa", "amount": 50000}, {"method": "cash", "amount": 40000}],
+                               "on_credit": True, "client_ref": str(uuid.uuid4())})
+cr = sale["credits"]
+check("the example completes: one sale, one receipt", sale["sale"]["receipt_no"] and float(sale["sale"]["total"]) == 139500 and len(call("GET", f"/sales/{sale['sale']['id']}/receipts")["items"]) == 1)
+check("Amber Prestige (cheapest) fully paid — no credit; Classic Pearl owes 49,500 after 62,500 paid", len(cr) == 1 and cr[0]["product_name"].startswith("Classic Pearl")
+      and float(cr[0]["balance"]) == 49500 and float(cr[0]["paid_at_sale"]) == 62500 and cr[0]["status"] == "partially_paid", cr)
+check("payments recognised once (M-Pesa 50,000 + cash 40,000) and the sale shows partly paid", sorted(float(p_["amount"]) for p_ in sale["payments"]) == [40000, 50000]
+      and sale["sale"]["payment_status"] == "partially_paid", sale["sale"]["payment_status"])
+check("stock deducted once per item", lvl196(amber) == before196[amber] - 1 and lvl196(pearl) == before196[pearl] - 1)
+cl = call("GET", f"/credit/{cr[0]['id']}")
+check("the credit record names its item, price and what was paid at the sale", cl["credit"]["item_name"].startswith("Classic Pearl") and float(cl["credit"]["paid_at_sale"]) == 62500
+      and len(cl["items"]) == 1 and float(cl["credit"]["balance"]) == 49500, cl["credit"])
+check("receipt balance equals the credit owed", float(call("GET", f"/sales/{sale['sale']['id']}/receipts")["items"][0]["snapshot"]["totals"]["balance"]) == 49500)
+r = call("POST", f"/credit/{cr[0]['id']}/payments", {"amount": 20000, "method": "cash"})
+check("repaid on its own", float(r["balance"]) == 29500)
+# Several items owing, quantities, a shared barcode and tracked items; bank + cash.
+s2 = call("POST", "/sales", {"customer_id": c196, "items": [{"product_id": oil, "quantity": 3, "unit_price": 4500, "barcode": f"OO{suffix}196"},
+                                                          {"product_id": ring196, "quantity": 1, "unit_price": 40000, "barcode": pearl_codes[0]},
+                                                          {"product_id": ring196, "quantity": 1, "unit_price": 40000, "barcode": pearl_codes[1]}],
+                             "payment": {"method": "split"}, "payments": [{"method": "bank", "amount": 10000, "reference": "BT196"}, {"method": "cash", "amount": 5000}],
+                             "on_credit": True, "client_ref": str(uuid.uuid4())})
+c2 = s2["credits"]
+owed2 = sum(float(c_["balance"]) for c_ in c2)
+check("discounted units first: 3 × 4,500 then rings; 15,000 pays the oil and 1,500 of a ring", owed2 == 13500 + 80000 - 15000 and len(c2) == 2
+      and sorted(float(c_["paid_at_sale"]) for c_ in c2) == [0, 1500], [(c_["product_name"], c_["paid_at_sale"], c_["balance"]) for c_ in c2])
+check("each tracked ring is its own credit, linked to its own barcode", sorted(c_["barcode"] for c_ in c2) == sorted([mask(pearl_codes[0]), mask(pearl_codes[1])]))
+check("total owed = the unpaid part of the sale", float(s2["credit"]["balance"]) == float(s2["sale"]["total"]) - 15000)
+e196 = call("GET", f"/sales/{s2['sale']['id']}/edit")
+check("Edit Sale explains items on credit are corrected in Credit Sales", e196["editable"] is False and "credit" in (e196["blocked_reason"] or "").lower(), e196.get("blocked_reason"))
+# Everything on credit, with a deposit and points redeemed.
+s3 = call("POST", "/sales", {"customer_id": c196, "items": [{"product_id": oil, "quantity": 2, "unit_price": 5000}, {"product_id": amber, "quantity": 1, "unit_price": 25000}],
+                             "payment": {"method": "credit"}, "deposit": {"amount": 6000, "method": "cash"}, "client_ref": str(uuid.uuid4())})
+check("fully on credit with a deposit: the deposit pays the cheapest item first", len(s3["credits"]) == 2 and sorted(float(c_["paid_at_sale"]) for c_ in s3["credits"]) == [0, 1000]
+      and float(s3["credit"]["balance"]) == 29000, [(c_["product_name"], c_["paid_at_sale"]) for c_ in s3["credits"]])
+s4 = call("POST", "/sales", {"customer_id": c196, "items": [{"product_id": oil, "quantity": 1, "unit_price": 5000}, {"product_id": amber, "quantity": 1, "unit_price": 27500}],
+                             "payment": {"method": "split"}, "payments": [{"method": "cash", "amount": 32500}], "client_ref": str(uuid.uuid4())})
+check("a fully paid split payment creates no credit", s4["credit"] is None and s4["credits"] == [])
+# Recall the unpaid ring: its stock and barcode come back; only that credit closes.
+ring_credit = next(c_ for c_ in c2 if float(c_["paid_at_sale"]) == 0)
+ring_line = next(i_ for i_ in s2["items"] if i_["barcode"] == ring_credit["barcode"])
+code_back = pearl_codes[0] if mask(pearl_codes[0]) == ring_credit["barcode"] else pearl_codes[1]
+r = call("POST", f"/credit/{ring_credit['id']}/recall",
+         {"items": [{"sale_item_id": ring_line["id"], "quantity": 1, "barcodes": [code_back]}], "reason": "Customer cannot pay"})
+check("recalling an unpaid item restores its barcode to stock and closes only its credit", call("GET", f"/stock/barcode/{code_back}")["items"][0]["status"] == "in_stock"
+      and call("GET", f"/credit/{ring_credit['id']}")["credit"]["status"] == "recalled"
+      and any(c_["status"] in ("outstanding", "partially_paid") for c_ in call("GET", f"/sales/{s2['sale']['id']}")["credits"]), r)
+r = call("POST", f"/credit/{cr[0]['id']}/recall", {"items": [{"sale_item_id": next(i_["id"] for i_ in sale["items"] if i_["product_id"] == amber), "quantity": 1}], "reason": "Wrong item"}, expect=422)
+check("a credit for one item cannot recall another item of the sale", r["error"]["title"] in ("One item", "Not on this sale"), r)
+# Cancelling a sale closes all its credits and refunds only money actually received.
+cx = call("POST", f"/sales/{s3['sale']['id']}/cancel", {"reason": "Cancelled", "refund_method": "cash"})
+d3 = call("GET", f"/sales/{s3['sale']['id']}")
+check("cancellation: every credit closed, only the 6,000 received refunded", all(c_["status"] == "cancelled" for c_ in d3["credits"])
+      and float(cx["result"]["refunded"]) == 6000, (cx, [c_["status"] for c_ in d3["credits"]]))
+# Returning the fully paid item refunds it; the owing item's credit is untouched.
+ret = call("POST", f"/sales/{sale['sale']['id']}/return", {"items": [{"sale_item_id": next(i_["id"] for i_ in sale["items"] if i_["product_id"] == amber), "quantity": 1}],
+                                                            "reason": "Returned", "refund_method": "cash"})
+check("returning the paid item refunds its price; the credit still owes 29,500", float(ret["result"]["refunded"]) == 27500
+      and float(call("GET", f"/credit/{cr[0]['id']}")["credit"]["balance"]) == 29500, ret)
+check("credit list shows each item", sum(1 for x in call("GET", f"/credit?status=all&customer_id={c196}&limit=100")["items"] if x["item_name"]) >= 5)
+call("PUT", "/settings", _s196)
+
+step("Roadmap 197: receiving shared barcodes across branches; a new barcode for an existing product")
+b197a = call("POST", "/branches", {"name": f"Karen {suffix}", "code": f"KR{suffix}"})["id"]
+b197b = call("POST", "/branches", {"name": f"Thika {suffix}", "code": f"TK{suffix}"})["id"]
+code197 = f"6161{suffix}197"
+p197 = call("POST", "/products", {"name": f"Shared197 {suffix}", "marked_price": 900, "barcode": code197, "all_branches": False, "branch_ids": [BRANCH]})["result"]["id"]
+def at197(br):
+    return next((l_["on_hand"] for l_ in call("GET", f"/products/{p197}")["stock_by_branch"] if l_["branch_id"] == br), 0)
+call("POST", "/stock/receive", {"product_id": p197, "quantity": 5, "barcodes": [code197], "barcode_counts": {code197: 5}})
+look = call("GET", f"/products/lookup?code={code197}", branch=b197a)
+check("the shared barcode is recognised at another branch", look["product"]["id"] == p197 and look["barcode_match"] is True)
+r = call("POST", "/stock/receive", {"product_id": p197, "branch_id": b197a, "quantity": 3, "barcodes": [code197], "barcode_counts": {code197: 3}}, branch=b197a)
+check("same shared barcode received into another branch (product was limited to the first branch)", not r["pending_approval"] and at197(b197a) == 3 and at197(BRANCH) == 5, r)
+call("POST", "/stock/receive/batch", {"branch_id": b197b, "lines": [{"product_id": p197, "quantity": 2, "barcode": code197}]}, branch=b197b)
+check("…and a third branch through a scanned delivery; every branch keeps its own quantity", at197(b197b) == 2 and at197(b197a) == 3 and at197(BRANCH) == 5)
+check("the product is now available at the receiving branches, its barcode unchanged", call("GET", f"/products/{p197}")["product"]["barcode"] == code197
+      and {b197a, b197b} <= set(call("GET", f"/products/{p197}")["branch_ids"]))
+call("POST", "/stock/receive", {"product_id": p197, "branch_id": b197a, "quantity": 1, "barcodes": [code197]}, branch=b197a)
+check("receiving the same barcode again in the same branch adds to it (no duplicate barcode record)", at197(b197a) == 4
+      and len(call("GET", f"/products/{p197}")["barcodes"]) == 0)
+# A new barcode for the existing product: registered only when the receipt is posted.
+new197 = f"6262{suffix}197"
+r = call("POST", "/stock/receive", {"product_id": p197, "branch_id": b197a, "quantity": 2, "barcodes": [new197], "barcode_counts": {new197: 2}}, branch=b197a, expect=422)
+check("an unconfirmed new barcode is refused", r["error"]["title"] == "Barcode not on this product", r)
+r = call("POST", "/stock/receive", {"product_id": p197, "branch_id": b197a, "quantity": 2, "barcodes": [new197], "barcode_counts": {new197: 2}, "add_barcodes": [new197]}, branch=b197a)
+check("Add barcode & continue: received into this branch only and the barcode added to the product", not r["pending_approval"] and at197(b197a) == 6 and at197(BRANCH) == 5
+      and new197 in call("GET", f"/products/{p197}")["barcodes"], r)
+check("the new barcode is recognised across the business (lookup at another branch)", call("GET", f"/products/lookup?code={new197}", branch=b197b)["product"]["id"] == p197)
+other197 = call("POST", "/products", {"name": f"Other197 {suffix}", "marked_price": 100, "barcode": f"6363{suffix}197"})["result"]["id"]
+r = call("POST", "/stock/receive", {"product_id": p197, "quantity": 1, "barcodes": [f"6363{suffix}197"], "add_barcodes": [f"6363{suffix}197"]}, expect=422)
+check("a barcode of another product is blocked with its name", r["error"]["title"] == "Barcode belongs to another product" and "Other197" in r["error"]["message"], r)
+# Without Edit products the receipt (and its new barcode) waits for approval; rejection registers nothing.
+rk = call("POST", "/roles", {"name": f"Receiver197 {suffix}", "description": "", "permissions": ["stock.view", "stock.add", "products.view"]})["id"]
+RK = make_user("receiver197", rk)
+pend = f"6464{suffix}197"
+r = call("POST", "/stock/receive", {"product_id": p197, "quantity": 4, "barcodes": [pend], "barcode_counts": {pend: 4}, "add_barcodes": [pend]}, token=RK)
+check("without Edit products: sent for approval, nothing received or registered yet", r["pending_approval"] and at197(BRANCH) == 5
+      and pend not in call("GET", f"/products/{p197}")["barcodes"], r)
+call("POST", f"/approvals/{r['approval_id']}/reject", {"comments": "Wrong label"})
+check("rejected: the barcode is not registered and no stock added", pend not in call("GET", f"/products/{p197}")["barcodes"] and at197(BRANCH) == 5)
+r = call("POST", "/stock/receive", {"product_id": p197, "quantity": 4, "barcodes": [pend], "barcode_counts": {pend: 4}, "add_barcodes": [pend]}, token=RK)
+call("POST", f"/approvals/{r['approval_id']}/approve", {"comments": "ok"})
+check("approved: the barcode is registered and the stock received", pend in call("GET", f"/products/{p197}")["barcodes"] and at197(BRANCH) == 9)
+# One barcode per product: the business setting is respected.
+_s197 = call("GET", "/settings")["settings"]
+call("PUT", "/settings", {**_s197, "product": {**_s197["product"], "multiple_barcodes": False}})
+r = call("POST", "/stock/receive", {"product_id": p197, "quantity": 1, "barcodes": [f"6565{suffix}197"], "add_barcodes": [f"6565{suffix}197"]}, expect=422)
+check("with one barcode per product, a further barcode is refused", r["error"]["title"] == "One barcode per product", r)
+call("PUT", "/settings", _s197)
+# Individual items stay unique.
+tr197 = call("POST", "/products", {"name": f"Tracked197 {suffix}", "marked_price": 100, "track_items": True})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": tr197, "quantity": 1, "barcodes": [f"U{suffix}197"]})
+call("POST", "/stock/receive", {"product_id": tr197, "branch_id": b197a, "quantity": 1, "barcodes": [f"U{suffix}197"]}, branch=b197a, expect=422)
+check("an individual item's barcode already in stock cannot be received again elsewhere (transfers move it)", True)
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

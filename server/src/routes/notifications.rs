@@ -31,6 +31,9 @@ pub fn routes() -> Router<AppState> {
 struct NotificationRow {
     id: Uuid,
     kind: String,
+    category: Option<String>,
+    branch_id: Option<Uuid>,
+    branch_name: Option<String>,
     title: String,
     body: String,
     link: String,
@@ -41,32 +44,89 @@ struct NotificationRow {
 #[derive(Deserialize)]
 struct ListQuery {
     unread: Option<bool>,
+    /// Roadmap 194: all | unread | read.
+    status: Option<String>,
+    category: Option<String>,
+    branch_id: Option<Uuid>,
     limit: Option<i64>,
 }
 
+/// Module permissions notifications can depend on (see `notify::classify`).
+const MODULE_PERMS: [&str; 5] = ["orders.view", "credit.view", "stock.view", "products.view", "website.view"];
+
+/// Roadmap 194: what this person may see now — categories their role allows, modules they may use, their branches.
+/// Applied to every read, count and mark-as-read, so a change of role, permissions or branches takes effect at once.
+struct Access {
+    categories: Vec<String>,
+    perms: Vec<String>,
+    branches: Vec<Uuid>,
+}
+
+fn access(ctx: &Ctx) -> Access {
+    Access {
+        categories: crate::notify::CATEGORIES.iter().map(|c| c.0).filter(|c| ctx.can(&format!("notify.{c}"))).map(String::from).collect(),
+        perms: MODULE_PERMS.iter().filter(|p| ctx.can(p)).map(|p| p.to_string()).collect(),
+        branches: ctx.branch_ids.clone(),
+    }
+}
+
+/// `$1` user, `$2` tenant, `$3` categories, `$4` module permissions, `$5` branches.
+const VISIBLE: &str = "n.user_id = $1 AND n.tenant_id = $2
+    AND (n.mandatory OR n.category IS NULL OR n.category = ANY($3))
+    AND (n.perm IS NULL OR n.perm = ANY($4))
+    AND (n.branch_id IS NULL OR n.branch_id = ANY($5))";
+
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Value>> {
-    let rows: Vec<NotificationRow> = sqlx::query_as(
-        "SELECT id, kind, title, body, link, read_at, created_at FROM notifications
-         WHERE user_id = $1 AND (NOT $2 OR read_at IS NULL) ORDER BY created_at DESC LIMIT $3",
-    )
+    let a = access(&ctx);
+    let status = q.status.as_deref().unwrap_or(if q.unread.unwrap_or(false) { "unread" } else { "all" }).to_string();
+    let rows: Vec<NotificationRow> = sqlx::query_as(&format!(
+        "SELECT n.id, n.kind, n.category, n.branch_id, b.name AS branch_name, n.title, n.body, n.link, n.read_at, n.created_at
+         FROM notifications n LEFT JOIN branches b ON b.id = n.branch_id
+         WHERE {VISIBLE} AND ($6 = 'all' OR ($6 = 'unread') = (n.read_at IS NULL))
+           AND ($7::text IS NULL OR n.category = $7) AND ($8::uuid IS NULL OR n.branch_id = $8)
+         ORDER BY n.created_at DESC LIMIT $9"
+    ))
     .bind(ctx.user_id)
-    .bind(q.unread.unwrap_or(false))
+    .bind(ctx.tenant_id)
+    .bind(&a.categories)
+    .bind(&a.perms)
+    .bind(&a.branches)
+    .bind(&status)
+    .bind(q.category.as_deref().filter(|c| !c.is_empty()))
+    .bind(q.branch_id)
     .bind(q.limit.unwrap_or(50).clamp(1, 200))
     .fetch_all(&state.db)
     .await?;
-    let unread: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND read_at IS NULL")
+    let unread: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM notifications n WHERE {VISIBLE} AND n.read_at IS NULL"))
+        .bind(ctx.user_id)
+        .bind(ctx.tenant_id)
+        .bind(&a.categories)
+        .bind(&a.perms)
+        .bind(&a.branches)
+        .fetch_one(&state.db)
+        .await?;
+    let by_category: Vec<(Option<String>, i64)> = sqlx::query_as(&format!(
+        "SELECT n.category, COUNT(*) FILTER (WHERE n.read_at IS NULL) FROM notifications n WHERE {VISIBLE} GROUP BY n.category"
+    ))
+    .bind(ctx.user_id)
+    .bind(ctx.tenant_id)
+    .bind(&a.categories)
+    .bind(&a.perms)
+    .bind(&a.branches)
+    .fetch_all(&state.db)
+    .await?;
+    let branches: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, name FROM branches WHERE tenant_id = $1 AND id = ANY($2) ORDER BY name")
+        .bind(ctx.tenant_id)
+        .bind(&a.branches)
+        .fetch_all(&state.db)
+        .await?;
+    // Roadmap 194: the requests this person may decide now (not every pending request in their branches).
+    let approvals = super::approvals::decidable_count(&mut *state.db.acquire().await?, &ctx).await?;
+    let my_pending: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM approvals WHERE tenant_id = $1 AND requested_by = $2 AND status = 'pending'")
+        .bind(ctx.tenant_id)
         .bind(ctx.user_id)
         .fetch_one(&state.db)
         .await?;
-    let approvals: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM approvals WHERE tenant_id = $1 AND status = 'pending' AND requested_by <> $2
-           AND (branch_id IS NULL OR branch_id = ANY($3))",
-    )
-    .bind(ctx.tenant_id)
-    .bind(ctx.user_id)
-    .bind(&ctx.branch_ids)
-    .fetch_one(&state.db)
-    .await?;
     // Roadmap 69: orders waiting to be confirmed, in the user's orders scope (the same filter as the Orders list) —
     // an operational count, not unread notifications: reading or dismissing alerts never changes it.
     let new_orders: i64 = if ctx.can("orders.view") {
@@ -83,21 +143,47 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     } else {
         0
     };
-    Ok(Json(json!({ "items": rows, "unread": unread, "pending_approvals": if ctx.can("approvals.approve") { approvals } else { 0 }, "new_orders": new_orders })))
+    let categories: Vec<Value> = crate::notify::CATEGORIES
+        .iter()
+        // Only categories that have notifications for this person (all of them visible to them).
+        .filter(|c| by_category.iter().any(|b| b.0.as_deref() == Some(c.0)))
+        .map(|(k, l)| json!({ "key": k, "label": l, "unread": by_category.iter().find(|b| b.0.as_deref() == Some(*k)).map_or(0, |b| b.1) }))
+        .collect();
+    Ok(Json(json!({
+        "items": rows, "unread": unread, "pending_approvals": approvals, "my_pending_requests": if super::approvals::may_view_own(&ctx) { my_pending } else { 0 },
+        "new_orders": new_orders, "categories": categories,
+        "branches": branches.into_iter().map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
+    })))
 }
 
+/// Opening a notification: marked read and its link returned only if the person may still see it (roadmap 194).
 async fn read_one(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
-    sqlx::query("UPDATE notifications SET read_at = now() WHERE id = $1 AND user_id = $2 AND read_at IS NULL")
-        .bind(id)
-        .bind(ctx.user_id)
-        .execute(&state.db)
-        .await?;
-    Ok(Json(json!({ "ok": true })))
+    let a = access(&ctx);
+    let link: Option<String> = sqlx::query_scalar(&format!(
+        "UPDATE notifications n SET read_at = COALESCE(n.read_at, now()) WHERE n.id = $6 AND {VISIBLE} RETURNING n.link"
+    ))
+    .bind(ctx.user_id)
+    .bind(ctx.tenant_id)
+    .bind(&a.categories)
+    .bind(&a.perms)
+    .bind(&a.branches)
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?;
+    match link {
+        Some(link) => Ok(Json(json!({ "ok": true, "link": link }))),
+        None => Err(crate::error::AppError::NotFound("Notification")),
+    }
 }
 
 async fn read_all(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
-    sqlx::query("UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL")
+    let a = access(&ctx);
+    sqlx::query(&format!("UPDATE notifications n SET read_at = now() WHERE {VISIBLE} AND n.read_at IS NULL"))
         .bind(ctx.user_id)
+        .bind(ctx.tenant_id)
+        .bind(&a.categories)
+        .bind(&a.perms)
+        .bind(&a.branches)
         .execute(&state.db)
         .await?;
     Ok(Json(json!({ "ok": true })))

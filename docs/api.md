@@ -190,6 +190,11 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | POST / DELETE | `/api/auth/profile/avatar` (multipart `file`) | roadmap 185: PNG, JPEG or WebP ≤ 1 MB, square-ish, 64–2048 px; DELETE removes it |
 | GET | `/api/avatars/{key}` | roadmap 185: a profile photo by its unguessable key (public, cached for good) |
 | GET / POST | `/api/branch-prices?branch_id=` · `{branch_id, action: reset\|restore\|set, items: [{product_id, price, expected}]}` | roadmap 186: Manage branch prices (Tenant Administrators) — the branch's products with stock, default, own, effective price, status, pending; POST applies in one transaction or as one *Product edit* approval |
+| POST | `/api/sales` (`payment.method = split`, `on_credit`) | roadmap 196: several units left (partly) on credit — one sale; the response lists `credits` (one per unit owing) and `credit` (their total) |
+| POST | `/api/stock/receive` `{…, add_barcodes}` | roadmap 197: new shared barcodes confirmed for the product, registered when the receipt is posted (or approved) |
+| GET | `/api/approvals/mine/summary` | roadmap 193: one's own requests by status (*View own approval requests*) |
+| GET | `/api/notifications?status=all\|unread\|read&category=&branch_id=` | roadmap 194: the visible notifications, unread count, categories with unread counts, branches, decidable approvals |
+| POST | `/api/notifications/{id}/read` | roadmap 194: mark read and return its link — 404 when no longer visible |
 | GET / PUT | `/api/website/products/{id}/photos` · `{photos:[{id, staged}], base, comments}` | roadmap 190: the product's photos, limit and waiting change · save a change (applied at once, or sent for approval) |
 | POST | `/api/website/products/{id}/photos/stage` (multipart `file`, `thumb`, `upload_ref`) | roadmap 190: stage a new photo (shown nowhere until its change is applied) |
 | GET | `/api/website/photo-requests/{id}` · `/api/photos/staged/{id}` | roadmap 190: a photo change (before / proposed) · a staged photo |

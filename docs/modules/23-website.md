@@ -449,3 +449,9 @@ checkout; checkout checks again on the server. Products, publication and stock a
   edit* needs no approval for them), otherwise a *Product edit* approval (default the Tenant Administrator). Nothing
   changes anywhere until then; one change per product waits; a change on photos changed meanwhile is refused.
 - **Checks:** JPEG/PNG/WebP, ≤ 3 MB, ≥ 200 px a side, the same image twice on one product refused (content hash).
+
+## Product photo framing (roadmap 195)
+
+With *whole product* photos (fit: contain) every frame has the same shape; photos are centred and shown whole at the
+largest size that fits (4 % breathing room) on a light neutral frame in both modes, their white background blending in.
+Applies to product cards, featured rails, categories, the product gallery and previews. *Crop to fill* is unchanged.

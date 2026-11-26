@@ -103,6 +103,7 @@ struct Current {
     is_legacy: bool,
     imported: bool,
     exchange_linked: bool,
+    item_credits: bool,
     branch_id: Uuid,
     customer_id: Option<Uuid>,
     owner_id: Option<Uuid>,
@@ -191,11 +192,16 @@ async fn load(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, id: Uuid) 
         })
         .collect();
     let credit: Option<(Decimal, Decimal, Decimal, NaiveDate, String, Option<String>)> = sqlx::query_as(
-        "SELECT amount_paid, adjustments, original_amount, due_date, status, recall_state FROM credit_sales WHERE sale_id = $1 FOR UPDATE",
+        "SELECT amount_paid, adjustments, original_amount, due_date, status, recall_state FROM credit_sales WHERE sale_id = $1 AND sale_item_id IS NULL FOR UPDATE",
     )
     .bind(id)
     .fetch_optional(&mut *conn)
     .await?;
+    // Roadmap 196: a credit record per unpaid item.
+    let item_credits: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM credit_sales WHERE sale_id = $1 AND sale_item_id IS NOT NULL)")
+        .bind(id)
+        .fetch_one(&mut *conn)
+        .await?;
     let time = h.effective_time.unwrap_or_else(|| h.created_at.with_timezone(&ctx.tz).time().with_second(0).unwrap_or_default().with_nanosecond(0).unwrap_or_default());
     Ok(Current {
         receipt_no: h.receipt_no,
@@ -203,6 +209,7 @@ async fn load(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, id: Uuid) 
         is_legacy: h.is_legacy,
         imported: h.imported,
         exchange_linked,
+        item_credits,
         branch_id: h.branch_id,
         customer_id: h.customer_id,
         owner_id: h.owner_id,
@@ -249,6 +256,9 @@ fn blocked(c: &Current) -> Option<String> {
         "cancelled" => return Some("A cancelled sale cannot be edited".into()),
         "returned" | "partially_returned" => return Some("This sale has returns — corrections after a return are made with further returns or exchanges".into()),
         _ => {}
+    }
+    if c.item_credits {
+        return Some("Items of this sale are on credit one by one — correct them with recall, return or repayment in Credit Sales".into());
     }
     if c.exchange_linked {
         return Some("This sale comes from an exchange — correct it with a return or exchange".into());
@@ -304,6 +314,14 @@ pub struct Proposal {
     pub lines: Vec<EditLine>,
     #[serde(default)]
     pub payments: Vec<EditPayment>,
+    /// Roadmap 192: items removed (or quantities reduced) go back to stock at the selling branch — off when they cannot
+    /// be resold (damaged, not physically back); their barcodes then stay as sold.
+    #[serde(default = "yes")]
+    pub restock: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 struct NewLine {
@@ -757,6 +775,9 @@ async fn plan(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, cur: &Curr
     let today = ctx.today();
     let day_of = |d: NaiveDate| if d < today { Some(d) } else { None };
     let whole = branch_changed || p.sale_date != cur.date;
+    if whole && !p.restock {
+        return Err(rule("A branch or date change returns the sale's items to stock at the original branch — keep “Return removed items to stock” on"));
+    }
     // (branch, product, item, quantity (+ back / − out), cost, price, dated)
     let mut stock: Vec<(Uuid, Uuid, Option<Uuid>, i32, Option<Decimal>, Decimal, Option<NaiveDate>)> = Vec::new();
     if whole {
@@ -793,6 +814,9 @@ async fn plan(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, cur: &Curr
                 stock.push((cur.branch_id, product, None, q, cost, price, day_of(if q > 0 { cur.date } else { p.sale_date })));
             }
         }
+    }
+    if !p.restock {
+        stock.retain(|e| e.3 < 0);
     }
     let product_names: BTreeMap<Uuid, String> = cur.lines.iter().map(|l| (l.product_id, l.name.clone())).chain(lines.iter().map(|l| (l.product_id, l.name.clone()))).collect();
     let mut net_stock: BTreeMap<(Uuid, Uuid), i32> = BTreeMap::new();
@@ -851,6 +875,7 @@ async fn plan(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, cur: &Curr
         "financial": { "total_before": cur.total, "total_after": total, "difference": total - cur.total,
                        "discount_before": d_before, "discount_after": d_after, "payments": adjustments },
         "stock": stock_rows,
+        "restock": p.restock,
         "loyalty": { "customer_before": cur.customer_id.and_then(|c| cn.get(&c).cloned()), "points_before": cur.points_earned,
                      "customer_after": p.customer_id.and_then(|c| cn.get(&c).cloned()), "points_after": points },
         "credit": credit_imp,
@@ -1117,6 +1142,29 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
     let revision = cur.revision + 1;
     let number = format!("{}-R{revision}", cur.receipt_no);
 
+    // Roadmap 192: a barcode is reinstated only if it is still sold on this sale and no other item carries it now
+    // (never reinstated twice, never a duplicate active barcode).
+    for (_, _, item, qty, ..) in &plan.stock {
+        if let (Some(i), true) = (item, *qty > 0) {
+            let (status, code): (String, String) = sqlx::query_as("SELECT status, barcode FROM stock_items WHERE id = $1 AND tenant_id = $2 FOR UPDATE")
+                .bind(i)
+                .bind(ctx.tenant_id)
+                .fetch_one(&mut *conn)
+                .await?;
+            if status != "sold" {
+                return Err(refused("Item already back", format!("Item {} is no longer recorded as sold ({status}) — it was already returned or reinstated. Return this correction.", super::barcodes::mask(&code))));
+            }
+            let clash: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM stock_items WHERE tenant_id = $1 AND barcode = $2 AND id <> $3 AND status IN ('in_stock','reserved','in_transit'))")
+                .bind(ctx.tenant_id)
+                .bind(&code)
+                .bind(i)
+                .fetch_one(&mut *conn)
+                .await?;
+            if clash {
+                return Err(refused("Barcode in use", format!("Another item now carries barcode {} — it cannot be reinstated. Return this correction.", super::barcodes::mask(&code))));
+            }
+        }
+    }
     // Stock: only the differences (or the whole sale moved).
     for (branch, product, item, qty, cost, price, day) in &plan.stock {
         let kind = if *qty > 0 { "sale_reversal" } else { "sale" };
@@ -1132,7 +1180,7 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
                 sqlx::query("UPDATE stock_items SET status = 'sold', updated_at = now() WHERE id = $1 AND tenant_id = $2").bind(i).bind(ctx.tenant_id).execute(&mut *conn).await?;
             }
         }
-        let m = Movement::new(*branch, *product, kind, *qty).item(*item).cost(*cost).price(Some(*price)).reference("sale_revision", request).notes(&number).dated(*day);
+        let m = Movement::new(*branch, *product, kind, *qty).item(*item).cost(*cost).price(Some(*price)).reference("sale_revision", sale_id).notes(&number).dated(*day);
         let check = if *qty < 0 { Check::Available } else { Check::None };
         inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), *qty > 0 || s.stock.allow_negative, check, m).await?;
     }

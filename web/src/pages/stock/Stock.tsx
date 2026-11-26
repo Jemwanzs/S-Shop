@@ -195,7 +195,7 @@ interface MovementRow { id: string; created_at: string; branch_name: string; pro
 const KINDS = ["received", "opening", "sale", "order_completion", "transfer_out", "transfer_in", "customer_return", "sale_reversal", "receipt_reversal", "supplier_return", "damage", "loss", "write_off", "adjustment", "count_variance"];
 
 function refLink(r: MovementRow) {
-  if (r.ref_type === "sale") return `/sales/${r.ref_id}`;
+  if (r.ref_type === "sale" || r.ref_type === "sale_revision") return `/sales/${r.ref_id}`;
   if (r.ref_type === "transfer") return `/transfers/${r.ref_id}`;
   return null;
 }

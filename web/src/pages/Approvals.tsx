@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/ActionButton";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, Loading, PageHeader } from "@/components/Page";
-import { Segments } from "@/components/Filters";
+import { Chip, Segments } from "@/components/Filters";
+import { useSession } from "@/lib/session";
 import { Pill, StatusBadge, type Tone } from "@/components/Badges";
 import { Field } from "@/components/Form";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -107,17 +108,28 @@ function decisionStep(a: Approval, d: Approval["decisions"][number]): string {
   return d.step_id ? t("Earlier step") : `${t("Level")} ${d.level}`;
 }
 
+type MineStatus = "all" | "pending" | "approved" | "rejected" | "cancelled";
+
 export default function Approvals() {
-  
+  const { can } = useSession();
+  // Roadmap 193: following one's own requests (View own approval requests) is separate from approving.
+  const viewOwn = can("approvals.view_own") || can("approvals.approve") || can("audit.view");
+  const overseer = can("approvals.approve") || can("audit.view");
   const qc = useQueryClient();
-  const [status, setStatus] = useState<"pending" | "mine" | "approved" | "rejected">("pending");
+  const [status, setStatus] = useState<"pending" | "mine" | "approved" | "rejected">(() => (!can("approvals.approve") && viewOwn ? "mine" : "pending"));
+  const [mineStatus, setMineStatus] = useState<MineStatus>("all");
+  const mineSummary = useQuery({
+    queryKey: ["approvals", "mine-summary"],
+    queryFn: () => api<{ pending: number; approved: number; rejected: number; cancelled: number; total: number }>("/approvals/mine/summary"),
+    enabled: viewOwn,
+  });
   const [deciding, setDeciding] = useState<{ approval: Approval; approve: boolean; returned?: boolean } | null>(null);
   const [details, setDetails] = useState<Approval | null>(null);
   // Roadmap 151: bulk decisions — only requests this person may decide can be picked; the server re-checks each one.
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<"approve" | "reject" | null>(null);
   const [comments, setComments] = useState("");
-  const query = status === "mine" ? { status: "all", mine: true } : { status };
+  const query = status === "mine" ? { status: mineStatus, mine: true } : { status };
   const { data, isLoading } = useQuery({ queryKey: ["approvals", query], queryFn: () => api<Paged<Approval>>("/approvals", { query }) });
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["approvals"] });
@@ -145,7 +157,23 @@ export default function Approvals() {
     <>
       <PageHeader eyebrow="Workflow" title="Approvals" description="Sensitive actions wait here for a second person (maker-checker)." />
       <div className="mb-4">
-        <Segments value={status} onChange={(v) => { setStatus(v); setPicked(new Set()); }} options={[{ value: "pending", label: "Waiting" }, { value: "mine", label: "My requests" }, { value: "approved", label: "Approved" }, { value: "rejected", label: "Rejected" }]} />
+        <Segments value={status} onChange={(v) => { setStatus(v); setPicked(new Set()); }} options={[
+          { value: "pending", label: "Waiting" },
+          ...(viewOwn ? [{ value: "mine" as const, label: `${t("My requests")}${mineSummary.data?.pending ? ` (${mineSummary.data.pending})` : ""}` }] : []),
+          ...(overseer ? [{ value: "approved" as const, label: "Approved" }, { value: "rejected" as const, label: "Rejected" }] : []),
+        ]} />
+        {status === "mine" && (
+          <div className="mt-3 flex flex-wrap gap-2" data-testid="my-requests-filter">
+            {(["all", "pending", "approved", "rejected", "cancelled"] as MineStatus[]).map((s) => {
+              const n = s === "all" ? mineSummary.data?.total : mineSummary.data?.[s];
+              return (
+                <Chip key={s} active={mineStatus === s} onClick={() => setMineStatus(s)}>
+                  {t(s === "all" ? "All" : s === "pending" ? "Pending" : s === "approved" ? "Approved" : s === "rejected" ? "Rejected" : "Cancelled")}{n ? <span className="num ms-1 opacity-70">{n}</span> : null}
+                </Chip>
+              );
+            })}
+          </div>
+        )}
       </div>
       {(() => {
         const decidable = status === "pending" ? (data?.items ?? []).filter((a) => a.status === "pending" && a.can_decide) : [];
@@ -196,6 +224,7 @@ export default function Approvals() {
                   </span>
                 </div>
                 <div>
+                  <p className="num text-[11px] text-muted-foreground">{t("Ref")} REQ-{a.id.slice(0, 8).toUpperCase()}</p>
                   <p className="font-medium">{a.summary}</p>
                   {a.action === "stock.transfer" && isTransferPayload(a.payload) && <div className="mt-2"><TransferApprovalLines p={a.payload} /></div>}
                   {a.action === "website.publish" && <div className="mt-2"><PublicationApprovalLines id={a.entity_id} /></div>}

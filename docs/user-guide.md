@@ -73,6 +73,7 @@ Sell on credit with clear balances, due dates and repayment history for every cu
 - Each credit sale shows the product sold — photo, name and code as sold, quantity, price, discount and the amount on credit — even after the product is renamed or repriced
 - One item per credit sale (switchable): a cart of several items on credit becomes separate credit sales, each settled on its own
 - Settle a credit with a returned item the customer had paid for, or swap an item sold on credit for another product — previewed, approved where required, and linked in the history
+- Several items left partly on credit stay one sale and one receipt: the money received pays the cheapest items first and each item still owing gets its own credit, repaid or recalled on its own
 
 <a id="module-5"></a>
 
@@ -123,6 +124,7 @@ Accurate stock built from a complete ledger of movements, never a number someone
 - Stock balances in Excel: download a sheet prefilled with every product and branch, count and correct it, upload it, review each difference and apply — quantities are the counted balances, never additions
 - A branch filter: your branch by default, another of your branches, or all of them added up — viewing only, receiving and transfers stay at your working branch
 - Camera scanning reads gold, bronze, silver, coloured and light-on-dark barcodes too; Scan from photo for shiny or curved labels; tips when a barcode will not read
+- Receive a product at any branch with its existing barcode; a new barcode for a known product is added when the stock is received (or approved)
 
 <a id="module-8"></a>
 
@@ -218,6 +220,7 @@ Give every person exactly the access they need, with maker-checker approval for 
 - Several approvers per level — the first decision counts and the others are told; Tenant Administrators may approve their own requests (switchable), never refunds, expenses or write-offs
 - Transfer approvals list every product, quantity, both branches' prices and the proposed price change, not only the transfer number
 - The Tenant Administrator role can be edited too: switch off optional permissions; the essential administration permissions stay locked on
+- My requests: follow the requests you raised — pending, approved, rejected or cancelled — with who decides and their comments (View own approval requests)
 
 <a id="module-15"></a>
 
@@ -248,6 +251,7 @@ Know who did what and when, receive the alerts that matter, and find anything qu
 - Notifications for low stock, new orders, approvals, transfers and overdue credit
 - Personal notification preferences
 - Universal search across products, customers, receipts and orders (Ctrl / ⌘ K)
+- Notifications follow your role and branches: only what you may see, filtered by All / Unread / Read, category and branch
 
 <a id="module-17"></a>
 
@@ -283,6 +287,7 @@ An optional website for the business, powered directly by its S'Shop products, s
 - Show in-stock products only, limit the cart to available stock and show the quantity available — three settings shared with the ordering link
 - Request Publication: people who may not publish send their website changes for approval, with an automatic summary; the Tenant Administrator reviews, previews and approves & publishes, returns or rejects
 - Product photos from the website editor: add, replace, reorder, remove and choose the primary photo of a product — shared with the catalogue, the till and the ordering link; applied at once by publishers, otherwise after approval
+- Product photos are framed uniformly: every photo shown whole and centred on a clean frame
 
 <a id="module-19"></a>
 
@@ -401,6 +406,11 @@ Signing in, choosing your branch and keeping your account secure.
 3. Forgot your PIN? On the sign-in page tap Forgot PIN / Password? and follow the email link, or ask your administrator to Reset PIN (Settings → Users).
 4. Sign out ends the session on this device. Sessions also end by themselves after a period without activity.
 
+#### Follow your requests and notifications
+
+1. Approvals → My requests: see each request you raised, its status, who decides it and their comments. Filter by Pending, Approved, Rejected or Cancelled.
+2. The bell shows only notifications for your role and branches. Use All, Unread or Read and the categories to filter; tick one to mark it read.
+
 <a id="guide-cashier-salesperson"></a>
 
 ### Guide: Cashier / Salesperson
@@ -467,6 +477,12 @@ Recording sales, payments, receipts, returns, credit and customer orders.
 2. Open the order and, under Next step, tap the next status as you prepare, dispatch and deliver it.
 3. For individually tracked items, scan each item handed over when asked.
 4. At the configured stage the order becomes a sale automatically. Phone orders: New phone order.
+
+#### Take part payment and leave the rest on credit
+
+1. Choose the customer, then Split payment: enter what is paid by each method (M-Pesa, cash, bank).
+2. Turn on Leave the rest on credit and set the due date. The Payment Allocation Summary shows which items are fully paid (cheapest first) and which stay on credit.
+3. Complete the sale: one receipt; each item still owing appears in Credit Sales on its own.
 
 <a id="guide-branch-manager-supervisor"></a>
 
@@ -599,6 +615,12 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 1. Open the sale → Corrections → Edit Sale. Change what was recorded wrongly: date or time, customer, sale owner, branch, products, quantities, prices, payments or notes.
 2. Make sure the payments add up to the corrected total (verified M-Pesa payments are locked), then tap Review changes.
 3. Check the comparison, enter the reason and tap Submit for Approval. Nothing changes until it is approved; the sale then shows a corrected receipt and the correction history.
+
+#### Receive stock with a new barcode
+
+1. Stock → Receive stock → choose the product and scan. A barcode the product already has simply counts units, at any branch.
+2. A new barcode opens Add this barcode?: check the product, barcode, branch and quantity, then Add barcode & continue.
+3. The barcode is added when the stock is received (or once approved, if you cannot edit products).
 
 <a id="guide-business-administrator"></a>
 
@@ -767,6 +789,12 @@ Setting up the business, people, rules, payments and the website.
 
 1. Settings → Billing shows your plan, what is due and your invoices.
 2. Pay now (through Paystack) or Pay by bank using the invoice number as the reference; download receipts there.
+
+#### Choose who gets which notifications
+
+1. Settings → Roles & permissions → Edit a role → Notifications: tick what the role should receive (Toggle all for everything).
+2. People still only receive notifications for modules and branches they can access. Changes apply straight away — notifications they may no longer see disappear from their bell.
+3. In Administration, View own approval requests lets people follow the requests they raise without approving.
 
 <a id="guide-platform-owner"></a>
 

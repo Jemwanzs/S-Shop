@@ -93,7 +93,7 @@ pub const REPORTS: &[Report] = &[
                           WHEN cs.amount_paid > 0 THEN 'partially_paid' ELSE 'credit_outstanding' END AS payment_status,
                      s.status
               FROM sales s JOIN branches b ON b.id = s.branch_id LEFT JOIN customers c ON c.id = s.customer_id
-              LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users ow ON ow.id = s.owner_id LEFT JOIN credit_sales cs ON cs.sale_id = s.id, params
+              LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users ow ON ow.id = s.owner_id LEFT JOIN LATERAL (SELECT MIN(x.id::text)::uuid AS id, SUM(x.original_amount) AS original_amount, SUM(x.amount_paid) AS amount_paid, SUM(x.adjustments) AS adjustments, CASE WHEN bool_and(x.status = 'paid') THEN 'paid' WHEN bool_and(x.status IN ('paid', 'cancelled', 'recalled', 'written_off')) THEN MIN(x.status) FILTER (WHERE x.status <> 'paid') WHEN bool_or(x.status = 'partially_paid') THEN 'partially_paid' ELSE 'outstanding' END AS status FROM credit_sales x WHERE x.sale_id = s.id HAVING COUNT(*) > 0) cs ON true, params
               WHERE s.tenant_id = params.tid AND s.branch_id = ANY(params.br) AND s.business_date BETWEEN params.fd AND params.td
                 AND (params.uid IS NULL OR s.owner_id = params.uid) AND (params.cust IS NULL OR s.customer_id = params.cust)
                 AND (params.pid IS NULL OR EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.product_id = params.pid))

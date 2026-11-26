@@ -42,3 +42,13 @@ Customer-facing messages go through WhatsApp (see [integrations/whatsapp.md](../
 Products (name, nickname, code, product barcode, item barcode — with availability at the Current Branch), customers
 (name, nickname, any part of the mobile), orders (`ORD-…`) and receipts (`RCP-…`), Current Branch first. Results
 respect permissions.
+
+## Notifications by role, permission and branch (roadmap 194)
+
+Each notification has a category, the module permission of its record and its branch (`notify::classify`). It reaches —
+and is shown, counted and opened by — only people with the category's *Notifications* permission (`notify.*`), the module
+permission and access to the branch; assigned approvals and own-request updates ignore the branch; support-access
+security alerts are always delivered. The check runs at sending and on every read (`GET /api/notifications?status=&category=&branch_id=`,
+`POST /api/notifications/{id}/read` returns the link or 404), so access changes apply at once without deleting history.
+The centre: All / Unread / Read, categories with unread counts, branch filter, mark read, mark all read. The Approvals
+badge counts requests the person may decide now.

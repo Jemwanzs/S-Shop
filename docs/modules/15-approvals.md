@@ -191,3 +191,11 @@ nobody was notified and the sync was not audited.
   money, stock, loyalty, credit and performance; *Approve*, *Return for correction*, *Reject*.
 - **Product edit — photos**: a photo change from Website → Products by someone who may not apply it; Approvals show the
   current and proposed photos; *Return for correction* or *Reject* discards the staged photos.
+
+## My requests (roadmap 193)
+
+*View own approval requests* (`approvals.view_own`) lets a person follow the requests they raised without approving:
+Approvals → **My requests (n)** with All / Pending / Approved / Rejected / Cancelled and counts
+(`GET /api/approvals/mine/summary`), reference, level, assigned approvers, decision, approver and comments. Without it (or
+*Approve requests* / *View audit trail*) one's own requests are not listed and `?mine=true` is refused. Viewing never
+grants deciding.

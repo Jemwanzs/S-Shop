@@ -53,6 +53,12 @@ pub struct CreditRow {
     pub created_at: DateTime<Utc>,
     /// partially_recalled | recalled (goods brought back to stock), else null.
     pub recall_state: Option<String>,
+    /// Roadmap 196: the one item (unit) this credit is for, when the sale has a credit per unpaid item.
+    pub sale_item_id: Option<Uuid>,
+    pub unit_no: Option<i32>,
+    pub item_name: Option<String>,
+    /// Paid towards this item when the sale was recorded (from the sale's payments, cheapest items first).
+    pub paid_at_sale: Decimal,
 }
 
 pub const CREDIT_SELECT: &str = "SELECT cs.id, cs.sale_id, s.receipt_no, cs.customer_id,
@@ -61,7 +67,9 @@ pub const CREDIT_SELECT: &str = "SELECT cs.id, cs.sale_id, s.receipt_no, cs.cust
         (cs.original_amount - cs.amount_paid - cs.adjustments) AS balance, cs.due_date,
         ($2::date - (cs.created_at AT TIME ZONE $3)::date) AS days_outstanding,
         CASE WHEN cs.status IN ('outstanding','partially_paid') AND cs.due_date < $2 THEN 'overdue' ELSE cs.status END AS status,
-        cs.created_at, cs.recall_state
+        cs.created_at, cs.recall_state, cs.sale_item_id, cs.unit_no,
+        (SELECT COALESCE(si.product_name, p2.name) FROM sale_items si JOIN products p2 ON p2.id = si.product_id WHERE si.id = cs.sale_item_id) AS item_name,
+        cs.paid_at_sale
     FROM credit_sales cs JOIN sales s ON s.id = cs.sale_id JOIN customers c ON c.id = cs.customer_id
     JOIN branches b ON b.id = cs.branch_id LEFT JOIN users u ON u.id = s.owner_id";
 
@@ -185,9 +193,11 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
                 p.id, si.marked_price, si.line_total,
                 (SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order LIMIT 1),
                 p.is_active, p.name
-         FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = $1 ORDER BY COALESCE(si.product_name, p.name), si.barcode",
+         FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = $1 AND ($2::uuid IS NULL OR si.id = $2)
+         ORDER BY COALESCE(si.product_name, p.name), si.barcode",
     )
     .bind(row.sale_id)
+    .bind(row.sale_item_id)
     .fetch_all(&mut *conn)
     .await?;
     let see_products = ctx.can("products.view") || ctx.can("stock.view");

@@ -134,3 +134,13 @@ The smoke suite section *Roadmap 65–67* covers:
   credit, credit ↔ paid conversion, or a customer change when points were redeemed.
 - `sale_edit_requests` keeps each request: reason, the sale before (fingerprint), the proposal, the comparison, the
   effects, the sale after, revision number, requester, approver and approval.
+
+## Barcode restoration on Edit Sale (roadmap 192)
+
+On final approval only: removed tracked items return to the selling branch with their **original barcode** (Sold → In stock,
+same item, resellable); replaced items come back and the replacement is marked sold; quantity changes move only the
+difference; shared product barcodes change quantity only. *Return removed items to stock* (on by default) can be switched
+off for goods that cannot be resold. Each reinstated item must still be sold and its barcode not carried by another
+active item, or the correction is refused (*Item already back*, *Barcode in use*). Movements reference the sale
+(`ref_type = 'sale_revision'`, notes = the correction number), so the barcode history links the sale, the correction and
+any resale.

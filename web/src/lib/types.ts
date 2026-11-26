@@ -374,7 +374,9 @@ export interface SaleDetail {
     created_at: string;
     user_name: string | null;
   }[];
-  credit: { id: Id; original_amount: Money; amount_paid: Money; adjustments: Money; balance: Money; due_date: string; status: string } | null;
+  credit: { id: Id; original_amount: Money; amount_paid: Money; adjustments: Money; balance: Money; due_date: string; status: string; records?: number } | null;
+  /** Roadmap 196: every credit record of the sale (one per unpaid item, or one for the whole sale). */
+  credits?: { id: Id; original_amount: Money; amount_paid: Money; adjustments: Money; balance: Money; due_date: string; status: string; paid_at_sale: Money; unit_no: number | null; product_name: string | null; barcode: string | null }[];
   business: { name: string; phone: string; address: string; currency: string; logo_url: string | null; receipt_footer: string };
   pending_approval_id: Id | null;
   /** Roadmap 191: what the waiting request is (sale.edit, sale.return, …). */
@@ -401,6 +403,12 @@ export interface CreditRow {
   status: string;
   created_at: string;
   recall_state: "partially_recalled" | "recalled" | null;
+  /** Roadmap 196: the one item (unit) this credit is for, when the sale has a credit per unpaid item. */
+  sale_item_id?: Id | null;
+  unit_no?: number | null;
+  item_name?: string | null;
+  /** Paid towards this item when the sale was recorded. */
+  paid_at_sale?: Money;
 }
 
 export interface OrderRow {

@@ -1,6 +1,13 @@
 //! In-app notifications. Rows are stored per recipient and pushed live over
 //! SSE. Delivery is best-effort: failures are logged, never surfaced to the
 //! action that triggered them. Call these *after* the business transaction commits.
+//!
+//! Roadmap 194: every notification has a **category** (one *Notifications* permission each), the **module permission**
+//! its record needs and, when it concerns one branch, that **branch**. A person receives — and later sees, counts and
+//! opens — only notifications whose category their role allows, whose module they may use and whose branch they work
+//! at. Security alerts about the account and business (support access) are always delivered. Because the rule is
+//! applied again whenever notifications are read, a change of role, permissions or branches takes effect at once,
+//! without deleting anything.
 
 use serde_json::json;
 use uuid::Uuid;
@@ -15,11 +22,63 @@ pub struct Note {
     pub link: String,
     /// Prevents repeats (e.g. one low-stock alert per product per day).
     pub dedupe_key: Option<String>,
+    /// Roadmap 194: the branch the notification concerns (None = not branch-specific).
+    pub branch_id: Option<Uuid>,
 }
+
+/// Roadmap 194: what a notification kind is about.
+pub struct Class {
+    /// The *Notifications* permission is `notify.{category}`.
+    pub category: &'static str,
+    /// The module permission needed to see the record it is about.
+    pub perm: Option<&'static str>,
+    /// Account and business security alerts: always delivered to their recipients.
+    pub mandatory: bool,
+    /// Requests assigned to (or raised by) a person reach them wherever the request's branch is.
+    pub ignores_branch: bool,
+}
+
+/// Every notification kind's category, module permission and handling (one place; unknown kinds are administrative).
+pub fn classify(kind: &str) -> Class {
+    let c = |category, perm, mandatory, ignores_branch| Class { category, perm, mandatory, ignores_branch };
+    match kind {
+        "new_order" => c("orders", Some("orders.view"), false, false),
+        "credit_overdue" => c("credit", Some("credit.view"), false, false),
+        "low_stock" | "out_of_stock" => c("stock", Some("stock.view"), false, false),
+        k if k.starts_with("transfer_") => c("stock", Some("stock.view"), false, false),
+        "product_deactivated" => c("stock", Some("products.view"), false, false),
+        "mpesa_attention" => c("sales", None, false, false),
+        "approval_pending" | "approval_handled" => c("approvals", None, false, true),
+        "approval_decided" => c("own_requests", None, false, true),
+        "website_request" | "website_service" | "website_domain" | "article_review" | "article_ai_limit" => c("website", Some("website.view"), false, false),
+        "support_request" | "support_started" | "support_decision" | "access_request" | "error_alert" => c("admin", None, true, true),
+        _ => c("admin", None, false, false),
+    }
+}
+
+/// Categories, in the order the notification centre lists them.
+pub const CATEGORIES: [(&str, &str); 10] = [
+    ("sales", "Sales"), ("credit", "Credit & repayments"), ("stock", "Stock & transfers"), ("customers", "Customers & loyalty"),
+    ("expenses", "Expenses"), ("orders", "Orders"), ("approvals", "Approvals assigned to me"), ("own_requests", "My requests"),
+    ("website", "Website"), ("admin", "Administration & security"),
+];
+
+/// SQL: whether user `u` (role `r`, effective permissions `e.p`) may receive a notification — roadmap 194. Placeholders
+/// `{mandatory}`, `{cat}` (`notify.…`), `{perm}`, `{any_branch}`, `{branch}` are replaced by bind positions.
+pub const ELIGIBLE: &str = "u.is_active
+    AND ({mandatory} OR '*' = ANY(r.permissions) OR ({cat} = ANY(e.p) AND NOT ({cat} = ANY(r.excluded_permissions))))
+    AND ({perm}::text IS NULL OR '*' = ANY(r.permissions) OR ({perm} = ANY(e.p) AND NOT ({perm} = ANY(r.excluded_permissions))))
+    AND ({any_branch} OR {branch}::uuid IS NULL OR '*' = ANY(r.permissions) OR u.all_branches
+         OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = {branch}))";
 
 impl Note {
     pub fn new(kind: &'static str, title: impl Into<String>, body: impl Into<String>, link: impl Into<String>) -> Self {
-        Self { kind, title: title.into(), body: body.into(), link: link.into(), dedupe_key: None }
+        Self { kind, title: title.into(), body: body.into(), link: link.into(), dedupe_key: None, branch_id: None }
+    }
+    /// The branch this notification concerns (roadmap 194).
+    pub fn branch(mut self, branch: Option<Uuid>) -> Self {
+        self.branch_id = branch;
+        self
     }
     pub fn dedupe(mut self, key: impl Into<String>) -> Self {
         self.dedupe_key = Some(key.into());
@@ -43,6 +102,7 @@ pub async fn to_permission(state: &AppState, tenant_id: Uuid, branch_id: Option<
     .fetch_all(&state.db)
     .await;
 
+    let note = if note.branch_id.is_none() { note.branch(branch_id) } else { note };
     match recipients {
         Ok(users) => to_users(state, tenant_id, &users, note).await,
         Err(e) => tracing::warn!(error = %e, "notification recipients lookup failed"),
@@ -69,6 +129,7 @@ pub async fn to_order_staff(state: &AppState, tenant_id: Uuid, branch_id: Uuid, 
     .bind(branch_id)
     .fetch_all(&state.db)
     .await;
+    let note = note.branch(Some(branch_id));
     match recipients {
         Ok(users) => to_users(state, tenant_id, &users, note).await,
         Err(e) => tracing::warn!(error = %e, "order notification recipients lookup failed"),
@@ -76,10 +137,34 @@ pub async fn to_order_staff(state: &AppState, tenant_id: Uuid, branch_id: Uuid, 
 }
 
 pub async fn to_users(state: &AppState, tenant_id: Uuid, users: &[Uuid], note: Note) {
-    for &user_id in users {
+    let class = classify(note.kind);
+    // Roadmap 194: only people this notification is for — by category, module permission and branch.
+    let sql = format!(
+        "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id CROSS JOIN LATERAL (SELECT effective_permissions(r.permissions, u.extra_permissions) AS p) e
+         WHERE u.id = ANY($1) AND u.tenant_id = $2 AND {}",
+        ELIGIBLE.replace("{mandatory}", "$3").replace("{cat}", "$4").replace("{perm}", "$5").replace("{any_branch}", "$6").replace("{branch}", "$7")
+    );
+    let eligible: Vec<Uuid> = match sqlx::query_scalar(&sql)
+        .bind(users)
+        .bind(tenant_id)
+        .bind(class.mandatory)
+        .bind(format!("notify.{}", class.category))
+        .bind(class.perm)
+        .bind(class.ignores_branch)
+        .bind(note.branch_id)
+        .fetch_all(&state.db)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "notification eligibility lookup failed");
+            return;
+        }
+    };
+    for &user_id in users.iter().filter(|u| eligible.contains(u)) {
         let inserted: Result<Option<(Uuid, chrono::DateTime<chrono::Utc>)>, _> = sqlx::query_as(
-            "INSERT INTO notifications (tenant_id, user_id, kind, title, body, link, dedupe_key)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)
+            "INSERT INTO notifications (tenant_id, user_id, kind, title, body, link, dedupe_key, category, perm, branch_id, mandatory)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
              ON CONFLICT (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
              RETURNING id, created_at",
         )
@@ -90,6 +175,10 @@ pub async fn to_users(state: &AppState, tenant_id: Uuid, users: &[Uuid], note: N
         .bind(&note.body)
         .bind(&note.link)
         .bind(&note.dedupe_key)
+        .bind(class.category)
+        .bind(class.perm)
+        .bind(if class.ignores_branch { None } else { note.branch_id })
+        .bind(class.mandatory)
         .fetch_optional(&state.db)
         .await;
 
@@ -99,7 +188,7 @@ pub async fn to_users(state: &AppState, tenant_id: Uuid, users: &[Uuid], note: N
                 Some(user_id),
                 "notification",
                 json!({ "id": id, "kind": note.kind, "title": note.title, "body": note.body,
-                        "link": note.link, "created_at": created_at, "read_at": null }),
+                        "link": note.link, "created_at": created_at, "read_at": null, "category": class.category }),
             ),
             Ok(None) => {}
             Err(e) => tracing::warn!(error = %e, "notification insert failed"),

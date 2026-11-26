@@ -28,6 +28,7 @@ use crate::workflow::{self, Level};
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/approvals", get(list))
+        .route("/approvals/mine/summary", get(mine_summary))
         .route("/approvals/bulk", post(bulk))
         .route("/approvals/{id}/approve", post(approve))
         .route("/approvals/{id}/reject", post(reject))
@@ -159,9 +160,59 @@ async fn names(conn: &mut sqlx::PgConnection, ids: &[Uuid]) -> AppResult<Vec<Str
     Ok(sqlx::query_scalar("SELECT name FROM users WHERE id = ANY($1) ORDER BY name").bind(ids).fetch_all(&mut *conn).await?)
 }
 
+/// Roadmap 193: who may follow the requests they raised (View own approval requests; approvers and auditors see them too).
+pub fn may_view_own(ctx: &Ctx) -> bool {
+    ctx.can("approvals.view_own") || ctx.can("approvals.approve") || ctx.can("audit.view")
+}
+
+/// Roadmap 193: the signed-in person's own requests by status (My requests).
+async fn mine_summary(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Value>> {
+    if !may_view_own(&ctx) {
+        return Err(AppError::Forbidden("You do not have permission to view your approval requests".into()));
+    }
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT status, COUNT(*) FROM approvals WHERE tenant_id = $1 AND requested_by = $2 AND (branch_id IS NULL OR branch_id = ANY($3)) GROUP BY status",
+    )
+    .bind(ctx.tenant_id)
+    .bind(ctx.user_id)
+    .bind(&ctx.branch_ids)
+    .fetch_all(&state.db)
+    .await?;
+    let n = |s: &str| rows.iter().find(|r| r.0 == s).map_or(0, |r| r.1);
+    Ok(Json(json!({ "pending": n("pending"), "approved": n("approved"), "rejected": n("rejected"), "cancelled": n("cancelled"),
+                    "total": rows.iter().map(|r| r.1).sum::<i64>() })))
+}
+
+/// Roadmap 194: pending requests this person may decide now (the Approvals badge) — not every pending request.
+pub async fn decidable_count(conn: &mut sqlx::PgConnection, ctx: &Ctx) -> AppResult<i64> {
+    if ctx.acting_from.is_some() {
+        return Ok(0);
+    }
+    let rows: Vec<ApprovalRow> = sqlx::query_as(&format!(
+        "{SELECT} WHERE a.tenant_id = $1 AND a.status = 'pending' AND (a.branch_id IS NULL OR a.branch_id = ANY($2)) ORDER BY a.created_at DESC LIMIT 500"
+    ))
+    .bind(ctx.tenant_id)
+    .bind(&ctx.branch_ids)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut n = 0;
+    for row in rows {
+        let decided = row.decided_by();
+        let why = workflow::eligibility_for(conn, ctx.tenant_id, Some(&row.action), row.step(), row.branch_id, row.requested_by, ctx.user_id, &decided).await?;
+        if why.may_decide() {
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Paged<Item>>> {
     let status = q.status.unwrap_or_else(|| "pending".into());
     let mine = q.mine.unwrap_or(false);
+    let own_visible = may_view_own(&ctx);
+    if mine && !own_visible {
+        return Err(AppError::Forbidden("You do not have permission to view your approval requests".into()));
+    }
     let rows: Vec<ApprovalRow> = sqlx::query_as(&format!(
         "{SELECT} WHERE a.tenant_id = $1 AND ($2 = 'all' OR a.status = $2) AND (NOT $3 OR a.requested_by = $4)
            AND (a.branch_id IS NULL OR a.branch_id = ANY($5))
@@ -192,7 +243,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
         };
         let can_decide = why.is_some_and(|w| w.may_decide());
         // Users only see requests they raised or can decide, unless they hold audit visibility.
-        if can_decide || row.requested_by == Some(ctx.user_id) || ctx.can("audit.view") || ctx.can("approvals.approve") {
+        if can_decide || (own_visible && row.requested_by == Some(ctx.user_id)) || ctx.can("audit.view") || ctx.can("approvals.approve") {
             let (next_approvers, stuck) = if pending {
                 let ids = workflow::approvers_for(&mut conn, ctx.tenant_id, Some(&row.action), row.step(), row.branch_id, row.requested_by, &decided).await?;
                 // Nobody may decide this step: say so (and why) instead of leaving it waiting silently.
@@ -490,6 +541,10 @@ pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, 
         notify_handled(state, ctx.tenant_id, &a, &others, &ctx.name, "approved", None, ctx.tz).await;
     }
     state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "approved" }));
+    // Roadmap 192: an applied sale correction or photo change refreshes stock, products, the till and the website.
+    if a.action == "sale.edit" || a.payload.get("photos_request").is_some() {
+        state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": a.branch_id }));
+    }
     Ok(Decided { value: json!({ "ok": true, "status": "approved" }), summary: a.summary.clone(), requester: a.requested_by, others, moved: None, decided: Vec::new() })
 }
 

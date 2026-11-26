@@ -217,6 +217,10 @@ pub struct ReceiveBody {
     /// `quantity`, and are noted on the movement).
     #[serde(default)]
     pub barcode_counts: std::collections::BTreeMap<String, i32>,
+    /// Roadmap 197: new shared barcodes the person confirmed for this product (*Add barcode & continue*) — registered
+    /// only when the receipt is posted (or finally approved); a refused or rejected receipt registers nothing.
+    #[serde(default)]
+    pub add_barcodes: Vec<String>,
     /// Roadmap 176: set by the server (never taken from the client) when the receipt changes the selling price —
     /// `branch` (the receiving branch's own price: it has one, or the business has several branches) or `default`.
     #[serde(default)]
@@ -303,6 +307,15 @@ async fn check_receipt(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b
             }
             if let Some(other) = super::catalog::barcode_taken_by(conn, ctx.tenant_id, b.product_id, code).await? {
                 return Err(refused("Barcode belongs to another product", format!("{code} is {other}'s barcode, not {}'s.", p.name)));
+            }
+            if b.add_barcodes.contains(code) {
+                if p.barcode.is_some() && !s.product.multiple_barcodes {
+                    return Err(refused(
+                        "One barcode per product",
+                        format!("{} already has its barcode. Your business allows one barcode per product (Settings → Products → Allow Multiple Barcodes per Product).", p.name),
+                    ));
+                }
+                continue;
             }
             if !(i == 0 && p.barcode.is_none()) {
                 return Err(refused(
@@ -411,6 +424,7 @@ async fn receive_batch(State(state): State<AppState>, ctx: Ctx, Json(body): Json
             labels_attached: false,
             labels_verified: false,
             barcode_sources: l.barcode_source.into_iter().collect(),
+            add_barcodes: Vec::new(),
         };
         // The message names the product: the whole delivery waits for this one line to be corrected.
         let outcome = receive_line(&mut tx, &ctx, &s, &mut b).await.map_err(|e| match e {
@@ -441,8 +455,13 @@ async fn receive_batch(State(state): State<AppState>, ctx: Ctx, Json(body): Json
 /// One receipt inside the caller's transaction: checked, then recorded or sent for approval.
 async fn receive_line(tx: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &mut ReceiveBody) -> AppResult<Outcome<Value>> {
     let branch = b.branch_id.unwrap_or(ctx.branch_id);
-    inventory::ensure_product_in_branch(&mut *tx, ctx.tenant_id, b.product_id, branch).await?;
+    // Roadmap 197: a product sold at other branches can be received here too — it becomes available at this branch when
+    // the receipt is posted (see `execute_receipt`); other branches' stock is never touched.
     let mut p = product_info(&mut *tx, ctx.tenant_id, b.product_id).await?;
+    b.add_barcodes.retain(|c| b.barcodes.contains(c));
+    for c in &b.add_barcodes {
+        crate::util::clean_barcode(c).map_err(|e| bad(e.to_string()))?;
+    }
     if !s.stock.capture_cost {
         b.cost_price = None;
     }
@@ -479,7 +498,10 @@ async fn receive_line(tx: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &
     // Roadmap 131: with neither a cost nor a selling price the receipt has no value (never an invented one).
     let unit_value = b.cost_price.or(p.cost_price).or(b.marked_price).or(p.marked_price).unwrap_or(Decimal::ZERO);
     let amount = unit_value * Decimal::from(b.quantity);
-    if workflow::needs_approval(&mut *tx, ctx, "stock.add", workflow::Gate::branch(branch).amount(amount)).await? {
+    // Roadmap 197: registering a new barcode needs *Edit products*; without it the receipt waits for approval.
+    let barcode_approval = !b.add_barcodes.is_empty() && !ctx.can("products.edit");
+    if barcode_approval || workflow::needs_approval(&mut *tx, ctx, "stock.add", workflow::Gate::branch(branch).amount(amount)).await? {
+        let custom = workflow::rule_for(&mut *tx, ctx.tenant_id, "stock.add").await?.is_some_and(|r| r.enabled && !r.levels.is_empty());
         let approval = workflow::submit(
             &mut *tx,
             ctx,
@@ -488,12 +510,23 @@ async fn receive_line(tx: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &
                 entity_type: "product",
                 entity_id: b.product_id,
                 branch_id: Some(branch),
-                summary: format!("Receive {} × {}", b.quantity, p.name),
+                summary: if b.add_barcodes.is_empty() {
+                    format!("Receive {} × {}", b.quantity, p.name)
+                } else {
+                    format!("Receive {} × {} — new barcode {}", b.quantity, p.name, b.add_barcodes.join(", "))
+                },
                 amount: Some(amount),
                 payload: serde_json::to_value(&*b).unwrap_or_default(),
             },
         )
         .await?;
+        if !custom {
+            sqlx::query("UPDATE approvals SET steps = $2 WHERE id = $1")
+                .bind(approval)
+                .bind(sqlx::types::Json(vec![workflow::Level::single("admin")]))
+                .execute(&mut *tx)
+                .await?;
+        }
         return Ok(Outcome::pending(approval));
     }
     Ok(Outcome::done(execute_receipt(&mut *tx, ctx, b, None).await?))
@@ -501,6 +534,43 @@ async fn receive_line(tx: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &
 
 async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, approval_id: Option<Uuid>) -> AppResult<Value> {
     let branch = b.branch_id.unwrap_or(ctx.branch_id);
+    // Roadmap 197: the product becomes available at the receiving branch (if it was limited to other branches).
+    let added: u64 = sqlx::query(
+        "INSERT INTO product_branches (product_id, branch_id)
+         SELECT p.id, $2 FROM products p WHERE p.id = $1 AND p.tenant_id = $3 AND NOT p.all_branches
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(b.product_id)
+    .bind(branch)
+    .bind(ctx.tenant_id)
+    .execute(&mut *conn)
+    .await?
+    .rows_affected();
+    if added > 0 {
+        audit::record(conn, ctx, Entry::new("products", "branch_added", "product", b.product_id).branch(branch).after(json!({ "branch_id": branch, "by": "receiving stock" })).approval(approval_id)).await?;
+    }
+    // Roadmap 197: new shared barcodes confirmed with the receipt are registered now (checked again: one barcode, one product).
+    for code in &b.add_barcodes {
+        if super::catalog::is_product_barcode(conn, ctx.tenant_id, b.product_id, code).await? {
+            continue;
+        }
+        if let Some(other) = super::catalog::barcode_taken_by(conn, ctx.tenant_id, b.product_id, code).await? {
+            return Err(refused("Barcode already in use", format!("{code} belongs to {other}. One barcode identifies one product.")));
+        }
+        let main: Option<String> = sqlx::query_scalar("SELECT barcode FROM products WHERE id = $1 AND tenant_id = $2 FOR UPDATE").bind(b.product_id).bind(ctx.tenant_id).fetch_one(&mut *conn).await?;
+        if main.is_none() {
+            sqlx::query("UPDATE products SET barcode = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2").bind(b.product_id).bind(ctx.tenant_id).bind(code).execute(&mut *conn).await?;
+        } else {
+            sqlx::query("INSERT INTO product_barcodes (tenant_id, product_id, barcode, created_by) VALUES ($1, $2, $3, $4)")
+                .bind(ctx.tenant_id)
+                .bind(b.product_id)
+                .bind(code)
+                .bind(ctx.user_id)
+                .execute(&mut *conn)
+                .await?;
+        }
+        audit::record(conn, ctx, Entry::new("products", "barcode_added", "product", b.product_id).branch(branch).after(json!({ "barcode": code, "main": main.is_none(), "by": "receiving stock" })).approval(approval_id)).await?;
+    }
     let p = product_info(conn, ctx.tenant_id, b.product_id).await?;
     let kind = b.kind.as_deref().unwrap_or("received");
     // Roadmap 176: a price change captured with the receipt applies to the receiving branch's own price, or (one branch)

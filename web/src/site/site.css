@@ -490,3 +490,21 @@ textarea.field { min-height: 90px; resize: vertical; }
 .share { display: flex; flex-wrap: wrap; gap: 8px; }
 .share .btn svg { width: 1em; height: 1em; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 12px; }
+
+/* Roadmap 195: product photo framing. With "whole product" photos (fit: contain) every frame is the same shape and a
+   clean, light neutral tile in both modes; the photo is centred, scaled to the largest size that shows all of it (never
+   stretched or cropped), and its own white background melts into the tile (multiply), so studio shots on white look
+   edge-to-edge instead of a white box in a grey frame. Cards, featured rails, category lists, the product page and
+   previews all use these rules. Original photos are untouched. */
+.site[data-fit="contain"] { --frame: #f6f5f3; }
+.site[data-fit="contain"] .card .img,
+.site[data-fit="contain"] .gallery .main { background: var(--frame); }
+.site[data-fit="contain"] .card .img img,
+.site[data-fit="contain"] .gallery .main img { object-fit: contain; object-position: center; mix-blend-mode: multiply; }
+.site[data-fit="contain"] .gallery .main img { padding: var(--img-pad, 0); }
+.site[data-fit="contain"] .gallery .thumbs button { background: var(--frame); }
+.site[data-fit="contain"] .gallery .thumbs img { object-fit: contain; mix-blend-mode: multiply; padding: 4px; }
+.site[data-fit="contain"] .card .img .ph { mix-blend-mode: normal; }
+/* The hover zoom stays inside the frame's breathing room. */
+.site[data-fit="contain"]:not([data-motion="off"]) .card:hover .img img.ok:not(.alt) { transform: scale(1.025); }
+

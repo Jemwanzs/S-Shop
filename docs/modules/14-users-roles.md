@@ -124,3 +124,9 @@ account menu: **My profile**, **Edit profile**, **Change PIN** (the existing dia
 The role editor's button reads *Nothing to save* (off) until something differs from the role as it was opened —
 permissions (one by one or *Toggle all*), name, description, *Active* or a visibility scope — then *Save changes*;
 undoing every change switches it off again. *Saving…* blocks a second click; a failure keeps the changes.
+
+## Approval and notification permissions (roadmaps 193–194)
+
+*View own approval requests* (Administration) and the **Notifications** group (ten *Receive … notifications* permissions,
+Toggle all) are set per role like any other; existing roles received them all so nothing they saw disappears. A
+notification permission never widens module or branch access.

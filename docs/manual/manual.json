@@ -59,7 +59,8 @@
         "Write-offs controlled through approval workflows",
         "Each credit sale shows the product sold — photo, name and code as sold, quantity, price, discount and the amount on credit — even after the product is renamed or repriced",
         "One item per credit sale (switchable): a cart of several items on credit becomes separate credit sales, each settled on its own",
-        "Settle a credit with a returned item the customer had paid for, or swap an item sold on credit for another product — previewed, approved where required, and linked in the history"
+        "Settle a credit with a returned item the customer had paid for, or swap an item sold on credit for another product — previewed, approved where required, and linked in the history",
+        "Several items left partly on credit stay one sale and one receipt: the money received pays the cheapest items first and each item still owing gets its own credit, repaid or recalled on its own"
       ]
     },
     {
@@ -106,7 +107,8 @@
         "Seven-digit barcodes generated for each individually tracked item, printed on stickers (business name, barcode, number, product) and confirmed attached before stock is received",
         "Stock balances in Excel: download a sheet prefilled with every product and branch, count and correct it, upload it, review each difference and apply — quantities are the counted balances, never additions",
         "A branch filter: your branch by default, another of your branches, or all of them added up — viewing only, receiving and transfers stay at your working branch",
-        "Camera scanning reads gold, bronze, silver, coloured and light-on-dark barcodes too; Scan from photo for shiny or curved labels; tips when a barcode will not read"
+        "Camera scanning reads gold, bronze, silver, coloured and light-on-dark barcodes too; Scan from photo for shiny or curved labels; tips when a barcode will not read",
+        "Receive a product at any branch with its existing barcode; a new barcode for a known product is added when the stock is received (or approved)"
       ]
     },
     {
@@ -194,7 +196,8 @@
         "New users are invited by email and set their own PIN; an invitation link works once and expires after 10 minutes",
         "Several approvers per level — the first decision counts and the others are told; Tenant Administrators may approve their own requests (switchable), never refunds, expenses or write-offs",
         "Transfer approvals list every product, quantity, both branches' prices and the proposed price change, not only the transfer number",
-        "The Tenant Administrator role can be edited too: switch off optional permissions; the essential administration permissions stay locked on"
+        "The Tenant Administrator role can be edited too: switch off optional permissions; the essential administration permissions stay locked on",
+        "My requests: follow the requests you raised — pending, approved, rejected or cancelled — with who decides and their comments (View own approval requests)"
       ]
     },
     {
@@ -222,7 +225,8 @@
         "Audit filters by period and module, with a side-by-side comparison of changes",
         "Notifications for low stock, new orders, approvals, transfers and overdue credit",
         "Personal notification preferences",
-        "Universal search across products, customers, receipts and orders (Ctrl / ⌘ K)"
+        "Universal search across products, customers, receipts and orders (Ctrl / ⌘ K)",
+        "Notifications follow your role and branches: only what you may see, filtered by All / Unread / Read, category and branch"
       ]
     },
     {
@@ -255,7 +259,8 @@
         "Visitor and order analytics",
         "Show in-stock products only, limit the cart to available stock and show the quantity available — three settings shared with the ordering link",
         "Request Publication: people who may not publish send their website changes for approval, with an automatic summary; the Tenant Administrator reviews, previews and approves & publishes, returns or rejects",
-        "Product photos from the website editor: add, replace, reorder, remove and choose the primary photo of a product — shared with the catalogue, the till and the ordering link; applied at once by publishers, otherwise after approval"
+        "Product photos from the website editor: add, replace, reorder, remove and choose the primary photo of a product — shared with the catalogue, the till and the ordering link; applied at once by publishers, otherwise after approval",
+        "Product photos are framed uniformly: every photo shown whole and centred on a clean frame"
       ]
     },
     {
@@ -381,6 +386,13 @@
             "Forgot your PIN? On the sign-in page tap Forgot PIN / Password? and follow the email link, or ask your administrator to Reset PIN (Settings → Users).",
             "Sign out ends the session on this device. Sessions also end by themselves after a period without activity."
           ]
+        },
+        {
+          "title": "Follow your requests and notifications",
+          "steps": [
+            "Approvals → My requests: see each request you raised, its status, who decides it and their comments. Filter by Pending, Approved, Rejected or Cancelled.",
+            "The bell shows only notifications for your role and branches. Use All, Unread or Read and the categories to filter; tick one to mark it read."
+          ]
         }
       ]
     },
@@ -464,6 +476,14 @@
             "Open the order and, under Next step, tap the next status as you prepare, dispatch and deliver it.",
             "For individually tracked items, scan each item handed over when asked.",
             "At the configured stage the order becomes a sale automatically. Phone orders: New phone order."
+          ]
+        },
+        {
+          "title": "Take part payment and leave the rest on credit",
+          "steps": [
+            "Choose the customer, then Split payment: enter what is paid by each method (M-Pesa, cash, bank).",
+            "Turn on Leave the rest on credit and set the due date. The Payment Allocation Summary shows which items are fully paid (cheapest first) and which stay on credit.",
+            "Complete the sale: one receipt; each item still owing appears in Credit Sales on its own."
           ]
         }
       ]
@@ -631,6 +651,14 @@
             "Open the sale → Corrections → Edit Sale. Change what was recorded wrongly: date or time, customer, sale owner, branch, products, quantities, prices, payments or notes.",
             "Make sure the payments add up to the corrected total (verified M-Pesa payments are locked), then tap Review changes.",
             "Check the comparison, enter the reason and tap Submit for Approval. Nothing changes until it is approved; the sale then shows a corrected receipt and the correction history."
+          ]
+        },
+        {
+          "title": "Receive stock with a new barcode",
+          "steps": [
+            "Stock → Receive stock → choose the product and scan. A barcode the product already has simply counts units, at any branch.",
+            "A new barcode opens Add this barcode?: check the product, barcode, branch and quantity, then Add barcode & continue.",
+            "The barcode is added when the stock is received (or once approved, if you cannot edit products)."
           ]
         }
       ]
@@ -849,6 +877,14 @@
           "steps": [
             "Settings → Billing shows your plan, what is due and your invoices.",
             "Pay now (through Paystack) or Pay by bank using the invoice number as the reference; download receipts there."
+          ]
+        },
+        {
+          "title": "Choose who gets which notifications",
+          "steps": [
+            "Settings → Roles & permissions → Edit a role → Notifications: tick what the role should receive (Toggle all for everything).",
+            "People still only receive notifications for modules and branches they can access. Changes apply straight away — notifications they may no longer see disappear from their bell.",
+            "In Administration, View own approval requests lets people follow the requests they raise without approving."
           ]
         }
       ]

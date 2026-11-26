@@ -116,7 +116,21 @@ export default function SaleDetail() {
           <OwnershipPanel data={data} onChanged={() => { qc.invalidateQueries({ queryKey: ["sale", id] }); qc.invalidateQueries({ queryKey: ["sales"] }); }} />
           {s.order_no && <Section title="Order"><Link to={`/orders/${s.order_id}`} className="num text-primary">{s.order_no}</Link></Section>}
           {s.approved_by_name && <Section title="Discount approval"><p className="text-sm">{t("Approved by")} {s.approved_by_name}</p></Section>}
-          {data.credit && (
+          {data.credit && (data.credits?.length ?? 0) > 1 ? (
+            // Roadmap 196: one credit record per item still owing, all on this sale and receipt.
+            <Section title="Credit">
+              <ul className="space-y-2 text-sm" data-testid="sale-credits">
+                {data.credits!.map((cr) => (
+                  <li key={cr.id} className="flex items-center justify-between gap-2">
+                    <Link to={`/credit/${cr.id}`} className="min-w-0 truncate text-primary">{cr.product_name}{cr.barcode && ` · ${cr.barcode}`}</Link>
+                    <span className="flex shrink-0 items-center gap-1.5"><span className="num">{money(cr.balance)}</span><StatusBadge status={cr.status} /></span>
+                  </li>
+                ))}
+              </ul>
+              <KV label="Total owed" className="mt-2 border-t pt-2 font-semibold"><span className="num">{money(data.credit.balance)}</span></KV>
+              <KV label="Due">{data.credit.due_date}</KV>
+            </Section>
+          ) : data.credit && (
             <Section title="Credit" action={<Link to={`/credit/${data.credit.id}`} className="text-xs text-primary">{t("Open")}</Link>}>
               <KV label="Due">{data.credit.due_date}</KV>
               <KV label="Status"><StatusBadge status={data.credit.status} /></KV>

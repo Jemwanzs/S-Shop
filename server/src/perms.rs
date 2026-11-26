@@ -86,11 +86,26 @@ pub const CATALOGUE: &[PermGroup] = &[
     ]},
     PermGroup { module: "admin", label: "Administration", permissions: &[
         ("approvals.approve", "Approve requests"),
+        // Roadmap 193: follow one's own requests (My requests) without approving anything.
+        ("approvals.view_own", "View own approval requests"),
         ("branches.manage", "Manage branches"),
         ("users.manage", "Manage users"),
         ("roles.manage", "Manage roles & permissions"),
         ("settings.manage", "Manage all settings (every area below)"),
         ("audit.view", "View audit trail"),
+    ]},
+    // Roadmap 194: which notifications a role receives — never more than its module permissions and branches allow.
+    PermGroup { module: "notify", label: "Notifications", permissions: &[
+        ("notify.sales", "Receive sales notifications"),
+        ("notify.credit", "Receive credit sales and repayment notifications"),
+        ("notify.stock", "Receive stock and transfer notifications"),
+        ("notify.customers", "Receive customer and loyalty notifications"),
+        ("notify.expenses", "Receive expense notifications"),
+        ("notify.orders", "Receive order notifications"),
+        ("notify.approvals", "Receive assigned approval notifications"),
+        ("notify.own_requests", "Receive updates on own approval requests"),
+        ("notify.website", "Receive website management notifications"),
+        ("notify.admin", "Receive administrative and security notifications"),
     ]},
     // Website Add-On (roadmap 51–57): can also be given to individual users without operational access.
     PermGroup { module: "website", label: "Website (add-on)", permissions: &[
@@ -183,17 +198,20 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
         "customers.view_credit", "loyalty.manage", "expenses.view", "expenses.create", "reports.view", "reports.export",
         "approvals.approve", "audit.view", "staff.view_others", "sales.print", "sales.outside_hours", "location.bypass",
         "sales.assign_owner", "sales.request_owner_change", "sales.backdate", "barcodes.generate", "barcodes.print", "barcodes.reveal", "barcodes.replace", "barcodes.manual_sale",
+        "notify.sales", "notify.credit", "notify.stock", "notify.customers", "notify.expenses", "notify.orders", "notify.approvals", "notify.own_requests", "notify.website", "notify.admin", "approvals.view_own",
     ]},
     RoleTemplate { name: "Director", description: "Oversees the whole business: figures, approvals and reports", permissions: &[
         "dashboard.view", "staff.view_others", "sales.view", "sales.print", "sales.view_financials", "credit.view", "orders.view",
         "products.view", "stock.view", "customers.view", "customers.view_loyalty", "customers.view_credit", "expenses.view",
         "reports.view", "reports.export", "approvals.approve", "audit.view",
+        "notify.sales", "notify.credit", "notify.stock", "notify.customers", "notify.expenses", "notify.orders", "notify.approvals", "notify.own_requests", "notify.admin", "approvals.view_own",
     ]},
     RoleTemplate { name: "Supervisor", description: "Leads the counter: approves discounts, returns and cancellations", permissions: &[
         "dashboard.view", "staff.view_others", "sales.view", "sales.create", "sales.view_out_of_stock", "sales.print", "sales.discount", "sales.discount_override",
         "sales.return", "credit.recall", "sales.cancel", "sales.edit", "credit.view", "credit.collect", "orders.view", "orders.manage", "products.view", "stock.view",
         "customers.view", "customers.create", "customers.edit", "customers.view_loyalty", "customers.redeem_points", "approvals.approve",
         "sales.outside_hours", "sales.assign_owner", "sales.request_owner_change", "sales.backdate", "barcodes.manual_sale",
+        "notify.sales", "notify.credit", "notify.stock", "notify.customers", "notify.orders", "notify.approvals", "notify.own_requests", "approvals.view_own",
     ]},
     RoleTemplate { name: "Branch Manager", description: "Manages one or more branches", permissions: &[
         "dashboard.view", "sales.view", "sales.create", "sales.view_out_of_stock", "sales.discount", "sales.discount_override", "sales.return", "credit.recall",
@@ -203,31 +221,38 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
         "reports.view", "reports.export", "approvals.approve", "staff.view_others", "sales.print", "sales.outside_hours",
         "location.bypass", "sales.assign_owner", "sales.request_owner_change", "sales.backdate", "barcodes.generate", "barcodes.print",
         "products.price",
+        "notify.sales", "notify.credit", "notify.stock", "notify.customers", "notify.expenses", "notify.orders", "notify.approvals", "notify.own_requests", "approvals.view_own",
     ]},
     RoleTemplate { name: "Salesperson", description: "Records sales at the counter", permissions: &[
         "sales.view", "sales.create", "sales.discount", "credit.view", "credit.collect", "products.view", "stock.view",
         "customers.view", "customers.create", "customers.view_loyalty", "customers.redeem_points", "orders.view", "sales.print",
         "sales.request_owner_change",
+        "notify.sales", "notify.credit", "notify.approvals", "notify.own_requests", "approvals.view_own",
     ]},
     RoleTemplate { name: "Storekeeper", description: "Receives, counts and moves stock", permissions: &[
         "products.view", "products.create", "products.edit", "products.price", "stock.view", "stock.add", "stock.adjust",
         "stock.transfer", "stock.receive_transfer", "barcodes.generate", "barcodes.print",
+        "notify.stock", "notify.approvals", "notify.own_requests", "approvals.view_own",
     ]},
     RoleTemplate { name: "Order Manager", description: "Processes customer orders", permissions: &[
         "orders.view", "orders.manage", "products.view", "stock.view", "customers.view", "customers.create",
+        "notify.orders", "notify.stock", "notify.approvals", "notify.own_requests", "approvals.view_own",
     ]},
     RoleTemplate { name: "Finance", description: "Expenses, credit and financial reports", permissions: &[
         "dashboard.view", "sales.view", "sales.view_financials", "credit.view", "credit.collect", "credit.write_off",
         "expenses.view", "expenses.create", "reports.view", "reports.export", "customers.view", "customers.view_credit",
         "approvals.approve", "staff.view_others", "sales.print",
+        "notify.sales", "notify.credit", "notify.expenses", "notify.approvals", "notify.own_requests", "approvals.view_own",
     ]},
     RoleTemplate { name: "Auditor", description: "Read-only access including the audit trail", permissions: &[
         "dashboard.view", "sales.view", "sales.view_financials", "credit.view", "orders.view", "products.view",
         "stock.view", "customers.view", "customers.view_loyalty", "customers.view_credit", "expenses.view",
         "reports.view", "reports.export", "audit.view", "staff.view_others",
+        "notify.approvals", "notify.own_requests", "approvals.view_own",
     ]},
     RoleTemplate { name: "View Only", description: "Can look but not change anything", permissions: &[
         "dashboard.view", "sales.view", "orders.view", "products.view", "stock.view", "customers.view",
+        "notify.approvals", "notify.own_requests", "approvals.view_own",
     ]},
 ];
 

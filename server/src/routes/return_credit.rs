@@ -114,7 +114,7 @@ async fn sources(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
             "SELECT s.id, s.receipt_no, s.created_at, NULLIF(trim(c.first_name || ' ' || c.other_names), ''), b.name, s.payment_method, s.total,
                     s.amount_paid, COALESCE(cs.original_amount - cs.amount_paid - cs.adjustments, 0)
              FROM sales s JOIN branches b ON b.id = s.branch_id LEFT JOIN customers c ON c.id = s.customer_id
-             LEFT JOIN credit_sales cs ON cs.sale_id = s.id
+             LEFT JOIN LATERAL (SELECT MIN(x.id::text)::uuid AS id, SUM(x.original_amount) AS original_amount, SUM(x.amount_paid) AS amount_paid, SUM(x.adjustments) AS adjustments, CASE WHEN bool_and(x.status = 'paid') THEN 'paid' WHEN bool_and(x.status IN ('paid', 'cancelled', 'recalled', 'written_off')) THEN MIN(x.status) FILTER (WHERE x.status <> 'paid') WHEN bool_or(x.status = 'partially_paid') THEN 'partially_paid' ELSE 'outstanding' END AS status FROM credit_sales x WHERE x.sale_id = s.id HAVING COUNT(*) > 0) cs ON true
              WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND s.status IN ('completed', 'partially_returned') AND s.id <> $3
                AND EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.quantity > si.returned_qty)
                AND (s.receipt_no ILIKE $4 OR c.first_name ILIKE $4 OR c.mobile ILIKE $4
@@ -181,7 +181,7 @@ async fn preview(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, 
     if src.items.is_empty() {
         return Err(bad("Choose the items coming back"));
     }
-    let body = ReturnBody { items: src.items.clone(), reason: "preview".into(), refund_method: "return_credit".into(), restock: true, settle: String::new() };
+    let body = ReturnBody { credit_id: None, items: src.items.clone(), reason: "preview".into(), refund_method: "return_credit".into(), restock: true, settle: String::new() };
     let r = sales::execute_return(&mut tx, &ctx, src.sale_id, &body, "return", None).await?;
     tx.rollback().await?;
     let value = dec(&r["refund_amount"]);
@@ -270,7 +270,7 @@ async fn settle(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
 
 /// The return (stock back, its value kept as a return credit — only what was paid), then the credit applied.
 async fn settle_with_return(conn: &mut PgConnection, ctx: &Ctx, credit_id: Uuid, src: &Source, amount: Option<Decimal>, approval_id: Option<Uuid>) -> AppResult<Value> {
-    let body = ReturnBody { items: src.items.clone(), reason: src.reason.trim().to_string(), refund_method: "return_credit".into(), restock: true, settle: String::new() };
+    let body = ReturnBody { credit_id: None, items: src.items.clone(), reason: src.reason.trim().to_string(), refund_method: "return_credit".into(), restock: true, settle: String::new() };
     let r = sales::execute_return(conn, ctx, src.sale_id, &body, "return", approval_id).await?;
     let Some(rc) = r["return_credit_id"].as_str().and_then(|v| v.parse::<Uuid>().ok()) else {
         return Err(refused(
@@ -535,7 +535,7 @@ async fn execute_swap(conn: &mut PgConnection, ctx: &Ctx, s: &settings::TenantSe
     let head = sales::sale_head(conn, ctx, c.sale_id).await?;
     check_returned_units(conn, c.sale_id, &b.return_items).await?;
     // 1. The recall: stock back, the amount owed reduced; what had been paid beyond it is kept as a return credit.
-    let rb = ReturnBody { items: b.return_items.clone(), reason: b.reason.trim().to_string(), refund_method: String::new(), restock: true, settle: "credit".into() };
+    let rb = ReturnBody { credit_id: None, items: b.return_items.clone(), reason: b.reason.trim().to_string(), refund_method: String::new(), restock: true, settle: "credit".into() };
     let r = sales::execute_return(conn, ctx, c.sale_id, &rb, "recall", approval_id).await?;
     let return_no = r["return_no"].as_str().unwrap_or_default().to_string();
     let rc: Option<Uuid> = r["return_credit_id"].as_str().and_then(|v| v.parse().ok());

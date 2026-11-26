@@ -119,3 +119,11 @@ Rules:
   Unchanged rows change nothing. The same workbook is never applied twice.
 - Approval: when the business's *Data import* or *Stock adjustment* workflow needs approval, the upload waits for it.
 - Stock balance uploads are operational: they are not part of the migration reconciliation.
+
+## Receiving across branches and new barcodes (roadmap 197)
+
+A product limited to some branches can be received at any branch: it becomes available there when the receipt is posted
+(audited); other branches' stock never changes. A new barcode for a known product is confirmed (*Add barcode & continue*),
+sent with the receipt (`add_barcodes`) and registered only when the receipt is posted or approved; without *Edit
+products* the receipt goes for approval. One barcode per product (setting), another product's barcode blocked, unique
+item barcodes unchanged.

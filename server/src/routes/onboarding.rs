@@ -2186,6 +2186,7 @@ async fn post_rows(conn: &mut PgConnection, ctx: &Ctx, id: Uuid, p: &mut Progres
                         barcodes = super::barcodes::allocate(conn, ctx.tenant_id, product_id, ctx.user_id, qty).await?;
                     }
                     let mut body = super::stock::ReceiveBody {
+                        add_barcodes: Vec::new(),
                         barcode_counts: Default::default(),
                         price_scope: None,
                         product_id,

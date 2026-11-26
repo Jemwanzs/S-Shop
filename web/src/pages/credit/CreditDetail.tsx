@@ -185,7 +185,9 @@ export default function CreditDetail() {
         <div className="space-y-5">
           <Section title="Details">
             <KV label="Receipt"><Link to={`/sales/${c.sale_id}`} className="num text-primary">{c.receipt_no}</Link></KV>
-            <KV label="Original amount"><span className="num">{money(c.original_amount)}</span></KV>
+            {c.item_name && <KV label="Item on credit">{c.item_name}{c.unit_no && c.unit_no > 1 ? ` · ${t("unit")} ${c.unit_no}` : ""}</KV>}
+            <KV label={c.item_name ? "Item price" : "Original amount"}><span className="num">{money(c.original_amount)}</span></KV>
+            {c.item_name && toNum(c.paid_at_sale) > 0 && <KV label="Paid at the sale"><span className="num">{money(c.paid_at_sale)}</span></KV>}
             {toNum(c.adjustments) > 0 && <KV label="Returns"><span className="num">−{money(c.adjustments)}</span></KV>}
             <KV label="Due date">{date(c.due_date)}</KV>
             <KV label="Days outstanding"><span className="num">{c.days_outstanding}</span></KV>

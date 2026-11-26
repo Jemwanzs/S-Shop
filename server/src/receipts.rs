@@ -139,9 +139,9 @@ async fn original_snapshot(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<
     .bind(sale_id)
     .fetch_all(&mut *conn)
     .await?;
-    let balance: Option<Decimal> = sqlx::query_scalar("SELECT original_amount - amount_paid - adjustments FROM credit_sales WHERE sale_id = $1")
+    let balance: Option<Decimal> = sqlx::query_scalar::<_, Option<Decimal>>("SELECT SUM(original_amount - amount_paid - adjustments) FROM credit_sales WHERE sale_id = $1")
         .bind(sale_id)
-        .fetch_optional(&mut *conn)
+        .fetch_one(&mut *conn)
         .await?;
     let show_ref = s.sales.receipt.show_payment_ref;
     let mut v = base(&h, &s, logo);

@@ -65,3 +65,14 @@ on, the customer also gets one WhatsApp reminder.
 
 ## Reports
 Credit Sales Report, Credit Aging Report (module 12).
+
+## A credit record per item owing (roadmap 196)
+
+A sale of several units left (partly) on credit — split payment with *Leave the rest on credit*, or a credit sale with or
+without a deposit — is one sale and one receipt. The money received pays the cheapest units first (selling price after
+discounts and the unit's share of points redeemed; equal prices in cart order), and every unit still owing gets its own
+credit record (`credit_sales.sale_item_id`, `unit_no`, `item_price`, `paid_at_sale`): same sale, receipt, customer,
+branch, salesperson and due date. Each is repaid, recalled (that unit only) or written off on its own. Returns and
+cancellations close the returned units' credits and refund only money received. A one-unit sale keeps one credit for the
+whole sale; *One item per credit sale* off keeps one credit per sale. The till previews the allocation (**Payment
+Allocation Summary**).

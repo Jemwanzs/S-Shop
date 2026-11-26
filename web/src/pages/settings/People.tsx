@@ -485,7 +485,7 @@ export function RolesSettings() {
   const toggle = (p: string, on: boolean) => edit && !isLocked(p) && setEdit({ ...edit, permissions: on ? [...edit.permissions, p] : edit.permissions.filter((x) => x !== p) });
   return (
     <SettingsPage title="Roles & permissions" description="Permissions are granted per module and action. Users can additionally be restricted by branch." loading={isLoading}>
-      <Card action={<Button size="sm" onClick={() => start({ name: "", description: "", permissions: [], is_active: true, user_count: 0 })}><Plus /> {t("New role")}</Button>}>
+      <Card action={<Button size="sm" onClick={() => start({ name: "", description: "", permissions: ["notify.approvals", "notify.own_requests", "approvals.view_own"], is_active: true, user_count: 0 })}><Plus /> {t("New role")}</Button>}>
         {data?.map((r) => (
           <div key={r.id} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">

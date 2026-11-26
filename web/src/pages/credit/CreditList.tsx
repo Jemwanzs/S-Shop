@@ -75,7 +75,7 @@ export default function CreditList() {
         onRowClick={(r) => navigate(`/credit/${r.id}`)}
         empty={<EmptyState icon={HandCoins} title="No credit here" />}
         columns={[
-          { key: "customer", header: "Customer", cell: (r) => <div><div className="font-medium">{r.customer_name}</div><div className="num text-xs text-muted-foreground">{r.receipt_no}</div></div> },
+          { key: "customer", header: "Customer", cell: (r) => <div><div className="font-medium">{r.customer_name}</div><div className="num text-xs text-muted-foreground">{r.receipt_no}{r.item_name && ` · ${r.item_name}`}</div></div> },
           { key: "branch", header: "Branch", cell: (r) => r.branch_name, hideBelow: "xl" },
           { key: "salesperson", header: "Salesperson", cell: (r) => r.salesperson ?? "—", hideBelow: "xl" },
           { key: "amount", header: "Amount", align: "right", cell: (r) => <span className="num">{money(toNum(r.original_amount) - toNum(r.adjustments))}</span>, hideBelow: "lg" },
@@ -88,7 +88,7 @@ export default function CreditList() {
         mobile={(r) => (
           <CardRow
             title={r.customer_name}
-            subtitle={<span className="num">{r.receipt_no} · due {date(r.due_date)}</span>}
+            subtitle={<span className="num">{r.receipt_no}{r.item_name && ` · ${r.item_name}`} · due {date(r.due_date)}</span>}
             value={money(r.balance)}
             meta={<StatusBadge status={r.status} />}
           />

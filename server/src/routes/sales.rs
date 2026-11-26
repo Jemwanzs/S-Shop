@@ -565,6 +565,45 @@ async fn confirm_mpesa(
     Ok((receipt.unwrap_or_default(), Some(req_id)))
 }
 
+/// One unit of a sale and the money allocated to it (roadmap 196).
+#[derive(Debug, PartialEq)]
+pub(crate) struct UnitShare {
+    /// Index of the sale line.
+    pub line: usize,
+    /// 1-based unit number within the line.
+    pub unit: i32,
+    /// What the unit costs the customer: its selling price after discounts and its share of points redeemed.
+    pub price: Decimal,
+    /// Money received allocated to it.
+    pub paid: Decimal,
+}
+
+/// Roadmap 196: the money received (`paid`) settles the cheapest units first — by their selling price after discounts
+/// (and their share of any points redeemed, so the units add up to `total`); equal prices in line order, then unit order.
+/// Every unit with `paid < price` is (partly) owed.
+pub(crate) fn allocate_units(lines: &[(usize, Decimal, i32)], net: Decimal, total: Decimal, paid: Decimal) -> Vec<UnitShare> {
+    let share = if net > Decimal::ZERO { total / net } else { Decimal::ONE };
+    let mut units: Vec<UnitShare> = Vec::new();
+    for &(line, unit_price, qty) in lines {
+        for u in 1..=qty.max(0) {
+            units.push(UnitShare { line, unit: u, price: round2(unit_price * share), paid: Decimal::ZERO });
+        }
+    }
+    units.sort_by(|a, b| a.price.cmp(&b.price).then(a.line.cmp(&b.line)).then(a.unit.cmp(&b.unit)));
+    // Rounding: the units add up to the total exactly (the difference goes to the most expensive unit).
+    let sum: Decimal = units.iter().map(|u| u.price).sum();
+    if let Some(last) = units.last_mut() {
+        last.price += total - sum;
+    }
+    let mut left = paid.max(Decimal::ZERO);
+    for u in units.iter_mut() {
+        let take = left.min(u.price.max(Decimal::ZERO));
+        u.paid = take;
+        left -= take;
+    }
+    units
+}
+
 /// Records a complete sale inside the caller's transaction. Returns the sale id.
 pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, input: SaleInput, trusted_prices: bool) -> AppResult<Uuid> {
     // Roadmap 115: the sale's date and each line's date (validated on the server: never in the future; earlier dates
@@ -774,14 +813,15 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
 
     let kind = if input.order_id.is_some() { "order_completion" } else { "sale" };
     let mut backdated_products: Vec<(Uuid, NaiveDate)> = Vec::new();
+    let mut line_ids: Vec<Uuid> = Vec::with_capacity(lines.len());
     for ((l, line_points), line_day) in lines.iter().zip(line_points).zip(&line_days) {
         // The day this line counts on: its own date, else the sale's (None = today).
         let day = line_day.filter(|d| *d < ctx.today()).or(if line_day.is_some() { None } else { sale_day });
         // Persist the points actually awarded per line so returns reverse exactly.
-        sqlx::query(
+        let line_id: Uuid = sqlx::query_scalar(
             "INSERT INTO sale_items (tenant_id, sale_id, product_id, stock_item_id, barcode, quantity, marked_price, unit_price,
                                      line_total, unit_cost, points, sale_date, scan_source)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id",
         )
         .bind(ctx.tenant_id)
         .bind(sale_id)
@@ -796,8 +836,9 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         .bind(line_points)
         .bind(line_day)
         .bind(&l.scan_source)
-        .execute(&mut *conn)
+        .fetch_one(&mut *conn)
         .await?;
+        line_ids.push(line_id);
         if let Some(item) = l.stock_item_id {
             sqlx::query("UPDATE stock_items SET status = 'sold', updated_at = now() WHERE id = $1 AND tenant_id = $2")
                 .bind(item)
@@ -826,7 +867,53 @@ pub async fn record_sale(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings,
         }
     }
 
-    if on_credit {
+    // Roadmap 196: several units left (partly) on credit — the money received pays the cheapest units first and every
+    // unit still owing gets its own credit record on this one sale (one item per credit record, as roadmap 179 asks).
+    let units_total: i32 = lines.iter().map(|l| l.quantity).sum();
+    let per_item = on_credit && s.sales.credit_single_item && units_total > 1;
+    if per_item {
+        let customer = input.customer_id.expect("checked above");
+        let due = input.due_date.unwrap_or_else(|| sale_day.unwrap_or_else(|| ctx.today()) + Duration::days(s.sales.credit_default_days));
+        let units: Vec<(usize, Decimal, i32)> = lines.iter().enumerate().map(|(i, l)| (i, l.unit_price, l.quantity)).collect();
+        for a in allocate_units(&units, net, total, amount_paid).into_iter().filter(|a| a.paid < a.price) {
+            sqlx::query(
+                "INSERT INTO credit_sales (tenant_id, branch_id, sale_id, customer_id, user_id, original_amount, due_date, amount_paid, status,
+                                           sale_item_id, unit_no, item_price, paid_at_sale)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $8 > 0 THEN 'partially_paid' ELSE 'outstanding' END, $9,$10,$6,$8)",
+            )
+            .bind(ctx.tenant_id)
+            .bind(input.branch_id)
+            .bind(sale_id)
+            .bind(customer)
+            .bind(ctx.user_id)
+            .bind(a.price)
+            .bind(due)
+            .bind(a.paid)
+            .bind(line_ids[a.line])
+            .bind(a.unit)
+            .execute(&mut *conn)
+            .await?;
+        }
+        // The money received belongs to the sale (receipt) once; each credit records the share it was given.
+        let parts: Vec<(String, Decimal, String, Option<Uuid>)> = deposit.clone().into_iter().chain(split_rows.clone()).collect();
+        for (dmethod, amount, dref, dreq) in &parts {
+            sqlx::query(
+                "INSERT INTO payments (tenant_id, branch_id, sale_id, method, amount, reference, phone, mpesa_request_id, user_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+            )
+            .bind(ctx.tenant_id)
+            .bind(input.branch_id)
+            .bind(sale_id)
+            .bind(dmethod)
+            .bind(amount)
+            .bind(dref)
+            .bind(input.payment.phone.trim())
+            .bind(dreq)
+            .bind(ctx.user_id)
+            .execute(&mut *conn)
+            .await?;
+        }
+    } else if on_credit {
         let customer = input.customer_id.expect("checked above");
         let due = input.due_date.unwrap_or_else(|| sale_day.unwrap_or_else(|| ctx.today()) + Duration::days(s.sales.credit_default_days));
         let credit_id: Uuid = sqlx::query_scalar(
@@ -1156,14 +1243,8 @@ pub async fn create_in_tx(tx: &mut PgConnection, ctx: &Ctx, b: CreateBody, appro
         _ => None,
     };
     let s = settings::load(&mut *tx, ctx.tenant_id).await?;
-    // Roadmap 179: one physical item per new credit sale, so each item has its own receipt, balance and settlement.
-    let units: i64 = b.items.iter().map(|l| i64::from(l.quantity.max(0))).sum();
-    if (b.payment.method == "credit" || b.on_credit) && s.sales.credit_single_item && units > 1 {
-        return Err(refused(
-            "One item per credit sale",
-            format!("Credit sales hold one item each, and this cart has {units}. Record each item as its own credit sale."),
-        ));
-    }
+    // Roadmap 179 / 196: with *One item per credit sale* each credit record holds one item — a cart of several items
+    // left (partly) on credit is one sale whose unpaid items each get their own credit record (see `record_sale`).
     if s.workspace.outside_hours == settings::OutsideHours::Block && !ctx.can("sales.outside_hours") {
         let hours = settings::branch_hours(&mut *tx, ctx.tenant_id, branch, &s).await?;
         if !hours.is_open(sold_at.with_timezone(&ctx.tz).naive_local()) {
@@ -1418,7 +1499,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
                 COALESCE(SUM(s.discount_total) FILTER (WHERE s.status <> 'cancelled') OVER(), 0) AS sum_discount
          FROM sales s JOIN branches b ON b.id = s.branch_id
          LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users ow ON ow.id = s.owner_id
-         LEFT JOIN orders o ON o.id = s.order_id LEFT JOIN credit_sales cs ON cs.sale_id = s.id
+         LEFT JOIN orders o ON o.id = s.order_id LEFT JOIN LATERAL ({CREDIT_OF_SALE}) cs ON true
          WHERE s.tenant_id = $1 AND s.branch_id = ANY($2) AND s.business_date BETWEEN $3 AND $4
            AND ($5::uuid IS NULL OR s.owner_id = $5) AND ($6::uuid IS NULL OR s.customer_id = $6)
            AND ($7::text IS NULL OR s.status = $7) AND ($8::text IS NULL OR s.payment_method = $8)
@@ -1456,6 +1537,16 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
 
 /// Roadmap 107: a sale's payment status from the existing sale and credit statuses (no separate status model):
 /// paid · partially_paid · credit_outstanding · refunded · cancelled · written_off · recalled.
+/// Roadmap 196: a sale's credit records as one (a sale may now have a credit per unpaid unit) — join with
+/// `LEFT JOIN LATERAL (CREDIT_OF_SALE) cs ON true`; `cs.id` is NULL when the sale has no credit.
+pub(crate) const CREDIT_OF_SALE: &str = "SELECT MIN(x.id::text)::uuid AS id, SUM(x.original_amount) AS original_amount,
+        SUM(x.amount_paid) AS amount_paid, SUM(x.adjustments) AS adjustments, MIN(x.due_date) AS due_date, COUNT(*) AS records,
+        CASE WHEN bool_and(x.status = 'paid') THEN 'paid'
+             WHEN bool_and(x.status IN ('paid', 'cancelled', 'recalled', 'written_off')) THEN MIN(x.status) FILTER (WHERE x.status <> 'paid')
+             WHEN bool_or(x.status = 'partially_paid') THEN 'partially_paid'
+             ELSE 'outstanding' END AS status
+     FROM credit_sales x WHERE x.sale_id = s.id HAVING COUNT(*) > 0";
+
 const PAYMENT_STATUS: &str = "CASE WHEN s.status = 'cancelled' THEN 'cancelled'
                 WHEN s.status = 'returned' THEN 'refunded'
                 WHEN cs.id IS NULL OR cs.status = 'paid' THEN 'paid'
@@ -1481,7 +1572,7 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
          FROM sales s JOIN branches b ON b.id = s.branch_id
          LEFT JOIN users u ON u.id = s.user_id LEFT JOIN users au ON au.id = s.approved_by LEFT JOIN users ow ON ow.id = s.owner_id
          LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN orders o ON o.id = s.order_id
-         LEFT JOIN credit_sales cs ON cs.sale_id = s.id
+         LEFT JOIN LATERAL ({CREDIT_OF_SALE}) cs ON true
          WHERE s.id = $1 AND s.tenant_id = $2"
     ))
     .bind(id)
@@ -1519,15 +1610,34 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
     .bind(id)
     .fetch_all(&state.db)
     .await?;
-    let credit: Option<Value> = sqlx::query_scalar(
-        "SELECT jsonb_build_object('id', id, 'original_amount', original_amount, 'amount_paid', amount_paid,
-                'adjustments', adjustments, 'balance', original_amount - amount_paid - adjustments,
-                'due_date', due_date, 'status', status)
-         FROM credit_sales WHERE sale_id = $1",
+    // Roadmap 196: every credit record of the sale (one per unpaid unit, or one for the whole sale) and their total.
+    let credits: Vec<Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object('id', cs.id, 'original_amount', cs.original_amount, 'amount_paid', cs.amount_paid,
+                'adjustments', cs.adjustments, 'balance', cs.original_amount - cs.amount_paid - cs.adjustments,
+                'due_date', cs.due_date, 'status', cs.status, 'paid_at_sale', cs.paid_at_sale, 'unit_no', cs.unit_no,
+                'sale_item_id', cs.sale_item_id, 'product_name', COALESCE(si.product_name, p.name),
+                'barcode', CASE WHEN si.stock_item_id IS NOT NULL THEN mask_item(si.barcode) ELSE si.barcode END)
+         FROM credit_sales cs LEFT JOIN sale_items si ON si.id = cs.sale_item_id LEFT JOIN products p ON p.id = si.product_id
+         WHERE cs.sale_id = $1 ORDER BY cs.item_price NULLS FIRST, cs.unit_no",
     )
     .bind(id)
-    .fetch_optional(&state.db)
+    .fetch_all(&state.db)
     .await?;
+    let credit: Option<Value> = match credits.len() {
+        0 => None,
+        1 => Some(credits[0].clone()),
+        _ => {
+            // Amounts come back from jsonb as numbers (or strings): read either way.
+            let sum = |k: &str| credits.iter().map(|c| c[k].to_string().trim_matches('"').parse::<Decimal>().unwrap_or_default()).sum::<Decimal>();
+            let open = credits.iter().any(|c| matches!(c["status"].as_str(), Some("outstanding" | "partially_paid")));
+            Some(json!({
+                "id": credits[0]["id"], "original_amount": sum("original_amount"), "amount_paid": sum("amount_paid"),
+                "adjustments": sum("adjustments"), "balance": sum("balance"),
+                "due_date": credits.iter().filter_map(|c| c["due_date"].as_str()).min(), "status": if open { "outstanding" } else { "paid" },
+                "records": credits.len(),
+            }))
+        }
+    };
     let business: Value = sqlx::query_scalar(&format!(
         "SELECT jsonb_build_object('name', name, 'phone', phone, 'address', address, 'currency', currency,
                 'logo_url', CASE WHEN {} THEN '/api/public/' || slug || '/logo?v=' || COALESCE(logo_etag, '') END,
@@ -1556,7 +1666,7 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
     .fetch_all(&state.db)
     .await?;
     Ok(json!({
-        "sale": sale, "items": items, "payments": payments, "returns": returns, "credit": credit,
+        "sale": sale, "items": items, "payments": payments, "returns": returns, "credit": credit, "credits": credits,
         "business": business, "pending_approval_id": pending.as_ref().map(|p| p.0), "pending_action": pending.map(|p| p.1), "owner_changes": owner_changes,
     }))
 }
@@ -1654,6 +1764,9 @@ pub struct ReturnBody {
     /// Credit recalls: what happens to payments beyond the revised amount owed — "refund" now or "credit" (follow-up).
     #[serde(default)]
     pub settle: String,
+    /// Roadmap 196: the credit record a recall is made from (its unit closes first).
+    #[serde(default)]
+    pub credit_id: Option<Uuid>,
 }
 
 fn yes() -> bool {
@@ -1822,7 +1935,60 @@ pub(crate) async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: 
     // Money: reduce credit first, refund the rest.
     let mut refunded = refund;
     let mut balances: Option<(Uuid, Decimal, Decimal)> = None;
-    if head.payment_method == "credit" {
+    // Roadmap 196: a sale whose unpaid units each have a credit record — the units coming back close their credits
+    // (the recalled credit first, then those owing most); only money actually paid for them is refunded.
+    let item_credits: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM credit_sales WHERE sale_id = $1 AND sale_item_id IS NOT NULL)")
+        .bind(sale_id)
+        .fetch_one(&mut *conn)
+        .await?;
+    if item_credits {
+        let (mut before, mut reduced, mut first) = (Decimal::ZERO, Decimal::ZERO, None);
+        for l in &b.items {
+            let open: Vec<(Uuid, Decimal)> = sqlx::query_as(
+                "SELECT id, original_amount - amount_paid - adjustments FROM credit_sales
+                 WHERE sale_item_id = $1 AND tenant_id = $2 AND status IN ('outstanding', 'partially_paid')
+                 ORDER BY (id = $3) DESC, original_amount - amount_paid - adjustments DESC, unit_no DESC LIMIT $4 FOR UPDATE",
+            )
+            .bind(l.sale_item_id)
+            .bind(ctx.tenant_id)
+            .bind(b.credit_id.unwrap_or_default())
+            .bind(i64::from(l.quantity.max(0)))
+            .fetch_all(&mut *conn)
+            .await?;
+            for (cid, bal) in open {
+                let reduce = bal.max(Decimal::ZERO);
+                sqlx::query(
+                    "UPDATE credit_sales SET adjustments = adjustments + $2,
+                         status = CASE $3 WHEN 'cancellation' THEN 'cancelled' WHEN 'recall' THEN 'recalled' ELSE 'paid' END,
+                         recall_state = CASE WHEN $3 = 'recall' THEN 'recalled' ELSE recall_state END
+                     WHERE id = $1 AND tenant_id = $4",
+                )
+                .bind(cid)
+                .bind(reduce)
+                .bind(kind)
+                .bind(ctx.tenant_id)
+                .execute(&mut *conn)
+                .await?;
+                if kind == "recall" {
+                    audit::record(
+                        conn,
+                        ctx,
+                        Entry::new("credit", "recall", "credit_sale", cid)
+                            .branch(head.branch_id)
+                            .after(json!({ "sale": head.receipt_no, "balance_before": bal, "balance_after": bal - reduce }))
+                            .approval(approval_id)
+                            .comments(b.reason.trim()),
+                    )
+                    .await?;
+                }
+                before += bal;
+                reduced += reduce;
+                first.get_or_insert(cid);
+            }
+        }
+        refunded = refund - reduced.min(refund);
+        balances = first.map(|f| (f, before, before - reduced));
+    } else if head.payment_method == "credit" {
         let (cs_id, balance): (Uuid, Decimal) = sqlx::query_as(
             "SELECT id, original_amount - amount_paid - adjustments FROM credit_sales WHERE sale_id = $1 FOR UPDATE",
         )
@@ -1935,7 +2101,7 @@ pub(crate) async fn execute_return(conn: &mut PgConnection, ctx: &Ctx, sale_id: 
         (_, 0) => "returned",
         _ => "partially_returned",
     };
-    if let (Some((cs_id, _, after)), "recall") = (balances, kind) {
+    if let (Some((cs_id, _, after)), "recall", false) = (balances, kind, item_credits) {
         // Fully recalled with nothing left owed → the credit sale is closed as Recalled; otherwise collection goes on.
         sqlx::query(
             "UPDATE credit_sales SET recall_state = $2,
@@ -2048,7 +2214,7 @@ async fn cancel(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, J
         return Ok(Json(Outcome::pending(approval)));
     }
     let lines = all_lines(&mut tx, id).await?;
-    let body = ReturnBody { items: lines, reason: b.reason.clone(), refund_method: b.refund_method.clone(), restock: true, settle: String::new() };
+    let body = ReturnBody { credit_id: None, items: lines, reason: b.reason.clone(), refund_method: b.refund_method.clone(), restock: true, settle: String::new() };
     let r = execute_return(&mut tx, &ctx, id, &body, "cancellation", None).await?;
     tx.commit().await?;
     state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": head.branch_id }));
@@ -2079,6 +2245,14 @@ async fn recall_credit(State(state): State<AppState>, ctx: Ctx, Path(credit_id):
         return Err(refused("Cannot recall", format!("This credit sale is {}.", cs_status.replace('_', " "))));
     }
     let head = sale_head(&mut tx, &ctx, sale_id).await?;
+    // Roadmap 196: a credit record of one unit recalls that unit only.
+    let unit_of: Option<Uuid> = sqlx::query_scalar("SELECT sale_item_id FROM credit_sales WHERE id = $1").bind(credit_id).fetch_one(&mut *tx).await?;
+    if let Some(si) = unit_of {
+        if b.items.iter().any(|l| l.sale_item_id != si) || b.items.iter().map(|l| l.quantity).sum::<i32>() != 1 {
+            return Err(refused("One item", "This credit is for one item of the sale — recall that item only."));
+        }
+        b.credit_id = Some(credit_id);
+    }
     let mut seen: Vec<String> = vec![];
     for l in &b.items {
         let (stock_item_id, sold_code, qty, returned, name): (Option<Uuid>, Option<String>, i32, i32, String) = sqlx::query_as(
@@ -2240,7 +2414,7 @@ async fn exchange(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>,
 #[allow(clippy::too_many_arguments)]
 async fn execute_exchange(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, id: Uuid, head: &SaleHead, b: ExchangeBody, value: Decimal) -> AppResult<(Uuid, Vec<Uuid>)> {
     // 1. The return: stock back, ledger, loyalty; its value leaves the old sale as an "exchange" payment.
-    let rb = ReturnBody { items: b.return_items, reason: b.reason.trim().to_string(), refund_method: "exchange".into(), restock: true, settle: String::new() };
+    let rb = ReturnBody { credit_id: None, items: b.return_items, reason: b.reason.trim().to_string(), refund_method: "exchange".into(), restock: true, settle: String::new() };
     let r = execute_return(conn, ctx, id, &rb, "return", None).await?;
     let return_no = r["return_no"].as_str().unwrap_or_default().to_string();
     let credit: Decimal = r["refunded"].as_str().and_then(|v| v.parse().ok()).or_else(|| r["refunded"].as_f64().and_then(|f| Decimal::try_from(f).ok())).unwrap_or(value);
@@ -2346,7 +2520,7 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
         "sale.cancel" => {
             let c: CancelBody = serde_json::from_value(a.payload.clone()).map_err(|_| bad("Stored cancellation is invalid"))?;
             let lines = all_lines(conn, a.entity_id).await?;
-            let body = ReturnBody { items: lines, reason: c.reason, refund_method: c.refund_method, restock: true, settle: String::new() };
+            let body = ReturnBody { credit_id: None, items: lines, reason: c.reason, refund_method: c.refund_method, restock: true, settle: String::new() };
             execute_return(conn, ctx, a.entity_id, &body, "cancellation", Some(a.id)).await?;
         }
         _ => {}
@@ -2540,6 +2714,22 @@ pub async fn apply_owner_change(conn: &mut PgConnection, ctx: &Ctx, change: Uuid
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn credit_allocation_pays_the_cheapest_items_first() {
+        let d = |n: i64| Decimal::from(n);
+        // Roadmap 196 example: Amber Prestige 27,500 and Classic Pearl Necklace 112,000; 90,000 received.
+        let a = allocate_units(&[(0, d(112_000), 1), (1, d(27_500), 1)], d(139_500), d(139_500), d(90_000));
+        assert_eq!(a[0], UnitShare { line: 1, unit: 1, price: d(27_500), paid: d(27_500) });
+        assert_eq!(a[1], UnitShare { line: 0, unit: 1, price: d(112_000), paid: d(62_500) });
+        // Several units, nothing paid: every unit owes its own price; equal prices keep line and unit order.
+        let b = allocate_units(&[(0, d(500), 2), (1, d(500), 1)], d(1_500), d(1_500), Decimal::ZERO);
+        assert_eq!(b.iter().map(|u| (u.line, u.unit, u.paid)).collect::<Vec<_>>(), vec![(0, 1, d(0)), (0, 2, d(0)), (1, 1, d(0))]);
+        // Points redeemed reduce each unit's price; the units still add up to the total.
+        let c = allocate_units(&[(0, d(1_000), 1), (1, d(2_000), 1)], d(3_000), d(2_700), d(1_000));
+        assert_eq!(c.iter().map(|u| u.price).sum::<Decimal>(), d(2_700));
+        assert_eq!((c[0].price, c[0].paid, c[1].paid), (d(900), d(900), d(100)));
+    }
 
     #[test]
     fn ranking_periods_start_on_monday_and_the_first() {

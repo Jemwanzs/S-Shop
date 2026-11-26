@@ -294,7 +294,7 @@ export function SalesSettings() {
             <ToggleRow label="Allow credit sales" checked={s.sales.credit_enabled} onChange={(v) => d.update((x) => { x.sales.credit_enabled = v; })} />
             <Row label="Default days to pay">{numInput(s.sales.credit_default_days, (n) => d.update((x) => { x.sales.credit_default_days = n; }))}</Row>
             {/* Roadmap 179 */}
-            <ToggleRow label="One item per credit sale" hint="Each item on credit gets its own receipt, balance and settlement. A cart of several items is recorded as separate credit sales. Earlier credit sales are not changed."
+            <ToggleRow label="One item per credit sale" hint="Each item owing gets its own credit record, balance and settlement. A sale of several items left (partly) on credit stays one sale and one receipt: the money received pays the cheapest items first. Earlier credit sales are not changed."
               checked={s.sales.credit_single_item !== false} onChange={(v) => d.update((x) => { x.sales.credit_single_item = v; })} />
           </Card>
         </>

@@ -19,6 +19,7 @@ import { BarcodeInput } from "@/components/BarcodeInput";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { AddPhotosDialog } from "@/components/PhotoPicker";
 import { Pill } from "@/components/Badges";
+import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { LabelsDialog } from "@/components/LabelsDialog";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
@@ -64,6 +65,9 @@ export default function ReceiveStock() {
     barcodesRef.current = Object.keys(next);
     setBarcodes(barcodesRef.current);
   };
+  // Roadmap 197: new barcodes confirmed for this product — registered only when the receipt is posted (or approved).
+  const [newCodes, setNewCodes] = useState<string[]>([]);
+  const [confirmCode, setConfirmCode] = useState<{ code: string; source?: ScanSource } | null>(null);
   // Roadmap 137: how each scanned code arrived (kept in step with `barcodes`).
   const [sources, setSources] = useState<Record<string, ScanSource>>({});
   const [cost, setCost] = useState("");
@@ -204,32 +208,20 @@ export default function ReceiveStock() {
   const addSharedUnit = async (code: string, source?: ScanSource): Promise<ScanOutcome> => {
     if (!p) return { tone: "error", title: "Choose the product first" };
     const own = [p.barcode, ...(detail.data?.barcodes ?? [])].filter(Boolean) as string[];
-    if (own.includes(code) || code in countsRef.current) return countUnder(code, source);
+    if (own.includes(code) || code in countsRef.current || newCodes.includes(code)) return countUnder(code, source);
     const found = await api<{ product: Product; stock_item: unknown; barcode_match?: boolean }>("/products/lookup", { query: { code } }).catch(() => null);
     // One of this product's barcodes the screen did not know yet (an old unit label, or one just added elsewhere).
     if (found && found.product.id === p.id && found.barcode_match) return countUnder(code, source);
     if (found && found.product.id !== p.id) return { tone: "error", title: "That barcode belongs to another product", detail: `${code} — ${found.product.name}` };
     // A product with no barcode yet: its first code becomes its main barcode when the stock is received.
     if (!own.length && !Object.keys(countsRef.current).length) return countUnder(code, source);
-    return {
-      tone: "error",
-      title: "This barcode is not on this product yet",
-      detail: (s.product.multiple_barcodes ?? true) ? `${code} — ${p.name}` : `${code} — ${t("Your business allows one barcode per product.")}`,
-      // Roadmap 174: offered only where the business allows several barcodes per product.
-      actions: can("products.edit") && (s.product.multiple_barcodes ?? true) ? [{
-        label: "Add barcode to this product",
-        onClick: async () => {
-          try {
-            await api(`/products/${p.id}/barcodes`, { body: { barcode: code } });
-            await detail.refetch();
-            countUnder(code, source);
-            toast.success(`${code} ${t("added to")} ${p.name} — ${t("1 unit captured")}`);
-          } catch (e) {
-            toast.error(e);
-          }
-        },
-      }] : [],
-    };
+    if (!(s.product.multiple_barcodes ?? true)) {
+      return { tone: "error", title: "This barcode is not on this product yet", detail: `${code} — ${t("Your business allows one barcode per product.")}` };
+    }
+    // Roadmap 197: a new barcode for a known product — confirmed in a compact dialog, registered when the receipt posts.
+    setScan(null);
+    setConfirmCode({ code, source });
+    return { tone: "info", title: "New barcode for this product", detail: code };
   };
 
   const generate = async () => {
@@ -261,6 +253,7 @@ export default function ReceiveStock() {
           quantity,
           barcodes,
           barcode_counts: !tracked && Object.keys(counts).length ? counts : undefined,
+          add_barcodes: !tracked ? newCodes.filter((c) => c in counts) : undefined,
           cost_price: showCost && cost !== "" ? Number(cost) : null,
           marked_price: price !== "" ? Number(price) : null,
           max_discount: maxDiscount !== "" ? Number(maxDiscount) : null,
@@ -282,6 +275,7 @@ export default function ReceiveStock() {
       qc.invalidateQueries({ queryKey: ["pos-products"] });
       setBarcodes([]);
       setCounts({});
+      setNewCodes([]);
       setQty("1");
       setReference("");
       setGenerated(null);
@@ -537,6 +531,24 @@ export default function ReceiveStock() {
           </div>
         )}
       </div>
+      <ResponsiveDialog open={!!confirmCode} onOpenChange={(o) => !o && setConfirmCode(null)} title="Add this barcode?"
+        description="This barcode is not yet registered against this product. Would you like to add it as an additional barcode and continue receiving stock?"
+        footer={<div className="flex w-full justify-end gap-2">
+          <Button variant="ghost" onClick={() => setConfirmCode(null)}>{t("Cancel")}</Button>
+          <Button onClick={() => { const c = confirmCode!; setNewCodes((n) => [...new Set([...n, c.code])]); countUnder(c.code, c.source); setConfirmCode(null); }}>{t("Add barcode & continue")}</Button>
+        </div>}>
+        {confirmCode && p && (
+          <div className="space-y-1 text-sm" data-testid="new-barcode-confirm">
+            <div className="flex justify-between gap-2"><span className="text-muted-foreground">{t("Product")}</span><span className="font-medium">{p.name} <span className="num text-muted-foreground">{p.code}</span></span></div>
+            <div className="flex justify-between gap-2"><span className="text-muted-foreground">{t("New barcode")}</span><span className="num font-medium">{confirmCode.code}</span></div>
+            <div className="flex justify-between gap-2"><span className="text-muted-foreground">{t("Receiving branch")}</span><span>{branchName}</span></div>
+            <div className="flex justify-between gap-2"><span className="text-muted-foreground">{t("Quantity being received")}</span><span className="num">{count(Object.values(counts).reduce((a, n) => a + n, 0) + 1)}</span></div>
+            <p className="pt-2 text-xs text-muted-foreground">{can("products.edit")
+              ? t("It is added to the product when the stock is received — other branches' stock is not changed.")
+              : t("You cannot add barcodes yourself: the receipt is sent for approval and the barcode is added once it is approved.")}</p>
+          </div>
+        )}
+      </ResponsiveDialog>
       <BarcodeScanner
         open={scan !== null}
         onOpenChange={(o) => !o && setScan(null)}

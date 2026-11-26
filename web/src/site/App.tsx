@@ -24,7 +24,8 @@ function themeVars(p: Palette, data: SiteData): CSSProperties {
     "--heading-font": `"${t.heading_font}"`, "--body-font": `"${t.body_font}"`,
     "--card-r": RADIUS[g.radius] ?? "12px", "--ratio": ratio(g.ratio), "--fit": g.fit, "--lines": g.name_lines,
     // Whole-product photos sit inside the frame with breathing room (roadmap 80).
-    "--img-pad": g.fit === "contain" ? "6%" : "0",
+    // Roadmap 195: less empty space around the product (the frame blends with the photo's own white background).
+    "--img-pad": g.fit === "contain" ? "4%" : "0",
     colorScheme: p === data.config.theme.dark ? "dark" : "light",
   } as CSSProperties;
 }
@@ -292,7 +293,7 @@ function Shell({ data }: { data: SiteData }) {
   }, [pathname, motion]);
   const floatBump = useBump(count);
   return (
-    <div className="site" style={vars} data-style={data.config.theme.style} data-scale={data.config.theme.scale} data-motion={motion}>
+    <div className="site" style={vars} data-style={data.config.theme.style} data-scale={data.config.theme.scale} data-motion={motion} data-fit={data.config.products.grid.fit}>
       <a className="skip" href="#main">Skip to content</a>
       {runtime.preview && <div className="preview-bar">Preview — this is your unpublished draft. Visitors still see the published website.</div>}
       <Header data={data} onSearch={() => setSearch(true)} onCart={() => setCart(true)} toggleMode={toggleMode} mode={mode} />

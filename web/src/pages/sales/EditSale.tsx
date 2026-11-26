@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ActionButton, REASONS } from "@/components/ActionButton";
 import { ErrorState, KV, Loading, PageHeader, Section } from "@/components/Page";
-import { Field, Select } from "@/components/Form";
+import { Field, Select, ToggleRow } from "@/components/Form";
 import { SearchInput } from "@/components/Filters";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
@@ -49,6 +49,7 @@ interface Preview {
     currency: string;
     financial: { total_before: string; total_after: string; difference: string; discount_before: string; discount_after: string; payments: { method: string; amount: string; reference: string }[] };
     stock: { branch: string; product: string; change: number }[];
+    restock?: boolean;
     loyalty: { customer_before: string | null; points_before: number; customer_after: string | null; points_after: number };
     credit: null | { original_before: string; original_after: string; balance_before: string; balance_after: string; due_before: string; due_after: string };
     performance: string | null;
@@ -87,6 +88,8 @@ export default function EditSale() {
   const [scanFor, setScanFor] = useState<PosProduct | null>(null);
   const [review, setReview] = useState<Preview | null>(null);
   const [reason, setReason] = useState("");
+  // Roadmap 192: removed / reduced items go back to stock (off when they cannot be resold).
+  const [restock, setRestock] = useState(true);
 
   // The form starts as the sale stands.
   const reset = (d: Editable) => {
@@ -118,7 +121,7 @@ export default function EditSale() {
   const methods = s.sales.payment_methods.filter((m) => m.enabled && m.key !== "credit");
 
   const proposal = () => ({
-    sale_date: date, sale_time: time, branch_id: branch, customer_id: customer?.id ?? null, owner_id: owner.id, notes, due_date: credit ? due : null,
+    restock, sale_date: date, sale_time: time, branch_id: branch, customer_id: customer?.id ?? null, owner_id: owner.id, notes, due_date: credit ? due : null,
     lines: lines.map((l) => ({ sale_item_id: l.sale_item_id, product_id: l.product_id, quantity: l.quantity, unit_price: toNum(l.unit_price), barcode: l.sale_item_id ? null : l.barcode, scan_source: l.sale_item_id ? undefined : l.scan_source })),
     payments: credit ? [] : pays.filter((p) => toNum(p.amount) > 0).map((p) => (p.locked ? { key: p.key, method: p.method, amount: toNum(p.amount), reference: p.reference } : { method: p.method, amount: toNum(p.amount), reference: p.reference })),
   });
@@ -246,6 +249,11 @@ export default function EditSale() {
               ))}
             </ul>
           </Section>
+          {d.lines.some((o) => { const n = lines.find((l) => l.sale_item_id === o.sale_item_id); return !n || n.quantity < o.quantity; }) && (
+            <Section title="Items coming off the sale">
+              <ToggleRow label="Return removed items to stock" hint="On approval they are available again at the selling branch; tracked items get their original barcode back. Turn off for items that cannot be resold." checked={restock} onChange={setRestock} />
+            </Section>
+          )}
           <Section title="Notes">
             <Textarea rows={2} maxLength={500} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Section>
@@ -367,6 +375,7 @@ export function SaleEditChanges({ changes, implications }: { changes: Change[]; 
           </div>
           <div className="rounded-lg bg-muted/40 p-2.5">
             <div className="mb-1 font-medium">{t("Stock")}</div>
+            {im.restock === false && <div className="text-warning">{t("Removed items are not returned to stock")}</div>}
             {im.stock.length ? im.stock.map((x, i) => <div key={i}>{x.product} · {x.branch} <span className="num">{x.change > 0 ? `+${x.change} ${t("back to stock")}` : `${x.change} ${t("from stock")}`}</span></div>) : <div className="text-muted-foreground">{t("No stock movement")}</div>}
           </div>
           <div className="rounded-lg bg-muted/40 p-2.5">

@@ -49,7 +49,7 @@ pub fn classify(kind: &str) -> Class {
         "product_deactivated" => c("stock", Some("products.view"), false, false),
         "mpesa_attention" => c("sales", None, false, false),
         "approval_pending" | "approval_handled" => c("approvals", None, false, true),
-        "approval_decided" => c("own_requests", None, false, true),
+        "approval_decided" | "approval_stuck" => c("own_requests", None, false, true),
         "website_request" | "website_service" | "website_domain" | "article_review" | "article_ai_limit" => c("website", Some("website.view"), false, false),
         "support_request" | "support_started" | "support_decision" | "access_request" | "error_alert" => c("admin", None, true, true),
         _ => c("admin", None, false, false),
@@ -230,3 +230,38 @@ pub fn whatsapp(state: &AppState, tenant_id: Uuid, phone: String, body: String) 
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Roadmap 194: every kind the code sends has a deliberate category (a new kind must be added to `classify`).
+    #[test]
+    fn every_notification_kind_is_classified() {
+        let src = [
+            include_str!("routes/approvals.rs"), include_str!("routes/access.rs"), include_str!("routes/articles.rs"), include_str!("routes/seo_ai.rs"),
+            include_str!("jobs.rs"), include_str!("alerts.rs"), include_str!("routes/stk_sales.rs"), include_str!("routes/orders.rs"),
+            include_str!("routes/catalog.rs"), include_str!("routes/tenants.rs"), include_str!("routes/website.rs"), include_str!("routes/stock.rs"),
+            include_str!("routes/transfers.rs"),
+        ]
+        .join("
+");
+        let mut kinds = Vec::new();
+        for part in src.split("Note::new(").skip(1) {
+            if let Some(k) = part.trim_start().strip_prefix('"').and_then(|r| r.split('"').next()) {
+                kinds.push(k.to_string());
+            }
+        }
+        for k in ["low_stock", "out_of_stock", "transfer_received", "transfer_discrepancy", "approval_stuck"] {
+            kinds.push(k.to_string());
+        }
+        assert!(kinds.len() > 15);
+        for k in &kinds {
+            let c = classify(k);
+            assert!(c.category != "admin" || c.mandatory || matches!(k.as_str(), "website_request"), "kind {k} falls back to Administration");
+        }
+        assert_eq!(classify("approval_stuck").category, "own_requests");
+        assert_eq!(classify("new_order").perm, Some("orders.view"));
+    }
+}
+

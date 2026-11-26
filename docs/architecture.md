@@ -1,6 +1,6 @@
 # Architecture
 
-*Checked against the code on 2026-11-04 (migrations 0001–0062). Update this page when a component, table, integration
+*Checked against the code on 2026-11-04 (migrations 0001–0063). Update this page when a component, table, integration
 or security rule changes.*
 
 ## Overview

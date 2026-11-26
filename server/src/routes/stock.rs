@@ -535,18 +535,7 @@ async fn receive_line(tx: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &
 async fn execute_receipt(conn: &mut PgConnection, ctx: &Ctx, b: &ReceiveBody, approval_id: Option<Uuid>) -> AppResult<Value> {
     let branch = b.branch_id.unwrap_or(ctx.branch_id);
     // Roadmap 197: the product becomes available at the receiving branch (if it was limited to other branches).
-    let added: u64 = sqlx::query(
-        "INSERT INTO product_branches (product_id, branch_id)
-         SELECT p.id, $2 FROM products p WHERE p.id = $1 AND p.tenant_id = $3 AND NOT p.all_branches
-         ON CONFLICT DO NOTHING",
-    )
-    .bind(b.product_id)
-    .bind(branch)
-    .bind(ctx.tenant_id)
-    .execute(&mut *conn)
-    .await?
-    .rows_affected();
-    if added > 0 {
+    if inventory::make_available(conn, ctx.tenant_id, b.product_id, branch).await? {
         audit::record(conn, ctx, Entry::new("products", "branch_added", "product", b.product_id).branch(branch).after(json!({ "branch_id": branch, "by": "receiving stock" })).approval(approval_id)).await?;
     }
     // Roadmap 197: new shared barcodes confirmed with the receipt are registered now (checked again: one barcode, one product).

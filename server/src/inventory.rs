@@ -219,6 +219,23 @@ pub async fn release(conn: &mut PgConnection, tenant_id: Uuid, branch_id: Uuid, 
 }
 
 /// Product must be active and sellable in this branch.
+/// Roadmap 197: stock arriving at a branch (received or transferred in) makes the product available there, if it was
+/// limited to other branches. Returns whether the branch was added.
+pub async fn make_available(conn: &mut PgConnection, tenant_id: Uuid, product_id: Uuid, branch_id: Uuid) -> AppResult<bool> {
+    Ok(sqlx::query(
+        "INSERT INTO product_branches (product_id, branch_id)
+         SELECT p.id, $2 FROM products p WHERE p.id = $1 AND p.tenant_id = $3 AND NOT p.all_branches
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(product_id)
+    .bind(branch_id)
+    .bind(tenant_id)
+    .execute(&mut *conn)
+    .await?
+    .rows_affected()
+        > 0)
+}
+
 pub async fn ensure_product_in_branch(conn: &mut PgConnection, tenant_id: Uuid, product_id: Uuid, branch_id: Uuid) -> AppResult<()> {
     let ok: Option<bool> = sqlx::query_scalar(
         "SELECT p.all_branches OR EXISTS (SELECT 1 FROM product_branches pb WHERE pb.product_id = p.id AND pb.branch_id = $3)

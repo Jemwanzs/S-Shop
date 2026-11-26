@@ -463,6 +463,13 @@ async fn swap(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Jso
     if matches!(c.status.as_str(), "written_off" | "cancelled" | "recalled") {
         return Err(refused("Cannot swap", format!("This credit sale is {}.", c.status.replace('_', " "))));
     }
+    // Roadmap 196: a credit record of one unit swaps that unit only.
+    let unit_of: Option<Uuid> = sqlx::query_scalar("SELECT sale_item_id FROM credit_sales WHERE id = $1").bind(id).fetch_one(&mut *tx).await?;
+    if let Some(si) = unit_of {
+        if b.return_items.iter().any(|l| l.sale_item_id != si) || b.return_items.iter().map(|l| l.quantity).sum::<i32>() != 1 {
+            return Err(refused("One item", "This credit is for one item of the sale — swap that item only."));
+        }
+    }
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
     let units: i64 = b.items.iter().map(|l| i64::from(l.quantity.max(0))).sum();
     if b.payment.method == "credit" && s.sales.credit_single_item && units > 1 {
@@ -535,7 +542,7 @@ async fn execute_swap(conn: &mut PgConnection, ctx: &Ctx, s: &settings::TenantSe
     let head = sales::sale_head(conn, ctx, c.sale_id).await?;
     check_returned_units(conn, c.sale_id, &b.return_items).await?;
     // 1. The recall: stock back, the amount owed reduced; what had been paid beyond it is kept as a return credit.
-    let rb = ReturnBody { credit_id: None, items: b.return_items.clone(), reason: b.reason.trim().to_string(), refund_method: String::new(), restock: true, settle: "credit".into() };
+    let rb = ReturnBody { credit_id: Some(credit_id), items: b.return_items.clone(), reason: b.reason.trim().to_string(), refund_method: String::new(), restock: true, settle: "credit".into() };
     let r = sales::execute_return(conn, ctx, c.sale_id, &rb, "recall", approval_id).await?;
     let return_no = r["return_no"].as_str().unwrap_or_default().to_string();
     let rc: Option<Uuid> = r["return_credit_id"].as_str().and_then(|v| v.parse().ok());

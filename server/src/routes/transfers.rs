@@ -480,7 +480,7 @@ async fn create(State(state): State<AppState>, ctx: Ctx, Json(b): Json<CreateBod
         if !allowed {
             return Err(rule(format!("{name} cannot be transferred")));
         }
-        inventory::ensure_product_in_branch(&mut tx, ctx.tenant_id, item.product_id, b.to_branch_id).await?;
+        // Roadmap 197: the destination need not offer the product yet — it becomes available there when received.
         if item.quantity <= 0 {
             return Err(bad(format!("Enter a quantity for {name}")));
         }
@@ -736,6 +736,7 @@ async fn receive_inner(conn: &mut PgConnection, ctx: &Ctx, t: &TransferRow, item
                 .execute(&mut *conn)
                 .await?;
         }
+        inventory::make_available(conn, ctx.tenant_id, *product_id, t.to_branch_id).await?;
         let m = Movement::new(t.to_branch_id, *product_id, "transfer_in", *qty).item(*item_id).reference("transfer", t.id).notes(&note);
         inventory::apply(conn, ctx.tenant_id, Some(ctx.user_id), true, Check::None, m).await?;
         for (kind, n, label) in [("loss", short, "Short on arrival"), ("damage", damaged, "Damaged on arrival")] {

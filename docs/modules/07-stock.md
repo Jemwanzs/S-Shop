@@ -127,3 +127,5 @@ A product limited to some branches can be received at any branch: it becomes ava
 sent with the receipt (`add_barcodes`) and registered only when the receipt is posted or approved; without *Edit
 products* the receipt goes for approval. One barcode per product (setting), another product's barcode blocked, unique
 item barcodes unchanged.
+
+Roadmap 198: the same applies to stock transfers — a transfer into a branch that does not offer the product yet is received there and makes it available.

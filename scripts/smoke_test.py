@@ -6514,6 +6514,41 @@ call("POST", "/stock/receive", {"product_id": tr197, "quantity": 1, "barcodes": 
 call("POST", "/stock/receive", {"product_id": tr197, "branch_id": b197a, "quantity": 1, "barcodes": [f"U{suffix}197"]}, branch=b197a, expect=422)
 check("an individual item's barcode already in stock cannot be received again elsewhere (transfers move it)", True)
 
+step("Audit 198: follow-ups to 192–197")
+# Transfers into a branch that does not offer the product yet: allowed; it becomes available there when received.
+pt198 = call("POST", "/products", {"name": f"Scoped198 {suffix}", "marked_price": 300, "all_branches": False, "branch_ids": [BRANCH]})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": pt198, "quantity": 5})
+t198 = call("POST", "/transfers", {"to_branch_id": b2, "items": [{"product_id": pt198, "quantity": 2}], "submit": True})
+call("POST", f"/transfers/{t198['id']}/dispatch")
+call("POST", f"/transfers/{t198['id']}/receive", branch=b2)
+d198 = call("GET", f"/products/{pt198}")
+check("a transfer into a branch that did not offer the product: received there and the product made available",
+      b2 in d198["branch_ids"] and next(l_["on_hand"] for l_ in d198["stock_by_branch"] if l_["branch_id"] == b2) == 2, d198["branch_ids"])
+# A per-item credit swaps its own item only.
+_s198 = call("GET", "/settings")["settings"]
+call("PUT", "/settings", {**_s198, "sales": {**_s198["sales"], "credit_single_item": True, "credit_enabled": True}})
+c198 = call("POST", "/customers", {"mobile": "07" + str(int(time.time() * 1000) + 11)[-8:], "first_name": "Audit"})["id"]
+pa198 = call("POST", "/products", {"name": f"Cheap198 {suffix}", "marked_price": 1000})["result"]["id"]
+pb198 = call("POST", "/products", {"name": f"Dear198 {suffix}", "marked_price": 9000})["result"]["id"]
+for p_ in (pa198, pb198):
+    call("POST", "/stock/receive", {"product_id": p_, "quantity": 5})
+s198 = call("POST", "/sales", {"customer_id": c198, "items": [{"product_id": pa198, "quantity": 1, "unit_price": 1000}, {"product_id": pb198, "quantity": 1, "unit_price": 9000}],
+                               "payment": {"method": "credit"}, "client_ref": str(uuid.uuid4())})
+dear = next(c_ for c_ in s198["credits"] if c_["product_name"].startswith("Dear198"))
+cheap_line = next(i_["id"] for i_ in s198["items"] if i_["product_id"] == pa198)
+dear_line = next(i_["id"] for i_ in s198["items"] if i_["product_id"] == pb198)
+r = call("POST", f"/credit/{dear['id']}/swap", {"return_items": [{"sale_item_id": cheap_line, "quantity": 1}], "items": [{"product_id": pa198, "quantity": 1, "unit_price": 1000}],
+                                              "payment": {"method": "credit"}, "reason": "Wrong item", "client_ref": str(uuid.uuid4())}, expect=422)
+check("a per-item credit cannot swap another item of the sale", r["error"]["title"] == "One item", r)
+sw = call("POST", f"/credit/{dear['id']}/swap", {"return_items": [{"sale_item_id": dear_line, "quantity": 1}], "items": [{"product_id": pa198, "quantity": 1, "unit_price": 1000}],
+                                               "payment": {"method": "credit"}, "reason": "Customer prefers the cheaper one", "client_ref": str(uuid.uuid4())})
+after198 = call("GET", f"/sales/{s198['sale']['id']}")["credits"]
+check("…its own item swaps: that credit closes, the other item's credit is untouched", next(c_ for c_ in after198 if c_["id"] == dear["id"])["status"] in ("recalled", "paid")
+      and float(next(c_ for c_ in after198 if c_["id"] != dear["id"])["balance"]) == 1000, [(c_["product_name"], c_["status"], c_["balance"]) for c_ in after198])
+call("GET", f"/customers/{c198}/credit-statement")
+check("the customer's credit statement opens with per-item credits", True)
+call("PUT", "/settings", _s198)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

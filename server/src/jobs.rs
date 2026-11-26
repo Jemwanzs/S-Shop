@@ -106,6 +106,8 @@ async fn run_once(state: &AppState) -> anyhow::Result<()> {
         .bind(today)
         .fetch_all(&state.db)
         .await?;
+        // Roadmap 196: a sale may have several credit records (one per item); the customer gets one reminder per sale.
+        let mut reminders: std::collections::BTreeMap<String, (String, String, Decimal, chrono::NaiveDate)> = std::collections::BTreeMap::new();
         for (id, branch, name, mobile, receipt, balance, due) in overdue {
             notify::to_permission(
                 state,
@@ -116,7 +118,12 @@ async fn run_once(state: &AppState) -> anyhow::Result<()> {
                     .dedupe(format!("credit_overdue:{id}")),
             )
             .await;
-            if settings.notifications.whatsapp_credit_reminders {
+            let e = reminders.entry(receipt).or_insert((name, mobile, Decimal::ZERO, due));
+            e.2 += balance;
+            e.3 = e.3.min(due);
+        }
+        if settings.notifications.whatsapp_credit_reminders {
+            for (receipt, (name, mobile, balance, due)) in reminders {
                 let first = name.split(' ').next().unwrap_or_default().to_string();
                 notify::whatsapp(
                     state,

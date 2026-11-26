@@ -11,6 +11,8 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ## 2026-11-26
 
+- **Website publication requests** — people with *Request website publication* (but not *Publish*) send their website changes for approval with an automatic summary of what changed; the Tenant Administrator (or the configured chain) reviews, previews and approves & publishes, returns for correction or rejects. Publication history on the website overview. (188, [module 23](modules/23-website.md))
+- **Role editor: Save only when something changed** — *Nothing to save* until a permission, the name or description changes; *Save changes* then. (189, [module 14](modules/14-users-roles.md))
 - **Fix: Quick PIN setup did nothing for some new users** — the reason (wrong current PIN, a PIN that is too easy to guess, or the full PIN reused) was not shown. It is now shown in the dialog; easy-to-guess PINs keep Save off; the Quick PIN fields have show/hide eyes. Any action that is refused anywhere in the app now says why. (187, [module 28](modules/28-quick-login-pin.md))
 - **Manage branch prices** — Settings → Products → *Manage branch prices* (Tenant Administrators): each branch's prices in one table; set prices, reset to 0 or restore the default for one product, the selected ones, a category or the whole branch. A reset price stays 0 until a new price is set. (186, [module 06](modules/06-products.md))
 - **Hide out-of-stock products at the till** — new role permission *View out-of-stock products when recording sales*; off for the Salesperson role. (186, [module 02](modules/02-sales-pos.md))

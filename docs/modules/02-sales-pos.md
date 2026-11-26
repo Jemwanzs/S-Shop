@@ -129,3 +129,15 @@ not greyed); the till's barcode lookup (`/products/lookup?for_sale=true`) answer
 see in-stock products only in the global search too. On — every other role that records sales — as before. A product
 appears the moment stock arrives. Never a way to sell stock that is not there. A product priced 0 at the branch shows
 *Price not set* and cannot be added (the server refuses it too).
+
+## Edit Sale (roadmap 191)
+
+Sales → (sale) → Corrections → **Edit Sale** (*Edit recorded sales*): the sale as it stands, every business detail
+correctable (date and time, branch, Sale Owner, customer, products, quantities, tracked items, selling prices,
+payments, credit due date, notes); verified payments locked. *Review changes* shows *Parameter · Original · Proposed*
+and the effects (money, stock, loyalty, credit); **Submit for Approval** with a reason. Workflow *Sale edit* — always
+approved (configured chain, else the Tenant Administrator). Nothing changes until the final approval, which applies
+only the differences (stock, payments as linked adjustments, credit, points, customer totals, owner and branch figures)
+to the sale exactly as reviewed. Same sale, receipt number, recording time and recorder; a corrected receipt
+`RCP-…-Rn` is added beside the original; **Correction history** lists every request. See
+[26-receipts-and-reconciliation.md](26-receipts-and-reconciliation.md) for the corrected receipt and the limits.

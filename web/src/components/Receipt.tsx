@@ -1,10 +1,9 @@
 /** The 50 mm digital receipt (roadmap 65): drawn from the stored snapshot, row for row the same as the PDF. On screen it
  * is enlarged for readability (`zoom`) without changing its proportions; it is never wider than 50 mm when printed. */
-import { dayLabel } from "@/lib/dates";
 import { forwardRef } from "react";
 import mark from "@/assets/sshop-mark.png";
 import { cn } from "@/lib/utils";
-import { logoUrl, receiptRows, when, type ReceiptSnapshot } from "@/lib/receipt";
+import { logoUrl, receiptRows, saleDate, when, type ReceiptSnapshot } from "@/lib/receipt";
 
 export const Receipt = forwardRef<HTMLDivElement, { snapshot: ReceiptSnapshot; zoom?: number; className?: string }>(function Receipt({ snapshot: s, zoom = 1.6, className }, ref) {
   const thermal = s.font === "thermal";
@@ -26,11 +25,11 @@ export const Receipt = forwardRef<HTMLDivElement, { snapshot: ReceiptSnapshot; z
           <Rule />
           <div className="text-center font-bold" style={{ fontSize: "7.5pt", letterSpacing: "0.04em" }}>{s.title}</div>
           <KV k={s.kind === "adjustment" ? "Ref:" : "Receipt:"} v={s.number} />
-          <KV k="Date:" v={s.sale_date ? dayLabel(s.sale_date) : when(s.at, s.timezone)} />
+          <KV k="Date:" v={saleDate(s)} />
           {s.sale_date && <KV k="Recorded:" v={when(s.at, s.timezone)} />}
           {s.customer && <KV k="Customer:" v={s.customer} />}
           <Rule />
-          {s.kind === "original" && (
+          {s.kind !== "adjustment" && (
             <div className="flex justify-between font-bold" style={{ fontSize: "6pt" }}><span>Item</span><span>Total</span></div>
           )}
           {receiptRows(s).map((r, i) => {

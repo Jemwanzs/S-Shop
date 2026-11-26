@@ -19,6 +19,11 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { t } from "@/lib/i18n";
 import { TransferApprovalLines, isTransferPayload } from "@/pages/transfers/TransferPrices";
 import { PublicationApprovalLines } from "@/pages/settings/website/Publication";
+import { PhotoRequestLines } from "@/pages/settings/website/ProductPhotos";
+import { SaleEditChanges } from "@/pages/sales/EditSale";
+
+/** Roadmap 190/191: requests that can be returned to the requester for correction. */
+const returnable = (a: Approval) => a.action === "website.publish" || a.action === "sale.edit" || (a.action === "product.edit" && !!(a.payload as Record<string, unknown> | null)?.photos_request);
 
 const ACTION_LABEL: Record<string, string> = {
   "website.publish": "Website publication",
@@ -36,6 +41,7 @@ const ACTION_LABEL: Record<string, string> = {
   "sale.cancel": "Cancellation",
   "credit.write_off": "Credit write-off",
   "sale.owner_change": "Sale ownership change",
+  "sale.edit": "Sale edit",
   "credit.recall": "Credit recall",
   expense: "Expense",
   "data.import": "Data import",
@@ -193,6 +199,13 @@ export default function Approvals() {
                   <p className="font-medium">{a.summary}</p>
                   {a.action === "stock.transfer" && isTransferPayload(a.payload) && <div className="mt-2"><TransferApprovalLines p={a.payload} /></div>}
                   {a.action === "website.publish" && <div className="mt-2"><PublicationApprovalLines id={a.entity_id} /></div>}
+                  {a.action === "sale.edit" && Array.isArray((a.payload as { changes?: unknown })?.changes) && (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs"><span className="text-muted-foreground">{t("Reason")}:</span> {String((a.payload as { reason?: string }).reason ?? "")}</p>
+                      <SaleEditChanges changes={(a.payload as { changes: [] }).changes} implications={(a.payload as { implications?: never }).implications} />
+                    </div>
+                  )}
+                  {a.action === "product.edit" && !!(a.payload as { photos_request?: string })?.photos_request && <div className="mt-2"><PhotoRequestLines id={(a.payload as { photos_request: string }).photos_request} /></div>}
                   {a.note && <p className="mt-0.5 text-xs text-muted-foreground">{t("Reason")}: {a.note}</p>}
                   {a.amount !== null && <p className="num mt-1 text-lg font-semibold">{money(a.amount)}</p>}
                 </div>
@@ -226,7 +239,7 @@ export default function Approvals() {
                   {a.can_decide && (
                     <>
                       <Button size="sm" variant="outline" className="ms-auto text-destructive" onClick={() => setDeciding({ approval: a, approve: false })}><X /> {t("Reject")}</Button>
-                      {a.action === "website.publish" && <Button size="sm" variant="outline" onClick={() => setDeciding({ approval: a, approve: false, returned: true })}><Undo2 /> {t("Return for correction")}</Button>}
+                      {returnable(a) && <Button size="sm" variant="outline" onClick={() => setDeciding({ approval: a, approve: false, returned: true })}><Undo2 /> {t("Return for correction")}</Button>}
                       <Button size="sm" variant="success" onClick={() => setDeciding({ approval: a, approve: true })}><Check /> {t(a.action === "website.publish" && a.level >= a.levels ? "Approve & Publish" : "Approve")}</Button>
                     </>
                   )}

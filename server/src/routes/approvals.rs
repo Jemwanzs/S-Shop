@@ -457,6 +457,8 @@ pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, 
         "barcode.replace" => super::barcodes::on_approved(&mut tx, ctx, &a).await?,
         "stock.void" => super::voids::on_approved(&mut tx, ctx, &a).await?,
         "sale.return" | "sale.cancel" | "credit.recall" | "sale.owner_change" => super::sales::on_approved(&mut tx, ctx, &a).await?,
+        // Roadmap 191: the final approval applies the reviewed correction (only the differences).
+        "sale.edit" => super::sale_edit::on_approved(&mut tx, ctx, &a).await?,
         "credit.write_off" => super::credit::on_approved(&mut tx, ctx, &a).await?,
         "expense" => super::expenses::on_decided(&mut tx, &a, true).await?,
         "data.import" => super::onboarding::on_approved(&mut tx, ctx, &a).await?,
@@ -738,8 +740,14 @@ async fn withdraw(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>)
 
 /// Restore entities that were parked in a "pending" state.
 async fn on_closed_without_approval(conn: &mut sqlx::PgConnection, ctx: &Ctx, a: &ApprovalRow, outcome: &str, comments: &str) -> AppResult<()> {
-    let outcome = if outcome == "returned" && a.action != super::publication::ACTION { "rejected" } else { outcome };
+    // Roadmap 188/190/191: requests that can be returned for correction keep that outcome.
+    let returnable = a.action == super::publication::ACTION || a.action == "sale.edit" || a.payload.get("photos_request").is_some();
+    let outcome = if outcome == "returned" && !returnable { "rejected" } else { outcome };
     match a.action.as_str() {
+        // Roadmap 190: a photo change from the website editor — nothing changes; its staged photos are discarded.
+        "product.edit" if a.payload.get("photos_request").is_some() => super::photo_requests::on_closed(conn, ctx, a, outcome, comments).await?,
+        // Roadmap 191: the sale stays exactly as it was.
+        "sale.edit" => super::sale_edit::on_closed(conn, ctx, a, outcome, comments).await?,
         // Roadmap 188: returned, rejected or withdrawn — nothing is published; the draft stays for correction.
         "website.publish" => super::publication::on_closed(conn, ctx, a, if outcome == "withdrawn" { "cancelled" } else { outcome }, comments).await?,
         // The original owner stays; the request is closed with who decided and when.

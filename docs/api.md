@@ -190,6 +190,12 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | POST / DELETE | `/api/auth/profile/avatar` (multipart `file`) | roadmap 185: PNG, JPEG or WebP ≤ 1 MB, square-ish, 64–2048 px; DELETE removes it |
 | GET | `/api/avatars/{key}` | roadmap 185: a profile photo by its unguessable key (public, cached for good) |
 | GET / POST | `/api/branch-prices?branch_id=` · `{branch_id, action: reset\|restore\|set, items: [{product_id, price, expected}]}` | roadmap 186: Manage branch prices (Tenant Administrators) — the branch's products with stock, default, own, effective price, status, pending; POST applies in one transaction or as one *Product edit* approval |
+| GET / PUT | `/api/website/products/{id}/photos` · `{photos:[{id, staged}], base, comments}` | roadmap 190: the product's photos, limit and waiting change · save a change (applied at once, or sent for approval) |
+| POST | `/api/website/products/{id}/photos/stage` (multipart `file`, `thumb`, `upload_ref`) | roadmap 190: stage a new photo (shown nowhere until its change is applied) |
+| GET | `/api/website/photo-requests/{id}` · `/api/photos/staged/{id}` | roadmap 190: a photo change (before / proposed) · a staged photo |
+| GET / POST | `/api/sales/{id}/edit` · `{proposal, reason, revision}` | roadmap 191: the sale as it can be edited · submit a correction for approval |
+| POST | `/api/sales/{id}/edit/preview` | roadmap 191: the comparison and effects of a correction (nothing saved) |
+| GET | `/api/sales/{id}/revisions` | roadmap 191: the sale's corrections (applied, awaiting, returned, rejected) |
 | GET | `/api/website/publication` | roadmap 188: status, the generated summary of unpublished changes, the waiting request, `can_publish` / `can_request` |
 | GET / POST | `/api/website/publication/requests` (`?mine=`) · `{comments, draft_updated_at}` | roadmap 188: publication history · submit the draft for approval (*Request website publication*) |
 | GET | `/api/website/publication/requests/{id}` | roadmap 188: one request with its full summary and `preview_query` |

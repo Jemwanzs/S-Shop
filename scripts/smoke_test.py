@@ -1167,9 +1167,11 @@ check("not-an-image refused", upload(ph_prod, b"%PDF-1.4 hello", str(uuid.uuid4(
 check("2.5 MB photo accepted (body limit fits the 3 MB rule)", "id" in upload(ph_prod, PNG + b"\x00" * (2_500_000), str(uuid.uuid4())))
 check("over 3 MB refused", upload(ph_prod, PNG + b"\x00" * (3_200_000), str(uuid.uuid4()), expect=422)["error"]["title"] == "Photo too large")
 limit = call("GET", "/settings")["settings"]["product"]["max_photos"]
+# Roadmap 190: the same image twice on one product is refused; distinct photos below differ by a few bytes.
+check("the same image twice on one product is refused", upload(ph_prod, PNG, str(uuid.uuid4()), expect=422)["error"]["title"] == "Already a photo of this product")
 for _ in range(limit - 2):
-    upload(ph_prod, PNG, str(uuid.uuid4()))
-check("limit enforced", upload(ph_prod, PNG, str(uuid.uuid4()), expect=422)["error"]["title"] == "Photo limit reached")
+    upload(ph_prod, PNG + uuid.uuid4().bytes, str(uuid.uuid4()))
+check("limit enforced", upload(ph_prod, PNG + uuid.uuid4().bytes, str(uuid.uuid4()), expect=422)["error"]["title"] == "Photo limit reached")
 check("photo count matches what was stored", len(call("GET", f"/products/{ph_prod}")["photos"]) == limit)
 
 step("Credit Sales: recall to stock")
@@ -5996,6 +5998,246 @@ call("PUT", "/settings/workflows/website.publish", {"enabled": False, "levels": 
 aud188 = [a_["action"] for a_ in call("GET", "/audit?period=today&module=website&limit=50")["items"]]
 check("audited: submissions, returns, rejections and publications", {"publication_requested", "publication_returned", "publication_rejected", "publish"} <= set(aud188), aud188[:10])
 call("POST", "/website/discard", {})
+
+step("Roadmap 190: product photos managed from Settings → Website → Products")
+if call("GET", "/website")["status"] != "active":
+    call("POST", f"/platform/tenants/{call('GET', '/auth/me')['tenant']['id']}/website", {"action": "activate"})
+ph190 = call("POST", "/products", {"name": f"Photo190 {suffix}", "marked_price": 900, "cost_price": 400})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": ph190, "quantity": 3, "cost_price": 400})
+img_a, img_b = sized_png(300, 300, (10, 20, 30)), sized_png(300, 300, (10, 20, 31))
+upload_file(f"/products/{ph190}/photos", img_a, "a.png", "image/png")
+upload_file(f"/products/{ph190}/photos", img_b, "b.png", "image/png")
+r = upload_file(f"/products/{ph190}/photos", img_a, "a.png", "image/png", expect=422)
+check("the catalogue refuses the same image twice on one product", r["error"]["title"] == "Already a photo of this product", r)
+cur190 = call("GET", f"/website/products/{ph190}/photos")
+base190 = [p_["id"] for p_ in cur190["photos"]]
+check("the website editor shows the product's own photos, primary first, with the limit", len(base190) == 2 and cur190["photos"][0]["is_primary"]
+      and cur190["max"] >= 2 and cur190["applies_directly"] is True and cur190["pending"] is None, cur190)
+r190 = call("POST", "/roles", {"name": f"Web photos {suffix}", "description": "", "permissions": ["website.view", "website.photos"]})["id"]
+PH = make_user("webphoto190", r190)
+upload_file(f"/products/{ph190}/photos", sized_png(300, 300, (1, 2, 3)), "c.png", "image/png", token=PH, expect=403)
+check("Manage website product photos grants no catalogue product editing", True)
+check("…and its changes wait for approval (it cannot publish)", call("GET", f"/website/products/{ph190}/photos", token=PH)["applies_directly"] is False)
+r = upload_file(f"/website/products/{ph190}/photos/stage", sized_png(120, 120), "s.png", "image/png", token=PH, expect=422)
+check("a photo too small to look sharp is refused", r["error"]["title"] == "Photo too small", r)
+r = upload_file(f"/website/products/{ph190}/photos/stage", img_a, "a.png", "image/png", token=PH, expect=422)
+check("a photo already on the product is refused (no duplicates)", r["error"]["title"] == "Already a photo of this product", r)
+upload_file(f"/website/products/{ph190}/photos/stage", b"GIF89a not really", "x.gif", "image/gif", token=PH, expect=422)
+check("only JPEG, PNG or WebP are accepted", True)
+VIEW190 = make_user("nophoto190", call("POST", "/roles", {"name": f"Web view {suffix}", "description": "", "permissions": ["website.view"]})["id"])
+call("GET", f"/website/products/{ph190}/photos", token=VIEW190, expect=403)
+check("without Manage website product photos the photos cannot be managed", True)
+call("PUT", f"/website/products/{ph190}/photos", {"photos": [{"id": i} for i in base190], "base": base190}, token=PH, expect=422)
+check("Save only when something changed", True)
+new1 = upload_file(f"/website/products/{ph190}/photos/stage", sized_png(320, 320, (200, 10, 10)), "n.png", "image/png", token=PH)
+# Limit: with at most 2 photos a third is refused.
+_s190 = call("GET", "/settings")["settings"]
+call("PUT", "/settings", {**_s190, "product": {**_s190["product"], "max_photos": 2}})
+r = call("PUT", f"/website/products/{ph190}/photos", {"photos": [{"id": new1["id"], "staged": True}] + [{"id": i} for i in base190], "base": base190}, token=PH, expect=422)
+check("the configured photo limit applies", r["error"]["title"] == "Photo limit reached", r)
+call("PUT", "/settings", _s190)
+r = call("PUT", f"/website/products/{ph190}/photos", {"photos": [{"id": i} for i in reversed(base190)], "base": list(reversed(base190))}, token=PH, expect=422)
+check("a change made on photos that changed meanwhile is refused", r["error"]["title"] == "Changed meanwhile", r)
+# Replace the primary photo with the new one (the old primary removed).
+r = call("PUT", f"/website/products/{ph190}/photos", {"photos": [{"id": new1["id"], "staged": True}, {"id": base190[1]}], "base": base190, "comments": "Sharper photo"}, token=PH)
+check("saved as a request for approval", r["pending_approval"] and not r["applied"], r)
+pd190 = call("GET", f"/products/{ph190}")
+check("nothing changes before approval: catalogue, POS, website and ordering link keep the current photos",
+      [x["id"] for x in pd190["photos"]] == base190 and call("GET", f"/website/catalogue")["products"] and
+      next(x for x in call("GET", "/website/catalogue")["products"] if x["id"] == ph190)["photos"] == base190, pd190["photos"])
+call("PUT", f"/website/products/{ph190}/photos", {"photos": [{"id": base190[1]}], "base": base190}, token=PH, expect=422)
+check("one photo change per product waits at a time", True)
+ap190 = next(x for x in call("GET", "/approvals?status=pending")["items"] if x["id"] == r["approval_id"])
+check("waiting in Approvals (Product edit) for the Tenant Administrator, with a summary", ap190["action"] == "product.edit" and ap190["can_decide"]
+      and "1 added" in ap190["summary"] and "1 removed" in ap190["summary"], ap190["summary"])
+det190 = call("GET", f"/website/photo-requests/{r['request_id']}")
+check("the approver sees the photos before and as proposed", len(det190["before"]) == 2 and det190["proposed"][0]["staged"] and det190["proposed"][0]["url"].startswith("/api/photos/staged/"), det190)
+call("GET", f"/photos/staged/{new1['id']}")
+call("POST", f"/approvals/{r['approval_id']}/reject", {"comments": "Use a brighter one", "returned": True})
+call("GET", f"/photos/staged/{new1['id']}", expect=404)
+check("returned for correction: nothing changes and the staged photo is discarded", [x["id"] for x in call("GET", f"/products/{ph190}")["photos"]] == base190)
+new2 = upload_file(f"/website/products/{ph190}/photos/stage", sized_png(330, 330, (220, 200, 10)), "n2.png", "image/png", token=PH)
+r = call("PUT", f"/website/products/{ph190}/photos", {"photos": [{"id": new2["id"], "staged": True}, {"id": base190[1]}], "base": base190}, token=PH)
+call("POST", f"/approvals/{r['approval_id']}/approve", {"comments": "ok"})
+after190 = [x["id"] for x in call("GET", f"/products/{ph190}")["photos"]]
+check("approved: the new photo is the primary photo and the replaced one is gone — everywhere",
+      len(after190) == 2 and after190[1] == base190[1] and base190[0] not in after190 and after190[0] not in base190
+      and next(x for x in call("GET", "/website/catalogue")["products"] if x["id"] == ph190)["photos"] == after190
+      and next(x for x in call("GET", f"/pos/products?q=Photo190 {suffix}") if x["id"] == ph190)["primary_photo_id"] == after190[0], after190)
+call("GET", f"/photos/{after190[0]}")
+check("the applied photo is served to the website and ordering link", True)
+# Someone who may publish (and Product edit needs no approval): saved at once — here a reorder.
+r = call("PUT", f"/website/products/{ph190}/photos", {"photos": [{"id": after190[1]}, {"id": after190[0]}], "base": after190})
+check("someone who may publish applies at once (reorder = new primary)", r["applied"] and [x["id"] for x in call("GET", f"/products/{ph190}")["photos"]] == [after190[1], after190[0]], r)
+aud190 = [a_["action"] for a_ in call("GET", "/audit?period=today&module=products&limit=60")["items"]]
+check("audited: requested, returned, updated", {"photos_change_requested", "photos_change_returned", "photos_updated"} <= set(aud190), aud190[:12])
+
+step("Roadmap 191: Edit Sale — corrections approved before they take effect")
+_s191 = call("GET", "/settings")["settings"]
+_pm = _s191["sales"]["payment_methods"]
+for m_ in _pm:
+    if m_["key"] in ("cash", "mpesa", "card"):
+        m_["enabled"] = True
+if not any(m_["key"] == "card" for m_ in _pm):
+    _pm.append({**next(m_ for m_ in _pm if m_["key"] == "cash"), "key": "card", "label": "Card", "enabled": True})
+call("PUT", "/settings", {**_s191, "sales": {**_s191["sales"], "payment_methods": _pm, "mpesa_manual_confirmation": True, "credit_single_item": False},
+                          "loyalty": {**_s191["loyalty"], "enabled": True}})
+e1 = call("POST", "/products", {"name": f"Afnan191 {suffix}", "marked_price": 5000, "cost_price": 3000})["result"]["id"]
+e2 = call("POST", "/products", {"name": f"Mist191 {suffix}", "marked_price": 1200, "cost_price": 700})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": e1, "quantity": 20, "cost_price": 3000})
+call("POST", "/stock/receive", {"product_id": e2, "quantity": 10, "cost_price": 700})
+call("POST", "/stock/receive", {"product_id": e1, "quantity": 5, "cost_price": 3000}, branch=b2)
+gitau = call("POST", "/customers", {"mobile": "07" + str(int(time.time() * 1000))[-8:], "first_name": "Gitau"})["id"]
+time.sleep(0.01)
+peter = call("POST", "/customers", {"mobile": "07" + str(int(time.time() * 1000) + 7)[-8:], "first_name": "Peter"})["id"]
+roles191 = {r_["name"]: r_ for r_ in call("GET", "/roles")}
+EVANS = make_user("evans191", roles191["Salesperson"]["id"])
+evans_id = call("GET", "/auth/me", token=EVANS)["user"]["id"]
+ed_role = call("POST", "/roles", {"name": f"Sale editor {suffix}", "description": "", "permissions": ["sales.view", "sales.create", "sales.edit", "scope.sales.all"]})["id"]
+EDT = make_user("editor191", ed_role)
+def stock_of(pid, br=None):
+    q_ = f"Afnan191 {suffix}" if pid == e1 else f"Mist191 {suffix}"
+    return next((x["on_hand"] for x in call("GET", f"/stock?q={urllib.parse.quote(q_)}", branch=br)["items"] if x["product_id"] == pid), 0)
+sale191 = call("POST", "/sales", {"customer_id": gitau, "items": [{"product_id": e1, "quantity": 1, "unit_price": 5000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})["sale"]
+sid = sale191["id"]
+check("setup: sale recorded (cash, Gitau)", float(sale191["total"]) == 5000)
+ed = call("GET", f"/sales/{sid}/edit", token=EDT)
+check("Edit Sale loads the sale as it stands", ed["editable"] and ed["revision"] == 0 and ed["lines"][0]["product_id"] == e1 and ed["payments"][0]["method"] == "cash"
+      and not ed["payments"][0]["locked"] and ed["customer"]["id"] == gitau, ed)
+def proposal(ed_, **kw):
+    p_ = {"sale_date": ed_["sale_date"], "sale_time": ed_["sale_time"], "branch_id": ed_["branch_id"], "customer_id": (ed_["customer"] or {}).get("id"),
+          "owner_id": ed_["owner_id"], "notes": ed_["notes"], "due_date": (ed_["credit"] or {}).get("due_date"),
+          "lines": [{"sale_item_id": l_["sale_item_id"], "product_id": l_["product_id"], "quantity": l_["quantity"], "unit_price": l_["unit_price"]} for l_ in ed_["lines"]],
+          "payments": [({"key": g_["key"]} if g_["locked"] else {}) | {"method": g_["method"], "amount": g_["amount"], "reference": g_["reference"]} for g_ in ed_["payments"]]}
+    p_.update(kw)
+    return p_
+call("POST", f"/sales/{sid}/edit", {"proposal": proposal(ed), "reason": "x", "revision": 0}, token=EDT, expect=422)
+check("Submit only when something changed", True)
+call("GET", f"/sales/{sid}/edit", token=EVANS, expect=403)
+check("Edit recorded sales is needed", True)
+p1_ = proposal(ed, customer_id=peter, lines=[{**proposal(ed)["lines"][0], "unit_price": 5500}], payments=[{"method": "cash", "amount": 5500}])
+call("POST", f"/sales/{sid}/edit", {"proposal": p1_, "reason": "  ", "revision": 0}, token=EDT, expect=400)
+check("a reason is required (any length)", True)
+pv = call("POST", f"/sales/{sid}/edit/preview", {"proposal": p1_, "revision": 0}, token=EDT)
+labels = {c_["label"]: c_ for c_ in pv["changes"]}
+check("the summary compares original and proposed values", labels["Customer"]["before"].startswith("Gitau") and labels["Customer"]["after"].startswith("Peter")
+      and labels[f"Selling price — Afnan191 {suffix}"]["before"].endswith("5,000") and labels[f"Selling price — Afnan191 {suffix}"]["after"].endswith("5,500")
+      and "Total" in labels and "Payment" in labels, list(labels))
+check("…with the financial, inventory and loyalty implications", float(pv["implications"]["financial"]["difference"]) == 500 and pv["implications"]["stock"] == []
+      and pv["implications"]["loyalty"]["customer_after"].startswith("Peter"), pv["implications"])
+gitau_before = call("GET", f"/customers/{gitau}")["customer"]
+stock_e1 = stock_of(e1)
+sub = call("POST", f"/sales/{sid}/edit", {"proposal": p1_, "reason": "Wrong customer and price", "revision": 0}, token=EDT)
+check("submitted for approval", sub["pending_approval"] and sub["approval_id"], sub)
+same = call("GET", f"/sales/{sid}")
+check("the sale stays unchanged while approval is pending", float(same["sale"]["total"]) == 5000 and same["sale"]["customer"]["id"] == gitau and stock_of(e1) == stock_e1)
+call("POST", f"/sales/{sid}/edit", {"proposal": p1_, "reason": "again", "revision": 0}, token=EDT, expect=422)
+check("one correction per sale waits at a time (no duplicate submissions)", True)
+ap = next(x for x in call("GET", "/approvals?status=pending")["items"] if x["id"] == sub["approval_id"])
+check("waiting for the Tenant Administrator (Sale edit), the comparison in the request", ap["action"] == "sale.edit" and ap["can_decide"]
+      and any(c_["label"] == "Customer" for c_ in ap["payload"]["changes"]), ap["summary"])
+call("POST", f"/approvals/{sub['approval_id']}/approve", {"comments": "self"}, token=EDT, expect=403)
+check("the requester cannot approve their own correction", True)
+call("POST", f"/approvals/{sub['approval_id']}/approve", {"comments": "Checked"})
+d191 = call("GET", f"/sales/{sid}")
+check("approved: customer and price corrected on the same sale (same receipt number, recorder, time)", float(d191["sale"]["total"]) == 5500
+      and d191["sale"]["customer"]["id"] == peter and d191["sale"]["receipt_no"] == sale191["receipt_no"] and d191["sale"]["created_at"] == sale191["created_at"]
+      and d191["sale"]["recorded_by_name"] == sale191["recorded_by_name"], d191["sale"])
+net_cash = sum(float(p_["amount"]) for p_ in d191["payments"] if p_["method"] == "cash")
+check("payments: the difference is a linked adjustment (no payment edited or duplicated)", net_cash == 5500 and len(d191["payments"]) == 2, d191["payments"])
+check("stock unchanged (same product and quantity)", stock_of(e1) == stock_e1)
+gitau_after, peter_after = call("GET", f"/customers/{gitau}")["customer"], call("GET", f"/customers/{peter}")["customer"]
+check("customer history and loyalty move to the corrected customer", float(gitau_after["total_spend"]) == float(gitau_before["total_spend"]) - 5000
+      and float(peter_after["total_spend"]) == 5500 and peter_after["purchase_count"] == 1 and gitau_after["points_available"] <= gitau_before["points_available"]
+      and peter_after["own_points"] == d191["sale"]["points_earned"], (gitau_after, peter_after, d191["sale"]["points_earned"]))
+rc191 = call("GET", f"/sales/{sid}/receipts")["items"]
+orig = next(x for x in rc191 if x["kind"] == "original")
+rev = next(x for x in rc191 if x["kind"] == "revision")
+check("a corrected receipt RCP-…-R1 is issued; the original receipt is kept unchanged", rev["number"] == sale191["receipt_no"] + "-R1"
+      and float(orig["snapshot"]["totals"]["total"]) == 5000 and float(rev["snapshot"]["totals"]["total"]) == 5500
+      and rev["snapshot"]["revision"]["original_receipt"] == sale191["receipt_no"] and rev["snapshot"]["revision"]["reason"] == "Wrong customer and price", rev["number"])
+hist = call("GET", f"/sales/{sid}/revisions")["items"]
+check("revision history: applied, number, requester, approver", hist[0]["status"] == "applied" and hist[0]["revision_no"] == 1 and hist[0]["decided_by"] and hist[0]["requested_by"], hist[0])
+# Quantities, an added product and a payment method change.
+ed = call("GET", f"/sales/{sid}/edit", token=EDT)
+l0 = proposal(ed)["lines"][0]
+p2_ = proposal(ed, lines=[{**l0, "quantity": 2}, {"product_id": e2, "quantity": 1, "unit_price": 1200}], payments=[{"method": "card", "amount": 12200, "reference": "4321"}])
+s2 = call("POST", f"/sales/{sid}/edit", {"proposal": p2_, "reason": "Two bottles and a mist", "revision": 1}, token=EDT)
+e1_before, e2_before = stock_of(e1), stock_of(e2)
+call("POST", f"/approvals/{s2['approval_id']}/approve", {"comments": "ok"})
+d2 = call("GET", f"/sales/{sid}")
+by_method = {}
+for p_ in d2["payments"]:
+    by_method[p_["method"]] = by_method.get(p_["method"], 0) + float(p_["amount"])
+check("only the differences move stock (+1 Afnan, +1 Mist deducted)", stock_of(e1) == e1_before - 1 and stock_of(e2) == e2_before - 1, (stock_of(e1), e1_before))
+check("payment moved from cash to card by linked adjustments", by_method.get("cash") == 0 and by_method.get("card") == 12200 and float(d2["sale"]["total"]) == 12200
+      and d2["sale"]["payment_method"] == "card", by_method)
+check("receipt R2 lists the corrected payment only", next(x for x in call("GET", f"/sales/{sid}/receipts")["items"] if x["number"].endswith("-R2"))["snapshot"]["payments"][0]["method"].lower().startswith("card"))
+# Rejected: nothing changes.
+ed = call("GET", f"/sales/{sid}/edit", token=EDT)
+s3 = call("POST", f"/sales/{sid}/edit", {"proposal": proposal(ed, notes="should not apply"), "reason": "test", "revision": 2}, token=EDT)
+call("POST", f"/approvals/{s3['approval_id']}/reject", {"comments": "No"})
+check("rejected: the sale stays exactly as it was", call("GET", f"/sales/{sid}")["sale"]["notes"] == "" and call("GET", f"/sales/{sid}/revisions")["items"][0]["status"] == "rejected")
+# Branch, owner, date and time; availability at the new branch.
+ed = call("GET", f"/sales/{sid}/edit", token=EDT)
+yday = (datetime.date.fromisoformat(ed["sale_date"]) - datetime.timedelta(days=1)).isoformat()
+r = call("POST", f"/sales/{sid}/edit/preview", {"proposal": proposal(ed, branch_id=b2, owner_id=evans_id), "revision": 2}, token=EDT, expect=422)
+check("a branch change checks availability at the new branch", r["error"]["title"] == "Not enough stock", r)
+pb = proposal(ed, branch_id=b2, owner_id=evans_id, sale_time="10:30", lines=[proposal(ed)["lines"][0] if proposal(ed)["lines"][0]["product_id"] == e1 else proposal(ed)["lines"][1]],
+              payments=[{"method": "card", "amount": 11000, "reference": "4321"}])
+pb["lines"][0]["unit_price"] = 5500
+main_e1, main_e2, b2_e1 = stock_of(e1), stock_of(e2), stock_of(e1, b2)
+s4 = call("POST", f"/sales/{sid}/edit", {"proposal": pb, "reason": "Sold at Westlands by Evans", "revision": 2}, token=EDT)
+call("POST", f"/approvals/{s4['approval_id']}/approve", {"comments": "ok"})
+d4 = call("GET", f"/sales/{sid}")
+check("branch, owner and time corrected", d4["sale"]["branch_id"] == b2 and d4["sale"]["owner_id"] == evans_id, d4["sale"])
+check("both branches reconciled (Main back +2 / +1, Westlands −2)", stock_of(e1) == main_e1 + 2 and stock_of(e2) == main_e2 + 1 and stock_of(e1, b2) == b2_e1 - 2,
+      (stock_of(e1), main_e1, stock_of(e1, b2), b2_e1))
+check("the corrected receipt shows the corrected time", next(x for x in call("GET", f"/sales/{sid}/receipts")["items"] if x["number"].endswith("-R3"))["snapshot"]["sale_time"] == "10:30")
+# A date before the stock was there is refused when it would be applied (nothing changes).
+ed = call("GET", f"/sales/{sid}/edit", token=EDT)
+s5 = call("POST", f"/sales/{sid}/edit", {"proposal": proposal(ed, sale_date=yday), "reason": "Sold yesterday", "revision": 3}, token=EDT)
+r = call("POST", f"/approvals/{s5['approval_id']}/approve", {"comments": "ok"}, expect=422)
+check("an earlier date is checked against the stock history at both branches", r["error"]["title"] == "Not enough stock on that date" and call("GET", f"/sales/{sid}")["sale"]["business_date"] == ed["sale_date"], r)
+call("POST", f"/approvals/{s5['approval_id']}/reject", {"comments": "No stock then", "returned": True})
+check("returned for correction", call("GET", f"/sales/{sid}/revisions")["items"][0]["status"] == "returned")
+# Verified payments stay.
+code191 = f"QV{suffix}191X"[:10].upper()
+vs = call("POST", "/sales", {"items": [{"product_id": e1, "quantity": 1, "unit_price": 5000}], "payment": {"method": "mpesa", "reference": code191}, "client_ref": str(uuid.uuid4())})["sale"]
+ev = call("GET", f"/sales/{vs['id']}/edit", token=EDT)
+check("an M-Pesa payment with its confirmation code is locked", ev["payments"][0]["locked"], ev["payments"])
+r = call("POST", f"/sales/{vs['id']}/edit/preview", {"proposal": proposal(ev, payments=[{"method": "cash", "amount": 5000}]), "revision": 0}, token=EDT, expect=422)
+check("a verified payment cannot be replaced", r["error"]["title"] == "Verified payment", r)
+r = call("POST", f"/sales/{vs['id']}/edit/preview", {"proposal": proposal(ev, lines=[{**proposal(ev)["lines"][0], "unit_price": 4500}]), "revision": 0}, token=EDT, expect=422)
+check("a lower total than verified payments needs a return instead", r["error"]["title"] in ("Verified payments exceed the total", "Verified payment"), r)
+pv = call("POST", f"/sales/{vs['id']}/edit/preview", {"proposal": proposal(ev, lines=[{**proposal(ev)["lines"][0], "unit_price": 5300}], payments=proposal(ev)["payments"] + [{"method": "cash", "amount": 300}]), "revision": 0}, token=EDT)
+check("a higher total keeps the verified payment and adds the difference", float(pv["total"]) == 5300)
+# Credit sale: amount owed follows the total, never below what was paid; due date.
+cr = call("POST", "/sales", {"customer_id": gitau, "items": [{"product_id": e2, "quantity": 1, "unit_price": 1200}], "payment": {"method": "credit"}, "client_ref": str(uuid.uuid4())})
+ec = call("GET", f"/sales/{cr['sale']['id']}/edit", token=EDT)
+due2 = (datetime.date.fromisoformat(ec["credit"]["due_date"]) + datetime.timedelta(days=30)).isoformat()
+sc = call("POST", f"/sales/{cr['sale']['id']}/edit", {"proposal": proposal(ec, due_date=due2, lines=[{**proposal(ec)["lines"][0], "unit_price": 1000}], payments=[]), "reason": "Agreed price and terms", "revision": 0}, token=EDT)
+call("POST", f"/approvals/{sc['approval_id']}/approve", {"comments": "ok"})
+dc = call("GET", f"/sales/{cr['sale']['id']}")
+check("credit sale: amount owed and due date follow the correction", float(dc["credit"]["original_amount"]) == 1000 and float(dc["credit"]["balance"]) == 1000 and dc["credit"]["due_date"] == due2, dc["credit"])
+call("POST", f"/credit/{dc['credit']['id']}/payments", {"amount": 600, "method": "cash"})
+ec = call("GET", f"/sales/{cr['sale']['id']}/edit", token=EDT)
+r = call("POST", f"/sales/{cr['sale']['id']}/edit/preview", {"proposal": proposal(ec, lines=[{**proposal(ec)["lines"][0], "unit_price": 500}], payments=[]), "revision": 1}, token=EDT, expect=422)
+check("never below what was already paid on credit", r["error"]["title"] == "Already paid", r)
+# Concurrent change: a sale cancelled after the request makes the request outdated.
+oc = call("POST", "/sales", {"items": [{"product_id": e2, "quantity": 1, "unit_price": 1200}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})["sale"]
+eo = call("GET", f"/sales/{oc['id']}/edit", token=EDT)
+so = call("POST", f"/sales/{oc['id']}/edit", {"proposal": proposal(eo, notes="late"), "reason": "note", "revision": 0}, token=EDT)
+db_exec(f"UPDATE sales SET notes = 'changed elsewhere' WHERE id = '{oc['id']}'")
+r = call("POST", f"/approvals/{so['approval_id']}/approve", {"comments": "ok"}, expect=422)
+check("a sale changed after the request is not overwritten (Outdated request)", r["error"]["title"] == "Outdated request", r)
+call("POST", f"/approvals/{so['approval_id']}/reject", {"comments": "Outdated"})
+r = call("GET", f"/sales/{oc['id']}/edit", token=EDT)
+call("POST", f"/sales/{oc['id']}/cancel", {"reason": "test"})
+check("a cancelled sale cannot be edited", call("GET", f"/sales/{oc['id']}/edit", token=EDT)["editable"] is False)
+aud191 = [a_["action"] for a_ in call("GET", "/audit?period=today&module=sales&limit=80")["items"]]
+check("audited: requested, applied (with every changed field), rejected", {"edit_requested", "edit", "edit_rejected"} <= set(aud191), aud191[:12])
+call("PUT", "/settings", _s191)
 
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}

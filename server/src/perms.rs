@@ -30,6 +30,7 @@ pub const CATALOGUE: &[PermGroup] = &[
         ("location.bypass", "Work away from the branch (geofencing does not apply)"),
         ("sales.return", "Process returns & refunds"),
         ("sales.cancel", "Cancel sales"),
+        ("sales.edit", "Edit recorded sales (sent for approval)"),
         ("sales.assign_owner", "Assign the sale owner when recording"),
         ("sales.request_owner_change", "Request sale ownership changes"),
         ("sales.view_financials", "View cost & profit figures"),
@@ -175,7 +176,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
     RoleTemplate { name: ADMIN_ROLE, description: "Full access to everything", permissions: &["*"] },
     RoleTemplate { name: "Manager", description: "Runs the business day to day", permissions: &[
         "dashboard.view", "sales.view", "sales.create", "sales.view_out_of_stock", "sales.discount", "sales.discount_override", "sales.change_branch",
-        "sales.return", "credit.recall", "sales.cancel", "sales.view_financials", "credit.view", "credit.collect", "credit.write_off",
+        "sales.return", "credit.recall", "sales.cancel", "sales.edit", "sales.view_financials", "credit.view", "credit.collect", "credit.write_off",
         "orders.view", "orders.manage", "products.view", "products.create", "products.edit", "products.price", "products.deactivate",
         "stock.view", "stock.add", "stock.adjust", "stock.write_off", "stock.transfer", "stock.receive_transfer",
         "customers.view", "customers.create", "customers.edit", "customers.view_loyalty", "customers.redeem_points",
@@ -190,7 +191,7 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
     ]},
     RoleTemplate { name: "Supervisor", description: "Leads the counter: approves discounts, returns and cancellations", permissions: &[
         "dashboard.view", "staff.view_others", "sales.view", "sales.create", "sales.view_out_of_stock", "sales.print", "sales.discount", "sales.discount_override",
-        "sales.return", "credit.recall", "sales.cancel", "credit.view", "credit.collect", "orders.view", "orders.manage", "products.view", "stock.view",
+        "sales.return", "credit.recall", "sales.cancel", "sales.edit", "credit.view", "credit.collect", "orders.view", "orders.manage", "products.view", "stock.view",
         "customers.view", "customers.create", "customers.edit", "customers.view_loyalty", "customers.redeem_points", "approvals.approve",
         "sales.outside_hours", "sales.assign_owner", "sales.request_owner_change", "sales.backdate", "barcodes.manual_sale",
     ]},

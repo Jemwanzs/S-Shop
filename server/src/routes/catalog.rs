@@ -1309,6 +1309,7 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
             apply_status(conn, ctx, a.entity_id, active, Some(a.id)).await
         }
         // Roadmap 176: a branch price change waiting for the *Product edit* approval.
+        "product.edit" if a.payload.get("photos_request").is_some() => super::photo_requests::on_approved(conn, ctx, a).await,
         "product.edit" if a.payload.get("branch_prices").is_some() => super::prices::on_approved(conn, ctx, a.entity_id, &a.payload, a.id).await,
         // Roadmap 186: a branch-wide price change (Manage branch prices).
         "product.edit" if a.payload.get("branch_prices_bulk").is_some() => super::prices::on_bulk_approved(conn, ctx, &a.payload, a.id).await,
@@ -1375,6 +1376,16 @@ async fn upload_photo(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
             return Ok(Json(json!({ "id": photo_id, "url": format!("/api/photos/{photo_id}"), "duplicate": true })));
         }
     }
+    // Roadmap 190: the same image twice on one product is refused (it would show twice everywhere).
+    let hash = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&data));
+    let twice: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM product_photos WHERE product_id = $1 AND hash = $2)")
+        .bind(id)
+        .bind(&hash)
+        .fetch_one(&mut *tx)
+        .await?;
+    if twice {
+        return Err(refused("Already a photo of this product", "This exact photo is already on the product."));
+    }
     let s = settings::load(&mut tx, ctx.tenant_id).await?;
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM product_photos WHERE product_id = $1")
         .bind(id)
@@ -1384,7 +1395,7 @@ async fn upload_photo(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
         return Err(refused("Photo limit reached", format!("A product can have at most {} photos.", s.product.max_photos)));
     }
     let photo_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO product_photos (tenant_id, product_id, data, mime, is_primary, sort_order, upload_ref, thumb, thumb_mime) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
+        "INSERT INTO product_photos (tenant_id, product_id, data, mime, is_primary, sort_order, upload_ref, thumb, thumb_mime, hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id",
     )
     .bind(ctx.tenant_id)
     .bind(id)
@@ -1395,6 +1406,7 @@ async fn upload_photo(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uu
     .bind(upload_ref)
     .bind(thumb.as_ref().map(|t| t.0.clone()))
     .bind(thumb.as_ref().map(|t| t.1))
+    .bind(&hash)
     .fetch_one(&mut *tx)
     .await?;
     sqlx::query("UPDATE products SET updated_at = now() WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).execute(&mut *tx).await?;

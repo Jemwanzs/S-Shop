@@ -30,7 +30,8 @@
         "Sales history with ownership, returns, exchanges and cancellations under approval rules",
         "Barcode-controlled items are cleared only by scanning their sticker; typing barcodes at the till is off by default",
         "Find the customer by name or mobile number from the first letter or digit, or add a new customer without leaving the sale",
-        "Out-of-stock products can be hidden from the till per role (View out-of-stock products when recording sales)"
+        "Out-of-stock products can be hidden from the till per role (View out-of-stock products when recording sales)",
+        "Edit Sale: correct a recorded sale (date, customer, owner, branch, products, prices, payments) — reviewed and approved before anything changes; a corrected receipt is added beside the original"
       ]
     },
     {
@@ -253,7 +254,8 @@
         "Custom domains with guided DNS checks and secure HTTPS",
         "Visitor and order analytics",
         "Show in-stock products only, limit the cart to available stock and show the quantity available — three settings shared with the ordering link",
-        "Request Publication: people who may not publish send their website changes for approval, with an automatic summary; the Tenant Administrator reviews, previews and approves & publishes, returns or rejects"
+        "Request Publication: people who may not publish send their website changes for approval, with an automatic summary; the Tenant Administrator reviews, previews and approves & publishes, returns or rejects",
+        "Product photos from the website editor: add, replace, reorder, remove and choose the primary photo of a product — shared with the catalogue, the till and the ordering link; applied at once by publishers, otherwise after approval"
       ]
     },
     {
@@ -622,6 +624,14 @@
             "Set the period and filters (branch, category, product, user).",
             "Download PDF or Excel."
           ]
+        },
+        {
+          "title": "Correct a recorded sale (Edit Sale)",
+          "steps": [
+            "Open the sale → Corrections → Edit Sale. Change what was recorded wrongly: date or time, customer, sale owner, branch, products, quantities, prices, payments or notes.",
+            "Make sure the payments add up to the corrected total (verified M-Pesa payments are locked), then tap Review changes.",
+            "Check the comparison, enter the reason and tap Submit for Approval. Nothing changes until it is approved; the sale then shows a corrected receipt and the correction history."
+          ]
         }
       ]
     },
@@ -808,6 +818,21 @@
             "Approvals → Waiting → Website publication: open each section to see what changes, read the comments and tap Preview proposed website.",
             "Approve & Publish puts exactly that version live. Return for correction sends it back with your comment; Reject closes it. Nothing is published until you approve.",
             "To let someone request publication, give their role Request website publication (Website add-on) instead of Publish website changes."
+          ]
+        },
+        {
+          "title": "Approve a sale correction",
+          "steps": [
+            "Approvals → Waiting → Sale edit: read the reason and the table of original and proposed values, then the effects on money, stock, loyalty and credit.",
+            "Approve applies only the differences and adds a corrected receipt (RCP-…-R1) beside the original. Return for correction sends it back; Reject leaves the sale as it was.",
+            "To let someone propose corrections, give their role Edit recorded sales (Sales)."
+          ]
+        },
+        {
+          "title": "Review a product photo change",
+          "steps": [
+            "Approvals → Waiting → Product edit (Photos of …): compare the current and proposed photos.",
+            "Approve updates the photos everywhere — catalogue, till, website and ordering link. Return for correction or Reject changes nothing."
           ]
         },
         {

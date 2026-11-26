@@ -321,6 +321,8 @@ export interface SaleDetail {
     business_date: string;
     /** Roadmap 115: recorded with an earlier sale date (business_date is that date). */
     backdated?: boolean;
+    /** Roadmap 191: how many corrections were applied (0 = as recorded). */
+    revision?: number;
     gross_total: Money;
     discount_total: Money;
     total: Money;
@@ -375,6 +377,8 @@ export interface SaleDetail {
   credit: { id: Id; original_amount: Money; amount_paid: Money; adjustments: Money; balance: Money; due_date: string; status: string } | null;
   business: { name: string; phone: string; address: string; currency: string; logo_url: string | null; receipt_footer: string };
   pending_approval_id: Id | null;
+  /** Roadmap 191: what the waiting request is (sale.edit, sale.return, …). */
+  pending_action?: string | null;
   owner_changes?: { id: Id; from_owner: string | null; to_owner: string | null; reason: string; status: string; requested_by: string | null; decided_by: string | null; decided_at: string | null; created_at: string; approval_id: Id | null }[];
 }
 

@@ -436,3 +436,16 @@ checkout; checkout checks again on the server. Products, publication and stock a
   nothing is published.
 - **Status and history:** *Unpublished changes · Awaiting approval · Returned for correction · Rejected · Published* in
   the bar; **Publication history** on the overview (`GET /api/website/publication/requests`, `?mine=true`).
+
+## Product photos from the website editor (roadmap 190)
+
+- **Where:** Products → (product) → *Use the product's own photos*. With *Manage website product photos* the product's own
+  photos are managed here: add (n/max — the business's photo limit), replace, preview, remove, reorder (drag or arrows),
+  primary (the first). The eye still hides a photo on the website only (draft).
+- **One source of truth:** the photos are the product's (`product_photos`) — catalogue, product pages, till, stock,
+  website, ordering link. Website gallery photos (toggle off) stay independent.
+- **Saving:** new photos are staged (`POST /api/website/products/{id}/photos/stage`, shown nowhere); `PUT
+  /api/website/products/{id}/photos` saves the whole change — applied at once for people who may publish (and *Product
+  edit* needs no approval for them), otherwise a *Product edit* approval (default the Tenant Administrator). Nothing
+  changes anywhere until then; one change per product waits; a change on photos changed meanwhile is refused.
+- **Checks:** JPEG/PNG/WebP, ≤ 3 MB, ≥ 200 px a side, the same image twice on one product refused (content hash).

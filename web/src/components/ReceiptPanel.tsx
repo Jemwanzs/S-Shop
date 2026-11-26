@@ -93,7 +93,7 @@ export function ReceiptPanel({ saleId, zoom = 1.6, compact }: { saleId: string; 
           {items.map((r) => (
             <button key={r.id} type="button" onClick={() => setPick(r.id)}
               className={cn("h-8 shrink-0 rounded-full border px-3 text-xs", r.id === current.id ? "border-primary bg-primary text-primary-foreground" : "bg-card")}>
-              {r.kind === "original" ? t("Original") : t("Updated")} · <span className="num">{r.number}</span>
+              {r.kind === "original" ? t("Original") : r.kind === "revision" ? t("Corrected") : t("Updated")} · <span className="num">{r.number}</span>
             </button>
           ))}
         </div>

@@ -116,3 +116,21 @@ The smoke suite section *Roadmap 65–67* covers:
 - loyalty reconciliation;
 - an approval-gated exchange: nothing changes while pending, it executes once on approval, and the replacement is
   credited to the original owner.
+
+## Corrected receipts and sale revisions (roadmap 191)
+
+- An approved **Edit Sale** makes the sale revision *n* (`sales.revision`) and issues a **corrected receipt**
+  (`receipts.kind = 'revision'`, number `RCP-…-Rn`): laid out like the original, with *Corrected sale — corrects receipt
+  …, revision, approved by, reason*, and the corrected date and time. The original and earlier receipts never change.
+- **Money:** payments are never edited or deleted — a changed allocation is a pair of rows linked to the correction
+  (`payments.sale_edit_id`, −old / +new); receipts show payments net per method. Verified payments (STK-confirmed
+  M-Pesa, M-Pesa codes, exchange and return credits) cannot change; a total below them needs a return / refund.
+- **Stock:** only differences move (`sale` / `sale_reversal`, reference `sale_revision`); a branch or date change moves the
+  whole sale, with availability and stock history checked.
+- **Loyalty / customers / credit:** the points difference (negative earnings when taken back; points already spent are
+  recorded as unrecovered); purchase totals move to the corrected customer; credit follows the total, never below what
+  was paid.
+- **Limits:** no correction after returns, exchanges or cancellation; not for imported sales, recalled or written-off
+  credit, credit ↔ paid conversion, or a customer change when points were redeemed.
+- `sale_edit_requests` keeps each request: reason, the sale before (fingerprint), the proposal, the comparison, the
+  effects, the sale after, revision number, requester, approver and approval.

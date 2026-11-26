@@ -13,6 +13,8 @@ import { Switch } from "@/components/ui/switch";
 import { Field, Select, ToggleRow } from "@/components/Form";
 import { Loading } from "@/components/Page";
 import { t } from "@/lib/i18n";
+import { useSession } from "@/lib/session";
+import { ProductPhotoManager } from "./ProductPhotos";
 import { blankProduct, mediaUrl, useCatalogue, type CatalogueProduct, type ProductCfg, type SiteConfig } from "./data";
 import { Block, Choice, Grid2, MediaField, MediaPicker, Move, moveItem } from "./kit";
 import type { TabProps } from "./Website";
@@ -160,6 +162,7 @@ function ProductEditor({ c, p, e, edit, categories, showPrices }: { c: SiteConfi
   // Roadmap 129: what visitors actually see for this product.
   const shown = e.price === "show" || (e.price !== "hide" && showPrices);
   const [picker, setPicker] = useState(false);
+  const { can } = useSession();
   const max = c.products.max_photos;
   return (
     <div className="mt-2 space-y-3 rounded-lg border bg-muted/20 p-3">
@@ -183,7 +186,11 @@ function ProductEditor({ c, p, e, edit, categories, showPrices }: { c: SiteConfi
 
       <div className="space-y-2">
         <ToggleRow label="Use the product's own photos" hint={`${t("Up to")} ${max}`} checked={e.use_product_photos} onChange={(v) => edit((x) => { x.use_product_photos = v; })} />
-        {e.use_product_photos ? (
+        {e.use_product_photos && can("website.photos") ? (
+          // Roadmap 190: the product's own photos, managed here (shared with the catalogue, till and ordering link).
+          <ProductPhotoManager productId={p.id} websiteMax={max} hidden={e.hidden_photos}
+            onToggleHidden={(ph) => edit((x) => { x.hidden_photos = x.hidden_photos.includes(ph) ? x.hidden_photos.filter((h) => h !== ph) : [...x.hidden_photos, ph]; })} />
+        ) : e.use_product_photos ? (
           <div className="flex flex-wrap gap-2">
             {p.photos.slice(0, 5).map((ph) => {
               const hidden = e.hidden_photos.includes(ph);

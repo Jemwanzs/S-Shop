@@ -6,7 +6,8 @@ import { api } from "./api";
 
 export interface ReceiptLine { name: string; qty: number; price: string; total: string; date?: string | null }
 export interface ReceiptSnapshot {
-  kind: "original" | "adjustment";
+  /** Roadmap 191: "revision" = the corrected receipt of an approved sale edit (laid out like the original). */
+  kind: "original" | "adjustment" | "revision";
   title: string;
   number: string;
   receipt_no: string;
@@ -14,6 +15,8 @@ export interface ReceiptSnapshot {
   business_date: string;
   /** Roadmap 115: set when the sale was recorded with an earlier date. */
   sale_date?: string | null;
+  /** Roadmap 191: the corrected time of sale (HH:MM). */
+  sale_time?: string | null;
   status: string;
   currency: string;
   timezone: string;
@@ -29,6 +32,7 @@ export interface ReceiptSnapshot {
   payments?: { method: string; amount: string; reference: string | null }[];
   points_earned?: number;
   notes?: string;
+  revision?: { number: string; revision: number; original_receipt: string; reason: string; approved_by: string | null };
   adjustment?: {
     reference: string;
     kind: string;
@@ -48,7 +52,7 @@ export interface ReceiptSnapshot {
     loyalty: { original: number; reversed: number; unrecovered: number; net: number } | null;
   };
 }
-export interface ReceiptRecord { id: string; kind: "original" | "adjustment"; number: string; created_at: string; snapshot: ReceiptSnapshot }
+export interface ReceiptRecord { id: string; kind: "original" | "adjustment" | "revision"; number: string; created_at: string; snapshot: ReceiptSnapshot }
 
 const n = (v: string | number | null | undefined) => Number(v ?? 0);
 /** Amounts without the currency (shown once, on TOTAL), no needless decimals. */
@@ -78,7 +82,7 @@ export function receiptRows(s: ReceiptSnapshot): Row[] {
   const kv = (k: string, v: string | number | null | undefined, opts: { strong?: boolean; big?: boolean } = {}) => {
     if (v !== null && v !== undefined && v !== "") rows.push({ t: "kv", k, v: String(v), ...opts });
   };
-  if (s.kind === "original") {
+  if (s.kind === "original" || s.kind === "revision") {
     for (const i of s.items ?? []) rows.push({ t: "item", name: i.name, detail: `${i.qty} × ${amt(i.price)}${i.date ? ` · ${dayLabel(i.date)}` : ""}`, total: amt(i.total) });
     rows.push({ t: "rule" });
     const tt = s.totals!;
@@ -102,6 +106,15 @@ export function receiptRows(s: ReceiptSnapshot): Row[] {
     if (tt.balance && n(tt.balance) > 0) kv("Balance", amt(tt.balance), { strong: true });
     if ((s.points_earned ?? 0) > 0) kv("Loyalty points earned", `+${s.points_earned}`);
     if (s.notes) rows.push({ t: "note", text: s.notes });
+    // Roadmap 191: what this corrected receipt replaces and why.
+    if (s.kind === "revision" && s.revision) {
+      rows.push({ t: "rule" });
+      rows.push({ t: "heading", text: "Corrected sale" });
+      kv("Corrects receipt", s.revision.original_receipt);
+      kv("Revision", s.revision.revision);
+      kv("Approved by", s.revision.approved_by);
+      if (s.revision.reason) rows.push({ t: "note", text: s.revision.reason });
+    }
   } else {
     const a = s.adjustment!;
     kv("Original receipt", a.original_receipt);
@@ -226,11 +239,11 @@ export async function receiptPdf(s: ReceiptSnapshot): Promise<Blob> {
       y += Math.max(1, keyLines.length) * size * 0.4 + 0.9;
     };
     kvLine(s.kind === "adjustment" ? "Ref:" : "Receipt:", s.number);
-    kvLine("Date:", s.sale_date ? dayLabel(s.sale_date) : when(s.at, s.timezone));
+    kvLine("Date:", saleDate(s));
     if (s.sale_date) kvLine("Recorded:", when(s.at, s.timezone));
     if (s.customer) kvLine("Customer:", s.customer);
     rule();
-    if (s.kind === "original") {
+    if (s.kind !== "adjustment") {
       set(6, true);
       doc.text("Item", M, y);
       doc.text("Total", right, y, { align: "right" });
@@ -359,8 +372,14 @@ export function waNumber(mobile: string | null | undefined) {
   return d;
 }
 
+/** The sale's date as a receipt shows it: its (corrected) date and time, else when it was recorded. */
+export function saleDate(s: ReceiptSnapshot) {
+  if (!s.sale_date) return when(s.at, s.timezone);
+  return `${dayLabel(s.sale_date)}${s.sale_time ? `, ${s.sale_time}` : ""}`;
+}
+
 export function shareMessage(s: ReceiptSnapshot, link: string) {
   const first = s.customer?.split(" ")[0];
-  const what = s.kind === "adjustment" ? "your updated receipt" : "your receipt";
+  const what = s.kind === "adjustment" ? "your updated receipt" : s.kind === "revision" ? "your corrected receipt" : "your receipt";
   return `Hello${first ? ` ${first}` : ""}! Thank you for shopping with ${s.business.name}. Here is ${what} ${s.number}: ${link}\nWe appreciate your business!`;
 }

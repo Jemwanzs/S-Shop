@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Link, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, RefreshCcw, RotateCcw, ScanLine } from "lucide-react";
+import { Ban, ChevronDown, PencilLine, RefreshCcw, RotateCcw, ScanLine } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { ActionButton } from "@/components/ActionButton";
 import { UserRoundCog } from "lucide-react";
+import { SaleEditChanges } from "./EditSale";
 
 export default function SaleDetail() {
   const { id } = useParams();
@@ -105,7 +106,13 @@ export default function SaleDetail() {
         {/* Side panel */}
         <div className="space-y-5 no-print">
           <div className="flex flex-wrap items-center gap-2"><StatusBadge status={s.status} />{s.payment_status && s.payment_status !== "paid" && s.payment_status !== s.status && <StatusBadge status={s.payment_status} />}{s.is_legacy && <Pill>{t("Imported")}</Pill>}<span className="text-xs text-muted-foreground">{s.branch_name}</span></div>
-          {data.pending_approval_id && <div className="rounded-xl bg-warning/10 p-4 text-sm text-warning">{t("A return, exchange or cancellation for this sale is awaiting approval. Stock, loyalty points and the receipt change only once it is approved.")}</div>}
+          {data.pending_approval_id && (
+            <div className="rounded-xl bg-warning/10 p-4 text-sm text-warning">
+              {data.pending_action === "sale.edit"
+                ? t("A correction of this sale (Edit Sale) is awaiting approval. The sale, stock, payments and receipt stay as they are until it is approved.")
+                : t("A return, exchange or cancellation for this sale is awaiting approval. Stock, loyalty points and the receipt change only once it is approved.")}
+            </div>
+          )}
           <OwnershipPanel data={data} onChanged={() => { qc.invalidateQueries({ queryKey: ["sale", id] }); qc.invalidateQueries({ queryKey: ["sales"] }); }} />
           {s.order_no && <Section title="Order"><Link to={`/orders/${s.order_id}`} className="num text-primary">{s.order_no}</Link></Section>}
           {s.approved_by_name && <Section title="Discount approval"><p className="text-sm">{t("Approved by")} {s.approved_by_name}</p></Section>}
@@ -128,9 +135,13 @@ export default function SaleDetail() {
               </ul>
             </Section>
           )}
-          {reversible && (can("sales.return") || can("sales.cancel")) && (
+          {reversible && (can("sales.return") || can("sales.cancel") || can("sales.edit")) && (
             <Section title="Corrections">
               <div className="flex flex-col gap-2">
+                {/* Roadmap 191: corrections to the recorded sale, applied only after approval. */}
+                {can("sales.edit") && s.status === "completed" && (
+                  <Button variant="outline" asChild><Link to={`/sales/${id}/edit`}><PencilLine /> {t("Edit Sale")}</Link></Button>
+                )}
                 {can("sales.return") && returnable.length > 0 && <Button variant="outline" onClick={() => setReturning(true)}><RotateCcw /> {t("Return items / refund")}</Button>}
                 {can("sales.return") && can("sales.create") && returnable.length > 0 && s.payment_method !== "credit" && (
                   <Button variant="outline" asChild><Link to={`/sales/${id}/exchange`}><RefreshCcw /> {t("Exchange items")}</Link></Button>
@@ -140,6 +151,7 @@ export default function SaleDetail() {
               <p className="mt-2 text-xs text-muted-foreground">{t("Stock, loyalty points, customer totals and credit are reversed automatically.")}</p>
             </Section>
           )}
+          <RevisionHistory saleId={s.id} revision={s.revision ?? 0} />
         </div>
       </div>
 
@@ -257,6 +269,37 @@ function OwnershipPanel({ data, onChanged }: { data: Detail; onChanged: () => vo
       </ResponsiveDialog>
       <OwnerPicker open={picker} onOpenChange={setPicker} branchId={s.branch_id} value={next?.id ?? null} exclude={s.owner_id} title="New sale owner"
         onPick={(o) => { setNext(o); setPicker(false); }} />
+    </Section>
+  );
+}
+
+interface Revision { id: string; status: string; reason: string; changes: { field: string; label: string; before: string; after: string }[]; revision_no: number | null; number: string | null;
+  requested_by: string | null; requested_at: string; decided_by: string | null; decided_at: string | null; decision_comments: string }
+
+/** Roadmap 191: every correction of the sale — requested, applied (with its corrected receipt number), returned or rejected. */
+function RevisionHistory({ saleId, revision }: { saleId: string; revision: number }) {
+  const q = useQuery({ queryKey: ["sale-revisions", saleId, revision], queryFn: () => api<{ items: Revision[] }>(`/sales/${saleId}/revisions`) });
+  const [open, setOpen] = useState<string | null>(null);
+  const items = q.data?.items ?? [];
+  if (!items.length) return null;
+  const tone: Record<string, string> = { applied: "text-success", awaiting: "text-warning", rejected: "text-destructive", returned: "text-warning", withdrawn: "text-muted-foreground" };
+  const label: Record<string, string> = { applied: "Applied", awaiting: "Awaiting approval", rejected: "Rejected", returned: "Returned for correction", withdrawn: "Withdrawn" };
+  return (
+    <Section title="Correction history">
+      <ul className="space-y-2 text-sm" data-testid="revision-history">
+        {items.map((r) => (
+          <li key={r.id} className="rounded-lg border p-2.5">
+            <button type="button" className="flex w-full items-start justify-between gap-2 text-start" onClick={() => setOpen(open === r.id ? null : r.id)} aria-expanded={open === r.id}>
+              <span className="min-w-0">
+                <span className="font-medium">{r.number ? <span className="num">{r.number}</span> : t("Edit request")}</span> <span className={tone[r.status] ?? ""}>· {t(label[r.status] ?? r.status)}</span>
+                <span className="block text-xs text-muted-foreground">{r.reason} · {r.requested_by ?? "—"} · {dateTime(r.requested_at)}{r.decided_by && ` · ${t(label[r.status] ?? r.status)} ${t("by")} ${r.decided_by}`}</span>
+              </span>
+              <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${open === r.id ? "rotate-180" : ""}`} />
+            </button>
+            {open === r.id && <div className="mt-2"><SaleEditChanges changes={r.changes} />{r.decision_comments && <p className="mt-1 text-xs text-muted-foreground">{r.decision_comments}</p>}</div>}
+          </li>
+        ))}
+      </ul>
     </Section>
   );
 }

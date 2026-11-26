@@ -183,3 +183,11 @@ nobody was notified and the sync was not audited.
   requests needing approval).
 * Upgrade: migration 0016 gives existing steps ids, copies each pending request's chain and links its earlier
   decisions to their steps (tested on a request raised before the change).
+
+## Sale edits and photo changes (roadmaps 190–191)
+
+- **Sale edit** (`sale.edit`): every Edit Sale correction, always approved — the configured chain, else the Tenant
+  Administrator. Approvals show the reason and the comparison (*Parameter · Original · Proposed*) with the effects on
+  money, stock, loyalty, credit and performance; *Approve*, *Return for correction*, *Reject*.
+- **Product edit — photos**: a photo change from Website → Products by someone who may not apply it; Approvals show the
+  current and proposed photos; *Return for correction* or *Reject* discards the staged photos.

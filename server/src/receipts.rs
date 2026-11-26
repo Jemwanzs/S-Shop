@@ -56,6 +56,8 @@ struct Head {
     business_date: NaiveDate,
     /// Roadmap 115: set when the sale was recorded with an earlier date.
     effective_date: Option<NaiveDate>,
+    /// Roadmap 191: the corrected time of sale (set by an approved sale edit).
+    effective_time: Option<chrono::NaiveTime>,
     status: String,
     gross_total: Decimal,
     discount_total: Decimal,
@@ -79,7 +81,7 @@ struct Head {
 
 async fn head(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<Head> {
     sqlx::query_as(
-        "SELECT s.tenant_id, s.receipt_no, s.created_at, s.business_date, s.effective_date, s.status, s.gross_total, s.discount_total, s.total,
+        "SELECT s.tenant_id, s.receipt_no, s.created_at, s.business_date, s.effective_date, s.effective_time, s.status, s.gross_total, s.discount_total, s.total,
                 s.redeemed_points, s.redeemed_value, s.amount_paid, s.payment_method, s.points_earned, s.notes,
                 t.name AS business, t.phone AS business_phone, t.currency, t.timezone, b.name AS branch, b.phone AS branch_phone,
                 NULLIF(TRIM(c.first_name || ' ' || COALESCE(c.other_names, '')), '') AS customer, ow.name AS owner, t.settings
@@ -129,8 +131,14 @@ async fn original_snapshot(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<
     let s: TenantSettings = serde_json::from_value(h.settings.clone()).unwrap_or_default();
     let logo = logo_asset(conn, h.tenant_id).await?;
     let lines = items(conn, sale_id).await?;
-    let payments: Vec<(String, Decimal, String)> =
-        sqlx::query_as("SELECT method, amount, reference FROM payments WHERE sale_id = $1 AND amount > 0 ORDER BY created_at").bind(sale_id).fetch_all(&mut *conn).await?;
+    // Net per payment (roadmap 191: a corrected sale's adjustments net with the payment they correct).
+    let payments: Vec<(String, Decimal, String)> = sqlx::query_as(
+        "SELECT method, SUM(amount), MIN(reference) FROM payments WHERE sale_id = $1 AND (amount > 0 OR sale_edit_id IS NOT NULL)
+         GROUP BY method, upper(reference), mpesa_request_id HAVING SUM(amount) > 0 ORDER BY MIN(created_at)",
+    )
+    .bind(sale_id)
+    .fetch_all(&mut *conn)
+    .await?;
     let balance: Option<Decimal> = sqlx::query_scalar("SELECT original_amount - amount_paid - adjustments FROM credit_sales WHERE sale_id = $1")
         .bind(sale_id)
         .fetch_optional(&mut *conn)
@@ -144,7 +152,8 @@ async fn original_snapshot(conn: &mut PgConnection, sale_id: Uuid) -> AppResult<
     v["at"] = json!(h.created_at);
     v["business_date"] = json!(h.business_date);
     // Roadmap 115: a backdated sale shows its sale date (and when it was recorded); lines with their own date say so.
-    v["sale_date"] = json!(h.effective_date);
+    v["sale_date"] = json!(h.effective_date.or(h.effective_time.map(|_| h.business_date)));
+    v["sale_time"] = json!(h.effective_time.map(|t| t.format("%H:%M").to_string()));
     v["status"] = json!(h.status);
     v["items"] = json!(lines.iter().map(|l| json!({ "name": l["name"], "qty": l["qty"], "price": l["price"], "total": l["total"], "date": l["date"] })).collect::<Vec<_>>());
     v["totals"] = json!({
@@ -291,6 +300,32 @@ pub async fn issue_adjustment(conn: &mut PgConnection, tenant_id: Uuid, sale_id:
     match id {
         Some(id) => Ok(id),
         None => Ok(sqlx::query_scalar("SELECT id FROM receipts WHERE return_id = $1 AND kind = 'adjustment'").bind(return_id).fetch_one(&mut *conn).await?),
+    }
+}
+
+/// Roadmap 191: the corrected receipt of an approved sale edit — the sale as corrected, numbered `RCP-…-Rn`, naming the
+/// original receipt, the reason, what changed and who approved it. The original and earlier receipts stay unchanged.
+pub async fn issue_revision(conn: &mut PgConnection, tenant_id: Uuid, sale_id: Uuid, revision_id: Uuid, number: &str, info: Value, by: Option<Uuid>) -> AppResult<Uuid> {
+    let mut v = original_snapshot(conn, sale_id).await?;
+    v["kind"] = json!("revision");
+    v["title"] = json!("CORRECTED RECEIPT");
+    v["number"] = json!(number);
+    v["revision"] = info;
+    let id: Option<Uuid> = sqlx::query_scalar(
+        "INSERT INTO receipts (tenant_id, sale_id, kind, number, revision_id, snapshot, created_by) VALUES ($1,$2,'revision',$3,$4,$5,$6)
+         ON CONFLICT (revision_id) WHERE kind = 'revision' DO NOTHING RETURNING id",
+    )
+    .bind(tenant_id)
+    .bind(sale_id)
+    .bind(number)
+    .bind(revision_id)
+    .bind(&v)
+    .bind(by)
+    .fetch_optional(&mut *conn)
+    .await?;
+    match id {
+        Some(id) => Ok(id),
+        None => Ok(sqlx::query_scalar("SELECT id FROM receipts WHERE revision_id = $1 AND kind = 'revision'").bind(revision_id).fetch_one(&mut *conn).await?),
     }
 }
 

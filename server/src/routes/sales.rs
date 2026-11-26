@@ -295,7 +295,7 @@ fn backdate(ctx: &Ctx, day: Option<NaiveDate>, what: &str) -> AppResult<Option<N
 
 /// Roadmap 115: a backdated line must not leave the branch's stock negative on any day from its date to today
 /// (stock received counts from the day it was received).
-async fn check_stock_history(conn: &mut PgConnection, ctx: &Ctx, branch: Uuid, product: Uuid, from: NaiveDate) -> AppResult<()> {
+pub(crate) async fn check_stock_history(conn: &mut PgConnection, ctx: &Ctx, branch: Uuid, product: Uuid, from: NaiveDate) -> AppResult<()> {
     let short: Option<(NaiveDate, i64, String)> = sqlx::query_as(
         "WITH m AS (SELECT CASE WHEN quantity > 0 THEN LEAST(business_date, occurred_on) ELSE business_date END AS d, quantity
                     FROM stock_movements WHERE tenant_id = $1 AND branch_id = $2 AND product_id = $3),
@@ -1469,7 +1469,7 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
             'id', s.id, 'receipt_no', s.receipt_no, 'created_at', s.created_at, 'status', s.status, 'payment_status', {PAYMENT_STATUS},
             'branch_id', s.branch_id, 'branch_name', b.name, 'branch_location', b.location, 'branch_phone', b.phone,
             'user_name', ow.name, 'owner_id', s.owner_id, 'recorded_by_name', u.name, 'business_date', s.business_date,
-            'backdated', s.effective_date IS NOT NULL,
+            'backdated', s.effective_date IS NOT NULL, 'revision', s.revision,
             'gross_total', s.gross_total, 'discount_total', s.discount_total, 'total', s.total,
             'redeemed_points', s.redeemed_points, 'redeemed_value', s.redeemed_value, 'amount_paid', s.amount_paid,
             'payment_method', s.payment_method, 'points_earned', s.points_earned, 'notes', s.notes, 'is_legacy', s.is_legacy,
@@ -1538,8 +1538,8 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
     .bind(ctx.tenant_id)
     .fetch_one(&state.db)
     .await?;
-    let pending: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM approvals WHERE entity_type = 'sale' AND entity_id = $1 AND status = 'pending' AND action <> 'sale.owner_change' LIMIT 1",
+    let pending: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, action FROM approvals WHERE entity_type = 'sale' AND entity_id = $1 AND status = 'pending' AND action <> 'sale.owner_change' LIMIT 1",
     )
     .bind(id)
     .fetch_optional(&state.db)
@@ -1557,7 +1557,7 @@ pub async fn sale_detail(state: &AppState, ctx: &Ctx, id: Uuid) -> AppResult<Val
     .await?;
     Ok(json!({
         "sale": sale, "items": items, "payments": payments, "returns": returns, "credit": credit,
-        "business": business, "pending_approval_id": pending, "owner_changes": owner_changes,
+        "business": business, "pending_approval_id": pending.as_ref().map(|p| p.0), "pending_action": pending.map(|p| p.1), "owner_changes": owner_changes,
     }))
 }
 

@@ -42,6 +42,7 @@ A fast till for the counter: find or scan products, build the cart and take paym
 - Barcode-controlled items are cleared only by scanning their sticker; typing barcodes at the till is off by default
 - Find the customer by name or mobile number from the first letter or digit, or add a new customer without leaving the sale
 - Out-of-stock products can be hidden from the till per role (View out-of-stock products when recording sales)
+- Edit Sale: correct a recorded sale (date, customer, owner, branch, products, prices, payments) — reviewed and approved before anything changes; a corrected receipt is added beside the original
 
 <a id="module-3"></a>
 
@@ -281,6 +282,7 @@ An optional website for the business, powered directly by its S'Shop products, s
 - Visitor and order analytics
 - Show in-stock products only, limit the cart to available stock and show the quantity available — three settings shared with the ordering link
 - Request Publication: people who may not publish send their website changes for approval, with an automatic summary; the Tenant Administrator reviews, previews and approves & publishes, returns or rejects
+- Product photos from the website editor: add, replace, reorder, remove and choose the primary photo of a product — shared with the catalogue, the till and the ordering link; applied at once by publishers, otherwise after approval
 
 <a id="module-19"></a>
 
@@ -592,6 +594,12 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 2. Set the period and filters (branch, category, product, user).
 3. Download PDF or Excel.
 
+#### Correct a recorded sale (Edit Sale)
+
+1. Open the sale → Corrections → Edit Sale. Change what was recorded wrongly: date or time, customer, sale owner, branch, products, quantities, prices, payments or notes.
+2. Make sure the payments add up to the corrected total (verified M-Pesa payments are locked), then tap Review changes.
+3. Check the comparison, enter the reason and tap Submit for Approval. Nothing changes until it is approved; the sale then shows a corrected receipt and the correction history.
+
 <a id="guide-business-administrator"></a>
 
 ### Guide: Business administrator
@@ -736,6 +744,17 @@ Setting up the business, people, rules, payments and the website.
 1. Approvals → Waiting → Website publication: open each section to see what changes, read the comments and tap Preview proposed website.
 2. Approve & Publish puts exactly that version live. Return for correction sends it back with your comment; Reject closes it. Nothing is published until you approve.
 3. To let someone request publication, give their role Request website publication (Website add-on) instead of Publish website changes.
+
+#### Approve a sale correction
+
+1. Approvals → Waiting → Sale edit: read the reason and the table of original and proposed values, then the effects on money, stock, loyalty and credit.
+2. Approve applies only the differences and adds a corrected receipt (RCP-…-R1) beside the original. Return for correction sends it back; Reject leaves the sale as it was.
+3. To let someone propose corrections, give their role Edit recorded sales (Sales).
+
+#### Review a product photo change
+
+1. Approvals → Waiting → Product edit (Photos of …): compare the current and proposed photos.
+2. Approve updates the photos everywhere — catalogue, till, website and ordering link. Return for correction or Reject changes nothing.
 
 #### Choose what customers see about stock
 

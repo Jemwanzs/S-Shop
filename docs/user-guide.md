@@ -360,6 +360,7 @@ Signing in, choosing your branch and keeping your account secure.
 2. Under Quick Login PIN & Face ID, tap Create Quick PIN.
 3. Enter your current full PIN, choose a Quick PIN, repeat it and give the device a name (e.g. My phone), then Save.
 4. Next time on this device, sign in with the keypad. Use password instead returns to the full sign-in.
+5. Choose 4–6 digits that are not easy to guess (not 1111 or 1234) and not your full PIN; the device name is optional. If something is wrong, the screen tells you what — tap the eye to check what you typed.
 
 > Only on a device you alone use. Your administrator decides whether Quick PIN is available.
 

@@ -78,3 +78,11 @@ The server refuses these from a Quick session with *Full sign-in needed*:
   PIN but opens the same limited kind of session, under the same business role list.
 - There is no MFA today, so there is nothing for a Quick PIN to bypass. When MFA is added, Quick sign-in must stay
   limited to what MFA allows.
+
+## Setup problems shown, never silent (roadmap 187)
+
+Root cause of “a new user cannot save their Quick PIN”: the dialog's *Save* swallowed the server's refusals (wrong
+current PIN, a guessable Quick PIN, the full PIN reused as the Quick PIN), so nothing appeared to happen. The dialog now
+shows each refusal; the guessable rule (one repeated digit, a straight run up or down) is checked as the person types;
+New Quick PIN and Repeat have show/hide eyes; the device name stays optional (blank: named after the browser). Every
+action button now shows an error its screen did not report (`ActionButton` + `wasReported` in `lib/toast.tsx`).

@@ -13,6 +13,7 @@
  *   ready so the user can retry — their input is untouched. The server refuses duplicate submissions as well.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { toast, wasReported } from "@/lib/toast";
 import { Check } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { useSession } from "@/lib/session";
@@ -114,8 +115,10 @@ export function ActionButton({
     try {
       await onAction();
       if (mounted.current && doneLabel) setDone(true);
-    } catch {
-      // The caller reports the error (toast); the button simply becomes ready again.
+    } catch (err) {
+      // Usually the caller has already shown the error; roadmap 187: one it did not show is shown here — a refused
+      // action never fails silently.
+      if (!wasReported(err)) toast.error(err);
     } finally {
       inFlight.current = false;
       if (mounted.current) setRunning(false);

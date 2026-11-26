@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, LogOut, MonitorSmartphone, ShieldCheck, Trash2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useSession } from "@/lib/session";
 import { ago, date } from "@/lib/format";
@@ -115,6 +115,16 @@ export function QuickPinCard() {
   );
 }
 
+/** The server's own rule (roadmap 187: checked as the person types): not one repeated digit, not a straight run. */
+export function guessable(pin: string): string | null {
+  if (pin.length < 2) return null;
+  const d = [...pin].map(Number);
+  const steps = d.slice(1).map((x, i) => x - d[i]);
+  return steps.every((s) => s === 0) || steps.every((s) => s === 1) || steps.every((s) => s === -1)
+    ? "Choose a Quick PIN that is harder to guess (not 1111 or 1234)"
+    : null;
+}
+
 function SetupDialog({ mode, min, onClose, onDone }: { mode: "set" | "trust"; min: number; onClose: () => void; onDone: (device: string, token: string) => void }) {
   const [current, setCurrent] = useState("");
   const [pin, setPin] = useState("");
@@ -122,25 +132,34 @@ function SetupDialog({ mode, min, onClose, onDone }: { mode: "set" | "trust"; mi
   const [name, setName] = useState("");
   const digits = (v: string) => v.replace(/\D/g, "").slice(0, 6);
   const set = mode === "set";
+  const [error, setError] = useState<string | null>(null);
   return (
     <ResponsiveDialog open onOpenChange={(o) => !o && onClose()} title={set ? "Quick PIN" : "Trust this device"}
       description={set ? `${min}–6 ${t("digits. It works only on devices you trust; changing it means trusting your other devices again.")}` : "Use your Quick PIN on this device too."}
-      footer={<ActionButton online blockedBy={[!current && "Enter your current PIN", set && (pin.length < min ? `${min}–6 digits` : pin !== again && "The Quick PINs do not match")]}
+      footer={<ActionButton online blockedBy={[!current && "Enter your current PIN", set && (pin.length < min ? `${t("The Quick PIN must be")} ${min}–6 ${t("digits")}` : guessable(pin) ?? (pin !== again && "The Quick PINs do not match"))]}
         onAction={async () => {
-          const r = set
-            ? await api<{ device_id: string; device_token: string }>("/auth/quick-pin", { method: "PUT", body: { current_pin: current, quick_pin: pin, device_name: name } })
-            : await api<{ device_id: string; device_token: string }>("/auth/quick-pin/devices", { body: { current_pin: current, device_name: name } });
-          toast.success(set ? "Quick PIN saved — this device is trusted" : "This device is trusted");
-          onDone(r.device_id, r.device_token);
+          setError(null);
+          try {
+            const r = set
+              ? await api<{ device_id: string; device_token: string }>("/auth/quick-pin", { method: "PUT", body: { current_pin: current, quick_pin: pin, device_name: name } })
+              : await api<{ device_id: string; device_token: string }>("/auth/quick-pin/devices", { body: { current_pin: current, device_name: name } });
+            toast.success(set ? "Quick PIN saved — this device is trusted" : "This device is trusted");
+            onDone(r.device_id, r.device_token);
+          } catch (e) {
+            // Roadmap 187: a refusal (wrong current PIN, a guessable Quick PIN…) is shown, never swallowed.
+            setError(errorMessage(e));
+            toast.error(e);
+          }
         }}>{t("Save")}</ActionButton>}>
       <div className="space-y-3">
-        <Field label="Your current full PIN" hint="Confirms it is you"><PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" /></Field>
+        <Field label="Your current full PIN" hint="Confirms it is you"><PasswordInput value={current} onChange={(e) => { setCurrent(e.target.value); setError(null); }} autoComplete="current-password" /></Field>
         {set && (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="New Quick PIN"><Input type="password" inputMode="numeric" autoComplete="new-password" value={pin} onChange={(e) => setPin(digits(e.target.value))} /></Field>
-            <Field label="Repeat"><Input type="password" inputMode="numeric" autoComplete="new-password" value={again} onChange={(e) => setAgain(digits(e.target.value))} /></Field>
+            <Field label="New Quick PIN"><PasswordInput inputMode="numeric" autoComplete="new-password" value={pin} onChange={(e) => { setPin(digits(e.target.value)); setError(null); }} /></Field>
+            <Field label="Repeat"><PasswordInput inputMode="numeric" autoComplete="new-password" value={again} onChange={(e) => { setAgain(digits(e.target.value)); setError(null); }} /></Field>
           </div>
         )}
+        {error && <p role="alert" className="rounded-lg bg-destructive/10 p-2.5 text-sm text-destructive">{error}</p>}
         <Field label="Device name" optional hint="e.g. My phone"><Input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} /></Field>
         <p className="flex gap-2 text-xs text-muted-foreground"><ShieldCheck className="h-4 w-4 shrink-0 text-primary" />{t("Payments, roles, access and security settings still ask for your full sign-in.")}</p>
       </div>

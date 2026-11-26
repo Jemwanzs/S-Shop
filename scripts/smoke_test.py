@@ -5902,6 +5902,29 @@ call("POST", f"/platform/support/{sp186['id']}/end", None, token=sp186["token"],
 check("S'Shop support never manages a business's branch prices", True)
 call("POST", "/branch-prices", {"branch_id": bA, "action": "restore", "items": [{"product_id": in186, "price": None, "expected": 17000}, {"product_id": in186b, "price": None, "expected": 0}]})
 
+step("Roadmap 187: Quick PIN for newly created users of every role")
+roles187 = {r_["name"]: r_["id"] for r_ in call("GET", "/roles")}
+custom187 = call("POST", "/roles", {"name": f"Custom187 {suffix}", "description": "", "permissions": ["sales.view"]})["id"]
+for role_name, role_id in [("Manager", roles187["Manager"]), ("Salesperson", roles187["Salesperson"]), ("custom role", custom187)]:
+    mail = f"qp187{role_name.split()[0].lower()}{suffix.lower()}@sshop.test"
+    call("POST", "/users", {"name": f"New {role_name}", "email": mail, "pin": "7413", "role_id": role_id, "all_branches": True, "branch_ids": []})
+    tok = call("POST", "/auth/login", {"email": mail, "pin": "7413"})["token"]
+    T = {"token": tok, "branch": "none"}
+    st = call("GET", "/auth/quick-pin", **T)
+    check(f"{role_name}: a new user may create a Quick PIN (no administrative permission needed)", st["available"] and not st["enabled"], st)
+    r = call("PUT", "/auth/quick-pin", {"current_pin": "0000", "quick_pin": "2580"}, **T, expect=400)
+    check(f"{role_name}: a wrong current PIN is refused with a message", "incorrect" in r["error"]["message"], r)
+    r = call("PUT", "/auth/quick-pin", {"current_pin": "7413", "quick_pin": "7413"}, **T, expect=400)
+    check(f"{role_name}: the full PIN itself is refused as the Quick PIN, with a message", "differs from your full PIN" in r["error"]["message"], r)
+    dev = call("PUT", "/auth/quick-pin", {"current_pin": "7413", "quick_pin": "2580", "device_name": ""}, **T)
+    devices = call("GET", "/auth/quick-pin", **T)["devices"]
+    check(f"{role_name}: saved with a blank device name — this device trusted (named after the browser)", dev["device_token"] and len(devices) == 1 and devices[0]["name"], devices)
+    ql = call("POST", "/auth/quick-login", {"device_token": dev["device_token"], "pin": "2580"}, token="none", branch="none")
+    check(f"{role_name}: the Quick PIN works at once on that device (a Quick PIN session)", ql["profile"]["quick"] is True and ql["profile"]["user"]["email"] == mail)
+call("PUT", "/auth/quick-pin", {"current_pin": PIN, "quick_pin": "8642"}, expect=200)
+check("Tenant Administrator: creates a Quick PIN the same way", call("GET", "/auth/quick-pin")["enabled"])
+call("DELETE", "/auth/quick-pin")
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

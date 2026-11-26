@@ -330,7 +330,8 @@
             "Open your name / avatar menu and choose Preferences.",
             "Under Quick Login PIN & Face ID, tap Create Quick PIN.",
             "Enter your current full PIN, choose a Quick PIN, repeat it and give the device a name (e.g. My phone), then Save.",
-            "Next time on this device, sign in with the keypad. Use password instead returns to the full sign-in."
+            "Next time on this device, sign in with the keypad. Use password instead returns to the full sign-in.",
+            "Choose 4–6 digits that are not easy to guess (not 1111 or 1234) and not your full PIN; the device name is optional. If something is wrong, the screen tells you what — tap the eye to check what you typed."
           ],
           "note": "Only on a device you alone use. Your administrator decides whether Quick PIN is available."
         },

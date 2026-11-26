@@ -22,8 +22,13 @@ let nextId = 1;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
+/** Roadmap 187: errors already shown to the person — an action button shows any error nobody reported. */
+const reported = new WeakSet<object>();
+export const wasReported = (e: unknown) => typeof e === "object" && e !== null && reported.has(e);
+
 /** Accepts a message or an error: a titled API error shows its title with the explanation beneath. */
 function showError(error: ReactNode | unknown, data?: ExternalToast) {
+  if (error instanceof Error) reported.add(error);
   let message: ReactNode;
   let description = data?.description as ReactNode;
   if (error instanceof ApiError && error.title) {

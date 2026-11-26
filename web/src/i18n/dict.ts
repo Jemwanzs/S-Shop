@@ -4106,4 +4106,6 @@ export const DICT: Record<string, [string, string, string]> = {
   "View out-of-stock products when recording sales": ["Ona bidhaa zisizo stoo wakati wa kuuza", "Voir les produits en rupture lors des ventes", "عرض المنتجات غير المتوفرة عند تسجيل المبيعات"],
   "has no selling price at": ["haina bei ya kuuza katika", "n'a pas de prix de vente à", "ليس له سعر بيع في"],
   "set its price first": ["weka bei yake kwanza", "fixez d'abord son prix", "حدد سعره أولًا"],
+  "The Quick PIN must be": ["Quick PIN lazima iwe", "Le PIN rapide doit comporter", "يجب أن يكون الرمز السريع"],
+  "Choose a Quick PIN that is harder to guess (not 1111 or 1234)": ["Chagua Quick PIN ngumu kukisia (si 1111 au 1234)", "Choisissez un PIN rapide plus difficile à deviner (pas 1111 ni 1234)", "اختر رمزًا سريعًا يصعب تخمينه (ليس 1111 أو 1234)"],
 };

@@ -11,6 +11,7 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ## 2026-11-27
 
+- **Fixes after 192–197**: a stock transfer into a branch that did not offer the product is received and makes it available; a per-item credit swaps only its own item; customers get one overdue reminder per sale; *Nobody can approve* alerts reach the requester. (198, [stock](modules/07-stock.md))
 - **Split payment with the rest on credit**: several items left partly on credit are one sale and one receipt; the money received pays the cheapest items first and each item still owing gets its own credit record (repaid, recalled or written off on its own). The till shows a Payment Allocation Summary. (196, [credit sales](modules/03-credit-sales.md))
 - **Receiving across branches**: a product limited to some branches can be received at any branch; a new barcode for a known product is confirmed (*Add barcode & continue*) and added when the stock is received or approved. (197, [stock](modules/07-stock.md))
 - **Notifications follow your role and branches**: a new *Notifications* permission group, and the bell shows only what you may see — All / Unread / Read, categories, branch filter, mark read. (194, [notifications](modules/17-audit-notifications-search.md))

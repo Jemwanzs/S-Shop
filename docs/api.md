@@ -189,6 +189,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | GET / PUT | `/api/auth/profile` (`name`) | roadmap 185: the signed-in person's own profile — name, email, role, branches, `avatar_url`; PUT changes the name only |
 | POST / DELETE | `/api/auth/profile/avatar` (multipart `file`) | roadmap 185: PNG, JPEG or WebP ≤ 1 MB, square-ish, 64–2048 px; DELETE removes it |
 | GET | `/api/avatars/{key}` | roadmap 185: a profile photo by its unguessable key (public, cached for good) |
+| GET / POST | `/api/branch-prices?branch_id=` · `{branch_id, action: reset\|restore\|set, items: [{product_id, price, expected}]}` | roadmap 186: Manage branch prices (Tenant Administrators) — the branch's products with stock, default, own, effective price, status, pending; POST applies in one transaction or as one *Product edit* approval |
 | GET | `/api/customers/search?q=` | roadmap 184: live search by name or mobile (any format) — `items` (up to 8), `more`; *Record sales* or *View customers* |
 | GET | `/api/customers/lookup` |
 | GET | `/api/customers/{id}` |

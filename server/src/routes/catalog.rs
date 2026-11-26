@@ -1310,6 +1310,8 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
         }
         // Roadmap 176: a branch price change waiting for the *Product edit* approval.
         "product.edit" if a.payload.get("branch_prices").is_some() => super::prices::on_approved(conn, ctx, a.entity_id, &a.payload, a.id).await,
+        // Roadmap 186: a branch-wide price change (Manage branch prices).
+        "product.edit" if a.payload.get("branch_prices_bulk").is_some() => super::prices::on_bulk_approved(conn, ctx, &a.payload, a.id).await,
         "product.edit" => {
             let b: ProductBody = serde_json::from_value(a.payload.clone()).map_err(|_| bad("Stored product change is invalid"))?;
             apply_update(conn, ctx, a.entity_id, &b, Some(a.id)).await
@@ -1474,6 +1476,9 @@ async fn photo(State(state): State<AppState>, Path(id): Path<Uuid>, Query(q): Qu
 struct LookupQuery {
     code: String,
     branch_id: Option<Uuid>,
+    /// Roadmap 186: asked by the till (out-of-stock products follow *View out-of-stock products when recording sales*).
+    #[serde(default, deserialize_with = "super::de::opt_bool")]
+    for_sale: Option<bool>,
 }
 
 /// Database uniqueness of product barcodes (roadmap 98), created as soon as no business has duplicates left.
@@ -1591,6 +1596,19 @@ async fn lookup(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LookupQ
         .await?;
     if costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
         product.cost_price = None;
+    }
+    // Roadmap 186: while selling (or for people who only sell), an out-of-stock product stays hidden unless the role may
+    // see out-of-stock products when recording sales.
+    let selling_only = q.for_sale.unwrap_or(false) || !(ctx.can("products.view") || ctx.can("stock.view"));
+    if selling_only && !ctx.can("sales.view_out_of_stock") && item.is_none() {
+        let available: i32 = sqlx::query_scalar("SELECT COALESCE((SELECT on_hand - reserved FROM stock_levels WHERE product_id = $1 AND branch_id = $2), 0)")
+            .bind(product_id)
+            .bind(branch)
+            .fetch_one(&state.db)
+            .await?;
+        if available <= 0 {
+            return Err(refused("Out of stock", format!("{} is out of stock at this branch", product.name)));
+        }
     }
     // Where else it can be found, so a salesperson can point the customer to another branch or request a transfer.
     let elsewhere: Vec<(Uuid, String, i32)> = sqlx::query_as(

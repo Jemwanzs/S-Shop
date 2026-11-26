@@ -109,3 +109,24 @@ path as deactivating it alone, in its own transaction:
 The result lists every product's outcome (deactivated · waiting for approval · already inactive · already waiting ·
 failed). All requests of one submission share a **bulk reference**; the audit trail has one `products /
 bulk_deactivate` entry (counts, items, reason, session branch) besides each product's own entries.
+
+## Manage branch prices (roadmap 186)
+
+Settings → Products → **Manage branch prices** (also Settings → Branch prices) — Tenant Administrators only
+(`pages/settings/BranchPrices.tsx`; `GET /api/branch-prices?branch_id=`, `POST /api/branch-prices`).
+
+| Status | Meaning | Effective price |
+|---|---|---|
+| Default price | no own price at the branch | the product's current default |
+| Branch price | the branch's own price | that price |
+| Reset to 0 | own price 0 | **0** — never the default, never sold, *Price on request* online, until a price is set |
+| No price | no own price and no (or a 0) default | none — set a price |
+| Waiting for approval | a change at this branch awaits *Product edit* approval | unchanged until approved |
+
+Actions on one product, the selected ones, a category or the whole branch: **Save prices** (typed in the table; the
+switch turns the branch's own price on or off), **Reset … to 0**, **Restore default**. Each is confirmed with the branch
+and the number of products, sent as an explicit list with the own price each was seen at (the whole change is refused
+if any changed meanwhile), applied in one transaction — or sent as one *Product edit* approval when the business has it
+on (applied once approved, no further step) — and audited per product (`branch_price`, before/after, approval) and as
+a whole (`branch_prices_bulk`). Stock, products and other branches are never touched. A price of 0 is refused at
+the till and by the server (*Price needed*); historical sales keep their prices.

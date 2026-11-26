@@ -75,6 +75,9 @@ function entityLink(a: Approval) {
       return `/sales/${a.entity_id}`;
     case "transfer":
       return `/transfers/${a.entity_id}`;
+    // Roadmap 186: a branch-wide price change.
+    case "branch":
+      return "/settings/branch-prices";
     case "credit_sale":
       return `/credit/${a.entity_id}`;
     case "expense":

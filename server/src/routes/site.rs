@@ -335,7 +335,7 @@ pub async fn published(state: &AppState, s: &Site) -> AppResult<Vec<PubProduct>>
     let t = portal::tenant_by_id(state, s.tenant).await?;
     let branch = portal::portal_branch(state, &t).await.ok();
     let rows: Vec<ProductDb> = sqlx::query_as(
-        "SELECT p.id, p.name, p.nickname, p.code, p.description, p.category_id, c.name AS category_name, effective_price(p.id, $2, p.marked_price) AS price,
+        "SELECT p.id, p.name, p.nickname, p.code, p.description, p.category_id, c.name AS category_name, NULLIF(effective_price(p.id, $2, p.marked_price), 0) AS price,
                 GREATEST(COALESCE(sl.on_hand, 0) - COALESCE(sl.reserved, 0), 0) AS available, p.available_for_orders, p.created_at, p.updated_at,
                 COALESCE((SELECT SUM(si.quantity - si.returned_qty) FROM sale_items si JOIN sales sa ON sa.id = si.sale_id
                           WHERE si.product_id = p.id AND sa.created_at > now() - interval '90 days'), 0)::bigint AS sold,

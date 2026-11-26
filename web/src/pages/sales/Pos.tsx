@@ -44,6 +44,9 @@ interface Lookup {
   other_branches: { branch_id: string; branch_name: string; available: number }[];
 }
 
+/** Roadmap 186: an explicit price of 0 at this branch (reset, or set to 0) — never added to a sale. */
+const zeroPriced = (p: { marked_price?: unknown }) => p.marked_price != null && toNum(p.marked_price as never) === 0;
+
 export default function Pos() {
   const brand = useBrandLogo("pos");
   const { profile, branch, can } = useSession();
@@ -115,6 +118,11 @@ export default function Pos() {
   const takenBarcodes = cart.lines.map((l) => l.barcode).filter(Boolean) as string[];
 
   const open = (p: PosProduct, barcode?: { code: string; source?: ScanSource }) => {
+    // Roadmap 186: a price of 0 here (reset at this branch) is not a price — it is set first, never sold at 0.
+    if (zeroPriced(p)) {
+      toast.error(`${p.name} ${translate("has no selling price at")} ${branch?.name} — ${translate("set its price first")}`);
+      return;
+    }
     if (p.available - inCart(p.id) <= 0 && !p.track_items) {
       toast.error(`${p.name} is out of stock at ${branch?.name}`);
       return;
@@ -163,7 +171,7 @@ export default function Pos() {
     if (waitingRef.current) return { tone: "error", title: "Waiting for the M-Pesa payment — the cart is locked until it is paid or you stop waiting" };
     let r: Lookup;
     try {
-      r = await api<Lookup>("/products/lookup", { query: { code } });
+      r = await api<Lookup>("/products/lookup", { query: { code, for_sale: true } });
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         return {
@@ -185,6 +193,7 @@ export default function Pos() {
       <span>{translate("Available at")} {r.other_branches.map((b) => `${b.branch_name} (${b.available})`).join(" · ")} — change branch or request a transfer.</span>
     ) : "Not available at any other branch either.";
     if (!r.product.is_active) return { tone: "error", title: `${p.name} is not active for sale` };
+    if (zeroPriced(p)) return { tone: "error", title: `${p.name} ${translate("has no selling price at")} ${branch?.name}`, detail: translate("Its price here is 0 — set its price first.") };
     const lines = cartRef.current.lines;
 
     if (p.track_items) {

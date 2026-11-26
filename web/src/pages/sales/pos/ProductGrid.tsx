@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Package } from "lucide-react";
 import { photoUrl } from "@/lib/api";
-import { count, money } from "@/lib/format";
+import { count, money, toNum } from "@/lib/format";
 import type { PosProduct, Settings } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
@@ -71,7 +71,7 @@ export function ProductGrid({ products, display, inCart, onOpen, lowThreshold, b
             {out ? t("Out of stock") : display.show_stock === false ? (left <= lowThreshold ? t("Low stock") : "") : `${count(left)} ${t("left")}`}
           </span>
         );
-        const price = display.show_prices && (p.marked_price == null
+        const price = display.show_prices && (p.marked_price == null || toNum(p.marked_price) === 0
           ? <span className="text-xs text-muted-foreground">{t("Price not set")}</span>
           : <span className="num font-semibold">{money(p.marked_price)}</span>);
         const common = {

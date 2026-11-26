@@ -27,7 +27,10 @@ use crate::state::AppState;
 use crate::workflow;
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/products/{id}/branch-prices", get(list).put(change))
+    Router::new()
+        .route("/products/{id}/branch-prices", get(list).put(change))
+        // Roadmap 186: Settings → Products → Manage branch prices (Tenant Administrators).
+        .route("/branch-prices", get(branch_list).post(branch_change))
 }
 
 /// A price as people read it in messages.
@@ -207,7 +210,8 @@ async fn check(conn: &mut PgConnection, ctx: &Ctx, product: Uuid, changes: &[Cha
             if p < Decimal::ZERO {
                 return Err(bad("A price cannot be negative"));
             }
-            if max_discount.is_some_and(|d| d > p) {
+            // A reset to zero is allowed whatever the maximum discount (nothing is sold at zero — see sales).
+            if p > Decimal::ZERO && max_discount.is_some_and(|d| d > p) {
                 return Err(bad(format!("The maximum discount ({}) is more than the price at {branch}", show(max_discount))));
             }
         }
@@ -273,6 +277,230 @@ pub async fn set(conn: &mut PgConnection, ctx: &Ctx, product: Uuid, branch: Uuid
 pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, product: Uuid, payload: &Value, approval_id: Uuid) -> AppResult<()> {
     let changes: Vec<Change> = serde_json::from_value(payload["branch_prices"].clone()).map_err(|_| bad("Stored price change is invalid"))?;
     apply(conn, ctx, product, &changes, Some(approval_id)).await
+}
+
+// ── Roadmap 186: Manage branch prices ──────────────────────────────────────────────────────────────────────────────
+//
+// One branch at a time: every product sold there with its stock, default price, the branch's own price and the
+// effective price. Status: `default` (no own price — the default applies), `branch` (its own price), `reset` (its own
+// price is 0 — shown as 0, never the default, never sold until a price is set), `no_price` (no price at all). Changes —
+// one product, the selected ones, a category or the whole branch — are explicit lists with the own price each was seen
+// at, applied in one transaction (refused whole if any changed meanwhile), through the *Product edit* approval when the
+// business has it on, and audited per product plus one summary.
+
+/// Only the business's own Tenant Administrators, fully signed in, never S'Shop support.
+fn may_manage(ctx: &Ctx) -> AppResult<()> {
+    ctx.require_full()?;
+    if !ctx.is_admin() || ctx.support.is_some() || ctx.acting_from.is_some() {
+        return Err(AppError::Forbidden("Only the business's Tenant Administrators manage branch prices".into()));
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct BranchQuery {
+    branch_id: Uuid,
+}
+
+async fn branch_list(State(state): State<AppState>, ctx: Ctx, axum::extract::Query(q): axum::extract::Query<BranchQuery>) -> AppResult<Json<Value>> {
+    may_manage(&ctx)?;
+    let mut conn = state.db.acquire().await?;
+    let branch: Option<String> = sqlx::query_scalar("SELECT name FROM branches WHERE id = $1 AND tenant_id = $2 AND is_active")
+        .bind(q.branch_id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let branch = branch.ok_or_else(|| bad("Unknown or inactive branch"))?;
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(Uuid, String, String, Option<Uuid>, Option<String>, Option<Uuid>, i32, Option<Decimal>, Option<Decimal>)> = sqlx::query_as(
+        "SELECT p.id, p.name, p.code, p.category_id, c.name,
+                (SELECT ph.id FROM product_photos ph WHERE ph.product_id = p.id ORDER BY ph.is_primary DESC, ph.sort_order LIMIT 1),
+                COALESCE(sl.on_hand - sl.reserved, 0), p.marked_price, bp.price
+         FROM products p LEFT JOIN categories c ON c.id = p.category_id
+         LEFT JOIN stock_levels sl ON sl.product_id = p.id AND sl.branch_id = $2
+         LEFT JOIN product_branch_prices bp ON bp.product_id = p.id AND bp.branch_id = $2
+         WHERE p.tenant_id = $1 AND p.is_active
+           AND (p.all_branches OR EXISTS (SELECT 1 FROM product_branches pb WHERE pb.product_id = p.id AND pb.branch_id = $2))
+         ORDER BY p.name LIMIT 20000",
+    )
+    .bind(ctx.tenant_id)
+    .bind(q.branch_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    // Waiting for approval at this branch (a product's own change, or a branch-wide change).
+    let pending: Vec<Value> = sqlx::query_scalar(
+        "SELECT payload FROM approvals WHERE tenant_id = $1 AND status = 'pending' AND action = 'product.edit'
+           AND (payload ? 'branch_prices' OR payload ? 'branch_prices_bulk')",
+    )
+    .bind(ctx.tenant_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut waiting: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+    let approvals: Vec<(Uuid, Value)> = sqlx::query_as(
+        "SELECT entity_id, payload FROM approvals WHERE tenant_id = $1 AND status = 'pending' AND action = 'product.edit' AND payload ? 'branch_prices'",
+    )
+    .bind(ctx.tenant_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    for (product, payload) in approvals {
+        if payload["branch_prices"].as_array().is_some_and(|a| a.iter().any(|c| c["branch_id"].as_str() == Some(&q.branch_id.to_string()))) {
+            waiting.insert(product);
+        }
+    }
+    for p in pending {
+        let b = &p["branch_prices_bulk"];
+        if b["branch_id"].as_str() == Some(&q.branch_id.to_string()) {
+            for i in b["items"].as_array().into_iter().flatten() {
+                if let Some(id) = i["product_id"].as_str().and_then(|s| Uuid::parse_str(s).ok()) {
+                    waiting.insert(id);
+                }
+            }
+        }
+    }
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, name, code, category_id, category, photo, available, default, own)| {
+            let status = match own {
+                Some(p) if p == Decimal::ZERO => "reset",
+                Some(_) => "branch",
+                None if default.is_none_or(|d| d == Decimal::ZERO) => "no_price",
+                None => "default",
+            };
+            json!({
+                "product_id": id, "name": name, "code": code, "category_id": category_id, "category_name": category, "photo_id": photo,
+                "available": available, "default_price": default, "own_price": own, "price": own.or(default), "status": status,
+                "pending": waiting.contains(&id),
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "branch_id": q.branch_id, "branch_name": branch, "items": items })))
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct BulkItem {
+    pub product_id: Uuid,
+    /// The branch's new own price (0: reset; None: back to the default price).
+    pub price: Option<Decimal>,
+    /// The branch's own price as the person saw it.
+    #[serde(default)]
+    pub expected: Option<Decimal>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct BulkChange {
+    pub branch_id: Uuid,
+    /// reset | restore | set — for the summary.
+    pub action: String,
+    pub items: Vec<BulkItem>,
+}
+
+pub const MAX_BULK: usize = 20000;
+
+fn summary(branch: &str, b: &BulkChange) -> String {
+    let n = b.items.len();
+    let what = match b.action.as_str() {
+        "reset" => "reset to 0".to_string(),
+        "restore" => "back to the default price".to_string(),
+        _ => "new prices".to_string(),
+    };
+    format!("Branch prices at {branch} — {n} product{}: {what}", if n == 1 { "" } else { "s" })
+}
+
+async fn branch_change(State(state): State<AppState>, ctx: Ctx, Json(b): Json<BulkChange>) -> AppResult<Json<Outcome<Value>>> {
+    may_manage(&ctx)?;
+    if !matches!(b.action.as_str(), "reset" | "restore" | "set") {
+        return Err(bad("Unknown price action"));
+    }
+    if b.items.is_empty() {
+        return Err(bad("Choose at least one product"));
+    }
+    if b.items.len() > MAX_BULK {
+        return Err(bad("Too many products at once"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for i in &b.items {
+        if !seen.insert(i.product_id) {
+            return Err(bad("Each product once"));
+        }
+        if b.action == "reset" && i.price != Some(Decimal::ZERO) || b.action == "restore" && i.price.is_some() {
+            return Err(bad("The prices do not match the action"));
+        }
+    }
+    let mut tx = state.db.begin().await?;
+    let branch: Option<String> = sqlx::query_scalar("SELECT name FROM branches WHERE id = $1 AND tenant_id = $2 AND is_active")
+        .bind(b.branch_id)
+        .bind(ctx.tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let branch = branch.ok_or_else(|| bad("Unknown or inactive branch"))?;
+    // Checked now (nothing changed meanwhile, valid amounts) whether it waits for approval or not.
+    let mut items = b.items.clone();
+    items.sort_by_key(|i| i.product_id);
+    for i in &items {
+        check(&mut tx, &ctx, i.product_id, &[Change { branch_id: b.branch_id, price: i.price, expected: i.expected }]).await?;
+    }
+    let text = summary(&branch, &b);
+    if workflow::needs_approval(&mut tx, &ctx, "product.edit", workflow::Gate::branch(b.branch_id)).await? {
+        let approval = workflow::submit(
+            &mut tx,
+            &ctx,
+            workflow::Request {
+                action: "product.edit",
+                entity_type: "branch",
+                entity_id: b.branch_id,
+                branch_id: Some(b.branch_id),
+                summary: text,
+                amount: None,
+                payload: json!({ "branch_prices_bulk": BulkChange { items, ..b } }),
+            },
+        )
+        .await?;
+        tx.commit().await?;
+        super::approvals::notify_approvers(&state, &ctx, approval).await;
+        return Ok(Json(Outcome::pending(approval)));
+    }
+    let n = apply_bulk(&mut tx, &ctx, &BulkChange { items, ..b.clone() }, None).await?;
+    tx.commit().await?;
+    state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": b.branch_id }));
+    Ok(Json(Outcome::done(json!({ "changed": n, "summary": text }))))
+}
+
+/// Applies a branch-wide change in one transaction (each product checked again: an approved change may arrive after
+/// someone else changed a price — then nothing is applied). Audited per product and once for the whole change.
+pub async fn apply_bulk(conn: &mut PgConnection, ctx: &Ctx, b: &BulkChange, approval_id: Option<Uuid>) -> AppResult<usize> {
+    let mut items = b.items.clone();
+    items.sort_by_key(|i| i.product_id);
+    let mut changed = 0;
+    let why = match b.action.as_str() {
+        "reset" => "Branch price reset to 0",
+        "restore" => "Branch price back to the default",
+        _ => "Branch price set",
+    };
+    for i in &items {
+        check(conn, ctx, i.product_id, &[Change { branch_id: b.branch_id, price: i.price, expected: i.expected }]).await?;
+        let (own, _) = at(conn, ctx.tenant_id, i.product_id, b.branch_id).await?;
+        if own != i.price {
+            set(conn, ctx, i.product_id, b.branch_id, i.price, approval_id, why).await?;
+            changed += 1;
+        }
+    }
+    let branch: String = sqlx::query_scalar("SELECT name FROM branches WHERE id = $1").bind(b.branch_id).fetch_one(&mut *conn).await?;
+    audit::record(
+        conn,
+        ctx,
+        Entry::new("products", "branch_prices_bulk", "branch", b.branch_id)
+            .branch(b.branch_id)
+            .after(json!({ "action": b.action, "products": items.len(), "changed": changed, "summary": summary(&branch, b) }))
+            .approval(approval_id),
+    )
+    .await?;
+    Ok(changed)
+}
+
+/// An approved branch-wide change (a *Product edit* request carrying `branch_prices_bulk`).
+pub async fn on_bulk_approved(conn: &mut PgConnection, ctx: &Ctx, payload: &Value, approval_id: Uuid) -> AppResult<()> {
+    let b: BulkChange = serde_json::from_value(payload["branch_prices_bulk"].clone()).map_err(|_| bad("Stored price change is invalid"))?;
+    apply_bulk(conn, ctx, &b, Some(approval_id)).await.map(|_| ())
 }
 
 /// Before the default price changes: it is the price of every branch without its own price, so the person must be able

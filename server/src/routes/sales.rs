@@ -132,7 +132,8 @@ async fn pos_products(State(state): State<AppState>, ctx: Ctx, Query(q): Query<P
     .bind(branch)
     .bind(like(&q.q))
     .bind(q.category_id)
-    .bind(q.all.unwrap_or(false))
+    // Roadmap 186: out-of-stock products only for people allowed to see them while selling (never sold regardless).
+    .bind(q.all.unwrap_or(false) && ctx.can("sales.view_out_of_stock"))
     .bind(ranking)
     .bind(from)
     .bind(today)
@@ -418,6 +419,13 @@ async fn prepare_lines(
 
         // Roadmap 131: a product without a selling price is sold at the price the cashier types — never at 0 by
         // accident; it has no marked price to discount from.
+        // Roadmap 186: a price of zero (reset at this branch, or set to zero) is not a price — nothing is sold for nothing.
+        if p.marked_price == Some(Decimal::ZERO) {
+            return Err(refused(
+                "Price needed",
+                format!("{} has no selling price at this branch (it is 0) — set its price first (Settings → Products → Manage branch prices).", p.name),
+            ));
+        }
         let marked_price = match p.marked_price {
             Some(m) => m,
             None if !trusted_prices && l.unit_price <= Decimal::ZERO => {

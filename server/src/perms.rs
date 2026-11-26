@@ -20,6 +20,7 @@ pub const CATALOGUE: &[PermGroup] = &[
     PermGroup { module: "sales", label: "Sales", permissions: &[
         ("sales.view", "View sales"),
         ("sales.create", "Record sales"),
+        ("sales.view_out_of_stock", "View out-of-stock products when recording sales"),
         ("sales.print", "Print & share receipts"),
         ("sales.discount", "Sell below marked price"),
         ("sales.discount_override", "Approve discounts above the maximum"),
@@ -172,7 +173,7 @@ pub const ADMIN_ROLE: &str = "Tenant Administrator";
 pub const DEFAULT_ROLES: &[RoleTemplate] = &[
     RoleTemplate { name: ADMIN_ROLE, description: "Full access to everything", permissions: &["*"] },
     RoleTemplate { name: "Manager", description: "Runs the business day to day", permissions: &[
-        "dashboard.view", "sales.view", "sales.create", "sales.discount", "sales.discount_override", "sales.change_branch",
+        "dashboard.view", "sales.view", "sales.create", "sales.view_out_of_stock", "sales.discount", "sales.discount_override", "sales.change_branch",
         "sales.return", "credit.recall", "sales.cancel", "sales.view_financials", "credit.view", "credit.collect", "credit.write_off",
         "orders.view", "orders.manage", "products.view", "products.create", "products.edit", "products.price", "products.deactivate",
         "stock.view", "stock.add", "stock.adjust", "stock.write_off", "stock.transfer", "stock.receive_transfer",
@@ -187,13 +188,13 @@ pub const DEFAULT_ROLES: &[RoleTemplate] = &[
         "reports.view", "reports.export", "approvals.approve", "audit.view",
     ]},
     RoleTemplate { name: "Supervisor", description: "Leads the counter: approves discounts, returns and cancellations", permissions: &[
-        "dashboard.view", "staff.view_others", "sales.view", "sales.create", "sales.print", "sales.discount", "sales.discount_override",
+        "dashboard.view", "staff.view_others", "sales.view", "sales.create", "sales.view_out_of_stock", "sales.print", "sales.discount", "sales.discount_override",
         "sales.return", "credit.recall", "sales.cancel", "credit.view", "credit.collect", "orders.view", "orders.manage", "products.view", "stock.view",
         "customers.view", "customers.create", "customers.edit", "customers.view_loyalty", "customers.redeem_points", "approvals.approve",
         "sales.outside_hours", "sales.assign_owner", "sales.request_owner_change", "sales.backdate", "barcodes.manual_sale",
     ]},
     RoleTemplate { name: "Branch Manager", description: "Manages one or more branches", permissions: &[
-        "dashboard.view", "sales.view", "sales.create", "sales.discount", "sales.discount_override", "sales.return", "credit.recall",
+        "dashboard.view", "sales.view", "sales.create", "sales.view_out_of_stock", "sales.discount", "sales.discount_override", "sales.return", "credit.recall",
         "credit.view", "credit.collect", "orders.view", "orders.manage", "products.view", "stock.view", "stock.add",
         "stock.adjust", "stock.transfer", "stock.receive_transfer", "customers.view", "customers.create", "customers.edit",
         "customers.view_loyalty", "customers.redeem_points", "customers.view_credit", "expenses.view", "expenses.create",

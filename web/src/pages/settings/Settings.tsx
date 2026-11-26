@@ -29,7 +29,7 @@ import {
   type LucideIcon,
   FileSpreadsheet,
   Palette,
-  Lock, ShieldAlert, Sparkles, CircleUserRound } from "lucide-react";
+  Lock, ShieldAlert, Sparkles, CircleUserRound, Tags } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { BrandingSettings } from "./Branding";
 import { BooksSettings } from "./Books";
@@ -52,6 +52,7 @@ import { BillingSettings } from "./Billing";
 import { PlatformActivity } from "./PlatformActivity";
 import { PlatformSecurityAudit } from "./PlatformSecurityAudit";
 import { ProfileSettings } from "./Profile";
+import { BranchPricesSettings } from "./BranchPrices";
 import { ErrorsSettings } from "./Errors";
 import { PlatformBilling } from "./PlatformBilling";
 import { WebsiteSettings } from "./website/Website";
@@ -81,6 +82,8 @@ const SECTIONS: SectionDef[] = [
   { path: "billing", label: "Billing", group: "Business", icon: Receipt, perm: "settings.billing", element: <BillingSettings /> },
   { path: "onboarding", label: "Onboarding", group: "Business", icon: FileSpreadsheet, perm: "settings.onboarding", element: <OnboardingSettings /> },
   { path: "products", label: "Products", group: "Configuration", icon: Package, perm: "settings.products", element: <ProductSettings /> },
+  // Roadmap 186: Tenant Administrators only (the server checks it too).
+  { path: "branch-prices", label: "Branch prices", group: "Configuration", icon: Tags, perm: "*", element: <BranchPricesSettings /> },
   { path: "sales", label: "Sales & payments", group: "Configuration", icon: CreditCard, perm: "settings.sales", element: <SalesSettings /> },
   { path: "stock", label: "Stock", group: "Configuration", icon: Warehouse, perm: "settings.stock", element: <StockSettings /> },
   { path: "orders", label: "Orders & ordering link", group: "Configuration", icon: ClipboardList, perm: "settings.orders", element: <OrderSettings /> },

@@ -5826,6 +5826,82 @@ check("S'Shop support never changes anyone's profile", r["error"]["title"] == "N
 call("POST", f"/platform/support/{sp185['id']}/end", None, token=sp185["token"], branch="none")
 call("PUT", "/auth/profile", {"name": old_name})
 
+step("Roadmap 186: out-of-stock products while selling; Manage branch prices")
+sp_role = roles14["Salesperson"]["id"]
+check("the Salesperson role does not see out-of-stock products while selling by default; other selling roles do",
+      "sales.view_out_of_stock" not in roles14["Salesperson"]["permissions"] and "sales.view_out_of_stock" in roles14["Manager"]["permissions"])
+in186 = call("POST", "/products", {"name": f"Sell186 In {suffix}", "marked_price": 15000, "barcode": f"86{suffix[-6:]}001"})["result"]["id"]
+in186b = call("POST", "/products", {"name": f"Sell186 Two {suffix}", "marked_price": 15000})["result"]["id"]
+out186 = call("POST", "/products", {"name": f"Sell186 Out {suffix}", "marked_price": 9000, "barcode": f"86{suffix[-6:]}002"})["result"]["id"]
+for p_ in (in186, in186b):
+    call("POST", "/stock/receive", {"product_id": p_, "quantity": 4})
+grace = make_user("grace186", sp_role)
+pos_names = lambda tok: [x["name"] for x in call("GET", f"/pos/products?all=true&q=Sell186", token=tok)]
+check("permission OFF: only products with stock at the branch (out-of-stock hidden, not greyed)",
+      f"Sell186 In {suffix}" in pos_names(grace) and f"Sell186 Out {suffix}" not in pos_names(grace), pos_names(grace))
+r = call("GET", f"/products/lookup?code=86{suffix[-6:]}002&for_sale=true", token=grace, expect=422)
+check("…and barcode lookup at the till says it is out of stock", r["error"]["title"] == "Out of stock", r)
+check("permission ON (Manager): out-of-stock products shown as before", f"Sell186 Out {suffix}" in pos_names(clerk))
+sp_full = next(r_ for r_ in call("GET", "/roles") if r_["id"] == sp_role)
+call("PUT", f"/roles/{sp_role}", {"name": sp_full["name"], "description": sp_full["description"], "permissions": sp_full["permissions"] + ["sales.view_out_of_stock"]})
+check("an administrator switches it on for the role: shown at once", f"Sell186 Out {suffix}" in pos_names(grace))
+call("POST", "/sales", {"items": [{"product_id": out186, "quantity": 1, "unit_price": 9000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, token=grace, expect=422)
+check("…which never allows selling stock that is not there", True)
+call("PUT", f"/roles/{sp_role}", {"name": sp_full["name"], "description": sp_full["description"], "permissions": sp_full["permissions"]})
+call("POST", "/stock/receive", {"product_id": out186, "quantity": 1})
+check("switched off again; a product appears as soon as stock arrives", f"Sell186 Out {suffix}" in pos_names(grace))
+# Manage branch prices
+call("GET", f"/branch-prices?branch_id={bA}", token=clerk, expect=403)
+call("POST", "/branch-prices", {"branch_id": bA, "action": "reset", "items": [{"product_id": in186, "price": 0, "expected": None}]}, token=clerk, expect=403)
+check("Manage branch prices: Tenant Administrators only (also through the API)", True)
+sold186 = call("POST", "/sales", {"items": [{"product_id": in186, "quantity": 1, "unit_price": 15000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+call("PUT", f"/products/{in186}/branch-prices", {"changes": [{"branch_id": bC, "price": 16000, "expected": None}]})
+bpl = lambda b_=bA: {x["product_id"]: x for x in call("GET", f"/branch-prices?branch_id={b_}")["items"]}
+row = bpl()[in186]
+check("the branch's products with stock, default, own and effective price, and status", row["status"] == "default" and row["price"] == "15000.00"
+      and row["available"] == 3 and row["default_price"] == "15000.00" and row["own_price"] is None, row)
+r = call("POST", "/branch-prices", {"branch_id": bA, "action": "reset", "items": [{"product_id": in186, "price": 0, "expected": None}, {"product_id": in186b, "price": 0, "expected": 12345}]}, expect=422)
+check("a stale price refuses the whole change (nothing applied)", r["error"]["title"] == "Price changed meanwhile" and bpl()[in186]["status"] == "default", r)
+call("POST", "/branch-prices", {"branch_id": bA, "action": "reset", "items": [{"product_id": in186, "price": 15000, "expected": None}]}, expect=400)
+call("POST", "/branch-prices", {"branch_id": bA, "action": "reset", "items": [{"product_id": in186, "price": 0}, {"product_id": in186, "price": 0}]}, expect=400)
+check("prices must match the action; each product once", True)
+rr = call("POST", "/branch-prices", {"branch_id": bA, "action": "reset", "items": [{"product_id": in186, "price": 0, "expected": None}, {"product_id": in186b, "price": 0, "expected": None}]})
+lst = bpl()
+check("reset selected to zero: both 0 at this branch (status Reset, not the default)", rr["result"]["changed"] == 2 and float(lst[in186]["price"]) == 0 and lst[in186]["status"] == "reset" and lst[in186b]["status"] == "reset", rr)
+bpp = {x["branch_id"]: x for x in call("GET", f"/products/{in186}/branch-prices")["branches"]}
+check("other branches untouched: Branch B default 15,000, Branch C its own 16,000", bpp[bB]["price"] == "15000.00" and bpp[bC]["price"] == "16000.00", bpp)
+check("stock and the product are unchanged (still active, still 3 here)", lst[in186]["available"] == 3 and any(x_["id"] == in186 for x_ in call("GET", f"/products?q=Sell186 In {suffix}")["items"]))
+r = call("POST", "/sales", {"items": [{"product_id": in186, "quantity": 1, "unit_price": 15000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, expect=422)
+check("a reset price is never sold (not free, not the default): Price needed", r["error"]["title"] == "Price needed", r)
+r = call("POST", "/sales", {"items": [{"product_id": in186, "quantity": 1, "unit_price": 0}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, expect=422)
+check("…not even at 0", r["error"]["title"] == "Price needed")
+check("the POS shows its price as 0 at this branch", float(next(x for x in call("GET", f"/pos/products?q=Sell186 In {suffix}") if x["id"] == in186)["marked_price"]) == 0)
+check("historical sales keep their price", float(call("GET", f"/sales/{sold186['sale']['id']}")["items"][0]["unit_price"]) == 15000)
+call("POST", "/branch-prices", {"branch_id": bA, "action": "set", "items": [{"product_id": in186, "price": 17000, "expected": 0}]})
+check("a new branch price applies at once (17,000) — no extra activation", bpl()[in186]["price"] == "17000.00" and bpl()[in186]["status"] == "branch")
+call("POST", "/sales", {"items": [{"product_id": in186, "quantity": 1, "unit_price": 17000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+check("…and it sells at 17,000", True)
+call("POST", "/branch-prices", {"branch_id": bA, "action": "restore", "items": [{"product_id": in186b, "price": None, "expected": 0}]})
+check("restore default pricing: inherits the current default (15,000)", bpl()[in186b]["status"] == "default" and bpl()[in186b]["price"] == "15000.00")
+aud186 = call("GET", f"/audit?period=today&module=products&limit=60")["items"]
+check("audited: each product's before/after at the branch, and the change as a whole",
+      any(a_["action"] == "branch_price" and a_["entity_id"] == in186 and "17000" in json.dumps(a_["after"]) for a_ in aud186)
+      and any(a_["action"] == "branch_prices_bulk" and a_["after"]["action"] == "reset" and a_["after"]["changed"] == 2 for a_ in aud186), [a_["action"] for a_ in aud186[:8]])
+# Through the approval workflow when Product edit needs approval.
+mgr_role186 = next(r_["id"] for r_ in call("GET", "/roles") if r_["name"] == "Manager")
+call("PUT", "/settings/workflows/product.edit", {"enabled": True, "levels": [{"approver_type": "role", "approver_role_id": mgr_role186}], "min_amount": None})
+pend = call("POST", "/branch-prices", {"branch_id": bA, "action": "reset", "items": [{"product_id": in186b, "price": 0, "expected": None}]})
+check("with Product edit approval on: sent for approval, nothing changed yet, marked waiting", pend["pending_approval"] is True
+      and bpl()[in186b]["status"] == "default" and bpl()[in186b]["pending"] is True, pend)
+call("POST", f"/approvals/{pend['approval_id']}/approve", {"comments": "ok"}, token=mgr2)
+check("approved: applied without another step", bpl()[in186b]["status"] == "reset")
+call("PUT", "/settings/workflows/product.edit", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+sp186 = support_open(tb1)
+call("GET", f"/branch-prices?branch_id={bA}", token=sp186["token"], branch="none", expect=403)
+call("POST", f"/platform/support/{sp186['id']}/end", None, token=sp186["token"], branch="none")
+check("S'Shop support never manages a business's branch prices", True)
+call("POST", "/branch-prices", {"branch_id": bA, "action": "restore", "items": [{"product_id": in186, "price": None, "expected": 17000}, {"product_id": in186b, "price": None, "expected": 0}]})
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

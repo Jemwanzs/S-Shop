@@ -37,12 +37,15 @@ async fn search(State(state): State<AppState>, ctx: Ctx, Query(q): Query<SearchQ
              FROM products p LEFT JOIN stock_levels sl ON sl.product_id = p.id AND sl.branch_id = $3
              WHERE p.tenant_id = $1 AND (p.name ILIKE $2 OR p.nickname ILIKE $2 OR p.code ILIKE $2 OR p.barcode = $4
                    OR EXISTS (SELECT 1 FROM stock_items si WHERE si.product_id = p.id AND si.barcode = $4))
+               AND ($5 OR COALESCE(sl.on_hand - sl.reserved, 0) > 0)
              ORDER BY (sl.on_hand - sl.reserved > 0) DESC NULLS LAST, p.is_active DESC, p.name LIMIT 8",
         )
         .bind(ctx.tenant_id)
         .bind(&pattern)
         .bind(ctx.branch_id)
         .bind(&term)
+        // Roadmap 186: people who only sell see out-of-stock products only with the permission.
+        .bind(ctx.can("products.view") || ctx.can("stock.view") || ctx.can("sales.view_out_of_stock"))
         .fetch_all(&state.db)
         .await?;
         results.extend(rows.into_iter().map(|(id, name, code, price, avail)| {

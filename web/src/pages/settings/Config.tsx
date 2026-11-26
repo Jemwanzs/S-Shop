@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Tags, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -160,10 +160,22 @@ function BarcodeTrackingCard({ s, saved, savedMultiple, update }: { s: Settings;
 
 export function ProductSettings() {
   const d = useSettingsDraft();
+  const { can, profile } = useSession();
   return (
     <Page d={d} title="Products" description="Catalogue options, product fields, categories and suppliers.">
       {(s) => (
         <>
+          {can("*") && !profile?.acting && (
+            <Card>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{t("Manage branch prices")}</div>
+                  <div className="text-xs text-muted-foreground">{t("Each branch's own selling prices: set, reset to 0 or restore the default — one product, a category or the whole branch.")}</div>
+                </div>
+                <Button size="sm" asChild><Link to="/settings/branch-prices"><Tags /> {t("Manage branch prices")}</Link></Button>
+              </div>
+            </Card>
+          )}
           <Card>
             <Row label="Photos per product" hint="Settings → Product Configuration → Product Photos">{numInput(s.product.max_photos, (n) => d.update((x) => { x.product.max_photos = n; }))}</Row>
             <Row label="Auto product code prefix" hint="e.g. PRD → PRD0001"><Input value={s.product.auto_code_prefix} onChange={(e) => d.update((x) => { x.product.auto_code_prefix = e.target.value.toUpperCase(); })} /></Row>

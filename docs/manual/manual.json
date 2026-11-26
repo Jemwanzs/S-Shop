@@ -29,7 +29,8 @@
         "Offline selling: walk-in cash sales are saved on the device and synced when the connection returns",
         "Sales history with ownership, returns, exchanges and cancellations under approval rules",
         "Barcode-controlled items are cleared only by scanning their sticker; typing barcodes at the till is off by default",
-        "Find the customer by name or mobile number from the first letter or digit, or add a new customer without leaving the sale"
+        "Find the customer by name or mobile number from the first letter or digit, or add a new customer without leaving the sale",
+        "Out-of-stock products can be hidden from the till per role (View out-of-stock products when recording sales)"
       ]
     },
     {
@@ -87,7 +88,8 @@
         "Item barcodes stay concealed (****047) on screens, reports and exports; printing, reprinting, replacing and revealing them are permission-controlled and recorded",
         "Filters — set, missing, zero, zero-or-missing and above zero prices (a price of 0 and no price stay different), and Missing product image; select products and deactivate them together, with approval when required",
         "Your filters, search, page and scroll position are kept while you open and edit products — fix missing prices one after another without choosing the filters again",
-        "One product in every branch with its own price per branch where needed: a default price, a branch's own price, and a branch filter to see the catalogue of one branch or of all your branches"
+        "One product in every branch with its own price per branch where needed: a default price, a branch's own price, and a branch filter to see the catalogue of one branch or of all your branches",
+        "Manage branch prices: each branch's prices in one table — set, reset to 0 or restore the default for one product, a category or the whole branch"
       ]
     },
     {
@@ -667,6 +669,22 @@
             "Default selling price is used by every branch without its own price. Use the default price returns a branch to it.",
             "Other branches you work at are listed: Set own price or Use default. Save changes.",
             "Only people with Set selling prices (Settings → Roles) can change prices, and only at their own branches. If someone else changed the price meanwhile, you are asked to reload first."
+          ]
+        },
+        {
+          "title": "Manage the prices of a whole branch",
+          "steps": [
+            "Settings → Products → Manage branch prices, then choose the branch.",
+            "Find products by name or code, category, stock or price status. Type a new price (the switch gives the branch its own price) and tap Save prices.",
+            "To reset prices to 0, tick products and tap Reset selected to 0 — or Reset category to 0 (choose the category first) or Reset all branch prices to 0. A reset product is not sold at that branch until you give it a new price.",
+            "Restore default puts the product's default price back at that branch. Each action shows the branch and how many products first; with approvals on, it waits for approval."
+          ]
+        },
+        {
+          "title": "Hide out-of-stock products from the till",
+          "steps": [
+            "Settings → Roles & permissions → the role → Sales: View out-of-stock products when recording sales.",
+            "Off (the Salesperson default): the till shows only products in stock at the branch. On: out-of-stock products are shown too (they still cannot be sold)."
           ]
         },
         {

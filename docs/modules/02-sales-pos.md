@@ -120,3 +120,12 @@ footer. Loyalty rules (module 10).
   (`POST /api/customers`); the new customer is attached. Without *Create customers* the earlier way stays: a full
   number and a first name, created with the sale.
 - The cart, quantities, prices, discounts and payment choice are never touched. 50,000 customers: under 80 ms.
+
+## Out-of-stock products while selling (roadmap 186)
+
+Role permission **View out-of-stock products when recording sales** (`sales.view_out_of_stock`). Off — the default for
+the Salesperson role — the till lists, filters and searches only products with sellable stock at the branch (hidden,
+not greyed); the till's barcode lookup (`/products/lookup?for_sale=true`) answers *Out of stock*; people who only sell
+see in-stock products only in the global search too. On — every other role that records sales — as before. A product
+appears the moment stock arrives. Never a way to sell stock that is not there. A product priced 0 at the branch shows
+*Price not set* and cannot be added (the server refuses it too).

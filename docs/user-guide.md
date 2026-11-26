@@ -41,6 +41,7 @@ A fast till for the counter: find or scan products, build the cart and take paym
 - Sales history with ownership, returns, exchanges and cancellations under approval rules
 - Barcode-controlled items are cleared only by scanning their sticker; typing barcodes at the till is off by default
 - Find the customer by name or mobile number from the first letter or digit, or add a new customer without leaving the sale
+- Out-of-stock products can be hidden from the till per role (View out-of-stock products when recording sales)
 
 <a id="module-3"></a>
 
@@ -103,6 +104,7 @@ One master catalogue shared by all branches, with photos, pricing rules and your
 - Filters — set, missing, zero, zero-or-missing and above zero prices (a price of 0 and no price stay different), and Missing product image; select products and deactivate them together, with approval when required
 - Your filters, search, page and scroll position are kept while you open and edit products — fix missing prices one after another without choosing the filters again
 - One product in every branch with its own price per branch where needed: a default price, a branch's own price, and a branch filter to see the catalogue of one branch or of all your branches
+- Manage branch prices: each branch's prices in one table — set, reset to 0 or restore the default for one product, a category or the whole branch
 
 <a id="module-7"></a>
 
@@ -627,6 +629,18 @@ Setting up the business, people, rules, payments and the website.
 2. Default selling price is used by every branch without its own price. Use the default price returns a branch to it.
 3. Other branches you work at are listed: Set own price or Use default. Save changes.
 4. Only people with Set selling prices (Settings → Roles) can change prices, and only at their own branches. If someone else changed the price meanwhile, you are asked to reload first.
+
+#### Manage the prices of a whole branch
+
+1. Settings → Products → Manage branch prices, then choose the branch.
+2. Find products by name or code, category, stock or price status. Type a new price (the switch gives the branch its own price) and tap Save prices.
+3. To reset prices to 0, tick products and tap Reset selected to 0 — or Reset category to 0 (choose the category first) or Reset all branch prices to 0. A reset product is not sold at that branch until you give it a new price.
+4. Restore default puts the product's default price back at that branch. Each action shows the branch and how many products first; with approvals on, it waits for approval.
+
+#### Hide out-of-stock products from the till
+
+1. Settings → Roles & permissions → the role → Sales: View out-of-stock products when recording sales.
+2. Off (the Salesperson default): the till shows only products in stock at the branch. On: out-of-stock products are shown too (they still cannot be sold).
 
 #### Add a user
 

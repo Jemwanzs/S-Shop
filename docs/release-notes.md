@@ -9,6 +9,15 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-27
+
+- **Split payment with the rest on credit**: several items left partly on credit are one sale and one receipt; the money received pays the cheapest items first and each item still owing gets its own credit record (repaid, recalled or written off on its own). The till shows a Payment Allocation Summary. (196, [credit sales](modules/03-credit-sales.md))
+- **Receiving across branches**: a product limited to some branches can be received at any branch; a new barcode for a known product is confirmed (*Add barcode & continue*) and added when the stock is received or approved. (197, [stock](modules/07-stock.md))
+- **Notifications follow your role and branches**: a new *Notifications* permission group, and the bell shows only what you may see — All / Unread / Read, categories, branch filter, mark read. (194, [notifications](modules/17-audit-notifications-search.md))
+- **My requests**: *View own approval requests* lets people follow the requests they raise — pending, approved, rejected, cancelled — without approving. (193, [approvals](modules/15-approvals.md))
+- **Edit Sale returns removed items' barcodes to stock** (original barcode, same item), moving only quantity differences; optional *Return removed items to stock*. (192, [receipts](modules/26-receipts-and-reconciliation.md))
+- **Website product photos framed uniformly**: shown whole and centred on a clean frame. (195, [website](modules/23-website.md))
+
 ## 2026-11-26
 
 - **Edit Sale**: Sales → (sale) → Corrections → *Edit Sale* corrects a recorded sale (date and time, customer, owner, branch, products, quantities, prices, payments, credit due date, notes). Every correction is reviewed (original → proposed, with its effect on money, stock, loyalty and credit) and approved — by default by the Tenant Administrator — before anything changes; only the differences are applied, and a corrected receipt RCP-…-R1 is added beside the original. Permission *Edit recorded sales*. (191, [sales](modules/02-sales-pos.md), [receipts](modules/26-receipts-and-reconciliation.md))

@@ -9,6 +9,12 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-26
+
+- **Manage branch prices** — Settings → Products → *Manage branch prices* (Tenant Administrators): each branch's prices in one table; set prices, reset to 0 or restore the default for one product, the selected ones, a category or the whole branch. A reset price stays 0 until a new price is set. (186, [module 06](modules/06-products.md))
+- **Hide out-of-stock products at the till** — new role permission *View out-of-stock products when recording sales*; off for the Salesperson role. (186, [module 02](modules/02-sales-pos.md))
+- **Fix: a price of 0 is never sold** — a product priced 0 shows *Price not set* at the till and *Price on request* online, instead of selling for 0. (186)
+
 ## 2026-11-25
 
 - **My profile** — tap your avatar (top right, also on phones) for My profile, Edit profile, Change PIN, Face ID & passkeys, User preferences and Sign out. Change your name and add a profile photo (crop, replace or remove); email, role and branches stay with your administrator. The audit trail keeps the name you had when you acted. (185, [module 14](modules/14-users-roles.md))

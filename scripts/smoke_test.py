@@ -5697,18 +5697,17 @@ call("PUT", "/website/stock", {"setting": "show_stock_quantity", "on": False}, t
 call("PUT", "/website/stock", {"setting": "in_stock_only", "on": True}, token=t2["token"], branch="none")
 check("products, publication and stock untouched by the settings", call("GET", f"/products/{wb_out}", **T2B)["product"]["is_active"] is True)
 
-step("Roadmap 183: the Tenant Administrator role — optional permissions, locked essentials")
+step("Roadmap 183: the Tenant Administrator role — optional permissions (199: none locked)")
 cat183 = [k for g in call("GET", "/permissions") for k, _ in g["permissions"]]
 roles183 = call("GET", "/roles")
 adm183 = next(r_ for r_ in roles183 if r_["is_system"])
 LOCKED183 = {"users.manage", "roles.manage", "settings.manage", "branches.manage", "approvals.approve", "audit.view"}
-check("the Tenant Administrator role is editable by its administrator, with every permission on and the essentials locked",
-      adm183["editable"] is True and adm183["excluded_permissions"] == [] and LOCKED183 <= set(adm183["locked"])
-      and all(k in adm183["locked"] for k in cat183 if k.startswith("settings.")), {k: adm183[k] for k in ("editable", "excluded_permissions")})
+check("the Tenant Administrator role is editable by its administrator, every permission on, the critical ones marked (not locked)",
+      adm183["editable"] is True and adm183["excluded_permissions"] == [] and LOCKED183 == set(adm183["locked"]), {k: adm183[k] for k in ("editable", "excluded_permissions")})
 r = call("PUT", f"/roles/{adm183['id']}", {"name": adm183["name"], "permissions": [k for k in cat183 if k != "users.manage"]}, expect=422)
-check("an essential permission cannot be switched off — even by a direct request", r["error"]["title"] == "Required permission" and "cannot be disabled" in r["error"]["message"], r)
-r = call("PUT", f"/roles/{adm183['id']}", {"name": adm183["name"], "permissions": [k for k in cat183 if not k.startswith("settings.")]}, expect=422)
-check("…nor any settings area", r["error"]["title"] == "Required permission", r)
+check("roadmap 199: a critical permission is switched off only with the person's PIN", r["error"]["title"] == "Confirm with your PIN", r)
+r = call("PUT", f"/roles/{adm183['id']}", {"name": adm183["name"], "permissions": [k for k in cat183 if k != "users.manage"], "confirm_pin": "0000"}, expect=422)
+check("…a wrong PIN changes nothing", r["error"]["title"] == "PIN incorrect" and next(r_ for r_ in call("GET", "/roles") if r_["is_system"])["excluded_permissions"] == [], r)
 call("PUT", f"/roles/{adm183['id']}", {"name": adm183["name"], "permissions": [k for k in cat183 if k not in ("expenses.view", "sales.backdate")]})
 adm183b = next(r_ for r_ in call("GET", "/roles") if r_["is_system"])
 me183 = call("GET", "/auth/me")
@@ -5736,6 +5735,34 @@ call("POST", f"/platform/support/{sp183['id']}/end", None, **SP183)
 call("PUT", f"/roles/{adm183['id']}", {"name": adm183["name"], "permissions": cat183})
 check("switching everything back on restores the full role", next(r_ for r_ in call("GET", "/roles") if r_["is_system"])["excluded_permissions"] == []
       and not any(p_.startswith("-") for p_ in call("GET", "/auth/me")["permissions"]))
+
+step("Roadmap 199: every Tenant Administrator permission editable, enforced, with a recovery path")
+adm199 = next(r_ for r_ in call("GET", "/roles") if r_["is_system"])
+put199 = lambda off, pin=None, expect=200: call("PUT", f"/roles/{adm199['id']}", {"name": adm199["name"], "permissions": [k for k in cat183 if k not in off], **({"confirm_pin": pin} if pin else {})}, expect=expect)
+r = put199([], expect=422)
+check("Save only when something changed", "Nothing to save" in r["error"]["message"], r)
+put199(["settings.stock"])
+check("a settings area switches off without a PIN (not critical) and is enforced at once", call("GET", "/auth/me")["permissions"].count("-settings.stock") == 1
+      and next(r_ for r_ in call("GET", "/roles") if r_["is_system"])["excluded_permissions"] == ["settings.stock"])
+put199(["settings.stock", "audit.view", "approvals.approve"], PIN)
+call("GET", "/audit?period=today", expect=403)
+check("View audit trail switched off (PIN confirmed): the audit trail is refused on the server", True)
+pend199 = call("GET", "/approvals?status=pending")["items"]
+check("Approve requests switched off: the Tenant Administrator decides nothing (full access does not override it)",
+      all(not a_["can_decide"] for a_ in pend199) and call("GET", "/notifications")["pending_approvals"] == 0, [a_["summary"] for a_ in pend199 if a_["can_decide"]][:3])
+put199(["settings.stock", "audit.view", "approvals.approve", "roles.manage", "users.manage"], PIN)
+check("recovery: without Manage roles & permissions the Tenant Administrator still opens the roles — only its own role is editable",
+      all((r_["editable"] is True) == bool(r_["is_system"]) for r_ in call("GET", "/roles")))
+call("POST", "/roles", {"name": f"Blocked199 {suffix}", "description": "", "permissions": ["sales.view"]}, expect=403)
+check("…other roles cannot be created or changed meanwhile", True)
+put199([])
+check("…and switching everything back on restores full access", next(r_ for r_ in call("GET", "/roles") if r_["is_system"])["excluded_permissions"] == []
+      and not any(p_.startswith("-") for p_ in call("GET", "/auth/me")["permissions"]) and call("GET", "/audit?period=today")["total"] > 0)
+au199 = [a_ for a_ in call("GET", "/audit?period=today&module=roles&limit=50")["items"] if a_["entity_id"] == adm199["id"]]
+check("every change is in the audit trail: switched off / on, PIN confirmation", any(a_["after"].get("pin_confirmed") for a_ in au199)
+      and any("roles.manage" in (a_["after"].get("turned_on") or []) for a_ in au199), [a_["after"] for a_ in au199][:2])
+r = call("PUT", f"/roles/{adm199['id']}", {"name": "x", "permissions": cat183}, token=keeper, expect=403)
+check("only the business's Tenant Administrators can change the role", "Tenant Administrator" in r["error"]["message"])
 
 step("Roadmap 184: live customer search at the till, quick customer creation")
 k184 = suffix.lower() + "q"

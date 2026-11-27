@@ -146,15 +146,17 @@ pub const CATALOGUE: &[PermGroup] = &[
 /// Roadmap 183: what the Tenant Administrator role always keeps — settings (every area), people, roles and their
 /// permissions, branches, approvals and the audit trail. These can never be switched off, so a business can never lose
 /// its own administration.
-pub const ADMIN_REQUIRED: &[&str] = &["users.manage", "roles.manage", "settings.manage", "branches.manage", "approvals.approve", "audit.view"];
+/// Roadmap 199: the administrative permissions whose removal from the Tenant Administrator role asks for a warning and
+/// the person's PIN (none is locked any more).
+pub const ADMIN_CRITICAL: &[&str] = &["users.manage", "roles.manage", "settings.manage", "branches.manage", "approvals.approve", "audit.view"];
 
-pub fn admin_required(p: &str) -> bool {
-    ADMIN_REQUIRED.contains(&p) || p.starts_with("settings.")
+pub fn admin_critical(p: &str) -> bool {
+    ADMIN_CRITICAL.contains(&p)
 }
 
-/// A permission the business's administrators may switch off for the Tenant Administrator role.
+/// Roadmap 199: every catalogue permission may be switched off for the Tenant Administrator role.
 pub fn admin_excludable(p: &str) -> bool {
-    !admin_required(p) && CATALOGUE.iter().any(|g| g.permissions.iter().any(|(k, _)| *k == p))
+    CATALOGUE.iter().any(|g| g.permissions.iter().any(|(k, _)| *k == p))
 }
 
 pub fn is_known(p: &str) -> bool {

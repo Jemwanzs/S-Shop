@@ -1203,7 +1203,10 @@ fn may_edit_admin_role(ctx: &Ctx) -> bool {
 }
 
 async fn list_roles(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<Vec<Role>>> {
-    ctx.require_any(&["roles.manage", "users.manage", "settings.manage"])?;
+    // Roadmap 199: a Tenant Administrator can always open the roles (to restore the Tenant Administrator role).
+    if !may_edit_admin_role(&ctx) {
+        ctx.require_any(&["roles.manage", "users.manage", "settings.manage"])?;
+    }
     let mut rows: Vec<Role> = sqlx::query_as(
         "SELECT r.id, r.name, r.description, r.permissions, r.is_system, r.is_active, r.excluded_permissions,
                 (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id AND u.is_active) AS user_count
@@ -1212,11 +1215,12 @@ async fn list_roles(State(state): State<AppState>, ctx: Ctx) -> AppResult<Json<V
     .bind(ctx.tenant_id)
     .fetch_all(&state.db)
     .await?;
-    let locked: Vec<String> = perms::CATALOGUE.iter().flat_map(|g| g.permissions.iter().map(|(k, _)| k.to_string())).filter(|k| perms::admin_required(k)).collect();
+    // Roadmap 199: nothing is locked any more; the critical permissions ask for a warning and the PIN when switched off.
+    let critical: Vec<String> = perms::ADMIN_CRITICAL.iter().map(|k| k.to_string()).collect();
     for r in rows.iter_mut() {
         r.editable = if r.is_system { may_edit_admin_role(&ctx) } else { ctx.can("roles.manage") };
         if r.is_system {
-            r.locked = locked.clone();
+            r.locked = critical.clone();
         }
     }
     Ok(Json(rows))
@@ -1229,6 +1233,9 @@ struct RoleBody {
     permissions: Vec<String>,
     /// Retire a role (only once no active user holds it).
     is_active: Option<bool>,
+    /// Roadmap 199: the person's PIN, required to switch off a critical permission of the Tenant Administrator role.
+    #[serde(default, skip_serializing)]
+    confirm_pin: Option<String>,
 }
 
 /// Only administrators may hand out permissions they do not hold themselves; anyone else can keep what a role
@@ -1283,6 +1290,12 @@ async fn create_role(State(state): State<AppState>, ctx: Ctx, Json(b): Json<Role
 
 async fn update_role(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Json(b): Json<RoleBody>) -> AppResult<Json<Value>> {
     ctx.require_full()?;
+    // Roadmap 199: the Tenant Administrator role is always editable by its own holders (the recovery path), whatever
+    // they switched off; every other role needs *Manage roles & permissions*.
+    let system: Option<bool> = sqlx::query_scalar("SELECT is_system FROM roles WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).fetch_optional(&state.db).await?;
+    if system == Some(true) {
+        return update_admin_role(&state, &ctx, id, &b).await;
+    }
     ctx.require("roles.manage")?;
     let mut tx = state.db.begin().await?;
     let (is_system, before, current, users): (bool, Value, Vec<String>, i64) = sqlx::query_as(
@@ -1328,9 +1341,6 @@ async fn update_admin_role(state: &AppState, ctx: &Ctx, id: Uuid, b: &RoleBody) 
         return Err(bad(format!("Unknown permission: {p}")));
     }
     let on = |k: &str| b.permissions.iter().any(|p| p == k || p == "*");
-    if let Some((k, label)) = perms::CATALOGUE.iter().flat_map(|g| g.permissions.iter()).find(|(k, _)| perms::admin_required(k) && !on(k)) {
-        return Err(refused("Required permission", format!("{label} is required for the Tenant Administrator — it cannot be disabled ({k})")));
-    }
     if b.is_active == Some(false) {
         return Err(bad("The Tenant Administrator role cannot be retired"));
     }
@@ -1342,13 +1352,30 @@ async fn update_admin_role(state: &AppState, ctx: &Ctx, id: Uuid, b: &RoleBody) 
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(AppError::NotFound("Role"))?;
+    if excluded == before {
+        return Err(rule("Nothing to save — the permissions are unchanged"));
+    }
+    // Roadmap 199: switching off a critical administrative permission is confirmed with the person's own PIN.
+    let critical_off: Vec<&str> = excluded.iter().map(String::as_str).filter(|k| perms::admin_critical(k) && !before.iter().any(|x| x == k)).collect();
+    if !critical_off.is_empty() {
+        let pin = b.confirm_pin.as_deref().map(str::trim).filter(|p| !p.is_empty()).ok_or_else(|| refused("Confirm with your PIN", "Switching off administrative permissions needs your PIN"))?;
+        let hash: String = sqlx::query_scalar("SELECT i.pin_hash FROM users u JOIN users i ON i.id = COALESCE(u.login_user_id, u.id) WHERE u.id = $1")
+            .bind(ctx.user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if !crate::auth::verify_pin(pin, &hash) {
+            return Err(refused("PIN incorrect", "That is not your PIN — the permissions were not changed"));
+        }
+    }
+    let turned_off: Vec<&String> = excluded.iter().filter(|k| !before.contains(k)).collect();
+    let turned_on: Vec<&String> = before.iter().filter(|k| !excluded.contains(k)).collect();
     sqlx::query("UPDATE roles SET excluded_permissions = $3 WHERE id = $1 AND tenant_id = $2").bind(id).bind(ctx.tenant_id).bind(&excluded).execute(&mut *tx).await?;
     audit::record(
         &mut *tx,
         ctx,
         Entry::new("roles", "update", "role", id)
             .before(json!({ "name": perms::ADMIN_ROLE, "switched_off": before }))
-            .after(json!({ "name": perms::ADMIN_ROLE, "switched_off": excluded })),
+            .after(json!({ "name": perms::ADMIN_ROLE, "switched_off": excluded, "turned_off": turned_off, "turned_on": turned_on, "pin_confirmed": !critical_off.is_empty() })),
     )
     .await?;
     tx.commit().await?;

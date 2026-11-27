@@ -4158,4 +4158,8 @@ export const DICT: Record<string, [string, string, string]> = {
   "Add barcode & continue": ["Ongeza msimbo na uendelee", "Ajouter le code-barres et continuer", "إضافة الباركود والمتابعة"],
   "Receiving branch": ["Tawi linalopokea", "Succursale de réception", "الفرع المستلم"],
   "Quantity being received": ["Idadi inayopokelewa", "Quantité reçue", "الكمية المستلمة"],
+  "Switch off administrative permissions?": ["Zima ruhusa za usimamizi?", "Désactiver des permissions d'administration ?", "إيقاف صلاحيات الإدارة؟"],
+  "Confirm and save": ["Thibitisha na uhifadhi", "Confirmer et enregistrer", "تأكيد وحفظ"],
+  "Critical — switching it off asks for your PIN": ["Muhimu — kuizima kunahitaji PIN yako", "Critique — la désactiver demande votre PIN", "حرجة — إيقافها يتطلب رمز PIN"],
+  "Administrator access (customised)": ["Ufikiaji wa msimamizi (umebinafsishwa)", "Accès administrateur (personnalisé)", "صلاحيات مسؤول (مخصصة)"],
 };

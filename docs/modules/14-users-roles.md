@@ -130,3 +130,10 @@ undoing every change switches it off again. *Saving…* blocks a second click; a
 *View own approval requests* (Administration) and the **Notifications** group (ten *Receive … notifications* permissions,
 Toggle all) are set per role like any other; existing roles received them all so nothing they saw disappears. A
 notification permission never widens module or branch access.
+
+## Tenant Administrator permissions (roadmap 199)
+
+Every permission of the Tenant Administrator role can be switched off (none is locked). Critical administrative ones
+(approve requests, branches, users, roles & permissions, all settings, audit trail) need a warning and the person's PIN.
+Tenant Administrators can always reopen Roles & permissions and restore their role (recovery: no permanent lockout).
+Switched-off permissions are enforced in the session, screens, API, approvals and notifications; changes are audited.

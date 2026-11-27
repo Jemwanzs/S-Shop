@@ -796,6 +796,12 @@ Setting up the business, people, rules, payments and the website.
 2. People still only receive notifications for modules and branches they can access. Changes apply straight away — notifications they may no longer see disappear from their bell.
 3. In Administration, View own approval requests lets people follow the requests they raise without approving.
 
+#### Adjust the Tenant Administrator role
+
+1. Settings → Roles & permissions → Tenant Administrator → Edit: every permission is on; switch off what administrators should not do (Toggle all works per group).
+2. Switching off a critical administrative permission (users, roles, settings, branches, approvals, audit trail) shows a warning and asks for your PIN.
+3. You can always come back to this role and switch permissions on again — even without Manage roles & permissions.
+
 <a id="guide-platform-owner"></a>
 
 ### Guide: Platform owner *(platform owner only)*

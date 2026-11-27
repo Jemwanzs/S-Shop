@@ -22,7 +22,6 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { PasswordInput } from "@/components/PasswordInput";
 import { Card, SettingsPage } from "./shared";
 import { t } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/UserAvatar";
 
 // ───────────────────────────── Branches ─────────────────────────────
@@ -473,24 +472,27 @@ export function RolesSettings() {
     && a.is_active === b.is_active && [...new Set(a.permissions)].sort().join("|") === [...new Set(b.permissions)].sort().join("|");
   const changed = !!edit && !!orig && !sameRole(edit, orig);
   const allKeys = catalogue.data?.flatMap((g) => g.permissions.map(([k]) => k)) ?? [];
-  // Roadmap 183: the Tenant Administrator role opens with every permission on except those switched off; the essential
-  // administration permissions stay on and locked.
+  // Roadmap 183/199: the Tenant Administrator role opens with every permission on except those switched off. Nothing is
+  // locked: switching off a critical administrative permission is confirmed with a warning and the person's PIN.
   const openAdminRole = (r: Role) => start({ id: r.id, name: r.name, description: r.description, permissions: allKeys.filter((k) => !(r.excluded_permissions ?? []).includes(k)), is_active: true, user_count: r.user_count, system: true, locked: r.locked ?? [] });
-  const isLocked = (k: string) => !!edit?.system && !!edit.locked?.includes(k);
+  const isCritical = (k: string) => !!edit?.system && !!edit.locked?.includes(k);
+  const criticalOff = edit?.system && orig ? (edit.locked ?? []).filter((k) => orig.permissions.includes(k) && !edit.permissions.includes(k)) : [];
+  const [confirmPin, setConfirmPin] = useState<string | null>(null);
   const save = useMutation({
-    mutationFn: () => api(edit!.id ? `/roles/${edit!.id}` : "/roles", { method: edit!.id ? "PUT" : "POST", body: edit }),
-    onSuccess: () => { toast.success("Role saved"); setEdit(null); setOrig(null); qc.invalidateQueries({ queryKey: ["roles"] }); qc.invalidateQueries({ queryKey: ["me"] }); },
+    mutationFn: (pin?: string) => api(edit!.id ? `/roles/${edit!.id}` : "/roles", { method: edit!.id ? "PUT" : "POST", body: { ...edit, confirm_pin: pin } }),
+    onSuccess: () => { toast.success("Role saved"); setEdit(null); setOrig(null); setConfirmPin(null); qc.invalidateQueries({ queryKey: ["roles"] }); qc.invalidateQueries({ queryKey: ["me"] }); },
     onError: (e) => toast.error(e),
   });
-  const toggle = (p: string, on: boolean) => edit && !isLocked(p) && setEdit({ ...edit, permissions: on ? [...edit.permissions, p] : edit.permissions.filter((x) => x !== p) });
+  const labelOf = (k: string) => catalogue.data?.flatMap((g) => g.permissions).find(([p]) => p === k)?.[1] ?? k;
+  const toggle = (p: string, on: boolean) => edit && setEdit({ ...edit, permissions: on ? [...edit.permissions, p] : edit.permissions.filter((x) => x !== p) });
   return (
     <SettingsPage title="Roles & permissions" description="Permissions are granted per module and action. Users can additionally be restricted by branch." loading={isLoading}>
       <Card action={<Button size="sm" onClick={() => start({ name: "", description: "", permissions: ["notify.approvals", "notify.own_requests", "approvals.view_own"], is_active: true, user_count: 0 })}><Plus /> {t("New role")}</Button>}>
         {data?.map((r) => (
           <div key={r.id} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 font-medium">{r.name}{r.is_system && <Pill tone="primary">{t("Full access")}</Pill>}{!r.is_active && <Pill>{t("Retired")}</Pill>}</div>
-              <div className="truncate text-xs text-muted-foreground">{r.description} · {r.user_count} user{r.user_count === 1 ? "" : "s"} · {r.is_system ? (r.excluded_permissions?.length ? `all but ${r.excluded_permissions.length}` : "all") : r.permissions.length} permissions</div>
+              <div className="flex items-center gap-2 font-medium">{r.name}{r.is_system && !(r.excluded_permissions?.length) && <Pill tone="primary">{t("Full access")}</Pill>}{!r.is_active && <Pill>{t("Retired")}</Pill>}</div>
+              <div className="truncate text-xs text-muted-foreground">{r.is_system && r.excluded_permissions?.length ? t("Administrator access (customised)") : r.description} · {r.user_count} user{r.user_count === 1 ? "" : "s"} · {r.is_system ? (r.excluded_permissions?.length && allKeys.length ? `${allKeys.length - r.excluded_permissions.length} of ${allKeys.length}` : "all") : r.permissions.length} permissions</div>
             </div>
             {r.is_system
               ? r.editable && <Button variant="ghost" size="icon-sm" disabled={!catalogue.data} onClick={() => openAdminRole(r)} aria-label="Edit"><Pencil /></Button>
@@ -499,7 +501,7 @@ export function RolesSettings() {
         ))}
       </Card>
       <ResponsiveDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : "New role"} wide footer={<ActionButton className="w-full md:w-auto" online busy={save.isPending} busyLabel="Saving…" blockedBy={[!changed && REASONS.nothingToSave, !edit?.name.trim() && "Enter a name"]}
-        onAction={() => save.mutateAsync()}>{t(edit?.id ? "Save changes" : "Save role")}</ActionButton>}>
+        onAction={async () => { if (criticalOff && criticalOff.length) { setConfirmPin(""); return; } await save.mutateAsync(undefined); }}>{t(edit?.id ? "Save changes" : "Save role")}</ActionButton>}>
         {edit && (
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -509,7 +511,7 @@ export function RolesSettings() {
             {edit.system && (
               <p className="flex gap-2 rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground">
                 <Lock className="h-4 w-4 shrink-0 text-primary" />
-                {t("Full access to every branch and record. Switch off what this role should not do; locked permissions are required for Tenant Administrator — they cannot be disabled.")}
+                {t("Every permission starts on. Switch off what this role should not do. Switching off a critical administrative permission asks for your PIN; Tenant Administrators can always reopen this role to restore it.")}
               </p>
             )}
             {edit.id && !edit.system && (
@@ -527,9 +529,9 @@ export function RolesSettings() {
                 <div key={g.module} className="rounded-xl border p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="font-medium">{g.label}</span>
-                    {!g.permissions.every(([k]) => isLocked(k)) && (
+                    {(
                       <button className="text-xs text-primary" onClick={() => {
-                        const open = g.permissions.filter(([k]) => !isLocked(k));
+                        const open = g.permissions;
                         const all = open.every(([k]) => edit.permissions.includes(k));
                         setEdit({ ...edit, permissions: all ? edit.permissions.filter((p) => !open.some(([k]) => k === p)) : [...new Set([...edit.permissions, ...open.map(([k]) => k)])] });
                       }}>{t("Toggle all")}</button>
@@ -537,11 +539,11 @@ export function RolesSettings() {
                   </div>
                   <div className="space-y-2">
                     {g.permissions.map(([key, label]) => (
-                      <label key={key} className={cn("flex items-start gap-2 text-sm", isLocked(key) && "text-muted-foreground")}>
-                        <Checkbox className="mt-0.5" checked={isLocked(key) || edit.permissions.includes(key)} disabled={isLocked(key)} onCheckedChange={(c) => toggle(key, !!c)} aria-label={label} />
+                      <label key={key} className="flex items-start gap-2 text-sm">
+                        <Checkbox className="mt-0.5" checked={edit.permissions.includes(key)} onCheckedChange={(c) => toggle(key, !!c)} aria-label={label} />
                         <span className="min-w-0">
-                          <span className="flex items-center gap-1">{label}{isLocked(key) && <Lock className="h-3 w-3 shrink-0" aria-label={t("Locked")} />}</span>
-                          {isLocked(key) && <span className="block text-[11px]">{t("Required for Tenant Administrator — cannot be disabled")}</span>}
+                          <span className="flex items-center gap-1">{label}</span>
+                          {isCritical(key) && <span className="block text-[11px] text-warning">{t("Critical — switching it off asks for your PIN")}</span>}
                         </span>
                       </label>
                     ))}
@@ -551,6 +553,15 @@ export function RolesSettings() {
             </div>
           </div>
         )}
+      </ResponsiveDialog>
+      <ResponsiveDialog open={confirmPin !== null} onOpenChange={(o) => !o && setConfirmPin(null)} title="Switch off administrative permissions?"
+        description="Tenant Administrators will lose these abilities until the role is changed again."
+        footer={<ActionButton variant="destructive" online busy={save.isPending} busyLabel="Saving…" blockedBy={[!(confirmPin ?? "").trim() && "Enter your PIN"]} onAction={() => save.mutateAsync(confirmPin ?? "")}>{t("Confirm and save")}</ActionButton>}>
+        <div className="space-y-3" data-testid="critical-confirm">
+          <ul className="list-disc space-y-0.5 ps-5 text-sm">{criticalOff?.map((k) => <li key={k}>{labelOf(k)}</li>)}</ul>
+          <p className="rounded-lg bg-warning/10 p-2.5 text-xs text-warning">{t("You can always come back to Settings → Roles & permissions → Tenant Administrator and switch them on again.")}</p>
+          <Field label="Your PIN"><Input type="password" inputMode="numeric" autoComplete="current-password" value={confirmPin ?? ""} onChange={(e) => setConfirmPin(e.target.value)} /></Field>
+        </div>
       </ResponsiveDialog>
     </SettingsPage>
   );

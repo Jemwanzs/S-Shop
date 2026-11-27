@@ -78,7 +78,8 @@ const SECTIONS: SectionDef[] = [
   { path: "branches", label: "Branches", group: "Business", icon: Building2, perm: "branches.manage", element: <BranchesSettings /> },
   { path: "users", label: "Users", group: "Business", icon: Users, perm: "users.manage", element: <UsersSettings /> },
   { path: "workspace", label: "Workspace & hours", group: "Business", icon: CalendarClock, perm: "settings.workspace", element: <WorkspaceSettings /> },
-  { path: "roles", label: "Roles & permissions", group: "Business", icon: KeyRound, perm: "roles.manage", element: <RolesSettings /> },
+  // Roadmap 199: Tenant Administrators can always open it (to restore their own role).
+  { path: "roles", label: "Roles & permissions", group: "Business", icon: KeyRound, perm: "roles", element: <RolesSettings /> },
   { path: "billing", label: "Billing", group: "Business", icon: Receipt, perm: "settings.billing", element: <BillingSettings /> },
   { path: "onboarding", label: "Onboarding", group: "Business", icon: FileSpreadsheet, perm: "settings.onboarding", element: <OnboardingSettings /> },
   { path: "products", label: "Products", group: "Configuration", icon: Package, perm: "settings.products", element: <ProductSettings /> },
@@ -118,6 +119,7 @@ export default function Settings() {
   const sections = SECTIONS.filter((s) =>
     s.perm === "platform" ? !!profile?.user.platform_admin
       : s.perm === "website" ? can("settings.integrations") || WEBSITE_PERMS.some((p) => can(p))
+      : s.perm === "roles" ? can("roles.manage") || !!profile?.permissions.includes("*")
         : !s.perm || can(s.perm));
   const groups = [...new Set(sections.map((s) => s.group))];
   const atIndex = /\/settings\/?$/.test(pathname);

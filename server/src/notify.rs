@@ -66,8 +66,8 @@ pub const CATEGORIES: [(&str, &str); 10] = [
 /// SQL: whether user `u` (role `r`, effective permissions `e.p`) may receive a notification — roadmap 194. Placeholders
 /// `{mandatory}`, `{cat}` (`notify.…`), `{perm}`, `{any_branch}`, `{branch}` are replaced by bind positions.
 pub const ELIGIBLE: &str = "u.is_active
-    AND ({mandatory} OR '*' = ANY(r.permissions) OR ({cat} = ANY(e.p) AND NOT ({cat} = ANY(r.excluded_permissions))))
-    AND ({perm}::text IS NULL OR '*' = ANY(r.permissions) OR ({perm} = ANY(e.p) AND NOT ({perm} = ANY(r.excluded_permissions))))
+    AND ({mandatory} OR (('*' = ANY(r.permissions) OR {cat} = ANY(e.p)) AND NOT ({cat} = ANY(r.excluded_permissions))))
+    AND ({perm}::text IS NULL OR (('*' = ANY(r.permissions) OR {perm} = ANY(e.p)) AND NOT ({perm} = ANY(r.excluded_permissions))))
     AND ({any_branch} OR {branch}::uuid IS NULL OR '*' = ANY(r.permissions) OR u.all_branches
          OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = u.id AND ub.branch_id = {branch}))";
 

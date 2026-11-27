@@ -364,8 +364,9 @@ pub async fn eligibility_for(
         return Ok(Why::DecidedEarlierLevel);
     }
     let row: Option<(Vec<String>, Uuid, bool, bool)> = sqlx::query_as(
-        "SELECT effective_permissions(r.permissions, u.extra_permissions), r.id, u.all_branches,
-                (r.is_system AND '*' = ANY(r.permissions)) AS tenant_admin
+        "SELECT ARRAY(SELECT p FROM unnest(effective_permissions(r.permissions, u.extra_permissions)) p
+                      WHERE NOT ('approvals.approve' = ANY(r.excluded_permissions) AND p IN ('*', 'approvals.approve'))),
+                r.id, u.all_branches, (r.is_system AND '*' = ANY(r.permissions)) AS tenant_admin
            FROM users u JOIN roles r ON r.id = u.role_id
           WHERE u.id = $1 AND u.tenant_id = $2 AND u.is_active AND r.tenant_id = $2",
     )
@@ -472,7 +473,7 @@ pub async fn approvers_for(
     let candidates: Vec<Uuid> = sqlx::query_scalar(
         "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
           WHERE u.tenant_id = $1 AND u.is_active AND (
-                '*' = ANY(effective_permissions(r.permissions, u.extra_permissions))
+                ('*' = ANY(effective_permissions(r.permissions, u.extra_permissions)) AND NOT ('approvals.approve' = ANY(r.excluded_permissions)))
              OR u.role_id = ANY($2) OR u.id = ANY($3)
              OR ($4 AND (u.id = (SELECT manager_id FROM branches WHERE id = $5)
                          OR (u.all_branches AND 'approvals.approve' = ANY(effective_permissions(r.permissions, u.extra_permissions)))))

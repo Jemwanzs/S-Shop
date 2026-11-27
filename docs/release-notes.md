@@ -9,6 +9,10 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ---
 
+## 2026-11-28
+
+- **Tenant Administrator permissions are all editable**: nothing locked; switching off a critical administrative permission (users, roles, settings, branches, approvals, audit trail) warns and asks for your PIN; Tenant Administrators can always reopen the role to restore it; switched-off permissions are enforced everywhere, including approvals and notifications. (199, [users & roles](modules/14-users-roles.md))
+
 ## 2026-11-27
 
 - **Fixes after 192–197**: a stock transfer into a branch that did not offer the product is received and makes it available; a per-item credit swaps only its own item; customers get one overdue reminder per sale; *Nobody can approve* alerts reach the requester. (198, [stock](modules/07-stock.md))

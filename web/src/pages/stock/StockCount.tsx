@@ -19,6 +19,7 @@ import { BarcodeInput, useBarcodeSettings } from "@/components/BarcodeInput";
 import { t } from "@/lib/i18n";
 import { UNIQUE_AGAIN } from "@/lib/scan";
 import type { ScanCountLine } from "@/components/ScanCounter";
+import { ProductName } from "@/components/ProductName";
 
 interface Lookup { product: Product; stock_item: { barcode: string; branch_name: string; status: string; in_current_branch: boolean } | null }
 /** The stock-take session, kept on this device per branch until submitted or cleared (roadmap 98): counted
@@ -204,7 +205,7 @@ function StockTake() {
               return (
                 <div key={r.product_id} className="grid grid-cols-[1fr_96px] items-center gap-3 px-4 py-2.5 md:grid-cols-[1fr_100px_120px_100px]">
                   <div className="min-w-0">
-                    <div className="truncate font-medium">{r.name}</div>
+                    <ProductName as="div" name={r.name} className="font-medium" />
                     <div className="num text-xs text-muted-foreground md:hidden">{t("Expected")} {count(r.on_hand)}{variance !== null && variance !== 0 && <span className={variance > 0 ? "text-success" : "text-destructive"}> · {signed(variance)}</span>}</div>
                   </div>
                   <span className="num hidden text-end md:block">{count(r.on_hand)}</span>
@@ -228,7 +229,7 @@ function StockTake() {
                 return (
                   <div key={r.product_id} className="grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-2.5">
                     <div className="min-w-0">
-                      <div className="truncate font-medium">{r.name}</div>
+                      <ProductName as="div" name={r.name} className="font-medium" />
                       <div className="num text-xs text-muted-foreground">
                         {t("Expected")} {count(r.on_hand)} · {t("Counted")} {units ? count(units.length) : "—"}
                         {variance !== null && <span className={cn("font-semibold", variance < 0 ? "text-destructive" : "text-success")}> · {variance === 0 ? "✓" : signed(variance)}</span>}

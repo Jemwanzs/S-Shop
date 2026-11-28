@@ -60,6 +60,16 @@ the nearest page with results. Only the catalogue address to return to and its s
 for the browser tab and per business — another business's catalogue context is never used. (The catalogue has
 no separate sort control; its order is fixed: active first, then by name.)
 
+## Product Name Appearance (roadmap 204)
+Settings → Products → Display preferences → **Product Name Appearance**: *Automatic / Full name* (default — the whole
+name, wrapping onto as many lines as the screen needs), *Single line*, *Two lines* or *Three lines*. With a limit, hovering
+shows the full name, and tapping a name that is not itself a button reveals it (tapping a product card at the till still
+opens or adds the product). One shared component shows names in the till (cards, list, cart and checkout), Edit Sale and
+exchanges, sale and credit details (recall, swap, settle with a returned item), orders, transfers, stock (levels,
+movements, adjustments, items), stock taking, scanned deliveries, bulk deactivation, the dashboard's products and the
+global search; mobile list rows wrap instead of cutting titles. In-stock and out-of-stock products alike; light and dark.
+The public website and ordering link keep their own card settings.
+
 ## Product page
 Price, stock here, stock across branches, photo manager, recent stock movements, details, buttons for
 *Performance* (dashboard filtered to the product), *Receive stock*, *Edit*, *Activate/Deactivate*, barcoded items.

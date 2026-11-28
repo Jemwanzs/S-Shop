@@ -30,6 +30,7 @@ import type { ScanSource } from "@/lib/scan";
 import { CustomerPicker, type NewCustomerDraft } from "./pos/CustomerPicker";
 import { OwnerPicker, type Owner } from "./SaleOwner";
 import { SaleDateInput, todayIn } from "./pos/SaleDate";
+import { ProductName } from "@/components/ProductName";
 
 interface EditLineState { key: string; sale_item_id: string | null; product_id: string; name: string; quantity: number; unit_price: string; marked_price: string | number | null; tracked: boolean; barcode: string | null; scan_source?: ScanSource }
 interface PayState { key: string; method: string; label: string; amount: string; reference: string; locked: boolean }
@@ -213,7 +214,7 @@ export default function EditSale() {
                 {(products.data ?? []).slice(0, 8).map((p) => (
                   <li key={p.id}>
                     <button type="button" disabled={p.marked_price == null} onClick={() => add(p)} className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-start text-sm hover:bg-accent disabled:opacity-50">
-                      <span className="min-w-0 truncate">{p.name}{p.track_items && <span className="text-xs text-muted-foreground"> · {t("scan item")}</span>}<span className="text-xs text-muted-foreground"> · {p.available} {t("available")}</span></span>
+                      <span className="min-w-0 [overflow-wrap:anywhere]"><ProductName name={p.name} expandable={false} />{p.track_items && <span className="text-xs text-muted-foreground"> · {t("scan item")}</span>}<span className="text-xs text-muted-foreground"> · {p.available} {t("available")}</span></span>
                       <span className="num shrink-0 font-medium">{p.marked_price == null ? t("Price not set") : money(p.marked_price)}</span>
                     </button>
                   </li>
@@ -226,7 +227,7 @@ export default function EditSale() {
                 <li key={l.key} className="space-y-1.5 py-2.5 text-sm">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="truncate font-medium">{l.name}{!l.sale_item_id && <span className="ms-1 rounded bg-primary/10 px-1 text-[10px] text-primary">{t("Added")}</span>}</div>
+                      <div className="font-medium"><ProductName name={l.name} />{!l.sale_item_id && <span className="ms-1 rounded bg-primary/10 px-1 text-[10px] text-primary">{t("Added")}</span>}</div>
                       <div className="num text-xs text-muted-foreground">{l.marked_price != null && `${t("Marked")} ${money(l.marked_price)}`}{l.barcode && ` · ${l.tracked && !l.sale_item_id ? maskCode(l.barcode) : l.barcode}`}</div>
                     </div>
                     <span className="num shrink-0 font-medium">{money(toNum(l.unit_price) * l.quantity)}</span>

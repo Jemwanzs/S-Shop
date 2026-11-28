@@ -19,6 +19,7 @@ import { Field, Select } from "@/components/Form";
 import { Chip, SearchInput } from "@/components/Filters";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import type { ScanSource } from "@/lib/scan";
+import { ProductName } from "@/components/ProductName";
 
 interface NewLine {
   key: string;
@@ -116,7 +117,7 @@ export default function Exchange() {
               {returnable.map((i) => (
                 <li key={i.id} className="flex items-center gap-3 py-2.5">
                   <div className="min-w-0 flex-1 text-sm">
-                    <div className="truncate font-medium">{i.product_name}</div>
+                    <ProductName as="div" name={i.product_name} className="font-medium" />
                     <div className="num text-xs text-muted-foreground">{i.quantity - i.returned_qty} {t("returnable")} · {amount(i.unit_price)}{i.barcode && ` · ${i.barcode}`}</div>
                   </div>
                   <Input
@@ -138,7 +139,7 @@ export default function Exchange() {
                 {(products.data ?? []).slice(0, 8).map((p) => (
                   <li key={p.id}>
                     <button type="button" disabled={p.available <= 0 || p.marked_price == null} onClick={() => add(p)} className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-start text-sm hover:bg-accent disabled:opacity-50">
-                      <span className="min-w-0 truncate">{p.name}{p.track_items && <span className="text-xs text-muted-foreground"> · {t("scan item")}</span>}</span>
+                      <span className="min-w-0 [overflow-wrap:anywhere]"><ProductName name={p.name} expandable={false} />{p.track_items && <span className="text-xs text-muted-foreground"> · {t("scan item")}</span>}</span>
                       <span className="num shrink-0 font-medium">{p.marked_price == null ? t("Price not set") : money(p.marked_price)}</span>
                     </button>
                   </li>
@@ -150,7 +151,7 @@ export default function Exchange() {
               {lines.map((l) => (
                 <li key={l.key} className="flex items-center gap-3 py-2.5 text-sm">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{l.product.name}</div>
+                    <ProductName as="div" name={l.product.name} className="font-medium" />
                     <div className="num text-xs text-muted-foreground">{money(l.product.marked_price)}{l.barcode && ` · ${l.product.track_items ? maskCode(l.barcode) : l.barcode}`}</div>
                   </div>
                   {!l.barcode && (

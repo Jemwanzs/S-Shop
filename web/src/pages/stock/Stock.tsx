@@ -22,6 +22,7 @@ import { DeletionDialog, MovementActions, voidState } from "./InventoryDeletion"
 import { StockBalancesDialog } from "./StockBalancesDialog";
 import { ALL_BRANCHES, BranchFilter, BranchViewNote, branchQuery, useBranchFilter } from "@/components/BranchFilter";
 import { t as tr } from "@/lib/i18n";
+import { ProductName } from "@/components/ProductName";
 
 type Tab = "levels" | "position" | "movements" | "adjustments" | "barcodes";
 const LIMIT = 50;
@@ -124,7 +125,7 @@ function Levels({ view }: { view: string }) {
         ]}
         mobile={(r) => (
           <CardRow
-            title={r.name}
+            title={<ProductName name={r.name} expandable={false} />}
             subtitle={`${r.code}${r.reserved ? ` · ${count(r.reserved)} reserved` : ""}${all && held(r) ? ` · ${held(r)}` : ""}`}
             value={<span className={cn(r.available <= 0 ? "text-destructive" : r.available <= r.low_threshold ? "text-warning" : "")}>{count(r.available)}</span>}
             meta={r.available <= 0 ? "out of stock" : "available"}
@@ -180,7 +181,7 @@ function Position({ view }: { view: string }) {
         ]}
         mobile={(r) => (
           <div>
-            <div className="flex justify-between font-medium"><span className="truncate">{r.name}</span><span className="num">{count(r.closing)}</span></div>
+            <div className="flex justify-between font-medium"><ProductName name={r.name} /><span className="num">{count(r.closing)}</span></div>
             <div className="num mt-1 grid grid-cols-4 gap-1 text-[11px] text-muted-foreground">
               <span>{tr("Open")} {r.opening}</span><span>+{r.added + r.transfers_in}</span><span>−{r.sold + r.transfers_out}</span><span>{tr("Adj")} {r.adjustments - r.damaged_written_off}</span>
             </div>
@@ -235,7 +236,7 @@ function Movements({ productId, view }: { productId?: string; view: string }) {
           { key: "actions", header: "", align: "right", cell: (r) => <div className="flex items-center justify-end gap-1">{voidState(r) && <Pill tone={voidState(r)![0]}>{tr(voidState(r)![1])}</Pill>}<MovementActions row={r} /></div> },
         ]}
         mobile={(r) => (
-          <CardRow title={r.product_name} meta={voidState(r) && <Pill tone={voidState(r)![0]}>{tr(voidState(r)![1])}</Pill>} subtitle={`${titleCase(r.kind)} · ${dateTime(r.created_at)}${r.notes ? ` · ${r.notes}` : ""}`} value={<span className={r.quantity > 0 ? "text-success" : "text-destructive"}>{signed(r.quantity)}</span>} />
+          <CardRow title={<ProductName name={r.product_name} expandable={false} />} meta={voidState(r) && <Pill tone={voidState(r)![0]}>{tr(voidState(r)![1])}</Pill>} subtitle={`${titleCase(r.kind)} · ${dateTime(r.created_at)}${r.notes ? ` · ${r.notes}` : ""}`} value={<span className={r.quantity > 0 ? "text-success" : "text-destructive"}>{signed(r.quantity)}</span>} />
         )}
         mobileActions={(r) => <MovementActions row={r} />}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}
@@ -274,7 +275,7 @@ function Adjustments({ view }: { view: string }) {
           { key: "by", header: "By / approved", cell: (r) => <span className="text-sm">{r.created_by_name}{r.decided_by_name && r.decided_by_name !== r.created_by_name && <span className="text-muted-foreground"> · ✓ {r.decided_by_name}</span>}</span>, hideBelow: "xl" },
           { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
         ]}
-        mobile={(r) => <CardRow title={r.product_name} subtitle={`${adjustmentKind(r.kind)} · ${r.reason}`} value={signed(r.delta)} meta={<StatusBadge status={r.status} />} />}
+        mobile={(r) => <CardRow title={<ProductName name={r.product_name} expandable={false} />} subtitle={`${adjustmentKind(r.kind)} · ${r.reason}`} value={signed(r.delta)} meta={<StatusBadge status={r.status} />} />}
         footer={data && <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />}
       />
     </>

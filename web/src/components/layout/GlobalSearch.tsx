@@ -59,7 +59,7 @@ export function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChan
                 >
                   <g.icon className="h-4 w-4 text-muted-foreground" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{r.title}</span>
+                    <span className={r.type === "product" ? "block font-medium [overflow-wrap:anywhere]" : "block truncate font-medium"}>{r.title}</span>
                     <span className="block truncate text-xs text-muted-foreground">{r.subtitle}</span>
                   </span>
                   {r.amount !== undefined && <span className="num text-sm">{money(r.amount)}</span>}

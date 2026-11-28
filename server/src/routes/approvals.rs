@@ -160,6 +160,17 @@ async fn names(conn: &mut sqlx::PgConnection, ids: &[Uuid]) -> AppResult<Vec<Str
     Ok(sqlx::query_scalar("SELECT name FROM users WHERE id = ANY($1) ORDER BY name").bind(ids).fetch_all(&mut *conn).await?)
 }
 
+/// Roadmap 203: a pending request's position and the people who may decide its current step (names) — for screens that
+/// point to a waiting request (stock receiving). `None` when it is not pending any more.
+pub async fn waiting_on(conn: &mut sqlx::PgConnection, tenant_id: Uuid, id: Uuid) -> AppResult<Option<(i32, i32, Vec<String>)>> {
+    let row: Option<ApprovalRow> = sqlx::query_as(&format!("{SELECT} WHERE a.id = $1 AND a.tenant_id = $2 AND a.status = 'pending'")).bind(id).bind(tenant_id).fetch_optional(&mut *conn).await?;
+    let Some(row) = row else { return Ok(None) };
+    let decided = row.decided_by();
+    let ids = workflow::approvers_for(conn, tenant_id, Some(&row.action), row.step(), row.branch_id, row.requested_by, &decided).await?;
+    let ids = responsible(conn, row.step(), &ids).await?;
+    Ok(Some((row.level, row.total(), names(conn, &ids).await?)))
+}
+
 /// Roadmap 193: who may follow the requests they raised (View own approval requests; approvers and auditors see them too).
 pub fn may_view_own(ctx: &Ctx) -> bool {
     ctx.can("approvals.view_own") || ctx.can("approvals.approve") || ctx.can("audit.view")

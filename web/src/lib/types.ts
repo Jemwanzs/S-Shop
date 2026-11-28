@@ -48,7 +48,7 @@ export interface Tier {
 export interface Settings {
   /** Roadmap 150: only the self-approval policy is read here (changed through its own endpoint). */
   security?: { admin_self_approval?: boolean };
-  product: { max_photos: number; auto_code_prefix: string; /** Roadmap 109 */ list_show_images?: boolean; list_show_prices?: boolean; /** Roadmap 168: Allow Shared Barcodes Across Multiple Items (default on) */ shared_barcodes?: boolean; /** Roadmap 174: Allow Multiple Barcodes per Product (default on) */ multiple_barcodes?: boolean };
+  product: { max_photos: number; auto_code_prefix: string; /** Roadmap 109 */ list_show_images?: boolean; list_show_prices?: boolean; /** Roadmap 168: Allow Shared Barcodes Across Multiple Items (default on) */ shared_barcodes?: boolean; /** Roadmap 174: Allow Multiple Barcodes per Product (default on) */ multiple_barcodes?: boolean; /** Roadmap 204: Product Name Appearance (back office) — auto (full name, default) or 1–3 lines */ name_lines?: "auto" | "1" | "2" | "3" };
   stock: {
     barcode_requirement: "required" | "optional" | "disabled";
     /** Roadmap 98: typed / pasted barcodes allowed; camera scanning offered; stock takes count barcoded products by barcode. */
@@ -68,6 +68,8 @@ export interface Settings {
     require_label_verification: boolean;
     /** Roadmap 134/138: sticker size (mm) and label printer (system printing, ZPL or TSPL). */
     labels: { width_mm: number; height_mm: number; printer: "system" | "zpl" | "tspl" };
+    /** Roadmap 203: Stock Receiving Controls (receipts waiting for approval). */
+    receiving?: ReceivingControls;
   };
   sales: {
     quantity_entry: "editable" | "locked";
@@ -589,3 +591,6 @@ export interface MedalSettings {
   products: MedalTargets;
   staff: MedalTargets;
 }
+
+/** Roadmap 203: how stock receiving treats receipts waiting for approval. */
+export interface ReceivingControls { check_pending: boolean; block_duplicates: boolean; block_pending_product: boolean; notify_approvers: boolean }

@@ -6,7 +6,7 @@ import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { count, titleCase, toNum } from "@/lib/format";
-import type { CustomField, MedalTargets, Settings } from "@/lib/types";
+import type { CustomField, MedalTargets, ReceivingControls, Settings } from "@/lib/types";
 import { useCustomFields, type FieldKind } from "@/components/CustomFields";
 
 const OPTIONAL_STATUSES = ["preparing", "dispatched", "on_delivery", "completed"];
@@ -185,6 +185,15 @@ export function ProductSettings() {
               checked={!!s.product.list_show_images} onChange={(v) => d.update((x) => { x.product.list_show_images = v; })} />
             <ToggleRow label="Show prices in the product list" hint="Independent of the website's price settings; prices are unchanged"
               checked={s.product.list_show_prices ?? true} onChange={(v) => d.update((x) => { x.product.list_show_prices = v; })} />
+            {/* Roadmap 204: how product names show across the back office (the website keeps its own card settings). */}
+            <Row label="Product Name Appearance" hint="Automatic shows the full name, wrapping as the screen needs. A line limit keeps lists compact — hover or tap a name to see all of it">
+              <Select value={s.product.name_lines ?? "auto"} onChange={(v) => d.update((x) => { x.product.name_lines = v as "auto"; })}>
+                <option value="auto">{tr("Automatic / Full name (recommended)")}</option>
+                <option value="1">{tr("Single line")}</option>
+                <option value="2">{tr("Two lines")}</option>
+                <option value="3">{tr("Three lines")}</option>
+              </Select>
+            </Row>
           </Card>
           <BarcodeTrackingCard s={s} saved={d.query.data?.settings.product.shared_barcodes ?? true} savedMultiple={d.query.data?.settings.product.multiple_barcodes ?? true} update={d.update} />
           <FieldsCard kind="product" empty="No product fields yet — add things like Size, Colour, Brand or Expiry date." />
@@ -346,6 +355,7 @@ export function StockSettings() {
           <ToggleRow label="Transfer receipt control" hint="Stock stays “in transit” until the destination confirms receipt" checked={s.stock.transfer_receipt_control} onChange={(v) => d.update((x) => { x.stock.transfer_receipt_control = v; })} />
           <ToggleRow label="Allow negative stock" hint="Not recommended — sales could exceed physical stock" checked={s.stock.allow_negative} onChange={(v) => d.update((x) => { x.stock.allow_negative = v; })} />
         </Card>
+        <ReceivingControlsCard s={s} update={d.update} />
         </>
       )}
     </Page>
@@ -761,6 +771,22 @@ function ReceiptConfig({ s, update }: { s: Settings; update: (fn: (x: Settings) 
 }
 
 /** Settings → Stock → Barcode settings (roadmap 98): one card for every barcode switch, on the existing settings. */
+/** Roadmap 203: Stock Receiving Controls — receipts still waiting for approval. */
+const RECEIVING_DEFAULTS: ReceivingControls = { check_pending: true, block_duplicates: true, block_pending_product: false, notify_approvers: true };
+function ReceivingControlsCard({ s, update }: { s: Settings; update: (f: (x: Settings) => void) => void }) {
+  const c = { ...RECEIVING_DEFAULTS, ...s.stock.receiving };
+  const set = (k: keyof ReceivingControls, v: boolean) => update((x) => { x.stock.receiving = { ...RECEIVING_DEFAULTS, ...x.stock.receiving, [k]: v }; });
+  return (
+    <Card title="Stock Receiving Controls">
+      <ToggleRow label="Check pending stock receiving requests" hint="Show receipts of the product (or its item barcodes) still waiting for approval when receiving" checked={c.check_pending} onChange={(v) => set("check_pending", v)} />
+      <ToggleRow label="Block duplicate pending stock receiving submissions" hint="The same product, quantity and barcodes already waiting at this branch cannot be submitted again" checked={c.block_duplicates} onChange={(v) => set("block_duplicates", v)} />
+      <ToggleRow label="Block additional receiving for products pending approval in the same branch" hint="Off: another delivery of the product can be received while one waits (shown as a notice)" checked={c.block_pending_product} onChange={(v) => set("block_pending_product", v)} />
+      <ToggleRow label="Allow users to notify assigned approvers" hint="Notify approver on a waiting receipt (once every 10 minutes)" checked={c.notify_approvers} onChange={(v) => set("notify_approvers", v)} />
+      <p className="pt-2 text-xs text-muted-foreground">{tr("Always refused, whatever these settings: a unique item barcode already in a waiting receipt (any branch), and a delivery already waiting under the same delivery note.")}</p>
+    </Card>
+  );
+}
+
 function BarcodeSettingsCard({ s, update }: { s: Settings; update: (f: (x: Settings) => void) => void }) {
   const on = s.stock.barcode_requirement !== "disabled";
   const conflicts = useQuery({ queryKey: ["barcode-conflicts"], queryFn: () => api<{ items: { barcode: string; products: { id: string; name: string }[] }[] }>("/products/barcode-conflicts") });

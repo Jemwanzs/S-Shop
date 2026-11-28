@@ -38,6 +38,8 @@ pub fn routes() -> Router<AppState> {
         .route("/stock/count", post(stock_count))
         .route("/stock/count/compare", post(count_compare))
         .route("/stock/count/pending", get(count_pending))
+        .route("/stock/receive/pending", get(receive_pending))
+        .route("/stock/receive/pending/{id}/notify", post(receive_pending_notify))
         .route("/stock/position", get(position))
 }
 
@@ -492,6 +494,8 @@ async fn receive_line(tx: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &
         return Err(refused("Scan required", "Typing barcodes is switched off for stock receiving — scan the labels or generate new ones"));
     }
     check_receipt(&mut *tx, ctx, s, b, &p).await?;
+    // Roadmap 203: never the same stock twice while a receipt of it waits for approval.
+    refuse_pending(&mut *tx, ctx, s, b, p.track_items, branch).await?;
     // Roadmap 135: printing a label is not attaching it — newly generated labels are confirmed (and verified when the
     // business requires it) before the items count as received.
     if p.track_items && super::barcodes::generated_count(&mut *tx, ctx.tenant_id, &b.barcodes).await? > 0 {
@@ -1391,10 +1395,14 @@ pub async fn on_approved(conn: &mut PgConnection, ctx: &Ctx, a: &ApprovalRow) ->
         "stock.add" => {
             let mut body: ReceiveBody = serde_json::from_value(a.payload.clone()).map_err(|_| bad("Stored stock receipt is invalid"))?;
             let s = settings::load(conn, ctx.tenant_id).await?;
-            let p = product_info(conn, ctx.tenant_id, body.product_id).await?;
+            let mut p = product_info(conn, ctx.tenant_id, body.product_id).await?;
             // Re-validate: barcodes may have been used since the request was raised.
             // The requester's activation rights were checked when the request was made.
             let activate = body.activate;
+            // Roadmap 200/203: a receipt that reactivates the product is not refused as "inactive" when approved.
+            if activate {
+                p.is_active = true;
+            }
             body.activate = false;
             check_receipt(conn, ctx, &s, &mut body, &p).await?;
             body.activate = activate;
@@ -1548,4 +1556,227 @@ pub async fn alert_levels(state: &AppState, tenant_id: Uuid, branch_id: Uuid, pr
         )
         .await;
     }
+}
+
+// ───────────────────────────── Roadmap 203: receipts waiting for approval ─────────────────────────────
+
+/// The title and message shown wherever a receipt meets one waiting for approval.
+pub const PENDING_TITLE: &str = "Stock Receiving Pending Approval";
+const PENDING_MESSAGE: &str = "This product or barcode is already included in a pending stock receiving request for this branch. Kindly contact the assigned approver to review and clear the pending request before submitting another stock receiving request for the same stock.";
+
+/// A receipt waiting for approval that meets the one being received.
+#[derive(Debug, Clone)]
+struct Pending {
+    id: Uuid,
+    product_id: Uuid,
+    branch_id: Option<Uuid>,
+    quantity: i32,
+    barcodes: Vec<String>,
+    reference: String,
+    requested_by: Option<Uuid>,
+    /// `barcode` (a unique item label already waiting, any branch) · `duplicate` (the same delivery, same branch) ·
+    /// `additional` (another delivery of the product waiting at this branch).
+    kind: &'static str,
+    /// Refused under the business's Stock Receiving Controls (or always: unique labels, the same delivery note).
+    blocking: bool,
+}
+
+fn norm(v: &[String]) -> Vec<String> {
+    let mut v: Vec<String> = v.iter().map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect();
+    v.sort();
+    v.dedup();
+    v
+}
+
+/// Receipts waiting for approval that meet a receipt of `product` at `branch` with `barcodes` (`tracked`: unique item
+/// labels, checked across every branch). Only submissions are checked — approving a request never meets itself.
+#[allow(clippy::too_many_arguments)]
+async fn pending_for(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    controls: &crate::settings::ReceivingControls,
+    product: Uuid,
+    branch: Uuid,
+    tracked: bool,
+    quantity: Option<i32>,
+    barcodes: &[String],
+    reference: &str,
+    supplier: Option<Uuid>,
+) -> AppResult<Vec<Pending>> {
+    let codes = norm(barcodes);
+    let rows: Vec<(Uuid, Value, Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        "SELECT a.id, a.payload, a.branch_id, a.requested_by FROM approvals a
+          WHERE a.tenant_id = $1 AND a.action = 'stock.add' AND a.status = 'pending'
+            AND (((a.payload->>'product_id')::uuid = $2 AND a.branch_id = $3)
+                 OR ($4 AND cardinality($5::text[]) > 0 AND (a.payload->'barcodes') ?| $5))
+          ORDER BY a.created_at",
+    )
+    .bind(tenant_id)
+    .bind(product)
+    .bind(branch)
+    .bind(tracked)
+    .bind(&codes)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut out = Vec::new();
+    for (id, payload, branch_id, requested_by) in rows {
+        let theirs: Vec<String> = serde_json::from_value(payload["barcodes"].clone()).unwrap_or_default();
+        let theirs = norm(&theirs);
+        let p_id = payload["product_id"].as_str().and_then(|s| Uuid::parse_str(s).ok()).unwrap_or(product);
+        let qty = payload["quantity"].as_i64().unwrap_or(0) as i32;
+        let reference_their = payload["reference"].as_str().unwrap_or("").trim().to_lowercase();
+        let supplier_their = payload["supplier_id"].as_str().and_then(|s| Uuid::parse_str(s).ok());
+        let shared_label = tracked && theirs.iter().any(|c| codes.contains(c));
+        let (kind, blocking) = if shared_label {
+            ("barcode", true)
+        } else if p_id == product && branch_id == Some(branch) {
+            let same = quantity.is_some_and(|q| q == qty) && theirs == codes;
+            let same_note = same && !reference.trim().is_empty() && reference.trim().to_lowercase() == reference_their && supplier == supplier_their;
+            if same_note {
+                ("duplicate", true)
+            } else if same {
+                ("duplicate", controls.block_duplicates)
+            } else {
+                ("additional", controls.block_pending_product)
+            }
+        } else {
+            continue;
+        };
+        if !controls.check_pending && !blocking {
+            continue;
+        }
+        out.push(Pending { id, product_id: p_id, branch_id, quantity: qty, barcodes: theirs, reference: reference_their, requested_by, kind, blocking });
+    }
+    Ok(out)
+}
+
+/// Roadmap 203: refuses a receipt that repeats one waiting for approval (checked inside the submitting transaction, after
+/// locking the product — and each unique label — so two people submitting the same delivery at once cannot both pass).
+async fn refuse_pending(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b: &ReceiveBody, tracked: bool, branch: Uuid) -> AppResult<()> {
+    let mut keys = vec![format!("rcv:{}:{}", ctx.tenant_id, b.product_id)];
+    if tracked {
+        keys.extend(norm(&b.barcodes).into_iter().map(|c| format!("rcv:{}:code:{c}", ctx.tenant_id)));
+    }
+    keys.sort();
+    for k in &keys {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))").bind(k).execute(&mut *conn).await?;
+    }
+    let found = pending_for(conn, ctx.tenant_id, &s.stock.receiving, b.product_id, branch, tracked, Some(b.quantity), &b.barcodes, &b.reference, b.supplier_id).await?;
+    if let Some(p) = found.iter().find(|p| p.blocking) {
+        let reference = format!("REQ-{}", p.id.simple().to_string()[..8].to_uppercase());
+        let message = if p.kind == "barcode" {
+            format!("A barcode scanned here is already in a pending stock receiving request ({reference}). Kindly contact the assigned approver to review and clear the pending request before submitting another stock receiving request for the same stock.")
+        } else {
+            format!("{PENDING_MESSAGE} ({reference})")
+        };
+        return Err(refused(PENDING_TITLE, message));
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct PendingQuery {
+    product_id: Uuid,
+    branch_id: Option<Uuid>,
+    /// Comma-separated codes being received (unique item labels are checked across every branch).
+    #[serde(default)]
+    barcodes: String,
+    quantity: Option<i32>,
+    #[serde(default)]
+    reference: String,
+    supplier_id: Option<Uuid>,
+}
+
+/// Roadmap 203: receipts waiting for approval that meet this one — shown when a product is chosen or a label scanned.
+async fn receive_pending(State(state): State<AppState>, ctx: Ctx, Query(q): Query<PendingQuery>) -> AppResult<Json<Value>> {
+    ctx.require("stock.add")?;
+    let branch = ctx.branch_or_current(q.branch_id)?;
+    let mut conn = state.db.acquire().await?;
+    let s = settings::load(&mut conn, ctx.tenant_id).await?;
+    let p = product_info(&mut conn, ctx.tenant_id, q.product_id).await?;
+    let codes: Vec<String> = q.barcodes.split(',').map(str::to_string).collect();
+    let found = pending_for(&mut conn, ctx.tenant_id, &s.stock.receiving, q.product_id, branch, p.track_items, q.quantity, &codes, &q.reference, q.supplier_id).await?;
+    let reveal = ctx.can("barcodes.reveal");
+    let mut items = Vec::new();
+    for f in found {
+        let (product_name, product_code): (String, String) =
+            sqlx::query_as("SELECT name, code FROM products WHERE id = $1 AND tenant_id = $2").bind(f.product_id).bind(ctx.tenant_id).fetch_one(&mut *conn).await?;
+        let (created_at, requester, branch_name): (DateTime<Utc>, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT a.created_at, u.name, b.name FROM approvals a LEFT JOIN users u ON u.id = a.requested_by LEFT JOIN branches b ON b.id = a.branch_id WHERE a.id = $1",
+        )
+        .bind(f.id)
+        .fetch_one(&mut *conn)
+        .await?;
+        // Request details follow the person's access: their own request, approvers and auditors see who decides it.
+        let may_view = f.requested_by == Some(ctx.user_id) || ctx.can("approvals.approve") || ctx.can("audit.view");
+        let position = super::approvals::waiting_on(&mut conn, ctx.tenant_id, f.id).await?;
+        let tracked_codes = p.track_items || f.kind == "barcode";
+        items.push(json!({
+            "id": f.id,
+            "reference": format!("REQ-{}", f.id.simple().to_string()[..8].to_uppercase()),
+            "kind": f.kind,
+            "blocking": f.blocking,
+            "product_name": product_name,
+            "product_code": product_code,
+            "barcodes": f.barcodes.iter().map(|c| if tracked_codes && !reveal { super::barcodes::mask(c) } else { c.clone() }).collect::<Vec<_>>(),
+            "branch_id": f.branch_id,
+            "branch_name": branch_name,
+            "quantity": f.quantity,
+            "delivery_note": if f.reference.is_empty() { None } else { Some(f.reference.clone()) },
+            "submitted_by": requester,
+            "submitted_at": created_at,
+            "status": "pending",
+            "level": position.as_ref().map(|p| p.0),
+            "levels": position.as_ref().map(|p| p.1),
+            "approvers": if may_view { position.map(|p| p.2) } else { None },
+            "may_view": may_view,
+        }));
+    }
+    Ok(Json(json!({
+        "items": items,
+        "controls": s.stock.receiving,
+        "title": PENDING_TITLE,
+        "message": PENDING_MESSAGE,
+    })))
+}
+
+/// Roadmap 203: *Notify approver* — the people who may decide the waiting receipt's current step are reminded (once
+/// every 10 minutes per request and person), and the reminder is audited.
+async fn receive_pending_notify(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+    ctx.require("stock.add")?;
+    let mut conn = state.db.acquire().await?;
+    let s = settings::load(&mut conn, ctx.tenant_id).await?;
+    if !s.stock.receiving.notify_approvers {
+        return Err(refused("Notifying approvers is off", "Your business does not allow notifying approvers from stock receiving"));
+    }
+    let row: Option<(Option<Uuid>, String)> =
+        sqlx::query_as("SELECT branch_id, summary FROM approvals WHERE id = $1 AND tenant_id = $2 AND action = 'stock.add' AND status = 'pending'")
+            .bind(id)
+            .bind(ctx.tenant_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+    let Some((branch, summary)) = row else {
+        return Err(rule("That request is no longer waiting for approval"));
+    };
+    if let Some(b) = branch {
+        if !ctx.branch_ids.contains(&b) {
+            return Err(AppError::Forbidden("That request is at a branch you do not work at".into()));
+        }
+    }
+    let recent: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM audit_log WHERE tenant_id = $1 AND user_id = $2 AND action = 'approver_reminded' AND entity_id = $3
+                         AND created_at > now() - interval '10 minutes')",
+    )
+    .bind(ctx.tenant_id)
+    .bind(ctx.user_id)
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
+    if recent {
+        return Err(rule("The approvers were notified a few minutes ago — please wait before notifying them again"));
+    }
+    audit::record(&mut conn, &ctx, Entry::new("stock", "approver_reminded", "approval", id).after(json!({ "summary": summary, "from": "stock receiving" }))).await?;
+    drop(conn);
+    super::approvals::notify_approvers(&state, &ctx, id).await;
+    Ok(Json(json!({ "notified": true })))
 }

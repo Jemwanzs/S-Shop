@@ -15,6 +15,7 @@ import { Field, Select } from "@/components/Form";
 import { Segments } from "@/components/Filters";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { ProductName } from "@/components/ProductName";
 
 export interface SoldItem {
   id: string;
@@ -144,7 +145,7 @@ export function RecallDialog({ open, onOpenChange, credit, items, onDone }: {
                 <li key={i.id} className="space-y-2 p-3">
                   <div className="flex items-start justify-between gap-3 text-sm">
                     <div className="min-w-0">
-                      <div className="truncate font-medium">{i.product_name}</div>
+                      <ProductName as="div" name={i.product_name} className="font-medium" />
                       <div className="num truncate text-xs text-muted-foreground">
                         {i.product_code}{i.barcode && ` · ${i.barcode}`} · {money(i.unit_price)}
                         {i.returned_qty > 0 && ` · ${count(i.returned_qty)} ${t("already returned")}`}

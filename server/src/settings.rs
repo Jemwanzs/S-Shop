@@ -182,10 +182,13 @@ pub struct ProductSettings {
     /// Roadmap 174: Allow Multiple Barcodes per Product — a shared-barcode product may gain more barcodes than its main one.
     /// Off: no new extra barcodes; the ones already given keep working until reviewed (never deleted by this switch).
     pub multiple_barcodes: bool,
+    /// Roadmap 204: Product Name Appearance in the back office — `auto` (the full name, wrapping as needed) or a limit of
+    /// `1`, `2` or `3` lines (the full name on hover / tap). The public website keeps its own card settings.
+    pub name_lines: String,
 }
 impl Default for ProductSettings {
     fn default() -> Self {
-        Self { max_photos: 5, auto_code_prefix: "PRD".into(), list_show_images: false, list_show_prices: true, shared_barcodes: true, multiple_barcodes: true }
+        Self { max_photos: 5, auto_code_prefix: "PRD".into(), list_show_images: false, list_show_prices: true, shared_barcodes: true, multiple_barcodes: true, name_lines: "auto".into() }
     }
 }
 
@@ -276,6 +279,28 @@ pub struct StockSettings {
     pub require_label_verification: bool,
     /// Roadmap 134/138: the barcode sticker and the label printer.
     pub labels: LabelSettings,
+    /// Roadmap 203: Stock Receiving Controls (receipts waiting for approval).
+    pub receiving: ReceivingControls,
+}
+
+/// Roadmap 203: how stock receiving treats receipts still waiting for approval. Whatever the settings, a unique item
+/// barcode already in a waiting receipt and a delivery already waiting under the same delivery note are refused.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReceivingControls {
+    /// Check pending stock receiving requests (show them while receiving).
+    pub check_pending: bool,
+    /// Block duplicate pending submissions (same branch, product, quantity and barcodes).
+    pub block_duplicates: bool,
+    /// Block additional receiving for products pending approval in the same branch.
+    pub block_pending_product: bool,
+    /// Allow users to notify the assigned approvers.
+    pub notify_approvers: bool,
+}
+impl Default for ReceivingControls {
+    fn default() -> Self {
+        Self { check_pending: true, block_duplicates: true, block_pending_product: false, notify_approvers: true }
+    }
 }
 
 /// Roadmap 134/138: the standard barcode sticker size and how labels reach the printer.
@@ -310,6 +335,7 @@ impl Default for StockSettings {
             generate_item_barcodes: true,
             require_label_verification: false,
             labels: LabelSettings::default(),
+            receiving: ReceivingControls::default(),
         }
     }
 }

@@ -19,6 +19,7 @@ import { useRememberCatalogue } from "@/lib/catalogue";
 import { toast } from "@/lib/toast";
 import { BulkDeactivate } from "./BulkDeactivate";
 import { ALL_BRANCHES, BranchFilter } from "@/components/BranchFilter";
+import { ProductName } from "@/components/ProductName";
 
 const LIMIT = 50;
 
@@ -234,7 +235,7 @@ export default function ProductsList() {
         ]}
         mobile={(r) => (
           <CardRow
-            title={r.name}
+            title={<ProductName name={r.name} expandable={false} />}
             subtitle={`${r.code}${r.category_name ? ` · ${r.category_name}` : ""}`}
             value={showPrices ? <PriceCell r={r} across={across} /> : undefined}
             meta={r.is_active ? <span className={r.available > 0 ? "text-success" : "text-destructive"}>{r.available > 0 ? `${count(r.available)} ${t(across ? "in stock" : "here")}` : "Out of stock"}</span> : <span className="text-destructive">{t("Inactive")}</span>}

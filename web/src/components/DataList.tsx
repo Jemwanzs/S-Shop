@@ -158,7 +158,7 @@ export function CardRow({ title, subtitle, value, meta, leading }: { title: Reac
     <div className="flex items-center gap-3">
       {leading}
       <div className="min-w-0 flex-1">
-        <div className="truncate font-medium">{title}</div>
+        <div className="font-medium [overflow-wrap:anywhere]">{title}</div>
         {subtitle && <div className="truncate text-xs text-muted-foreground">{subtitle}</div>}
       </div>
       {(value || meta) && (

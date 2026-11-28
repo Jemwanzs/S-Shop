@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
 import { UNIQUE_AGAIN, UNIQUE_HINT, type ScanSource } from "@/lib/scan";
 import type { ScanCountLine } from "@/components/ScanCounter";
+import { PENDING_TITLE, PendingReceiptsNotice, pendingForLabel, usePendingReceipts } from "./PendingReceipts";
 
 interface ProductDetail {
   product: Product;
@@ -140,6 +141,9 @@ export default function ReceiveStock() {
   const counted = Object.values(counts).reduce((a, n) => a + n, 0);
   const quantity = tracked ? barcodes.length : Object.keys(counts).length ? counted : Math.max(0, parseInt(qty) || 0);
   const showCost = s.stock.capture_cost && can("sales.view_financials");
+  // Roadmap 203: receipts of this stock still waiting for approval (this branch; item labels in any branch).
+  const pending = usePendingReceipts({ productId, branchId, barcodes, quantity, reference: reference.trim(), supplierId: supplier });
+  const pendingBlock = pending.data?.items.some((i) => i.blocking) ? PENDING_TITLE : false;
 
   // Roadmap 153: a shared barcode adds one unit to this delivery (several products, each with its own count). A product
   // tracked per item opens on its own, where each unit's label is scanned. An unknown code can be assigned to a product
@@ -190,6 +194,9 @@ export default function ReceiveStock() {
     if (known && !known.stock_item && known.product.barcode === code) {
       return { tone: "error", title: "That is a product barcode", detail: "Scan the label that identifies this individual item." };
     }
+    // Roadmap 203: a unique item label already in a receipt waiting for approval (any branch) is never captured again.
+    const waiting = productId ? await pendingForLabel(productId, branchId, code) : undefined;
+    if (waiting) return { tone: "error", title: PENDING_TITLE, detail: `${waiting.reference} · ${waiting.branch_name ?? ""} · ${waiting.submitted_by ?? ""}` };
     barcodesRef.current = [...barcodesRef.current, code];
     setBarcodes(barcodesRef.current);
     setLastScanned(code);
@@ -397,6 +404,7 @@ export default function ReceiveStock() {
             )}
           </Section>
 
+          {p && <PendingReceiptsNotice data={pending.data} />}
           {p && (
             <Section title="Quantity & barcodes">
               {tracked && canGenerate && (
@@ -530,7 +538,7 @@ export default function ReceiveStock() {
               </div>
             </Section>
             <ActionButton size="lg" className="h-14 w-full text-base" online busy={save.isPending} busyLabel="Receiving…"
-              blockedBy={[!p.is_active && !(activate && can("products.deactivate")) && INACTIVE, quantity <= 0 && (tracked && mode === "generate" && canGenerate ? "Generate the barcodes first" : "Enter the quantity"), !valid && REASONS.completeFields, labelsPending]} onAction={() => save.mutateAsync()}>
+              blockedBy={[!p.is_active && !(activate && can("products.deactivate")) && INACTIVE, pendingBlock, quantity <= 0 && (tracked && mode === "generate" && canGenerate ? "Generate the barcodes first" : "Enter the quantity"), !valid && REASONS.completeFields, labelsPending]} onAction={() => save.mutateAsync()}>
               <PackagePlus /> {t("Receive")} {count(quantity)} item{quantity === 1 ? "" : "s"}
             </ActionButton>
             {save.isSuccess && !save.isPending && <p className="flex items-center justify-center gap-1.5 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> {t("Saved — ready for the next delivery")}</p>}

@@ -23,6 +23,7 @@ import { Field } from "@/components/Form";
 import { Chip } from "@/components/Filters";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import type { SoldItem } from "./RecallDialog";
+import { ProductName } from "@/components/ProductName";
 
 export function SwapDialog({ open, onOpenChange, credit, items, onDone }: {
   open: boolean; onOpenChange: (o: boolean) => void; credit: CreditRow; items: SoldItem[]; onDone: () => void;
@@ -91,7 +92,7 @@ export function SwapDialog({ open, onOpenChange, credit, items, onDone }: {
             {back.map((i) => (
               <button key={i.id} type="button" onClick={() => { setLineId(i.id); setConfirmed(false); }}
                 className={cn("flex w-full items-center justify-between rounded-lg border p-2.5 text-start", lineId === i.id && "border-primary bg-primary/5")}>
-                <span className="min-w-0"><span className="block truncate font-medium">{i.product_name}</span><span className="num block text-xs text-muted-foreground">{i.product_code}{i.barcode && ` · ${i.barcode}`}</span></span>
+                <span className="min-w-0"><ProductName name={i.product_name} expandable={false} className="block font-medium" /><span className="num block text-xs text-muted-foreground">{i.product_code}{i.barcode && ` · ${i.barcode}`}</span></span>
                 <span className="num shrink-0">{money(i.unit_price)}</span>
               </button>
             ))}
@@ -112,7 +113,7 @@ export function SwapDialog({ open, onOpenChange, credit, items, onDone }: {
               {products.data?.filter((p) => p.available > 0).map((p) => (
                 <li key={p.id}>
                   <button type="button" onClick={() => { setProduct(p); setQ(""); setConfirmed(false); }} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-start hover:bg-accent">
-                    <span className="min-w-0 truncate">{p.name}</span><span className="num shrink-0 text-muted-foreground">{p.marked_price == null ? t("Price not set") : money(p.marked_price)}</span>
+                    <ProductName name={p.name} expandable={false} /><span className="num shrink-0 text-muted-foreground">{p.marked_price == null ? t("Price not set") : money(p.marked_price)}</span>
                   </button>
                 </li>
               ))}

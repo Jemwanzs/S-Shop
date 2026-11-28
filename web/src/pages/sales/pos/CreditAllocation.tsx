@@ -6,6 +6,7 @@ import { ChevronDown } from "lucide-react";
 import { money } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { ProductName } from "@/components/ProductName";
 
 export interface AllocLine { key: string; name: string; unitPrice: number; quantity: number }
 export interface UnitShare { key: string; name: string; unit: number; units: number; price: number; paid: number; owed: number }
@@ -49,7 +50,7 @@ export function CreditAllocation({ lines, payable, paid }: { lines: AllocLine[];
             return (
               <li key={`${r.key}-${r.unit}-${i}`} className="px-2.5 py-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 truncate font-medium">{r.name}{r.units > 1 && <span className="text-muted-foreground"> · {r.unit}/{r.units}</span>}</span>
+                  <span className="min-w-0 font-medium"><ProductName name={r.name} />{r.units > 1 && <span className="text-muted-foreground"> · {r.unit}/{r.units}</span>}</span>
                   <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium", r.owed <= 0 ? "bg-success/15 text-success" : r.paid > 0 ? "bg-warning/15 text-warning" : "bg-destructive/10 text-destructive")}>{t(status)}</span>
                 </div>
                 <div className="num mt-0.5 flex justify-between text-muted-foreground">

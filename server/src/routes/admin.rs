@@ -181,6 +181,10 @@ async fn put_settings(State(state): State<AppState>, ctx: Ctx, Json(mut body): J
     if !matches!(l.printer.as_str(), "system" | "zpl" | "tspl") {
         return Err(bad("Label printer: system printing, ZPL or TSPL"));
     }
+    // Roadmap 204: Product Name Appearance.
+    if !matches!(body.product.name_lines.as_str(), "auto" | "1" | "2" | "3") {
+        return Err(bad("Product Name Appearance: automatic, or one, two or three lines"));
+    }
     if body.sales.payment_methods.iter().all(|m| !m.enabled) {
         return Err(bad("Enable at least one payment method"));
     }

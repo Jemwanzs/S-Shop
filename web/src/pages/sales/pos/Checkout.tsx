@@ -21,6 +21,7 @@ import { t as tr } from "@/lib/i18n";
 import { SShopLoader } from "@/components/SShopLoader";
 import { CreditAllocation } from "./CreditAllocation";
 import { CustomerPicker, type NewCustomerDraft } from "./CustomerPicker";
+import { ProductName } from "@/components/ProductName";
 
 interface MpesaReq {
   id: string;
@@ -61,7 +62,7 @@ export function CartLines({ lines, onEdit, onRemove, saleDate, onQuantity, lineM
         return (
           <li key={l.key} className="flex gap-3 py-3">
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{l.product.name}</div>
+              <ProductName as="div" name={l.product.name} className="font-medium" />
               <div className="num text-xs text-muted-foreground">
                 {count(l.quantity)} × {money(l.unitPrice)}
                 {disc !== 0 && <span className={disc > 0 ? "text-destructive" : "text-success"}> ({disc > 0 ? "−" : "+"}{count(Math.abs(disc))})</span>}

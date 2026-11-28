@@ -105,6 +105,7 @@ One master catalogue shared by all branches, with photos, pricing rules and your
 - Item barcodes stay concealed (****047) on screens, reports and exports; printing, reprinting, replacing and revealing them are permission-controlled and recorded
 - Filters — set, missing, zero, zero-or-missing and above zero prices (a price of 0 and no price stay different), and Missing product image; select products and deactivate them together, with approval when required
 - Inactive products stay out of the way: they never appear when receiving stock, counting, transferring, selling, ordering or searching — only under Products → Inactive or All; scanning one says it must be reactivated first, and its history stays
+- Long product names shown in full, wrapping as the screen needs — or limited to one, two or three lines with the full name on hover or tap (Settings → Products → Product Name Appearance)
 - Your filters, search, page and scroll position are kept while you open and edit products — fix missing prices one after another without choosing the filters again
 - One product in every branch with its own price per branch where needed: a default price, a branch's own price, and a branch filter to see the catalogue of one branch or of all your branches
 - Manage branch prices: each branch's prices in one table — set, reset to 0 or restore the default for one product, a category or the whole branch
@@ -524,6 +525,7 @@ Stock, transfers, approvals, expenses, customers and reports for your branches.
 4. Individually tracked products: tap Generate barcodes, Print labels, stick one label on each item, tick I have attached a label to each item, then Verify labels by scanning them.
 5. Enter the Cost / purchase price, Marked selling price, Supplier and the delivery note in Reference / notes; change Date received if needed.
 6. Tap Receive. The stock and its value update immediately (or after approval when required).
+7. If the same stock is already waiting for approval, S'Shop shows Stock Receiving Pending Approval with the request, who sent it and who approves it — tap Notify approver instead of sending it again. A different delivery of the same product can still be received unless your business blocks it.
 
 #### Replace a damaged barcode label
 

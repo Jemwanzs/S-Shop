@@ -20,6 +20,7 @@ import { StatusBadge, Pill } from "@/components/Badges";
 import { Field } from "@/components/Form";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { t as tr } from "@/lib/i18n";
+import { ProductName } from "@/components/ProductName";
 
 const LIMIT = 50;
 const TABS = ["active", "new", "confirmed", "preparing", "dispatched", "on_delivery", "delivered", "completed", "cancelled", "all"] as const;
@@ -153,7 +154,7 @@ function NewOrder({ open, onOpenChange, onCreated }: { open: boolean; onOpenChan
           <ul className="divide-y rounded-lg border">
             {items.map((i) => (
               <li key={i.product.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-                <span className="min-w-0 flex-1 truncate">{i.product.name}</span>
+                <ProductName name={i.product.name} expandable={false} className="flex-1" />
                 <button className="p-1" onClick={() => setQty(i.product.id, i.quantity - 1)} aria-label="Less"><Minus className="h-3.5 w-3.5" /></button>
                 <span className="num w-6 text-center">{i.quantity}</span>
                 <button className="p-1" onClick={() => setQty(i.product.id, i.quantity + 1)} aria-label="More"><Plus className="h-3.5 w-3.5" /></button>

@@ -6658,6 +6658,103 @@ check("…and the full balance settles without a code", r["status"] == "paid", r
 rcpts201 = call("GET", f"/sales/{call('GET', f'/credit/{cr201}')['credit']['sale_id']}/receipts")
 check("the receipt's WhatsApp number is the sale customer's own", rcpts201["customer"]["mobile"].startswith("254"), rcpts201["customer"])
 
+step("Roadmap 203: stock receiving checks receipts waiting for approval")
+PENDING203 = "Stock Receiving Pending Approval"
+import concurrent.futures as _cf
+call("PUT", "/settings/workflows/stock.add", {"enabled": True, "levels": [{"approver_type": "admin"}], "min_amount": None})
+_s203 = call("GET", "/settings")["settings"]
+def controls203(**kw):
+    s_ = call("GET", "/settings")["settings"]
+    call("PUT", "/settings", {**s_, "stock": {**s_["stock"], "receiving": {**{"check_pending": True, "block_duplicates": True, "block_pending_product": False, "notify_approvers": True}, **kw}}})
+controls203()
+code203 = f"5050{suffix}203"
+p203 = call("POST", "/products", {"name": f"Pending203 {suffix}", "marked_price": 500, "barcode": code203})["result"]["id"]
+rcv203 = lambda qty, ref="", token=None, branch=None, expect=200: call("POST", "/stock/receive", {"product_id": p203, "quantity": qty, "barcodes": [code203], "barcode_counts": {code203: qty}, "reference": ref, **({"branch_id": branch} if branch else {})}, token=token, branch=branch, expect=expect)
+first203 = rcv203(3)
+check("a receipt waits for approval (workflow on)", first203["pending_approval"])
+pend = call("GET", f"/stock/receive/pending?product_id={p203}")["items"]
+check("choosing the product shows the waiting receipt with its details", len(pend) == 1 and pend[0]["quantity"] == 3 and pend[0]["reference"].startswith("REQ-")
+      and pend[0]["submitted_by"] and pend[0]["status"] == "pending" and pend[0]["approvers"] and pend[0]["branch_name"], pend)
+r = rcv203(3, expect=422)
+check("the same delivery again (same branch, quantity, barcode) is refused", r["error"]["title"] == PENDING203 and "REQ-" in r["error"]["message"], r)
+rk203 = call("POST", "/roles", {"name": f"Receiver203 {suffix}", "description": "", "permissions": ["stock.view", "stock.add", "products.view", "approvals.view_own"]})["id"]
+RK203 = make_user("receiver203", rk203)
+r = rcv203(3, token=RK203, expect=422)
+check("…also when another person submits it", r["error"]["title"] == PENDING203, r)
+dup_view = call("GET", f"/stock/receive/pending?product_id={p203}&quantity=3&barcodes={code203}", token=RK203)["items"][0]
+check("…who sees the request but not who approves it (not their request, not an approver)", dup_view["blocking"] and dup_view["approvers"] is None and dup_view["may_view"] is False, dup_view)
+second203 = rcv203(2)
+check("a genuine additional delivery (different quantity) is allowed and shown as a notice", second203["pending_approval"]
+      and not any(i_["blocking"] for i_ in call("GET", f"/stock/receive/pending?product_id={p203}&quantity=5&barcodes={code203}")["items"]))
+controls203(block_pending_product=True)
+r = rcv203(7, expect=422)
+check("Block additional receiving for products pending approval: another delivery is refused", r["error"]["title"] == PENDING203, r)
+controls203(block_duplicates=False)
+noted = rcv203(4, ref="DN-203")
+r = rcv203(4, ref="dn-203 ", expect=422)
+check("the same delivery note is always refused, even with duplicate blocking off", r["error"]["title"] == PENDING203, r)
+again = rcv203(4)
+check("…while without a delivery note it is allowed when duplicate blocking is off", again["pending_approval"])
+controls203()
+other = rcv203(3, branch=b2)
+check("a waiting receipt in one branch never blocks the same shared barcode at another branch", other["pending_approval"])
+# Individually tracked items: a unique label waiting anywhere is never captured again.
+t203 = call("POST", "/products", {"name": f"Tracked203 {suffix}", "marked_price": 900, "track_items": True})["result"]["id"]
+lab203 = call("POST", "/barcodes/generate", {"product_id": t203, "quantity": 1})["codes"][0]
+item203 = lambda token=None, branch=None, expect=200: call("POST", "/stock/receive", {"product_id": t203, "quantity": 1, "barcodes": [lab203], "labels_attached": True, "labels_verified": True, **({"branch_id": branch} if branch else {})}, token=token, branch=branch, expect=expect)
+held203 = item203()
+r = item203(branch=b2, expect=422)
+check("a unique item barcode already waiting is refused at any branch", r["error"]["title"] == PENDING203, r)
+check("…and scanning it shows the waiting request", [i_["kind"] for i_ in call("GET", f"/stock/receive/pending?product_id={t203}&barcodes={lab203}", branch=b2)["items"]] == ["barcode"])
+call("POST", f"/approvals/{held203['approval_id']}/reject", {"comments": "Wrong delivery"})
+held203b = item203()
+check("rejected: the barcode is released and can be submitted again", held203b["pending_approval"])
+call("POST", f"/approvals/{held203b['approval_id']}/approve", {"comments": "ok"})
+items203 = call("GET", f"/stock/items?product_id={t203}&status=in_stock")["items"]
+check("approved: posted once (one unit, no duplicate ledger entry)", len(items203) == 1
+      and len([m_ for m_ in call("GET", f"/stock/movements?product_id={t203}&period=today")["items"]]) == 1)
+r = item203(expect=422)
+check("…and the label is now in stock, so normal barcode validation applies", "already in use" in r["error"]["message"], r)
+# Two people submitting the same delivery at the same moment: one waits, the other is refused.
+p203c = call("POST", "/products", {"name": f"Race203 {suffix}", "marked_price": 100})["result"]["id"]
+def race203(tok):
+    try:
+        return call("POST", "/stock/receive", {"product_id": p203c, "quantity": 6, "reference": ""}, token=tok, expect=None)
+    except Exception as e:  # noqa
+        return {"error": str(e)}
+with _cf.ThreadPoolExecutor(2) as ex:
+    races = list(ex.map(race203, [None, RK203]))
+waiting203 = [a_ for a_ in call("GET", "/approvals?status=pending")["items"] if a_["action"] == "stock.add" and a_["entity_id"] == p203c]
+check("simultaneous identical submissions: exactly one waits for approval", len(waiting203) == 1, [str(x_)[:120] for x_ in races])
+# Notify approver: once every 10 minutes per request and person, audited.
+r = call("POST", f"/stock/receive/pending/{first203['approval_id']}/notify", token=RK203)
+check("Notify approver reminds the approvers", r["notified"] is True)
+r = call("POST", f"/stock/receive/pending/{first203['approval_id']}/notify", token=RK203, expect=422)
+check("…not again within 10 minutes", "few minutes" in r["error"]["message"], r)
+check("…and the reminder is audited", any(a_["action"] == "approver_reminded" for a_ in call("GET", "/audit?period=today&module=stock&limit=100")["items"]))
+controls203(notify_approvers=False)
+call("POST", f"/stock/receive/pending/{second203['approval_id']}/notify", token=RK203, expect=422)
+check("…refused when the business switched notifying off", True)
+controls203(check_pending=False, block_duplicates=True)
+check("Check pending off: only refusals are shown (a notice-only additional delivery is not)",
+      call("GET", f"/stock/receive/pending?product_id={p203}&quantity=9&barcodes={code203}")["items"] == [])
+# Clean up: nothing of this section stays waiting.
+for a_ in call("GET", "/approvals?status=pending")["items"]:
+    if a_["action"] == "stock.add" and a_["entity_id"] in (p203, t203, p203c):
+        call("POST", f"/approvals/{a_['id']}/reject", {"comments": "Test clean-up"})
+call("PUT", "/settings", {**call("GET", "/settings")["settings"], "stock": {**call("GET", "/settings")["settings"]["stock"], "receiving": _s203["stock"].get("receiving") or {}}})
+call("PUT", "/settings/workflows/stock.add", {"enabled": False, "levels": [{"approver_type": "admin"}], "min_amount": None})
+check("after rejection everything is released", call("GET", f"/stock/receive/pending?product_id={p203}")["items"] == [])
+
+step("Roadmap 204: Product Name Appearance (back office)")
+_s204 = call("GET", "/settings")["settings"]
+check("Automatic / full name is the default", _s204["product"].get("name_lines") == "auto")
+call("PUT", "/settings", {**_s204, "product": {**_s204["product"], "name_lines": "2"}})
+check("a line limit can be chosen and reaches every screen (the signed-in profile)", call("GET", "/auth/me")["settings"]["product"]["name_lines"] == "2")
+call("PUT", "/settings", {**_s204, "product": {**_s204["product"], "name_lines": "9"}}, expect=400)
+check("only automatic or one to three lines", True)
+call("PUT", "/settings", {**_s204, "product": {**_s204["product"], "name_lines": "auto"}})
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

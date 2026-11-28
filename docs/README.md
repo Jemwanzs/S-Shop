@@ -11,6 +11,7 @@
 | [api.md](api.md) | HTTP API reference |
 | [ui.md](ui.md) | Design system and responsive layout rules |
 | [migration-from-pablo-loyalty.md](migration-from-pablo-loyalty.md) | Importing the legacy Supabase data |
+| [receipt-printing-assessment.md](receipt-printing-assessment.md) | Roadmap 202: receipt printing & customisation — what exists, printer options, phases (awaiting approval) |
 | [integrations/mpesa.md](integrations/mpesa.md) | M-Pesa Daraja STK Push |
 | [integrations/whatsapp.md](integrations/whatsapp.md) | WhatsApp Cloud API: messages, templates, webhooks |
 

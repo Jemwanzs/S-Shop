@@ -20,6 +20,7 @@ import type { TransferRow } from "./TransfersList";
 import type { Money } from "@/lib/types";
 import { Pill } from "@/components/Badges";
 import { PRICE_ACTION, PRICE_STATUS, type PriceAction } from "./TransferPrices";
+import { ProductName } from "@/components/ProductName";
 
 interface Detail {
   transfer: TransferRow;
@@ -275,7 +276,7 @@ function ReceiveDialog({ open, onOpenChange, items, busy, onConfirm }: {
             <li key={i.id} className="space-y-2 py-3">
               <div className="flex items-start justify-between gap-3 text-sm">
                 <div className="min-w-0">
-                  <div className="truncate font-medium">{i.product_name}</div>
+                  <ProductName as="div" name={i.product_name} className="font-medium" />
                   <div className="num truncate text-xs text-muted-foreground">{i.product_code}{i.barcode && ` · ${i.barcode}`}</div>
                 </div>
                 <span className="num shrink-0 text-xs text-muted-foreground">{tr("Sent")} {count(i.quantity)}</span>

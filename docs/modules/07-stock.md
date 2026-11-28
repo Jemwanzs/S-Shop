@@ -36,6 +36,31 @@ received by reactivating it with the receipt — *Activate product* (people with
 product's own page; otherwise the receipt is refused with *This product is inactive and must be reactivated before use.* (also on the server).
 Price changes update the catalogue and are audited. Optionally approval-gated (*Stock addition*, threshold by value).
 
+### Receipts waiting for approval (roadmap 203)
+When a product is chosen, a unit's label scanned, and again when the receipt is submitted (on the server, inside the
+same transaction, after locking the product and each unique label so two people cannot submit the same delivery at the
+same moment), S'Shop looks for **stock receipts still waiting for approval** (at any approval level):
+
+| Situation | Result |
+|---|---|
+| A unique item barcode (individually tracked) already in a waiting receipt — **any branch** | Always refused |
+| The same delivery under the same delivery note (*Reference / notes*), same branch, product, quantity, barcodes and supplier | Always refused |
+| The same branch, product, quantity and barcodes (no delivery note to tell them apart) | Refused with *Block duplicate pending stock receiving submissions* (on by default) |
+| Another delivery of the product waiting at the same branch (other quantity, barcodes or delivery note) | A notice; refused only with *Block additional receiving for products pending approval in the same branch* (off by default) |
+| A shared barcode waiting at **another** branch | Never blocks — each branch receives its own stock |
+| Other barcodes of a product with several barcodes | Compared as a set — a different barcode is a different delivery |
+
+The notice (**Stock Receiving Pending Approval**) shows the product name and code, the barcode (item labels masked unless
+*Reveal barcodes*), branch, pending quantity, request reference (REQ-…), delivery note, who submitted it and when,
+status and level, and — for the requester, approvers and auditors — who may approve it. Actions: *View pending request*,
+*Notify approver* (reminds the people who may decide the current step; once every 10 minutes per request and person;
+audited as `approver_reminded`), *Close*. *Receive* stays disabled while a refusal applies. Approving posts the stock
+once through the normal checks; rejecting or cancelling releases everything at once (live refresh, no reload).
+Settings → Stock → **Stock Receiving Controls**: *Check pending stock receiving requests* (on), *Block duplicate pending
+stock receiving submissions* (on), *Block additional receiving for products pending approval in the same branch* (off),
+*Allow users to notify assigned approvers* (on). Imports (opening stock from Excel) are approved as a batch and are not
+checked against single receipts.
+
 ## Adjustments
 Types: Damaged · Lost · Write-off · Customer return (back to stock) · Returned to supplier · Recount (set exact
 quantity) · Manual correction (±) · **Others** (roadmap 171: last; *Added to stock* or *Removed from stock*, and

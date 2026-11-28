@@ -21,6 +21,7 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { t } from "@/lib/i18n";
 import { TYPING_OFF, useManualBarcodes, type ScanSource } from "@/lib/scan";
+import { ProductName } from "@/components/ProductName";
 
 interface Detail {
   order: OrderRow;
@@ -161,7 +162,7 @@ export default function OrderDetail() {
                 <li key={i.product_id} className="flex items-center gap-3 py-3">
                   {i.photo_id ? <img src={photoUrl(i.photo_id)} alt="" className="h-12 w-12 rounded-lg object-cover" loading="lazy" /> : <div className="h-12 w-12 rounded-lg bg-muted" />}
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{i.product_name}</div>
+                    <ProductName as="div" name={i.product_name} className="font-medium" />
                     <div className="num text-xs text-muted-foreground">{count(i.quantity)} × {money(i.unit_price)} · {count(i.available)} available now</div>
                   </div>
                   <span className="num font-semibold">{money(i.line_total)}</span>
@@ -242,7 +243,7 @@ export default function OrderDetail() {
                     const n = units[i.product_id]?.length ?? 0;
                     return (
                       <div key={i.product_id} className="flex items-center justify-between text-sm">
-                        <span className="truncate">{i.product_name}</span>
+                        <ProductName name={i.product_name} />
                         <span className={cn("num font-medium", n >= i.quantity ? "text-success" : "text-muted-foreground")}>{n} / {i.quantity}</span>
                       </div>
                     );

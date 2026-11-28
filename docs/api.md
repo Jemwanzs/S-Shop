@@ -154,7 +154,9 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 |---|---|
 | GET | `/api/stock` |
 | GET | `/api/stock/availability/{product_id}` |
-| POST | `/api/stock/receive` |
+| POST | `/api/stock/receive` — roadmap 203: refused with 422 *Stock Receiving Pending Approval* (with the REQ- reference) when it repeats a receipt waiting for approval (see Stock Receiving Controls); `/api/stock/receive/batch` checks every line |
+| GET | `/api/stock/receive/pending?product_id&branch_id&barcodes=a,b&quantity&reference&supplier_id` — roadmap 203: waiting receipts that meet this one → `items` [`id`, `reference`, `kind` barcode/duplicate/additional, `blocking`, product, masked `barcodes`, branch, `quantity`, `delivery_note`, `submitted_by`, `submitted_at`, `level`, `levels`, `approvers` (requester / approvers / auditors only), `may_view`], `controls`, `title`, `message` (`stock.add`) |
+| POST | `/api/stock/receive/pending/{approval_id}/notify` — roadmap 203: reminds the people who may decide the current step (once every 10 minutes per request and person; audited); refused when the business switched it off |
 | POST | `/api/stock/receive/batch` — roadmap 153: `{branch_id, supplier_id, reference, date_received, lines: [{product_id, quantity, barcode, barcode_source}] (≤ 200, each product once)}`: one transaction; → `received`, `pending_approval`, `units_received`, `lines` |
 | GET | `/api/stock/movements` |
 | GET | `/api/stock/items` |

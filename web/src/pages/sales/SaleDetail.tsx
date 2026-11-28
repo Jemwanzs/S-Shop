@@ -22,6 +22,7 @@ import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { ActionButton } from "@/components/ActionButton";
 import { UserRoundCog } from "lucide-react";
 import { SaleEditChanges } from "./EditSale";
+import { ProductName } from "@/components/ProductName";
 
 export default function SaleDetail() {
   const { id } = useParams();
@@ -184,7 +185,7 @@ export default function SaleDetail() {
           {returnable.map((i) => (
             <li key={i.id} className="flex items-center gap-3 p-3">
               <div className="min-w-0 flex-1 text-sm">
-                <div className="truncate font-medium">{i.product_name}</div>
+                <ProductName as="div" name={i.product_name} className="font-medium" />
                 <div className="num text-xs text-muted-foreground">{i.quantity - i.returned_qty} returnable · {amount(i.unit_price)} each</div>
               </div>
               <Input

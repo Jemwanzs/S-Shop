@@ -16,6 +16,7 @@ import { Field } from "@/components/Form";
 import { Pill, type Tone } from "@/components/Badges";
 import { ResponsiveDialog } from "@/components/ResponsiveDialog";
 import { Loading } from "@/components/Page";
+import { ProductName } from "@/components/ProductName";
 
 interface Preview {
   items: { id: string; name: string; status: "eligible" | "already_inactive" | "already_waiting" }[];
@@ -135,7 +136,7 @@ function ItemList({ items }: { items: { id: string; name: string; status: string
     <ul className="scroll-thin max-h-64 divide-y overflow-y-auto rounded-xl border">
       {items.map((i) => (
         <li key={i.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
-          <span className="min-w-0 flex-1 truncate">{i.name}</span>
+          <ProductName name={i.name} className="flex-1" />
           <Pill tone={OUTCOME[i.status]?.[0] ?? "neutral"}>{t(OUTCOME[i.status]?.[1] ?? i.status)}</Pill>
           {i.message && i.status === "failed" && <span className="basis-full text-xs text-destructive">{i.message}</span>}
         </li>

@@ -36,6 +36,7 @@ import { Select } from "@/components/Form";
 import { Medal, PointsPill, Pill } from "@/components/Badges";
 import { t } from "@/lib/i18n";
 import { t as tr } from "@/lib/i18n";
+import { ProductName } from "@/components/ProductName";
 
 interface DashboardData {
   from: string;
@@ -265,7 +266,7 @@ function Analytics({ mine = false }: { mine?: boolean }) {
                   {data.low_stock.map((p) => (
                     <li key={p.product_id + p.branch_name} className="flex items-center gap-2 py-2.5 text-sm">
                       <AlertTriangle className={`h-4 w-4 shrink-0 ${p.available <= 0 ? "text-destructive" : "text-warning"}`} />
-                      <span className="min-w-0 flex-1 truncate">{p.name}{multiBranch && <span className="text-muted-foreground"> · {p.branch_name}</span>}</span>
+                      <span className="min-w-0 flex-1"><ProductName name={p.name} />{multiBranch && <span className="text-muted-foreground"> · {p.branch_name}</span>}</span>
                       <span className="num font-semibold">{count(p.available)}</span>
                     </li>
                   ))}

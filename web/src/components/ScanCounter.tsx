@@ -11,6 +11,7 @@ import { useSession } from "@/lib/session";
 import { t } from "@/lib/i18n";
 import { count } from "@/lib/format";
 import { useKeyTiming } from "@/lib/scan";
+import { ProductName } from "@/components/ProductName";
 
 export interface ScanCountLine {
   key: string;
@@ -69,7 +70,7 @@ export function ScanCounter({ lines, activeKey, onSet, onRemove, onScanned, onDo
       <div className="flex items-start gap-2">
         <Check className={cn("mt-0.5 h-4 w-4 shrink-0", dark ? "text-emerald-300" : "text-success")} />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold">{line.name}</p>
+          <ProductName as="p" name={line.name} className="font-semibold" />
           <p className={cn("num truncate text-xs", dark ? "text-white/60" : "text-muted-foreground")}>
             {line.barcode ? <>{t("Barcode")}: {line.barcode}</> : t("No barcode scanned")}
           </p>
@@ -121,7 +122,7 @@ export function ScanCounter({ lines, activeKey, onSet, onRemove, onScanned, onDo
             {[...others].reverse().map((l) => (
               <li key={l.key}>
                 <button type="button" className="flex w-full items-center justify-between gap-2 py-1.5 text-start text-xs" onClick={() => setPicked(l.key)}>
-                  <span className="min-w-0 truncate">{l.name}{l.kind === "unique" && l.barcode ? ` · ${l.barcode}` : ""}</span>
+                  <span className="min-w-0"><ProductName name={l.name} />{l.kind === "unique" && l.barcode ? ` · ${l.barcode}` : ""}</span>
                   <span className="num shrink-0 font-semibold">{count(l.quantity)}</span>
                 </button>
               </li>

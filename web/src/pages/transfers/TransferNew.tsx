@@ -19,6 +19,7 @@ import { Field, Select } from "@/components/Form";
 import { SearchInput } from "@/components/Filters";
 import { BarcodeScanner, type ScanOutcome } from "@/components/BarcodeScanner";
 import { t } from "@/lib/i18n";
+import { ProductName } from "@/components/ProductName";
 
 interface Line {
   product: StockLevel;
@@ -156,7 +157,7 @@ export default function TransferNew() {
               <li key={l.product.product_id} className="space-y-2 py-3">
                 <div className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{l.product.name}</div>
+                    <ProductName as="div" name={l.product.name} className="font-medium" />
                     <div className="num text-xs text-muted-foreground">{count(l.product.available)} available</div>
                   </div>
                   {l.product.track_items ? (

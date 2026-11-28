@@ -11,9 +11,10 @@ const TOPICS: Record<string, string[][]> = {
   // The Orders badge (pending new orders) lives in the notifications feed.
   order: [["orders"], ["order"], ["dashboard"], ["notifications"]],
   // Roadmap 200: also product activation/deactivation (global search included).
-  stock: [["stock"], ["pos-products"], ["products"], ["product"], ["search"]],
+  stock: [["stock"], ["pos-products"], ["products"], ["product"], ["search"], ["receive-pending"]],
   sale: [["sales"], ["dashboard"], ["customers"]],
-  approval: [["approvals"], ["notifications"]],
+  // Roadmap 203: a decided receipt releases (or keeps) the receiving restrictions at once.
+  approval: [["approvals"], ["notifications"], ["receive-pending"]],
   mpesa: [["mpesa"]],
 };
 

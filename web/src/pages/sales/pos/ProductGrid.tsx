@@ -10,6 +10,7 @@ import { count, money, toNum } from "@/lib/format";
 import type { PosProduct, Settings } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
+import { ProductName } from "@/components/ProductName";
 
 type Display = Settings["sales"]["pos"];
 
@@ -89,7 +90,7 @@ export function ProductGrid({ products, display, inCart, onOpen, lowThreshold, b
               <ProductThumb id={p.primary_photo_id} className="aspect-square w-full rounded-xl" />
               <div className="min-w-0 space-y-0.5">
                 <div className="flex items-start gap-1">
-                  <span className="line-clamp-2 min-w-0 flex-1 text-sm font-medium leading-snug">{p.name}</span>
+                  <ProductName name={p.name} expandable={false} className="flex-1 text-sm font-medium leading-snug" />
                   {badge?.(p)}
                 </div>
                 <div className="truncate text-[11px] text-muted-foreground">{sub}</div>
@@ -106,7 +107,7 @@ export function ProductGrid({ products, display, inCart, onOpen, lowThreshold, b
             <button key={p.id} {...common} className={cn(common.className, "flex items-center gap-3 px-2.5 py-2")}>
               {images && <ProductThumb id={p.primary_photo_id} className="h-12 w-12" />}
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5"><span className="truncate font-medium">{p.name}</span>{badge?.(p)}</div>
+                <div className="flex items-start gap-1.5"><ProductName name={p.name} expandable={false} className="font-medium" />{badge?.(p)}</div>
                 <div className="truncate text-xs text-muted-foreground">{sub}{p.category_name && ` · ${p.category_name}`}</div>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-0.5">{price}{stock}</div>
@@ -117,7 +118,7 @@ export function ProductGrid({ products, display, inCart, onOpen, lowThreshold, b
           <button key={p.id} {...common} className={cn(common.className, "flex items-center gap-3 p-3")}>
             {images && <ProductThumb id={p.primary_photo_id} className="h-11 w-11" />}
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5"><span className="truncate font-medium">{p.name}</span>{badge?.(p)}</div>
+              <div className="flex items-start gap-1.5"><ProductName name={p.name} expandable={false} className="font-medium" />{badge?.(p)}</div>
               <div className="truncate text-xs text-muted-foreground">{sub}</div>
             </div>
             <div className="shrink-0 text-end">

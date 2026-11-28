@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ActionButton } from "@/components/ActionButton";
 import { Field } from "@/components/Form";
 import { Pill } from "@/components/Badges";
+import { ProductName } from "@/components/ProductName";
 
 interface Sources {
   balance: Money;
@@ -110,7 +111,7 @@ export function ReturnSettle({ creditId, balance, onDone }: { creditId: string; 
                       <li key={l.sale_item_id}>
                         <button type="button" onClick={() => { pick({ kind: "item", sale_id: s.sale_id, sale_item_id: l.sale_item_id, label: l.product_name, receipt: s.receipt_no }); }}
                           className={cn("flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-start hover:bg-muted", item?.sale_item_id === l.sale_item_id && "bg-primary/10")}>
-                          <span className="min-w-0"><span className="block truncate font-medium">{l.product_name}</span>
+                          <span className="min-w-0"><ProductName name={l.product_name} expandable={false} className="block font-medium" />
                             <span className="num block text-[11px] text-muted-foreground">{l.product_code}{l.barcode && ` · ${l.barcode}`}</span></span>
                           <span className="num shrink-0">{money(l.unit_price)}</span>
                         </button>

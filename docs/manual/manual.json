@@ -425,6 +425,7 @@
           "title": "Send or print the receipt",
           "steps": [
             "After Sale complete, choose how to send the receipt: WhatsApp, Email, Print, or copy the secure Link.",
+            "WhatsApp opens a short dialog with the customer's own number and the message with the receipt link — check it (type the number if the sale has no customer), then tap Open WhatsApp on a phone, or WhatsApp Web / Desktop app on a computer, and press Send in WhatsApp.",
             "Tap New sale to start the next customer."
           ]
         },
@@ -440,8 +441,9 @@
           "title": "Record a credit repayment",
           "steps": [
             "Open Credit Sales and the customer's credit sale.",
-            "Tap Record payment, enter the Amount received and the method (M-Pesa needs the confirmation code).",
-            "Tap Save payment. The outstanding balance updates at once."
+            "Tap Record payment, enter the Amount received and the method. For M-Pesa the confirmation code is optional — enter it when you have it (a code already used is refused).",
+            "Tap Save payment. The outstanding balance updates at once; the history shows Verified by M-Pesa or Recorded manually.",
+            "To confirm to the customer, tap Send on WhatsApp (after saving, or the WhatsApp icon beside any payment)."
           ]
         },
         {

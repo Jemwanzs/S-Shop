@@ -8,7 +8,9 @@ import { SwapDialog } from "./SwapDialog";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { date, dateTime, methodLabel, money, phone, titleCase, toNum } from "@/lib/format";
+import { date, dateTime, methodLabel, money, moneyDoc, phone, titleCase, toNum } from "@/lib/format";
+import { WhatsAppShare } from "@/components/WhatsAppShare";
+import { receiptLink } from "@/lib/receipt";
 import type { CreditRow, Money, Outcome } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ActionButton, REASONS } from "@/components/ActionButton";
@@ -24,7 +26,7 @@ import { Pill } from "@/components/Badges";
 
 interface Detail {
   credit: CreditRow;
-  payments: { id: string; method: string; amount: Money; reference: string; created_at: string; user_name: string | null }[];
+  payments: { id: string; method: string; amount: Money; reference: string; created_at: string; user_name: string | null; verified?: boolean }[];
   history: { action: string; created_at: string; user_name: string | null; comments: string }[];
   items: SoldItem[];
   can_recall: boolean;
@@ -46,6 +48,8 @@ export default function CreditDetail() {
   const [amountStr, setAmount] = useState("");
   const [method, setMethod] = useState("cash");
   const [reference, setReference] = useState("");
+  // Roadmap 201: a repayment confirmation sent on WhatsApp (the message, once built).
+  const [waMsg, setWaMsg] = useState<string | null>(null);
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["credit"] });
@@ -55,7 +59,10 @@ export default function CreditDetail() {
   const pay = useMutation({
     mutationFn: () => api<{ balance: number; status: string }>(`/credit/${id}/payments`, { body: { amount: toNum(amountStr), method, reference } }),
     onSuccess: (r) => {
-      toast.success(r.status === "paid" ? "Fully paid 🎉" : `Payment recorded · balance ${money(r.balance)}`);
+      const paid = toNum(amountStr), how = method, code = reference.trim();
+      toast.success(r.status === "paid" ? "Fully paid 🎉" : `Payment recorded · balance ${money(r.balance)}`, {
+        duration: 10_000, action: { label: t("Send on WhatsApp"), onClick: () => void confirmOnWhatsApp(paid, how, code, r.balance) },
+      });
       setPaying(false);
       setAmount("");
       setReference("");
@@ -80,6 +87,24 @@ export default function CreditDetail() {
     } catch (e) {
       toast.error(e);
     }
+  };
+
+  // Roadmap 201: the customer's payment confirmation, with the sale's secure receipt link when the person may share it.
+  const confirmOnWhatsApp = async (paid: number, how: string, code: string, balance: Money) => {
+    const cr = data!.credit;
+    let link = "";
+    try {
+      const rs = await api<{ items: { id: string }[] }>(`/sales/${cr.sale_id}/receipts`);
+      const last = rs.items[rs.items.length - 1];
+      if (last) link = await receiptLink(last.id);
+    } catch {
+      /* no receipt access — the confirmation is sent without the link */
+    }
+    const cur = profile?.tenant.currency === "KES" ? "KSh" : profile?.tenant.currency;
+    const first = cr.customer_name.split(" ")[0];
+    setWaMsg(`Hello ${first}! We have received your payment of ${moneyDoc(paid, cur)} (${methodLabel(how)}${code ? ` ${code}` : ""}) towards ${cr.receipt_no}. `
+      + (toNum(balance) > 0 ? `Balance remaining: ${moneyDoc(balance, cur)}.` : "Your credit is now fully paid.")
+      + (link ? `\nYour receipt: ${link}` : "") + `\nThank you — ${profile?.tenant.name ?? ""}`);
   };
 
   if (error) return <ErrorState error={error} retry={refetch} />;
@@ -139,10 +164,16 @@ export default function CreditDetail() {
                 {data.payments.map((p) => (
                   <li key={p.id} className="flex items-center justify-between gap-3 py-3 text-sm">
                     <div>
-                      <div className="font-medium">{methodLabel(p.method)}{p.reference && <span className="num text-muted-foreground"> · {p.reference}</span>}</div>
+                      <div className="flex flex-wrap items-center gap-1.5 font-medium">{methodLabel(p.method)}{p.reference && <span className="num text-muted-foreground">· {p.reference}</span>}
+                        {/* Roadmap 201: confirmed by M-Pesa itself, or recorded by hand (with or without a code). */}
+                        {p.method === "mpesa" && (p.verified ? <Pill tone="success">{t("Verified by M-Pesa")}</Pill> : <Pill>{t(p.reference ? "Recorded manually" : "Recorded manually · no code")}</Pill>)}
+                      </div>
                       <div className="text-xs text-muted-foreground">{dateTime(p.created_at)} · {p.user_name}</div>
                     </div>
-                    <span className="num font-semibold text-success">{money(p.amount)}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="num font-semibold text-success">{money(p.amount)}</span>
+                      <Button variant="ghost" size="icon" aria-label={t("Send on WhatsApp")} title={t("Send on WhatsApp")} onClick={() => void confirmOnWhatsApp(toNum(p.amount), p.method, p.reference, c.balance)}><MessageCircle /></Button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -208,6 +239,7 @@ export default function CreditDetail() {
         </div>
       </div>
 
+      <WhatsAppShare open={waMsg !== null} onOpenChange={(o) => !o && setWaMsg(null)} mobile={c.customer_mobile} message={waMsg ?? ""} title="Send payment confirmation" />
       <RecallDialog open={recalling} onOpenChange={setRecalling} credit={c} items={data.items} onDone={refresh} />
       {swapping && <SwapDialog open={swapping} onOpenChange={setSwapping} credit={c} items={data.items} onDone={refresh} />}
       <ResponsiveDialog
@@ -216,7 +248,7 @@ export default function CreditDetail() {
         title="Record repayment"
         description={`Outstanding ${money(c.balance)}`}
         footer={method === "return_item" ? undefined : <ActionButton className="w-full md:w-auto" online busy={pay.isPending} busyLabel="Saving…"
-          blockedBy={[toNum(c.balance) <= 0 && REASONS.noBalance, toNum(amountStr) <= 0 && "Enter the amount", method === "mpesa" && reference.length < 8 && "Enter the M-Pesa code"]}
+          blockedBy={[toNum(c.balance) <= 0 && REASONS.noBalance, toNum(amountStr) <= 0 && "Enter the amount", method === "mpesa" && !!reference.trim() && !/^[A-Z0-9]{8,12}$/.test(reference.trim()) && "Check the M-Pesa code (8 to 12 letters and digits) or leave it empty"]}
           onAction={() => pay.mutateAsync()}>{t("Save payment")}</ActionButton>}
       >
         <div className="space-y-4">
@@ -241,7 +273,9 @@ export default function CreditDetail() {
             {can("sales.return") && <Chip active={false} onClick={() => setMethod("return_item")}>{t("Returned item")}</Chip>}
           </div>
           {method === "mpesa" && (
-            <Field label="M-Pesa confirmation code"><Input className="num uppercase" value={reference} onChange={(e) => setReference(e.target.value.toUpperCase())} placeholder="e.g. QFT1ABC2DE" /></Field>
+            <Field label="M-Pesa confirmation code (Optional)" hint="Recorded manually — leave it empty if you don't have the code. A code already used is refused.">
+              <Input className="num uppercase" value={reference} onChange={(e) => setReference(e.target.value.toUpperCase().replace(/\s/g, ""))} placeholder="e.g. QFT1ABC2DE" />
+            </Field>
           )}
           {method !== "mpesa" && method !== "cash" && (
             <Field label="Reference" optional><Input value={reference} onChange={(e) => setReference(e.target.value)} /></Field>

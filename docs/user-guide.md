@@ -438,7 +438,8 @@ Recording sales, payments, receipts, returns, credit and customer orders.
 #### Send or print the receipt
 
 1. After Sale complete, choose how to send the receipt: WhatsApp, Email, Print, or copy the secure Link.
-2. Tap New sale to start the next customer.
+2. WhatsApp opens a short dialog with the customer's own number and the message with the receipt link — check it (type the number if the sale has no customer), then tap Open WhatsApp on a phone, or WhatsApp Web / Desktop app on a computer, and press Send in WhatsApp.
+3. Tap New sale to start the next customer.
 
 #### Sell on credit
 
@@ -449,8 +450,9 @@ Recording sales, payments, receipts, returns, credit and customer orders.
 #### Record a credit repayment
 
 1. Open Credit Sales and the customer's credit sale.
-2. Tap Record payment, enter the Amount received and the method (M-Pesa needs the confirmation code).
-3. Tap Save payment. The outstanding balance updates at once.
+2. Tap Record payment, enter the Amount received and the method. For M-Pesa the confirmation code is optional — enter it when you have it (a code already used is refused).
+3. Tap Save payment. The outstanding balance updates at once; the history shows Verified by M-Pesa or Recorded manually.
+4. To confirm to the customer, tap Send on WhatsApp (after saving, or the WhatsApp icon beside any payment).
 
 #### Settle a credit with a returned item
 

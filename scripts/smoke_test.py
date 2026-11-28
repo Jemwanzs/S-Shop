@@ -6626,6 +6626,38 @@ deactivate200(dead200)
 r = call("POST", "/stock/receive", {"product_id": dead200, "quantity": 1, "barcodes": [code200], "barcode_counts": {code200: 1}, "activate": True})
 check("receiving with *Activate product* (deliberate, permitted) reactivates it", call("GET", f"/products/{dead200}")["product"]["is_active"] is True, r)
 
+step("Roadmap 201: optional M-Pesa code on credit repayments; duplicates refused; manual vs verified")
+_s201 = call("GET", "/settings")["settings"]
+_pm201 = [dict(m_, enabled=True) if m_["key"] in ("cash", "mpesa", "credit") else m_ for m_ in _s201["sales"]["payment_methods"]]
+call("PUT", "/settings", {**_s201, "sales": {**_s201["sales"], "payment_methods": _pm201, "credit_enabled": True, "mpesa_manual_confirmation": True}})
+c201 = call("POST", "/customers", {"mobile": "07" + str(int(time.time() * 1000) + 21)[-8:], "first_name": "Fally"})["id"]
+p201 = call("POST", "/products", {"name": f"Outlands201 {suffix}", "marked_price": 60000})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": p201, "quantity": 3})
+def credit201():
+    s_ = call("POST", "/sales", {"customer_id": c201, "items": [{"product_id": p201, "quantity": 1, "unit_price": 60000}], "payment": {"method": "credit"}, "client_ref": str(uuid.uuid4())})
+    d_ = call("GET", f"/sales/{s_['sale']['id']}")
+    return (d_.get("credits") or [d_["credit"]])[0]["id"], s_["sale"]["receipt_no"]
+cr201, rcp201 = credit201()
+r = call("POST", f"/credit/{cr201}/payments", {"amount": 10000, "method": "mpesa", "reference": ""})
+check("an M-Pesa repayment without a confirmation code is recorded (partial)", r["balance"] in (50000, "50000", "50000.00") or float(r["balance"]) == 50000, r)
+r = call("POST", f"/credit/{cr201}/payments", {"amount": 1000, "method": "mpesa", "reference": "ABC"}, expect=422)
+check("a code that does not look like one is refused", r["error"]["title"] == "Check the M-Pesa code", r)
+code201 = f"QR{suffix}201X"[:10].upper()
+call("POST", f"/credit/{cr201}/payments", {"amount": 5000, "method": "mpesa", "reference": code201.lower()})
+r = call("POST", f"/credit/{cr201}/payments", {"amount": 5000, "method": "mpesa", "reference": code201}, expect=422)
+check("the same code cannot be posted twice", r["error"]["title"] == "M-Pesa code already used" and rcp201 in r["error"]["message"], r)
+r = call("POST", "/sales", {"items": [{"product_id": p201, "quantity": 1, "unit_price": 60000}], "payment": {"method": "mpesa", "reference": code201}, "client_ref": str(uuid.uuid4())}, expect=422)
+check("…nor on a sale (a code used on a repayment counts)", r["error"]["title"] == "M-Pesa code already used", r)
+pays201 = call("GET", f"/credit/{cr201}")["payments"]
+check("payment history keeps the code and marks both as recorded manually (not verified by M-Pesa)",
+      [(p_["reference"], p_["verified"]) for p_ in pays201] == [("", False), (code201, False)], pays201)
+au201 = [a_ for a_ in call("GET", "/audit?period=today&module=credit&limit=50")["items"] if a_["entity_id"] == cr201]
+check("the audit records the repayment as manual", any((a_.get("after") or {}).get("verification") == "manual" for a_ in au201), [a_.get("after") for a_ in au201][:2])
+r = call("POST", f"/credit/{cr201}/payments", {"amount": 45000, "method": "mpesa"})
+check("…and the full balance settles without a code", r["status"] == "paid", r)
+rcpts201 = call("GET", f"/sales/{call('GET', f'/credit/{cr201}')['credit']['sale_id']}/receipts")
+check("the receipt's WhatsApp number is the sale customer's own", rcpts201["customer"]["mobile"].startswith("254"), rcpts201["customer"])
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

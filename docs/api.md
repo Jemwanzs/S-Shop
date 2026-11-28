@@ -263,7 +263,7 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | POST | `/api/return-credits/{id}/refund` `{method, reference?}` — pays out what is left of a return credit (`sales.return`) |
 | POST | `/api/credit/{id}/swap` `{return_items, items, payment, due_date?, reason, client_ref}` → the replacement sale (or pending approval under *Credit sale recall*) |
 | GET | `/api/credit/{id}` — `items[]` (roadmap 178): `product_name`/`product_code` as sold, `product_id`, `quantity`, `marked_price`, `unit_price`, `discount`, `line_total`, `barcode`, `photo_id`, `product_active`, `current_name` (when renamed), `can_open_product` |
-| POST | `/api/credit/{id}/payments` |
+| POST | `/api/credit/{id}/payments` — roadmap 201: `{amount, method, reference?, mpesa_request_id?}`; a manual M-Pesa `reference` is optional (when given: 8–12 letters/digits, 422 *Check the M-Pesa code*; already used on a sale or repayment → 422 *M-Pesa code already used*). `GET /api/credit/{id}` payments carry `verified` (confirmed by an STK request) |
 | POST | `/api/credit/{id}/write-off` |
 | POST | `/api/credit/{id}/recall` — `{items: [{sale_item_id, quantity, barcodes}], reason, settle: refund\|credit, refund_method}` |
 | POST | `/api/credit/{id}/remind` |

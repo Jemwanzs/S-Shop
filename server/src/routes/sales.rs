@@ -524,7 +524,10 @@ async fn confirm_mpesa(
             return Err(refused("Check the M-Pesa code", "An M-Pesa confirmation code has 8 to 12 letters and digits (e.g. QFT1ABC2DE). Leave it empty if you don't have it."));
         }
         let used: Option<String> = sqlx::query_scalar(
-            "SELECT s.receipt_no FROM payments p JOIN sales s ON s.id = p.sale_id
+            // Roadmap 201: a code recorded on a credit repayment counts too (its sale's receipt is named).
+            "SELECT COALESCE(s.receipt_no, cs_s.receipt_no, '') FROM payments p
+               LEFT JOIN sales s ON s.id = p.sale_id
+               LEFT JOIN credit_sales cs ON cs.id = p.credit_sale_id LEFT JOIN sales cs_s ON cs_s.id = cs.sale_id
              WHERE p.tenant_id = $1 AND p.method = 'mpesa' AND upper(p.reference) = $2 AND p.amount > 0 LIMIT 1",
         )
         .bind(ctx.tenant_id)

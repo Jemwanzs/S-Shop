@@ -7,7 +7,8 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
-import { download, fileName, printReceipt, receiptLink, receiptPdf, receiptPng, shareMessage, toBase64, waNumber, type ReceiptRecord } from "@/lib/receipt";
+import { download, fileName, printReceipt, receiptLink, receiptPdf, receiptPng, shareMessage, toBase64, type ReceiptRecord } from "@/lib/receipt";
+import { WhatsAppShare } from "@/components/WhatsAppShare";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ActionButton } from "@/components/ActionButton";
@@ -31,6 +32,7 @@ export function ReceiptPanel({ saleId, zoom = 1.6, compact }: { saleId: string; 
   const [busy, setBusy] = useState<string | null>(null);
   const [emailOpen, setEmailOpen] = useState(false);
   const [to, setTo] = useState("");
+  const [wa, setWa] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const items = data?.items ?? [];
   // The newest receipt is shown first after a return / exchange (the original stays one tap away).
@@ -64,27 +66,16 @@ export function ReceiptPanel({ saleId, zoom = 1.6, compact }: { saleId: string; 
   if (!current || !snap) return null;
   const mobile = data?.customer?.mobile;
 
-  const whatsapp = () => run("wa", async () => {
-    const link = await receiptLink(current.id);
-    const msg = shareMessage(snap, link);
-    // A configured WhatsApp Business number sends it directly (confirmed by WhatsApp).
-    if (profile?.integrations.whatsapp && mobile) {
-      const r = await api<{ sent: boolean }>(`/sales/${saleId}/share`, { method: "POST" });
-      if (r.sent) {
-        toast.success("Receipt link sent on WhatsApp");
-        return;
-      }
-    }
+  // Roadmap 201: straight into the customer's WhatsApp chat with the secure receipt link, reviewed first. The device
+  // share sheet (the PDF itself) and the WhatsApp Business API stay available in the dialog.
+  const whatsapp = () => run("wa", async () => setWa(shareMessage(snap, await receiptLink(current.id))));
+  const sharePdf = typeof navigator.canShare === "function" ? async () => {
     const pdf = await receiptPdf(snap);
     const file = new File([pdf], fileName(snap, "pdf"), { type: "application/pdf" });
-    // Phones: share the actual PDF (choose WhatsApp in the share sheet). Otherwise WhatsApp opens with the message.
-    if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], text: msg, title: `${snap.business.name} ${snap.number}` });
-      return;
-    }
-    window.open(`https://wa.me/${waNumber(mobile)}?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
-    toast.info("WhatsApp is open with the message — attach the downloaded PDF if you want to send the file too.");
-  });
+    if (!navigator.canShare({ files: [file] })) throw new Error("This device cannot share files — use PDF to download it");
+    await navigator.share({ files: [file], text: wa ?? "", title: `${snap.business.name} ${snap.number}` });
+  } : undefined;
+  const autoSend = profile?.integrations.whatsapp ? async () => (await api<{ sent: boolean }>(`/sales/${saleId}/share`, { method: "POST" })).sent : undefined;
 
   return (
     <div className="space-y-3">
@@ -117,6 +108,7 @@ export function ReceiptPanel({ saleId, zoom = 1.6, compact }: { saleId: string; 
           </Button>
         </div>
       )}
+      <WhatsAppShare open={wa !== null} onOpenChange={(o) => !o && setWa(null)} mobile={mobile} message={wa ?? ""} title={`${t("Send receipt")} ${snap.number}`} sharePdf={sharePdf} autoSend={autoSend} />
       <ResponsiveDialog open={emailOpen} onOpenChange={setEmailOpen} title="Email receipt" description={`${snap.number} — ${t("the PDF is attached")}`}
         footer={<ActionButton online busy={email.isPending} busyLabel="Sending…" blockedBy={[!/^\S+@\S+\.\S+$/.test(to.trim()) && "Enter an email address"]} onAction={() => email.mutateAsync()}>Send receipt</ActionButton>}>
         <Field label="Customer email"><Input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="customer@email.com" autoFocus /></Field>

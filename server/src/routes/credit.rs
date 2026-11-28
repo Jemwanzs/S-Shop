@@ -13,7 +13,7 @@ use uuid::Uuid;
 use super::{like, Counted, Outcome, Page, Paged};
 use crate::audit::{self, Entry};
 use crate::auth::Ctx;
-use crate::error::{bad, rule, AppError, AppResult};
+use crate::error::{bad, refused, rule, AppError, AppResult};
 use crate::routes::approvals::ApprovalRow;
 use crate::state::AppState;
 use crate::util::{money_str, normalize_mobile, round2};
@@ -169,8 +169,8 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
         return Err(AppError::Forbidden("This credit sale is outside the records you can see".into()));
     }
     let row = load(&mut conn, &ctx, id).await?;
-    let payments: Vec<(Uuid, String, Decimal, String, DateTime<Utc>, Option<String>)> = sqlx::query_as(
-        "SELECT p.id, p.method, p.amount, p.reference, p.created_at, u.name FROM payments p LEFT JOIN users u ON u.id = p.user_id
+    let payments: Vec<(Uuid, String, Decimal, String, DateTime<Utc>, Option<String>, bool)> = sqlx::query_as(
+        "SELECT p.id, p.method, p.amount, p.reference, p.created_at, u.name, p.mpesa_request_id IS NOT NULL FROM payments p LEFT JOIN users u ON u.id = p.user_id
          WHERE p.credit_sale_id = $1 ORDER BY p.created_at",
     )
     .bind(id)
@@ -226,8 +226,10 @@ async fn detail(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>) -
             "customer_credit": credit, "refund_method": method, "created_at": at, "user_name": user, "items": items,
         })).collect::<Vec<_>>(),
         "credit": row,
-        "payments": payments.into_iter().map(|(id, method, amount, reference, at, user)| json!({
+        "payments": payments.into_iter().map(|(id, method, amount, reference, at, user, verified)| json!({
             "id": id, "method": method, "amount": amount, "reference": reference, "created_at": at, "user_name": user,
+            // Roadmap 201: an M-Pesa repayment confirmed by M-Pesa itself, or recorded by hand.
+            "verified": verified,
         })).collect::<Vec<_>>(),
         "history": history.into_iter().map(|(action, at, user, comments)| json!({
             "action": action, "created_at": at, "user_name": user, "comments": comments,
@@ -283,10 +285,33 @@ async fn repay(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Js
             }
             sqlx::query("UPDATE mpesa_requests SET consumed_by = $2 WHERE id = $1").bind(req).bind(id).execute(&mut *tx).await?;
             reference = receipt.unwrap_or_default();
-        } else if reference.len() < 8 {
-            return Err(rule("Enter the M-Pesa confirmation code"));
+        } else if !reference.is_empty() {
+            // Roadmap 201: a manual M-Pesa repayment's confirmation code is optional; when given it must look like one
+            // and must not have been recorded before (a sale or another repayment).
+            if !(8..=12).contains(&reference.len()) || !reference.chars().all(|c| c.is_ascii_alphanumeric()) {
+                return Err(refused("Check the M-Pesa code", "An M-Pesa confirmation code has 8 to 12 letters and digits (e.g. QFT1ABC2DE). Leave it empty if you don't have it."));
+            }
+            let used: Option<String> = sqlx::query_scalar(
+                "SELECT COALESCE(s.receipt_no, cs_s.receipt_no, '') FROM payments p
+                   LEFT JOIN sales s ON s.id = p.sale_id
+                   LEFT JOIN credit_sales cs ON cs.id = p.credit_sale_id LEFT JOIN sales cs_s ON cs_s.id = cs.sale_id
+                 WHERE p.tenant_id = $1 AND p.method = 'mpesa' AND upper(p.reference) = $2 AND p.amount > 0 LIMIT 1",
+            )
+            .bind(ctx.tenant_id)
+            .bind(&reference)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(receipt) = used {
+                return Err(refused("M-Pesa code already used", format!("{reference} was already recorded{}.", if receipt.is_empty() { String::new() } else { format!(" on sale {receipt}") })));
+            }
         }
     }
+    // Roadmap 201: how an M-Pesa repayment was confirmed — by the M-Pesa callback (STK) or recorded by hand.
+    let verification = match (b.method.as_str(), b.mpesa_request_id.is_some()) {
+        ("mpesa", true) => Some("stk_verified"),
+        ("mpesa", false) => Some("manual"),
+        _ => None,
+    };
     sqlx::query(
         "INSERT INTO payments (tenant_id, branch_id, credit_sale_id, method, amount, reference, mpesa_request_id, user_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -323,7 +348,7 @@ async fn repay(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid>, Js
         Entry::new("credit", "repayment", "credit_sale", id)
             .branch(branch)
             .before(json!({ "balance": balance }))
-            .after(json!({ "paid": b.amount, "method": b.method, "reference": reference, "balance": balance - b.amount, "status": new_status })),
+            .after(json!({ "paid": b.amount, "method": b.method, "reference": reference, "verification": verification, "balance": balance - b.amount, "status": new_status })),
     )
     .await?;
     tx.commit().await?;

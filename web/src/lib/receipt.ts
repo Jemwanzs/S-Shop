@@ -364,13 +364,31 @@ export const toBase64 = (blob: Blob) =>
 
 export const receiptLink = (id: string) => api<{ url: string }>(`/receipts/${id}/link`, { method: "POST" }).then((r) => r.url);
 
-/** Kenyan numbers → 2547…; others kept as digits. */
-export function waNumber(mobile: string | null | undefined) {
-  const d = (mobile ?? "").replace(/\D/g, "");
-  if (d.length === 10 && d.startsWith("0")) return `254${d.slice(1)}`;
-  if (d.length === 9 && /^[71]/.test(d)) return `254${d}`;
-  return d;
+/** Roadmap 201: the business's country calling code, from its time zone (S'Shop keeps no separate country). */
+const CALLING: Record<string, string> = {
+  "Africa/Nairobi": "254", "Africa/Kampala": "256", "Africa/Dar_es_Salaam": "255", "Africa/Kigali": "250", "Africa/Bujumbura": "257",
+  "Africa/Addis_Ababa": "251", "Africa/Mogadishu": "252", "Africa/Juba": "211", "Africa/Lagos": "234", "Africa/Accra": "233",
+  "Africa/Johannesburg": "27", "Africa/Lusaka": "260", "Africa/Harare": "263", "Africa/Maputo": "258", "Africa/Blantyre": "265",
+  "Africa/Cairo": "20", "Africa/Casablanca": "212", "Africa/Kinshasa": "243", "Africa/Lubumbashi": "243", "Africa/Douala": "237",
+  "Africa/Abidjan": "225", "Africa/Dakar": "221", "Europe/London": "44", "Asia/Dubai": "971", "Asia/Kolkata": "91",
+};
+export const callingCode = (tz: string | null | undefined) => CALLING[tz ?? ""] ?? "254";
+
+/** A mobile number in WhatsApp's international form (digits, no +). Numbers already international (+…, 00…, or
+ * starting with a country code — how S'Shop stores customers' numbers) keep their own code; a local number (0…) gets
+ * the business's. */
+export function waNumber(mobile: string | null | undefined, cc = "254") {
+  const raw = (mobile ?? "").trim();
+  const d = raw.replace(/\D/g, "");
+  if (!d) return "";
+  if (raw.startsWith("+")) return d;
+  if (d.startsWith("00")) return d.slice(2);
+  if (d.startsWith("0")) return `${cc}${d.replace(/^0+/, "")}`;
+  if (d.startsWith(cc) && d.length > cc.length + 6) return d;
+  if (cc === "254" && d.length === 9 && /^[71]/.test(d)) return `254${d}`;
+  return d.length <= 10 ? `${cc}${d}` : d;
 }
+export const validWaNumber = (n: string) => /^[1-9]\d{8,14}$/.test(n);
 
 /** The sale's date as a receipt shows it: its (corrected) date and time, else when it was recorded. */
 export function saleDate(s: ReceiptSnapshot) {

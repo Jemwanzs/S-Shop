@@ -24,7 +24,14 @@ Columns: customer, receipt, branch, salesperson, amount, paid, **balance**, due 
 
 Balance with progress bar, payment history (method, reference, user, time), audit trail, links to the sale and
 customer. Actions:
-- **Record payment** — partial or full; Cash, M-Pesa (code required, or a confirmed STK request), other methods.
+- **Record payment** — partial or full; Cash, M-Pesa, other methods. Roadmap 201: the **M-Pesa confirmation code is
+  optional** (*M-Pesa confirmation code (Optional)*) for a payment recorded by hand; when given it must look like a code
+  (8–12 letters and digits) and is refused if already recorded on any sale or repayment (also enforced by the database).
+  A confirmed STK request is still checked as before (status, amount, not used twice). The payment history marks each
+  M-Pesa payment *Verified by M-Pesa* (STK) or *Recorded manually* (with or without a code); the audit records
+  `verification` `stk_verified` / `manual`. After saving — or from any payment in the history — *Send on WhatsApp* sends
+  the customer a payment confirmation (amount, method and code, balance remaining, the sale's secure receipt link) through
+  the same WhatsApp dialog as receipts.
   Over-payment is refused. Status becomes *Partially paid* → *Paid*.
 - **Remind** — WhatsApp reminder (API or `wa.me`).
 - **Write off** — reason required; optionally approval-gated (*Credit write-off* workflow, threshold by amount).

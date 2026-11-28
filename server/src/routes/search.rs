@@ -35,7 +35,7 @@ async fn search(State(state): State<AppState>, ctx: Ctx, Query(q): Query<SearchQ
         let rows: Vec<(Uuid, String, String, Option<Decimal>, i32)> = sqlx::query_as(
             "SELECT p.id, p.name, p.code, effective_price(p.id, $3, p.marked_price), COALESCE(sl.on_hand - sl.reserved, 0)
              FROM products p LEFT JOIN stock_levels sl ON sl.product_id = p.id AND sl.branch_id = $3
-             WHERE p.tenant_id = $1 AND (p.name ILIKE $2 OR p.nickname ILIKE $2 OR p.code ILIKE $2 OR p.barcode = $4
+             WHERE p.tenant_id = $1 AND p.is_active AND (p.name ILIKE $2 OR p.nickname ILIKE $2 OR p.code ILIKE $2 OR p.barcode = $4
                    OR EXISTS (SELECT 1 FROM stock_items si WHERE si.product_id = p.id AND si.barcode = $4))
                AND ($5 OR COALESCE(sl.on_hand - sl.reserved, 0) > 0)
              ORDER BY (sl.on_hand - sl.reserved > 0) DESC NULLS LAST, p.is_active DESC, p.name LIMIT 8",

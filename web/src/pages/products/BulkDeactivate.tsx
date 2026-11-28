@@ -51,7 +51,7 @@ export function BulkDeactivate({ ids, onClose, onDone }: { ids: string[]; onClos
     mutationFn: () => api<Result>("/products/bulk-deactivate", { body: { ids: eligible.map((i) => i.id), reason: reason.trim() } }),
     onSuccess: (r) => {
       setResult(r);
-      qc.invalidateQueries({ queryKey: ["products"] });
+      ["products", "pos-products", "stock", "search"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
       qc.invalidateQueries({ queryKey: ["approvals"] });
     },
     onError: (e) => toast.error(e),

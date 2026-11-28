@@ -445,6 +445,9 @@ export const DICT: Record<string, [string, string, string]> = {
   "Every receipt is recorded in the inventory ledger.": ["Kila upokeaji unarekodiwa kwenye leja ya hifadhi.", "Chaque réception est inscrite au registre d'inventaire.", "يُسجّل كل استلام في دفتر المخزون."],
   "First stock load when starting with S'Shop": ["Stoki ya kwanza unapoanza na S'Shop", "Premier chargement de stock dans S'Shop", "أول تحميل للمخزون عند البدء بـ S'Shop"],
   "Make it sellable with this stock": ["Iwezeshe kuuzwa na stoki hii", "La rendre vendable avec ce stock", "اجعله قابلًا للبيع بهذا المخزون"],
+  // Roadmap 200: inactive products.
+  "This product is inactive and must be reactivated before use.": ["Bidhaa hii haitumiki na lazima iwezeshwe tena kabla ya kutumika.", "Ce produit est inactif et doit être réactivé avant utilisation.", "هذا المنتج غير نشط ويجب إعادة تفعيله قبل الاستخدام."],
+  "Required: an inactive product must be reactivated before stock is received": ["Lazima: bidhaa isiyotumika iwezeshwe tena kabla ya kupokea stoki", "Obligatoire : un produit inactif doit être réactivé avant de recevoir du stock", "مطلوب: يجب إعادة تفعيل المنتج غير النشط قبل استلام المخزون"],
   "Quantity & barcodes": ["Idadi na misimbo pau", "Quantité et codes-barres", "الكمية والباركود"],
   "Count what is physically on the shelf. Individually tracked items are adjusted by scanning from the Stock page.": ["Hesabu kilichopo rafuni. Vipande vinavyofuatiliwa kimoja kimoja hurekebishwa kwa kuchanganua kwenye ukurasa wa Stoki.", "Comptez ce qui est réellement en rayon. Les articles suivis individuellement s'ajustent en scannant depuis la page Stock.", "عُدّ ما هو موجود فعليًا على الرف. تُسوّى الأصناف المتتبعة فرديًا بالمسح من صفحة المخزون."],
   "Sensitive adjustments may need approval.": ["Marekebisho nyeti yanaweza kuhitaji idhini.", "Les ajustements sensibles peuvent nécessiter une approbation.", "قد تحتاج التسويات الحساسة إلى موافقة."],

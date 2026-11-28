@@ -41,6 +41,9 @@ interface ProductDetail {
 interface DeliveryLine { product_id: string; name: string; barcode: string; quantity: number; source?: ScanSource }
 const noDelivery: DeliveryLine[] = [];
 
+/** Roadmap 200. */
+const INACTIVE = "This product is inactive and must be reactivated before use.";
+
 export default function ReceiveStock() {
   const { profile, branch, can } = useSession();
   const [addingPhotos, setAddingPhotos] = useState(false);
@@ -92,7 +95,7 @@ export default function ReceiveStock() {
   const mustVerify = s.stock.require_label_verification;
   const [gallery, setGallery] = useState(false);
 
-  const results = useQuery({ queryKey: ["products", "receive", term], queryFn: () => api<Paged<Product>>("/products", { query: { q: term, status: "all", limit: 10 } }), enabled: !!term && !productId });
+  const results = useQuery({ queryKey: ["products", "receive", term], queryFn: () => api<Paged<Product>>("/products", { query: { q: term, limit: 10 } }), enabled: !!term && !productId });
   const detail = useQuery({ queryKey: ["product", productId], queryFn: () => api<ProductDetail>(`/products/${productId}`), enabled: !!productId });
   const suppliers = useQuery({ queryKey: ["suppliers"], queryFn: () => api<Supplier[]>("/suppliers") });
   const p = detail.data?.product;
@@ -178,7 +181,9 @@ export default function ReceiveStock() {
       setLastScanned(code);
       return { tone: "warning", title: UNIQUE_AGAIN, detail: UNIQUE_HINT };
     }
-    const known = await api<{ product: Product; stock_item: { status: string; branch_name: string } | null }>("/products/lookup", { query: { code } }).catch(() => null);
+    const known = await api<{ product: Product; stock_item: { status: string; branch_name: string } | null }>("/products/lookup", { query: { code, include_inactive: true } }).catch(() => null);
+    // Roadmap 200: a code of an inactive product is taken — never a new unit or a new barcode.
+    if (known && !known.product.is_active && known.product.id !== p?.id) return { tone: "error", title: INACTIVE, detail: `${code} — ${known.product.name}` };
     if (known?.stock_item && ["in_stock", "reserved", "in_transit"].includes(known.stock_item.status)) {
       return { tone: "error", title: "This barcode is already in stock", detail: `${known.product.name} at ${known.stock_item.branch_name}` };
     }
@@ -209,7 +214,8 @@ export default function ReceiveStock() {
     if (!p) return { tone: "error", title: "Choose the product first" };
     const own = [p.barcode, ...(detail.data?.barcodes ?? [])].filter(Boolean) as string[];
     if (own.includes(code) || code in countsRef.current || newCodes.includes(code)) return countUnder(code, source);
-    const found = await api<{ product: Product; stock_item: unknown; barcode_match?: boolean }>("/products/lookup", { query: { code } }).catch(() => null);
+    const found = await api<{ product: Product; stock_item: unknown; barcode_match?: boolean }>("/products/lookup", { query: { code, include_inactive: true } }).catch(() => null);
+    if (found && !found.product.is_active && found.product.id !== p.id) return { tone: "error", title: INACTIVE, detail: `${code} — ${found.product.name}` };
     // One of this product's barcodes the screen did not know yet (an old unit label, or one just added elsewhere).
     if (found && found.product.id === p.id && found.barcode_match) return countUnder(code, source);
     if (found && found.product.id !== p.id) return { tone: "error", title: "That barcode belongs to another product", detail: `${code} — ${found.product.name}` };
@@ -518,13 +524,13 @@ export default function ReceiveStock() {
                 <Field label="Reference / notes" optional><Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Delivery note, invoice no." /></Field>
                 <Field label="Date received"><Input type="date" value={received} max={todayIso()} onChange={(e) => setReceived(e.target.value)} /></Field>
                 <div className="divide-y">
-                  {!p.is_active && can("products.deactivate") && <ToggleRow label="Activate product" hint="Make it sellable with this stock" checked={activate} onChange={setActivate} />}
+                  {!p.is_active && can("products.deactivate") && <ToggleRow label="Activate product" hint="Required: an inactive product must be reactivated before stock is received" checked={activate} onChange={setActivate} />}
                   <ToggleRow label="Opening stock" hint="First stock load when starting with S'Shop" checked={opening} onChange={setOpening} />
                 </div>
               </div>
             </Section>
             <ActionButton size="lg" className="h-14 w-full text-base" online busy={save.isPending} busyLabel="Receiving…"
-              blockedBy={[quantity <= 0 && (tracked && mode === "generate" && canGenerate ? "Generate the barcodes first" : "Enter the quantity"), !valid && REASONS.completeFields, labelsPending]} onAction={() => save.mutateAsync()}>
+              blockedBy={[!p.is_active && !(activate && can("products.deactivate")) && INACTIVE, quantity <= 0 && (tracked && mode === "generate" && canGenerate ? "Generate the barcodes first" : "Enter the quantity"), !valid && REASONS.completeFields, labelsPending]} onAction={() => save.mutateAsync()}>
               <PackagePlus /> {t("Receive")} {count(quantity)} item{quantity === 1 ? "" : "s"}
             </ActionButton>
             {save.isSuccess && !save.isPending && <p className="flex items-center justify-center gap-1.5 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> {t("Saved — ready for the next delivery")}</p>}

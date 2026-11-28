@@ -146,8 +146,23 @@ fn availability(ctx: &Ctx, mode: &Option<String>, branch: Uuid) -> AppResult<(Op
     }
 }
 
+/// Roadmap 200: operational searches see active products only; inactive ones are reached deliberately through
+/// Products → Inactive / All (people who may view products).
+fn product_status(ctx: &Ctx, status: &Option<String>) -> AppResult<String> {
+    match status.as_deref() {
+        None | Some("") | Some("active") => Ok("active".into()),
+        Some(s @ ("inactive" | "all")) if ctx.can("products.view") => Ok(s.into()),
+        Some("inactive" | "all") => Ok("active".into()),
+        Some(_) => Err(bad("Status: active, inactive or all")),
+    }
+}
+
+/// Roadmap 200: the message shown wherever an inactive product is scanned or chosen for a new transaction.
+pub const INACTIVE: &str = "This product is inactive and must be reactivated before use.";
+
 async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Paged<ProductRow>>> {
     ctx.require_any(&["products.view", "stock.view", "sales.create"])?;
+    let status = product_status(&ctx, &q.status)?;
     let branch = ctx.branch_or_current(q.branch_id)?;
     check_price_filter(&q.price)?;
     check_tracking_filter(&q.tracking)?;
@@ -167,7 +182,7 @@ async fn list(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery
     .bind(branch)
     .bind(like(&q.q))
     .bind(q.category_id)
-    .bind(&q.status)
+    .bind(&status)
     .bind(q.page.limit())
     .bind(q.page.offset())
     .bind(&q.price)
@@ -257,6 +272,7 @@ const BULK_PRODUCTS_MAX: usize = 500;
 /// the page shown), up to the bulk limit; `total` says how many match.
 async fn matching_ids(State(state): State<AppState>, ctx: Ctx, Query(q): Query<ListQuery>) -> AppResult<Json<Value>> {
     ctx.require("products.view")?;
+    let status = product_status(&ctx, &q.status)?;
     check_price_filter(&q.price)?;
     check_tracking_filter(&q.tracking)?;
     // Roadmap 176: the same branch filter as the list (and the price filter at that branch).
@@ -276,7 +292,7 @@ async fn matching_ids(State(state): State<AppState>, ctx: Ctx, Query(q): Query<L
     .bind(if mode == Some("all") { None } else { Some(branch) })
     .bind(like(&q.q))
     .bind(q.category_id)
-    .bind(&q.status)
+    .bind(&status)
     .bind(BULK_PRODUCTS_MAX as i64)
     .bind(0i64)
     .bind(&q.price)
@@ -408,6 +424,7 @@ async fn bulk_deactivate(State(state): State<AppState>, ctx: Ctx, Json(b): Json<
         super::approvals::notify_approvers_bulk(&state, &ctx, &approvals, "Bulk product deactivation").await;
     }
     if done > 0 {
+        state.emit(ctx.tenant_id, None, "stock", json!({}));
         crate::notify::to_permission(
             &state,
             ctx.tenant_id,
@@ -1275,6 +1292,7 @@ async fn set_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
                     crate::notify::Note::new("product_deactivated", "Product deactivated", format!("{name} is no longer available for sale"), format!("/products/{id}")),
                 )
                 .await;
+                state.emit(ctx.tenant_id, None, "stock", json!({ "product_id": id }));
                 Ok(Json(Outcome::done(json!({ "id": id, "is_active": false }))))
             }
         };
@@ -1283,6 +1301,8 @@ async fn set_status(State(state): State<AppState>, ctx: Ctx, Path(id): Path<Uuid
     sqlx::query_scalar::<_, String>("SELECT name FROM products WHERE id=$1 AND tenant_id=$2").bind(id).bind(ctx.tenant_id).fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound("Product"))?;
     apply_status(&mut tx, &ctx, id, true, None).await?;
     tx.commit().await?;
+    // Roadmap 200: every open search, till and stock screen refreshes at once.
+    state.emit(ctx.tenant_id, None, "stock", json!({ "product_id": id }));
     Ok(Json(Outcome::done(json!({ "id": id, "is_active": true }))))
 }
 
@@ -1491,6 +1511,10 @@ struct LookupQuery {
     /// Roadmap 186: asked by the till (out-of-stock products follow *View out-of-stock products when recording sales*).
     #[serde(default, deserialize_with = "super::de::opt_bool")]
     for_sale: Option<bool>,
+    /// Roadmap 200: identify the product even when it is inactive (returns, and checks that a code is already taken) —
+    /// never for a new transaction.
+    #[serde(default, deserialize_with = "super::de::opt_bool")]
+    include_inactive: Option<bool>,
 }
 
 /// Database uniqueness of product barcodes (roadmap 98), created as soon as no business has duplicates left.
@@ -1606,6 +1630,10 @@ async fn lookup(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LookupQ
         .bind(product_id)
         .fetch_one(&state.db)
         .await?;
+    // Roadmap 200: a code of an inactive product is known (never "not found", never a new product) but not usable.
+    if !product.is_active && !q.include_inactive.unwrap_or(false) {
+        return Err(refused("Product inactive", format!("{} — {INACTIVE}", product.name)));
+    }
     if costs_hidden(&mut *state.db.acquire().await?, &ctx).await? {
         product.cost_price = None;
     }

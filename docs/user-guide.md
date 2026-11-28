@@ -104,6 +104,7 @@ One master catalogue shared by all branches, with photos, pricing rules and your
 - Low-stock alert levels and loyalty rules per product
 - Item barcodes stay concealed (****047) on screens, reports and exports; printing, reprinting, replacing and revealing them are permission-controlled and recorded
 - Filters — set, missing, zero, zero-or-missing and above zero prices (a price of 0 and no price stay different), and Missing product image; select products and deactivate them together, with approval when required
+- Inactive products stay out of the way: they never appear when receiving stock, counting, transferring, selling, ordering or searching — only under Products → Inactive or All; scanning one says it must be reactivated first, and its history stays
 - Your filters, search, page and scroll position are kept while you open and edit products — fix missing prices one after another without choosing the filters again
 - One product in every branch with its own price per branch where needed: a default price, a branch's own price, and a branch filter to see the catalogue of one branch or of all your branches
 - Manage branch prices: each branch's prices in one table — set, reset to 0 or restore the default for one product, a category or the whole branch
@@ -654,6 +655,13 @@ Setting up the business, people, rules, payments and the website.
 2. Tick the products (or the box for the whole page, then Select all N matching), and tap Deactivate.
 3. Check the list (already inactive or already waiting products are skipped and shown), add a reason and confirm.
 4. If deactivation needs approval, the products stay active until approved; the result shows each product's outcome.
+
+#### Find or reactivate an inactive product
+
+1. Inactive products are hidden from Receive stock, stock lists, stock taking, transfers, the till, orders, the search and the website, so similar names no longer get mixed up. Active products with no stock still appear when receiving.
+2. To see them: Products → Inactive (or All).
+3. Scanning an inactive product's barcode shows: This product is inactive and must be reactivated before use. Nothing is recorded and no new product is created.
+4. To use it again, open it and tap Activate (or open it → Receive stock → Activate product). Earlier sales of it can still be returned while it is inactive.
 
 #### Give a branch its own selling price
 

@@ -67,6 +67,13 @@ Price, stock here, stock across branches, photo manager, recent stock movements,
 ## Rules
 - Codes are unique per business; a barcode can belong to only one product or one active item.
 - Products are never deleted — deactivate them (history stays intact). Inactive products cannot be sold or ordered.
+- **Inactive products stay out of the way** (roadmap 200): they are left out of every operational search and list —
+  Stock Receiving, stock searches and listings, stock taking, transfers, the till, Edit Sale, orders, the global search,
+  the website and the ordering link. Only *Products → Inactive / All* (people with `products.view`) shows them. Active
+  products with zero stock stay searchable for replenishment. Scanning an inactive product's barcode never reads as
+  unknown and never offers *New product*: it shows *This product is inactive and must be reactivated before use.* and nothing is recorded. Its barcode still cannot be given to
+  another product. Past sales, returns, receipts, credit sales, stock movements and audit records are kept, and earlier
+  sales of it can still be returned. Activation and deactivation reach every open screen at once (live refresh).
 - Approval workflows can gate *creation* (product stays inactive until approved, photos can still be added),
   *edits* (applied on approval) and *deactivation*.
 

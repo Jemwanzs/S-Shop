@@ -106,6 +106,8 @@ export default function ProductDetail() {
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["product", id] });
     qc.invalidateQueries({ queryKey: ["products"] });
+    // Roadmap 200: activation and deactivation show at once in every search, the till and stock.
+    ["pos-products", "stock", "search"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
   };
 
   const status = useMutation({
@@ -145,7 +147,7 @@ export default function ProductDetail() {
         actions={
           <>
             {can("dashboard.view") && <Button variant="outline" asChild><Link to={`/?product=${p.id}`}><BarChart3 /> {t("Performance")}</Link></Button>}
-            {can("stock.add") && <Button variant="outline" asChild><Link to={`/stock/receive?product=${p.id}`}><PackagePlus /> {t("Receive stock")}</Link></Button>}
+            {can("stock.add") && (p.is_active || can("products.deactivate")) && <Button variant="outline" asChild><Link to={`/stock/receive?product=${p.id}`}><PackagePlus /> {t("Receive stock")}</Link></Button>}
             {can("products.edit") && <Button asChild><Link to={`/products/${p.id}/edit`} state={{ fromDetail: true }}><Pencil /> {t("Edit")}</Link></Button>}
           </>
         }

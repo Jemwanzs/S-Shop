@@ -542,7 +542,8 @@ pub async fn approve_one(state: &AppState, ctx: &Ctx, id: Uuid, comments: &str, 
     }
     state.emit(ctx.tenant_id, None, "approval", json!({ "id": id, "status": "approved" }));
     // Roadmap 192: an applied sale correction or photo change refreshes stock, products, the till and the website.
-    if a.action == "sale.edit" || a.payload.get("photos_request").is_some() {
+    // Roadmap 200: so does an approved product activation or deactivation.
+    if a.action == "sale.edit" || a.payload.get("photos_request").is_some() || a.action == "product.deactivate" || a.action == "product.create" {
         state.emit(ctx.tenant_id, None, "stock", json!({ "branch_id": a.branch_id }));
     }
     Ok(Decided { value: json!({ "ok": true, "status": "approved" }), summary: a.summary.clone(), requester: a.requested_by, others, moved: None, decided: Vec::new() })

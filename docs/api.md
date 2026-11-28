@@ -120,7 +120,9 @@ Any `/api/…` address without a route answers **404** `{"error":{"code":"not_fo
 | GET | `/api/products?tracking=` and `/api/products/matching-ids?tracking=` — roadmap 169: `all`, `shared`, `individual` |
 | POST | `/api/products/tracking/preview` `{ids, individual}` — roadmap 169/170: per product `status` `eligible` (*Ready to convert*, with `notes`), `review` (work in progress, with `reasons`), `blocked` (conflict, with `reasons`), `already`, `not_found`; `needs_approval` (`products.edit`) |
 | POST | `/api/products/tracking/apply` `{ids, individual}` — roadmap 169: each through the product edit path → `changed`, `pending_approval` (`approval_id`), `already`, `review`, `blocked`, `failed`; `summary`, `bulk_ref` (`products.edit`, up to 500). Units in stock become `converted` (roadmap 170) |
-| GET | `/api/products/lookup` |
+| GET | `/api/products/lookup` — roadmap 200: an inactive product → 422 *Product inactive* ("This product is inactive and must be reactivated before use."); `include_inactive=true` identifies it (returns, checks that a code is taken), never for a new transaction |
+| GET | `/api/products?status=active\|inactive\|all` — roadmap 200: default `active` (operational searches); `inactive` / `all` need `products.view` (otherwise active). Same for `/api/products/matching-ids` |
+| GET | `/api/stock?include_inactive=true` — roadmap 200: stock searches and listings leave inactive products out by default; `/api/search` and `/api/pos/products` never list them |
 | GET | `/api/products/{id}` |
 | PUT | `/api/products/{id}` |
 | POST | `/api/products/{id}/status` |

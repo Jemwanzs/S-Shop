@@ -71,7 +71,7 @@ export default function SaleDetail() {
     let item = returnable.find((i) => !!i.barcode && i.barcode === (i.tracked ? maskCode(code) : code));
     if (!item) {
       try {
-        const r = await api<{ product: { id: string } }>("/products/lookup", { query: { code } });
+        const r = await api<{ product: { id: string } }>("/products/lookup", { query: { code, include_inactive: true } });
         item = returnable.find((i) => i.product_id === r.product.id && (qtyRef.current[i.id] ?? 0) < i.quantity - i.returned_qty) ?? returnable.find((i) => i.product_id === r.product.id);
       } catch (e) {
         if (!(e instanceof ApiError && e.status === 404)) return { tone: "error", title: errorMessage(e) };

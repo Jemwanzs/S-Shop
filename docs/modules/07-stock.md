@@ -31,6 +31,9 @@ Pick a product (search or **scan**) → shown: name, current quantity and value 
 Capture: quantity (default 1; locked to 1 when configured) · barcodes (tracked products: scan each unit — continuous
 scanning; shared-barcode products: scan to confirm/save) · cost price · marked selling price · maximum discount ·
 branch · supplier · reference/notes · date received · *Activate product* · *Opening stock*.
+Roadmap 200: the product search lists active products only (zero stock included). An inactive product can only be
+received by reactivating it with the receipt — *Activate product* (people with `products.deactivate`), opened from the
+product's own page; otherwise the receipt is refused with *This product is inactive and must be reactivated before use.* (also on the server).
 Price changes update the catalogue and are audited. Optionally approval-gated (*Stock addition*, threshold by value).
 
 ## Adjustments

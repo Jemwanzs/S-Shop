@@ -6576,6 +6576,56 @@ call("GET", f"/customers/{c198}/credit-statement")
 check("the customer's credit statement opens with per-item credits", True)
 call("PUT", "/settings", _s198)
 
+step("Roadmap 200: inactive products left out of operational searches; their barcodes known but refused")
+INACTIVE200 = "This product is inactive and must be reactivated before use."
+code200 = f"7070{suffix}200"
+live200 = call("POST", "/products", {"name": f"Lalique200 Live {suffix}", "marked_price": 6000})["result"]["id"]
+dead200 = call("POST", "/products", {"name": f"Lalique200 Old {suffix}", "marked_price": 6000, "barcode": code200})["result"]["id"]
+call("POST", "/stock/receive", {"product_id": dead200, "quantity": 3, "barcodes": [code200], "barcode_counts": {code200: 3}})
+sold200 = call("POST", "/sales", {"items": [{"product_id": dead200, "quantity": 1, "unit_price": 6000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())})
+def deactivate200(pid, active=False):
+    r_ = call("POST", f"/products/{pid}/status", {"is_active": active, "reason": "Duplicate listing"})
+    if r_.get("pending_approval"):
+        call("POST", f"/approvals/{r_['approval_id']}/approve", {"comments": "ok"})
+    return call("GET", f"/products/{pid}")["product"]["is_active"] == active
+check("the duplicate listing is deactivated", deactivate200(dead200))
+names200 = lambda path: [x_["name"] for x_ in call("GET", path)["items"]]
+q200 = f"Lalique200"
+check("product searches (Stock Receiving, adjustments) list active products only — the active one with zero stock included",
+      names200(f"/products?q={q200}") == [f"Lalique200 Live {suffix}"], names200(f"/products?q={q200}"))
+check("…the catalogue's Inactive and All filters still show it", names200(f"/products?q={q200}&status=inactive") == [f"Lalique200 Old {suffix}"]
+      and len(names200(f"/products?q={q200}&status=all")) == 2)
+sell200 = call("POST", "/roles", {"name": f"Seller200 {suffix}", "description": "", "permissions": ["sales.create", "sales.view", "sales.view_out_of_stock"]})["id"]
+S200 = make_user("seller200", sell200)
+check("…people who may not manage products cannot reach inactive ones by asking for them",
+      [x_["name"] for x_ in call("GET", f"/products?q={q200}&status=inactive", token=S200)["items"]] == [f"Lalique200 Live {suffix}"])
+check("stock searches and listings leave it out (unless asked for)", f"Lalique200 Old {suffix}" not in names200(f"/stock?q={q200}")
+      and f"Lalique200 Old {suffix}" in names200(f"/stock?q={q200}&include_inactive=true"))
+check("the till's product list and the global search leave it out", all(x_["id"] != dead200 for x_ in call("GET", f"/pos/products?q={q200}"))
+      and all(x_.get("id") != dead200 for x_ in call("GET", f"/search?q={q200}")["results"]))
+r = call("GET", f"/products/lookup?code={code200}", expect=422)
+check("scanning its barcode: known, refused with the inactive message (not 'not found')", r["error"]["title"] == "Product inactive" and INACTIVE200 in r["error"]["message"], r)
+call("GET", f"/products/lookup?code={code200}&for_sale=true", token=S200, expect=422)
+check("…also at the till", True)
+check("…identified for returns and duplicate checks", call("GET", f"/products/lookup?code={code200}&include_inactive=true")["product"]["id"] == dead200)
+r = call("POST", "/products", {"name": f"Lalique200 Again {suffix}", "marked_price": 1, "barcode": code200}, expect=422)
+check("its barcode cannot start a duplicate product", "already belongs" in r["error"]["message"], r)
+r = call("POST", "/stock/receive", {"product_id": dead200, "quantity": 1, "barcodes": [code200], "barcode_counts": {code200: 1}}, expect=422)
+check("no stock received into it", r["error"]["title"] == "Product inactive" and INACTIVE200 in r["error"]["message"], r)
+call("POST", "/sales", {"items": [{"product_id": dead200, "quantity": 1, "unit_price": 6000}], "payment": {"method": "cash"}, "client_ref": str(uuid.uuid4())}, expect=422)
+check("no sale recorded for it", True)
+line200 = sold200["items"][0]["id"]
+call("POST", f"/sales/{sold200['sale']['id']}/return", {"items": [{"sale_item_id": line200, "quantity": 1}], "reason": "Customer changed mind", "restock": True})
+check("an earlier sale of it can still be returned; its history is kept", call("GET", f"/sales/{sold200['sale']['id']}")["items"][0]["returned_qty"] == 1
+      and len(call("GET", f"/stock/movements?product_id={dead200}&period=today")["items"]) >= 2)
+check("reactivated: back in every search, and its barcode works again", deactivate200(dead200, True)
+      and f"Lalique200 Old {suffix}" in names200(f"/products?q={q200}") and call("GET", f"/products/lookup?code={code200}")["product"]["id"] == dead200)
+r = call("POST", "/stock/receive", {"product_id": dead200, "quantity": 1, "barcodes": [code200], "barcode_counts": {code200: 1}})
+check("…and stock can be received again", not r["pending_approval"], r)
+deactivate200(dead200)
+r = call("POST", "/stock/receive", {"product_id": dead200, "quantity": 1, "barcodes": [code200], "barcode_counts": {code200: 1}, "activate": True})
+check("receiving with *Activate product* (deliberate, permitted) reactivates it", call("GET", f"/products/{dead200}")["product"]["is_active"] is True, r)
+
 step("Roadmap 47: duplicate submissions refused by the server")
 dup_body = {"name": f"Dup {suffix}"}
 first_ = call("POST", "/categories", dup_body, repeat=True)

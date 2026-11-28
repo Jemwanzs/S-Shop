@@ -78,6 +78,9 @@ struct LevelQuery {
     all: Option<bool>,
     /// in | low | out | all
     status: Option<String>,
+    /// Roadmap 200: inactive products are left out of stock searches and listings unless asked for.
+    #[serde(default, deserialize_with = "super::de::opt_bool")]
+    include_inactive: Option<bool>,
     #[serde(flatten)]
     page: Page,
 }
@@ -123,7 +126,7 @@ async fn levels(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LevelQu
          FROM products p
          LEFT JOIN categories c ON c.id = p.category_id
          LEFT JOIN lv ON lv.product_id = p.id
-         WHERE p.tenant_id = $1
+         WHERE p.tenant_id = $1 AND (p.is_active OR $10)
            AND (p.all_branches OR EXISTS (SELECT 1 FROM product_branches pb WHERE pb.product_id = p.id AND pb.branch_id = ANY($2)))
            AND ($3::text IS NULL OR p.name ILIKE $3 OR p.code ILIKE $3 OR p.nickname ILIKE $3 OR p.barcode ILIKE $3)
            AND ($5::uuid IS NULL OR p.category_id = $5)
@@ -144,6 +147,7 @@ async fn levels(State(state): State<AppState>, ctx: Ctx, Query(q): Query<LevelQu
     .bind(q.page.limit())
     .bind(q.page.offset())
     .bind(all)
+    .bind(q.include_inactive.unwrap_or(false))
     .fetch_all(&mut *conn)
     .await?;
     if super::costs_hidden(&mut conn, &ctx).await? {
@@ -338,6 +342,10 @@ async fn check_receipt(conn: &mut PgConnection, ctx: &Ctx, s: &TenantSettings, b
     }
     if b.activate && !p.is_active && !ctx.can("products.deactivate") {
         return Err(AppError::Forbidden("You cannot activate products".into()));
+    }
+    // Roadmap 200: no new stock for an inactive product unless it is reactivated with this receipt.
+    if !p.is_active && !b.activate {
+        return Err(crate::error::refused("Product inactive", format!("{} — {}", p.name, super::catalog::INACTIVE)));
     }
     match b.kind.as_deref() {
         None | Some("received") | Some("opening") => Ok(()),

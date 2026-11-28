@@ -10,7 +10,8 @@ const TOPICS: Record<string, string[][]> = {
   support: [["platform-accounts"], ["platform-account"], ["notifications"]],
   // The Orders badge (pending new orders) lives in the notifications feed.
   order: [["orders"], ["order"], ["dashboard"], ["notifications"]],
-  stock: [["stock"], ["pos-products"], ["products"], ["product"]],
+  // Roadmap 200: also product activation/deactivation (global search included).
+  stock: [["stock"], ["pos-products"], ["products"], ["product"], ["search"]],
   sale: [["sales"], ["dashboard"], ["customers"]],
   approval: [["approvals"], ["notifications"]],
   mpesa: [["mpesa"]],

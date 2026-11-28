@@ -11,6 +11,7 @@ needed): what a user or operator notices, then the roadmap number and module lin
 
 ## 2026-11-28
 
+- **Inactive products stay out of the way**: they no longer appear when receiving stock, counting, transferring, selling, ordering or searching — only under Products → Inactive or All. Active products with no stock still show when receiving. Scanning an inactive product's barcode says it must be reactivated first (never "not found" or a new product); its history stays and earlier sales can still be returned. (200, [products](modules/06-products.md))
 - **Tenant Administrator permissions are all editable**: nothing locked; switching off a critical administrative permission (users, roles, settings, branches, approvals, audit trail) warns and asks for your PIN; Tenant Administrators can always reopen the role to restore it; switched-off permissions are enforced everywhere, including approvals and notifications. (199, [users & roles](modules/14-users-roles.md))
 
 ## 2026-11-27
